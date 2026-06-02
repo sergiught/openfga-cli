@@ -390,6 +390,22 @@ func TestCreateStoreRendersAsOverlay(t *testing.T) {
 	}
 }
 
+func TestCommandPaletteJumpsToSection(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(key("1")) // Stores
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlK})
+	if !m.(Model).paletteOpen {
+		t.Fatal("ctrl+k should open the command palette")
+	}
+	if !strings.Contains(stripANSIView(m.View()), "Go to") {
+		t.Error("palette overlay should be visible")
+	}
+	m, _ = m.Update(key("esc"))
+	if m.(Model).paletteOpen {
+		t.Error("esc should close the palette")
+	}
+}
+
 // stripANSIView strips CSI sequences for assertions.
 func stripANSIView(s string) string {
 	var b strings.Builder

@@ -186,6 +186,22 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if m.paletteOpen {
+		switch msg.String() {
+		case "esc", "ctrl+k":
+			m.paletteOpen = false
+			return m, nil
+		case "enter":
+			if it, ok := m.paletteList.Selected(); ok {
+				m.paletteOpen = false
+				m.section = section(it.Index)
+				return m.onEnterSection()
+			}
+		}
+		cmd := m.paletteList.Update(msg)
+		return m, cmd
+	}
+
 	// Active form takeovers capture all keys.
 	if m.formKind != formNone {
 		return m.handleTakeoverForm(msg)
@@ -215,6 +231,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "1", "2", "3", "4", "5", "6", "7":
 		m.section = section(key[0] - '1')
 		return m.onEnterSection()
+	case "ctrl+k":
+		m.paletteOpen = true
+		return m, nil
 	}
 	return m.handleSectionKey(key, msg)
 }

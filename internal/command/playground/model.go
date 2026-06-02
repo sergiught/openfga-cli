@@ -114,6 +114,9 @@ type Model struct {
 	themeNames []string
 	themesList *uilist.List
 	themeOrig  string
+
+	paletteOpen bool
+	paletteList *uilist.List
 }
 
 func newModel(ctx context.Context, a *app.App, cl *openfga.Client, storeID string) Model {
@@ -147,11 +150,13 @@ func newModel(ctx context.Context, a *app.App, cl *openfga.Client, storeID strin
 		changesList:    uilist.New(),
 		assertionsList: uilist.New(),
 		themesList:     uilist.New(),
+		paletteList:    uilist.New(),
 		themeNames:     theme.Names(),
 		themeOrig:      curTheme,
 	}
 	m.qmode = 0
 	m.populateThemes()
+	m.populatePalette()
 	if storeID == "" {
 		m.status = "no store selected — pick one in Stores"
 	}
@@ -200,6 +205,7 @@ func (m *Model) resize() {
 	m.changesList.SetSize(w, h)
 	m.assertionsList.SetSize(w, h)
 	m.themesList.SetSize(w, h)
+	m.paletteList.SetSize(w, h)
 	if m.graphVP.Width == 0 {
 		m.graphVP = viewport.New(w, h)
 	} else {
@@ -285,6 +291,14 @@ func (m *Model) populateAssertions() {
 		items[i] = uilist.Item{TitleText: title, DescText: desc, Filter: title, Index: i}
 	}
 	m.assertionsList.SetItems(items)
+}
+
+func (m *Model) populatePalette() {
+	items := make([]uilist.Item, len(sectionNames))
+	for i, name := range sectionNames {
+		items[i] = uilist.Item{TitleText: "Go to " + name, DescText: "section " + itoa(i+1), Filter: name, ID: itoa(i), Index: i}
+	}
+	m.paletteList.SetItems(items)
 }
 
 func (m *Model) populateThemes() {

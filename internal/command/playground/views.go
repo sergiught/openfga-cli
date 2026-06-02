@@ -40,6 +40,8 @@ func (m Model) activeDialog() string {
 		dw = 36
 	}
 	switch {
+	case m.paletteOpen:
+		return shell.Dialog("Command palette", m.paletteList.View()+"\n"+style.Faint.Render("↑↓ choose · enter go · esc close"), dw)
 	case m.formKind == formCreateStore:
 		return shell.Dialog("Create Store", m.form.View()+"\n"+style.Faint.Render("enter submit · esc cancel"), dw)
 	case m.formKind == formWriteTuple:
