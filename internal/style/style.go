@@ -136,6 +136,30 @@ func Allowed(ok bool) string {
 // Bullet returns a primary-colored bullet prefix.
 func Bullet() string { return lipgloss.NewStyle().Foreground(Primary).Render(IconBullet) }
 
+// DotState selects the color of a status dot.
+type DotState int
+
+const (
+	DotOnline DotState = iota // mint
+	DotBusy                   // amber
+	DotError                  // coral
+	DotOffline                // faint
+)
+
+// Dot returns a colored ● for the given state.
+func Dot(state DotState) string {
+	c := Faintc
+	switch state {
+	case DotOnline:
+		c = Green
+	case DotBusy:
+		c = Amber
+	case DotError:
+		c = Red
+	}
+	return lipgloss.NewStyle().Foreground(c).Render(IconDot)
+}
+
 // Gradient renders s with a per-rune color blend between the active theme's
 // GradStartHex and GradEndHex (Lab space). Under the mono theme it returns the
 // text unstyled; when the theme defines no gradient it falls back to a solid

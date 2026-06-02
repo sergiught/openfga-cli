@@ -34,6 +34,15 @@ func TestGradientMonoIsPlain(t *testing.T) {
 	Apply(theme.Default()) // restore for other tests
 }
 
+func TestDotRendersGlyph(t *testing.T) {
+	Apply(theme.Default())
+	for _, st := range []DotState{DotOnline, DotBusy, DotError, DotOffline} {
+		if got := stripANSI(Dot(st)); got != IconDot {
+			t.Errorf("Dot(%d) glyph = %q, want %q", st, got, IconDot)
+		}
+	}
+}
+
 // stripANSI removes CSI sequences for assertion purposes.
 func stripANSI(s string) string {
 	var b strings.Builder
