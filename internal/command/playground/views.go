@@ -134,17 +134,32 @@ func (m Model) queryBody() string {
 	if m.storeID == "" {
 		return style.Faint.Render("select a store first (press 1)")
 	}
-	mode := style.Key.Render("mode ") + lipgloss.NewStyle().Bold(true).Foreground(style.Keyword).Render(queryModes[m.qmode]) + style.Faint.Render("   (m to change)")
-	var b strings.Builder
-	b.WriteString(mode + "\n\n")
-	b.WriteString(m.qform.View())
-	b.WriteString("\n")
+	_, mh := m.contentSize()
+
+	// Top: result or hint.
+	var top string
 	if m.loading {
-		b.WriteString("\n" + m.spinner.View() + " running…")
+		top = m.spinner.View() + " running…"
 	} else if m.hasResult {
-		b.WriteString("\n" + m.renderResult())
+		top = m.renderResult()
+	} else {
+		top = style.Faint.Render("press i to edit · m to change mode · enter to run")
 	}
-	return b.String()
+
+	// Bottom: mode chip + the rounded input box.
+	chip := lipgloss.NewStyle().Background(style.BgPanel).Foreground(style.Secondary).
+		Bold(true).Padding(0, 1).Render(queryModes[m.qmode])
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).BorderForeground(style.Primary).
+		Padding(0, 1).Render(m.qform.View())
+	bottom := chip + "  " + style.Faint.Render("m mode · i edit · enter run") + "\n" + box
+
+	// Push the input to the bottom of the main pane.
+	gap := mh - lipgloss.Height(top) - lipgloss.Height(bottom)
+	if gap < 1 {
+		gap = 1
+	}
+	return top + strings.Repeat("\n", gap) + bottom
 }
 
 func (m Model) renderResult() string {

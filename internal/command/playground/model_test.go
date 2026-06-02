@@ -420,3 +420,16 @@ func stripANSIView(s string) string {
 	}
 	return b.String()
 }
+
+func TestQueryBodyShowsModeChipAndResult(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(key("5")) // Query
+	m, _ = m.Update(queryResultMsg{title: "Check", lines: []string{"user:anne viewer document:roadmap"}, ok: true, badge: true})
+	plain := stripANSIView(m.View())
+	if !strings.Contains(plain, "check") {
+		t.Error("query body should show the mode chip")
+	}
+	if !strings.Contains(plain, "ALLOWED") {
+		t.Error("query body should show the check result above the input")
+	}
+}
