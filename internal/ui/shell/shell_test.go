@@ -87,6 +87,15 @@ func TestMainSizeIsInterior(t *testing.T) {
 	}
 }
 
+func TestActiveNavShowsBadge(t *testing.T) {
+	s := New()
+	s.SetSize(100, 24)
+	s.SetSidebar("ofga", nil, []NavItem{{Label: "Tuples", Badge: "42", Active: true}}, "")
+	if !strings.Contains(stripANSI(s.View()), "42") {
+		t.Error("active nav item should still show its badge count")
+	}
+}
+
 func stripANSI(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {

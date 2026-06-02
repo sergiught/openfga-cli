@@ -161,7 +161,7 @@ func (s *Shell) renderNav(n NavItem) string {
 	if n.Active {
 		return lipgloss.NewStyle().Bold(true).
 			Foreground(style.OnAccent).Background(style.Primary).
-			Padding(0, 1).Render(n.Label)
+			Padding(0, 1).Render(label)
 	}
 	return lipgloss.NewStyle().Foreground(style.Muted).Padding(0, 1).Render(label)
 }

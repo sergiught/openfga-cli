@@ -362,3 +362,17 @@ func TestSplashShownThenDismissed(t *testing.T) {
 		t.Error("splash should dismiss once stores load")
 	}
 }
+
+func TestSplashDismissedByKeypress(t *testing.T) {
+	cl, _ := openfga.NewClient("http://localhost:8080")
+	a := app.New(log.New(io.Discard), config.New(), "test")
+	var m tea.Model = newModel(context.Background(), a, cl, "store-1")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
+	if !m.(Model).splash {
+		t.Fatal("should start on splash")
+	}
+	m, _ = m.Update(key("enter")) // any non-quit key dismisses
+	if m.(Model).splash {
+		t.Error("a keypress should dismiss the splash")
+	}
+}
