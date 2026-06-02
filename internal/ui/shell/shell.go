@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sergiught/openfga-cli/internal/style"
 )
@@ -121,7 +122,40 @@ func (s *Shell) View() string {
 	} else {
 		top = lipgloss.JoinHorizontal(lipgloss.Top, s.renderSidebar(body), main)
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, top, s.renderStatus())
+	frame := lipgloss.JoinVertical(lipgloss.Left, top, s.renderStatus())
+	// Safety net: never emit more than height rows or wider than width. Any
+	// residual overflow would scroll the terminal and corrupt the layout.
+	return clampFrame(frame, s.width, s.height)
+}
+
+// fitLines truncates every line of s to at most w display columns (ANSI-aware)
+// so lipgloss never wraps over-wide content into extra rows.
+func fitLines(s string, w int) string {
+	if w < 1 {
+		w = 1
+	}
+	lines := strings.Split(s, "\n")
+	for i, ln := range lines {
+		lines[i] = ansi.Truncate(ln, w, "…")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// clampFrame forces s to exactly h lines, each no wider than w columns.
+func clampFrame(s string, w, h int) string {
+	lines := strings.Split(s, "\n")
+	for i, ln := range lines {
+		if lipgloss.Width(ln) > w {
+			lines[i] = ansi.Truncate(ln, w, "")
+		}
+	}
+	if len(lines) > h {
+		lines = lines[:h]
+	}
+	for len(lines) < h {
+		lines = append(lines, "")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (s *Shell) renderSidebar(height int) string {
@@ -143,6 +177,9 @@ func (s *Shell) renderSidebar(height int) string {
 		content += strings.Repeat("\n", gap)
 	}
 	content += footer
+	// Truncate each line to the interior width (Width(w) includes the 2 padding
+	// cols in lipgloss v1) so long store names/IDs never wrap and push rows down.
+	content = fitLines(content, w-2)
 
 	return lipgloss.NewStyle().
 		Width(w).Height(height).
@@ -174,6 +211,9 @@ func (s *Shell) renderMain(height int) string {
 	}
 	title := lipgloss.NewStyle().Bold(true).Foreground(style.Primary).Render(s.mainTitle)
 	content := title + "\n\n" + s.mainBody
+	// Truncate each line to the interior width so over-wide body content (graphs,
+	// long rows) is clipped rather than wrapped into extra rows.
+	content = fitLines(content, mainContentWidth-2)
 	return lipgloss.NewStyle().
 		Width(mainContentWidth).Height(height).
 		Padding(0, 1).
@@ -181,13 +221,20 @@ func (s *Shell) renderMain(height int) string {
 }
 
 func (s *Shell) renderStatus() string {
-	left := lipgloss.NewStyle().Foreground(style.Muted).Render(s.statusLeft)
 	right := lipgloss.NewStyle().Foreground(style.Faintc).Render(s.statusRight)
-	gap := s.width - lipgloss.Width(left) - lipgloss.Width(right)
+	rw := lipgloss.Width(right)
+	// Truncate the (possibly long) status text so the bar fits one line and never
+	// wraps; keep the right-side key hints visible.
+	maxLeft := s.width - rw - 1
+	if maxLeft < 0 {
+		maxLeft = 0
+	}
+	left := ansi.Truncate(lipgloss.NewStyle().Foreground(style.Muted).Render(s.statusLeft), maxLeft, "…")
+	gap := s.width - lipgloss.Width(left) - rw
 	if gap < 1 {
 		gap = 1
 	}
-	bar := left + strings.Repeat(" ", gap) + right
+	bar := ansi.Truncate(left+strings.Repeat(" ", gap)+right, s.width, "")
 	return lipgloss.NewStyle().
 		Width(s.width).Background(style.BgPanel).
 		Render(bar)
