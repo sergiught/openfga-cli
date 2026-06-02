@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/openfga-cli/internal/app"
@@ -109,7 +108,6 @@ func (c *Command) RegisterSubCommands() {
 		tuple.New(c.app).Command(),
 		query.New(c.app).Command(),
 		assertions.New(c.app).Command(),
-		playground.New(c.app).Command(),
 	)
 }
 
@@ -126,8 +124,8 @@ func themeList() string {
 }
 
 func banner(version string) string {
-	logo := lipgloss.NewStyle().Bold(true).Foreground(style.Violet).Render("ofga")
+	logo := style.Gradient("ofga")
 	tag := style.Subtitle.Render("a modern CLI & TUI for OpenFGA")
 	ver := style.Faint.Render(fmt.Sprintf("version %s", version))
-	return fmt.Sprintf("%s — %s\n%s\n\nManage stores, authorization models, relationship tuples,\nrun checks, and explore everything interactively with `ofga playground`.", logo, tag, ver)
+	return fmt.Sprintf("%s — %s\n%s\n\nManage stores, authorization models, relationship tuples,\nrun checks, and explore everything interactively with `ofga`.", logo, tag, ver)
 }
