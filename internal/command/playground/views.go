@@ -25,7 +25,29 @@ func (m Model) View() string {
 		statusLeft = m.spinner.View() + " " + m.status
 	}
 	m.sh.SetStatus(statusLeft, m.helpKeys())
-	return m.sh.View()
+	base := m.sh.View()
+
+	if dlg := m.activeDialog(); dlg != "" {
+		return shell.Overlay(base, dlg, m.width, m.height)
+	}
+	return base
+}
+
+// activeDialog returns the rendered dialog box for the current modal state, or "".
+func (m Model) activeDialog() string {
+	dw := m.width / 2
+	if dw < 36 {
+		dw = 36
+	}
+	switch {
+	case m.formKind == formCreateStore:
+		return shell.Dialog("Create Store", m.form.View()+"\n"+style.Faint.Render("enter submit · esc cancel"), dw)
+	case m.formKind == formWriteTuple:
+		return shell.Dialog("Write Tuple", m.form.View()+"\n"+style.Faint.Render("enter submit · esc cancel"), dw)
+	case m.section == secModel && m.modelPicking:
+		return shell.Dialog("Switch model", m.modelsList.View()+"\n"+style.Faint.Render("↑↓ choose · enter load · esc cancel"), dw)
+	}
+	return ""
 }
 
 func (m Model) sidebarContext() []string {
@@ -81,16 +103,10 @@ func (m Model) splashView() string {
 }
 
 func (m Model) sectionBody() string {
-	if m.formKind != formNone {
-		return m.formBody()
-	}
 	switch m.section {
 	case secStores:
 		return listOrHint(m.storesList.View(), len(m.stores), "no stores — press n to create one")
 	case secModel:
-		if m.modelPicking {
-			return style.Subtitle.Render("Switch model — ↑↓ choose · enter load · esc cancel") + "\n\n" + m.modelsList.View()
-		}
 		if m.storeID == "" {
 			return style.Faint.Render("select a store first (press 1)")
 		}
@@ -110,14 +126,6 @@ func (m Model) sectionBody() string {
 		return m.themesList.View()
 	}
 	return ""
-}
-
-func (m Model) formBody() string {
-	title := "Create Store"
-	if m.formKind == formWriteTuple {
-		title = "Write Tuple"
-	}
-	return style.Heading.Render(title) + "\n\n" + m.form.View() + "\n" + style.Faint.Render("esc cancel")
 }
 
 func (m Model) queryBody() string {

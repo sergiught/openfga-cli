@@ -376,3 +376,31 @@ func TestSplashDismissedByKeypress(t *testing.T) {
 		t.Error("a keypress should dismiss the splash")
 	}
 }
+
+func TestCreateStoreRendersAsOverlay(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(key("1")) // Stores
+	m, _ = m.Update(key("n")) // create form -> overlay
+	plain := stripANSIView(m.View())
+	if !strings.Contains(plain, "Create Store") {
+		t.Error("overlay should show the dialog title")
+	}
+	if !strings.Contains(plain, "Stores") {
+		t.Error("the shell (sidebar nav) should still be visible behind the dialog")
+	}
+}
+
+// stripANSIView strips CSI sequences for assertions.
+func stripANSIView(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == 0x1b {
+			for i < len(s) && s[i] != 'm' {
+				i++
+			}
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
