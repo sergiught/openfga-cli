@@ -39,6 +39,11 @@ type Theme struct {
 
 	// OnAccent is the text color placed on top of Primary backgrounds.
 	OnAccent lipgloss.TerminalColor
+
+	// GradStartHex/GradEndHex define the wordmark gradient endpoints as hex
+	// strings (blended per-rune by style.Gradient). Empty = solid Primary.
+	GradStartHex string
+	GradEndHex   string
 }
 
 func col(hex string) lipgloss.TerminalColor { return lipgloss.Color(hex) }
@@ -48,6 +53,29 @@ func adaptive(light, dark string) lipgloss.TerminalColor {
 }
 
 var registry = map[string]Theme{
+	// aurora is the signature ofga theme: a cool slate built around OpenFGA's
+	// brand gradient (electric cyan → mint green, from the logo SVG), with warm
+	// complements for status. It is the default.
+	"aurora": {
+		Name:         "aurora",
+		Primary:      col("#00FAFF"), // cyan — focus, active nav, cursor, titles
+		Secondary:    col("#8BFF95"), // mint — selection accent
+		Accent:       col("#2EE6C6"), // aqua — keys, links, computed edges
+		Keyword:      col("#56B6FF"), // sky — emphasis (modes, "or")
+		FgBase:       col("#E4EAEF"),
+		FgSubtle:     col("#8893A0"),
+		FgFaint:      col("#4C5663"),
+		BgBase:       col("#0E1116"),
+		BgRaised:     col("#161B22"),
+		Separator:    col("#283039"),
+		Success:      col("#8BFF95"),
+		Warning:      col("#FFC24B"),
+		Error:        col("#FF5C7A"),
+		Info:         col("#56B6FF"),
+		OnAccent:     col("#08130F"),
+		GradStartHex: "#00FAFF",
+		GradEndHex:   "#8BFF95",
+	},
 	// taskpilot mirrors the task-pilot-cli palette: adaptive indigo active
 	// borders, green selection, gray passive borders, magenta accents, and a
 	// high-contrast adaptive mono foreground. It is the default.
@@ -208,8 +236,8 @@ func Get(name string) (Theme, bool) {
 	return t, ok
 }
 
-// Default returns the default theme (task-pilot palette).
-func Default() Theme { return registry["taskpilot"] }
+// Default returns the default theme (Aurora — OpenFGA's signature look).
+func Default() Theme { return registry["aurora"] }
 
 // Mono returns the no-color theme.
 func Mono() Theme { return monoTheme() }
