@@ -73,8 +73,8 @@ func (s *Shell) sidebarOccupied() int {
 	if s.Collapsed() {
 		return 0
 	}
-	// Width(w) + Padding(0,1) [2 cols] + BorderRight(true) [1 col]
-	return s.sidebarWidth() + 2 + 1
+	// Width(w) already includes padding in lipgloss v1; +1 for the right border.
+	return s.sidebarWidth() + 1
 }
 
 func (s *Shell) bodyHeight() int {
@@ -85,9 +85,7 @@ func (s *Shell) bodyHeight() int {
 	return h
 }
 
-// MainSize returns the interior width/height available for main-pane content.
-// The main pane is rendered with Width(mainContentWidth).Padding(0,1), so its
-// total columns = mainContentWidth + 2. We set mainContentWidth = total - sidebarOccupied - 2.
+// MainSize returns the drawable interior width/height for main-pane content (inside the pane's padding).
 func (s *Shell) MainSize() (int, int) {
 	const header = 2 // title + blank line
 	w := s.width - s.sidebarOccupied() - 2
@@ -136,7 +134,7 @@ func (s *Shell) renderSidebar(height int) string {
 	}
 	b.WriteString("\n")
 	for _, n := range s.nav {
-		b.WriteString(s.renderNav(n, w-2) + "\n")
+		b.WriteString(s.renderNav(n) + "\n")
 	}
 	content := b.String()
 	footer := s.footer
@@ -155,7 +153,7 @@ func (s *Shell) renderSidebar(height int) string {
 		Render(content)
 }
 
-func (s *Shell) renderNav(n NavItem, w int) string {
+func (s *Shell) renderNav(n NavItem) string {
 	label := n.Label
 	if n.Badge != "" {
 		label += "  " + style.Faint.Render(n.Badge)
@@ -169,10 +167,8 @@ func (s *Shell) renderNav(n NavItem, w int) string {
 }
 
 func (s *Shell) renderMain(height int) string {
-	// mainContentWidth = total - sidebarOccupied - 2 (padding on main)
-	// So the rendered main with Width(mainContentWidth).Padding(0,1) = mainContentWidth + 2 cols.
-	// sidebarOccupied + mainContentWidth + 2 = total. ✓
-	mainContentWidth := s.width - s.sidebarOccupied() - 2
+	// sidebarOccupied + mainContentWidth = total. Width() includes padding in lipgloss v1.
+	mainContentWidth := s.width - s.sidebarOccupied()
 	if mainContentWidth < 1 {
 		mainContentWidth = 1
 	}

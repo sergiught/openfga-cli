@@ -54,6 +54,39 @@ func TestViewFitsWidth(t *testing.T) {
 	}
 }
 
+func TestRegionsFillFullWidth(t *testing.T) {
+	for _, total := range []int{100, 120, 90} { // wide (sidebar shown)
+		s := New()
+		s.SetSize(total, 24)
+		s.SetSidebar("ofga", []string{"store: demo"}, []NavItem{{Label: "Model", Active: true}}, "online")
+		s.SetMain("Title", "body")
+		sb := s.renderSidebar(s.bodyHeight())
+		main := s.renderMain(s.bodyHeight())
+		if got := lipgloss.Width(sb) + lipgloss.Width(main); got != total {
+			t.Errorf("total=%d: sidebar(%d)+main(%d)=%d, want %d (no gap)",
+				total, lipgloss.Width(sb), lipgloss.Width(main), got, total)
+		}
+	}
+	// collapsed: main fills the whole width
+	s := New()
+	s.SetSize(60, 20)
+	s.SetMain("T", "b")
+	if got := lipgloss.Width(s.renderMain(s.bodyHeight())); got != 60 {
+		t.Errorf("collapsed main width = %d, want 60", got)
+	}
+}
+
+func TestMainSizeIsInterior(t *testing.T) {
+	s := New()
+	s.SetSize(100, 24)
+	w, _ := s.MainSize()
+	// interior = mainContentWidth - 2 = (total - sidebarOccupied) - 2
+	want := 100 - s.sidebarOccupied() - 2
+	if w != want {
+		t.Errorf("MainSize().w = %d, want interior %d", w, want)
+	}
+}
+
 func stripANSI(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
