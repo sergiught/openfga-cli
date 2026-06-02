@@ -5,7 +5,10 @@
 package style
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/lipgloss"
+	colorful "github.com/lucasb-eyer/go-colorful"
 
 	"github.com/sergiught/openfga-cli/internal/theme"
 )
@@ -132,3 +135,33 @@ func Allowed(ok bool) string {
 
 // Bullet returns a primary-colored bullet prefix.
 func Bullet() string { return lipgloss.NewStyle().Foreground(Primary).Render(IconBullet) }
+
+// Gradient renders s with a per-rune color blend between the active theme's
+// GradStartHex and GradEndHex (Lab space). Under the mono theme it returns the
+// text unstyled; when the theme defines no gradient it falls back to a solid
+// bold Primary.
+func Gradient(s string) string {
+	if Active.Name == "mono" {
+		return s
+	}
+	if Active.GradStartHex == "" || Active.GradEndHex == "" {
+		return lipgloss.NewStyle().Bold(true).Foreground(Primary).Render(s)
+	}
+	c1, err1 := colorful.Hex(Active.GradStartHex)
+	c2, err2 := colorful.Hex(Active.GradEndHex)
+	if err1 != nil || err2 != nil {
+		return lipgloss.NewStyle().Bold(true).Foreground(Primary).Render(s)
+	}
+	runes := []rune(s)
+	n := len(runes)
+	var b strings.Builder
+	for i, r := range runes {
+		t := 0.0
+		if n > 1 {
+			t = float64(i) / float64(n-1)
+		}
+		c := c1.BlendLab(c2, t).Clamped()
+		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(c.Hex())).Render(string(r)))
+	}
+	return b.String()
+}
