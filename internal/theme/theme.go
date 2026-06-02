@@ -1,0 +1,215 @@
+// Package theme defines named color palettes for the CLI and TUI. Each theme
+// assigns semantic roles (primary, accent, success, …) to concrete colors,
+// inspired by charmbracelet/crush's Styles approach. The active theme drives
+// every style in the style package.
+package theme
+
+import (
+	"sort"
+
+	"github.com/charmbracelet/lipgloss"
+)
+
+// Theme is a semantic palette. Colors are concrete (dark-terminal tuned) so the
+// look is consistent and vivid, matching the Crush aesthetic.
+type Theme struct {
+	Name string
+
+	// Identity
+	Primary   lipgloss.TerminalColor // headline accent (logo, active tab, cursor)
+	Secondary lipgloss.TerminalColor // supporting accent
+	Accent    lipgloss.TerminalColor // links, computed edges
+	Keyword   lipgloss.TerminalColor // emphasis (modes, keywords)
+
+	// Foreground tiers
+	FgBase  lipgloss.TerminalColor
+	FgSubtle lipgloss.TerminalColor
+	FgFaint lipgloss.TerminalColor
+
+	// Background tiers
+	BgBase    lipgloss.TerminalColor
+	BgRaised  lipgloss.TerminalColor
+	Separator lipgloss.TerminalColor
+
+	// Status
+	Success lipgloss.TerminalColor
+	Warning lipgloss.TerminalColor
+	Error   lipgloss.TerminalColor
+	Info    lipgloss.TerminalColor
+
+	// OnAccent is the text color placed on top of Primary backgrounds.
+	OnAccent lipgloss.TerminalColor
+}
+
+func col(hex string) lipgloss.TerminalColor { return lipgloss.Color(hex) }
+
+func adaptive(light, dark string) lipgloss.TerminalColor {
+	return lipgloss.AdaptiveColor{Light: light, Dark: dark}
+}
+
+var registry = map[string]Theme{
+	// taskpilot mirrors the task-pilot-cli palette: adaptive indigo active
+	// borders, green selection, gray passive borders, magenta accents, and a
+	// high-contrast adaptive mono foreground. It is the default.
+	"taskpilot": {
+		Name:      "taskpilot",
+		Primary:   adaptive("#5A56E0", "#7571F9"), // indigo
+		Secondary: adaptive("#02C233", "#02BF87"), // green
+		Accent:    adaptive("#5A56E0", "#7571F9"), // indigo
+		Keyword:   adaptive("#EE6FF8", "#EE6FF8"), // magenta
+		FgBase:    adaptive("#1A1A1A", "#DDDDDD"),
+		FgSubtle:  adaptive("#A49FA5", "#777777"),
+		FgFaint:   adaptive("#C2B8C2", "#4D4D4D"),
+		BgBase:    lipgloss.NoColor{},
+		BgRaised:  adaptive("#EAEAEA", "#2A2A2A"),
+		Separator: adaptive("#A49FA5", "#777777"),
+		Success:   adaptive("#02C233", "#02BF87"),
+		Warning:   adaptive("#B8860B", "#FFB454"),
+		Error:     adaptive("#FE5F86", "#FE5A62"),
+		Info:      adaptive("#5A56E0", "#7571F9"),
+		OnAccent:  col("#FFFFFF"),
+	},
+	"charm": {
+		Name:      "charm",
+		Primary:   col("#8B5CF6"),
+		Secondary: col("#2DD4BF"),
+		Accent:    col("#22D3EE"),
+		Keyword:   col("#FF6AC1"),
+		FgBase:    col("#E5E7EB"),
+		FgSubtle:  col("#9CA3AF"),
+		FgFaint:   col("#6B7280"),
+		BgBase:    col("#16161E"),
+		BgRaised:  col("#26263A"),
+		Separator: col("#3A3A4E"),
+		Success:   col("#4ADE80"),
+		Warning:   col("#FBBF24"),
+		Error:     col("#F87171"),
+		Info:      col("#60A5FA"),
+		OnAccent:  col("#0B0B12"),
+	},
+	"catppuccin": {
+		Name:      "catppuccin",
+		Primary:   col("#CBA6F7"),
+		Secondary: col("#A6E3A1"),
+		Accent:    col("#89DCEB"),
+		Keyword:   col("#F5C2E7"),
+		FgBase:    col("#CDD6F4"),
+		FgSubtle:  col("#A6ADC8"),
+		FgFaint:   col("#6C7086"),
+		BgBase:    col("#1E1E2E"),
+		BgRaised:  col("#313244"),
+		Separator: col("#45475A"),
+		Success:   col("#A6E3A1"),
+		Warning:   col("#F9E2AF"),
+		Error:     col("#F38BA8"),
+		Info:      col("#89B4FA"),
+		OnAccent:  col("#1E1E2E"),
+	},
+	"dracula": {
+		Name:      "dracula",
+		Primary:   col("#BD93F9"),
+		Secondary: col("#50FA7B"),
+		Accent:    col("#8BE9FD"),
+		Keyword:   col("#FF79C6"),
+		FgBase:    col("#F8F8F2"),
+		FgSubtle:  col("#BFBFD0"),
+		FgFaint:   col("#6272A4"),
+		BgBase:    col("#282A36"),
+		BgRaised:  col("#343746"),
+		Separator: col("#44475A"),
+		Success:   col("#50FA7B"),
+		Warning:   col("#F1FA8C"),
+		Error:     col("#FF5555"),
+		Info:      col("#8BE9FD"),
+		OnAccent:  col("#282A36"),
+	},
+	"nord": {
+		Name:      "nord",
+		Primary:   col("#88C0D0"),
+		Secondary: col("#A3BE8C"),
+		Accent:    col("#8FBCBB"),
+		Keyword:   col("#B48EAD"),
+		FgBase:    col("#ECEFF4"),
+		FgSubtle:  col("#D8DEE9"),
+		FgFaint:   col("#616E88"),
+		BgBase:    col("#2E3440"),
+		BgRaised:  col("#3B4252"),
+		Separator: col("#434C5E"),
+		Success:   col("#A3BE8C"),
+		Warning:   col("#EBCB8B"),
+		Error:     col("#BF616A"),
+		Info:      col("#81A1C1"),
+		OnAccent:  col("#2E3440"),
+	},
+	"tokyonight": {
+		Name:      "tokyonight",
+		Primary:   col("#7AA2F7"),
+		Secondary: col("#9ECE6A"),
+		Accent:    col("#2AC3DE"),
+		Keyword:   col("#BB9AF7"),
+		FgBase:    col("#C0CAF5"),
+		FgSubtle:  col("#A9B1D6"),
+		FgFaint:   col("#565F89"),
+		BgBase:    col("#1A1B26"),
+		BgRaised:  col("#24283B"),
+		Separator: col("#414868"),
+		Success:   col("#9ECE6A"),
+		Warning:   col("#E0AF68"),
+		Error:     col("#F7768E"),
+		Info:      col("#7AA2F7"),
+		OnAccent:  col("#1A1B26"),
+	},
+	"gruvbox": {
+		Name:      "gruvbox",
+		Primary:   col("#FE8019"),
+		Secondary: col("#B8BB26"),
+		Accent:    col("#83A598"),
+		Keyword:   col("#D3869B"),
+		FgBase:    col("#EBDBB2"),
+		FgSubtle:  col("#BDAE93"),
+		FgFaint:   col("#928374"),
+		BgBase:    col("#282828"),
+		BgRaised:  col("#3C3836"),
+		Separator: col("#504945"),
+		Success:   col("#B8BB26"),
+		Warning:   col("#FABD2F"),
+		Error:     col("#FB4934"),
+		Info:      col("#83A598"),
+		OnAccent:  col("#282828"),
+	},
+}
+
+// monoTheme uses the terminal's default colors only (NO_COLOR friendly).
+func monoTheme() Theme {
+	n := lipgloss.NoColor{}
+	return Theme{
+		Name: "mono", Primary: n, Secondary: n, Accent: n, Keyword: n,
+		FgBase: n, FgSubtle: n, FgFaint: n, BgBase: n, BgRaised: n, Separator: n,
+		Success: n, Warning: n, Error: n, Info: n, OnAccent: n,
+	}
+}
+
+// Names returns the available theme names, sorted, with "mono" last.
+func Names() []string {
+	names := make([]string, 0, len(registry)+1)
+	for n := range registry {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return append(names, "mono")
+}
+
+// Get returns a theme by name and whether it was found.
+func Get(name string) (Theme, bool) {
+	if name == "mono" {
+		return monoTheme(), true
+	}
+	t, ok := registry[name]
+	return t, ok
+}
+
+// Default returns the default theme (task-pilot palette).
+func Default() Theme { return registry["taskpilot"] }
+
+// Mono returns the no-color theme.
+func Mono() Theme { return monoTheme() }
