@@ -33,6 +33,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case storesLoadedMsg:
+		m.splash = false
 		m.loading = false
 		if msg.err != nil {
 			m.status = errStr(msg.err)
@@ -177,6 +178,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.splash {
+		if msg.String() == "q" || msg.String() == "ctrl+c" {
+			return m, tea.Quit
+		}
+		m.splash = false
+		return m, nil
+	}
+
 	// Active form takeovers capture all keys.
 	if m.formKind != formNone {
 		return m.handleTakeoverForm(msg)

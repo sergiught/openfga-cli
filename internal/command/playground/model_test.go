@@ -344,3 +344,21 @@ func TestSettingsPreview(t *testing.T) {
 	m, _ = m.Update(key("down"))
 	render(t, m, "settings preview")
 }
+
+func TestSplashShownThenDismissed(t *testing.T) {
+	cl, _ := openfga.NewClient("http://localhost:8080")
+	a := app.New(log.New(io.Discard), config.New(), "test")
+	var m tea.Model = newModel(context.Background(), a, cl, "store-1")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
+
+	if !strings.Contains(m.View(), "playground") {
+		t.Error("splash should be visible before stores load")
+	}
+	if !m.(Model).splash {
+		t.Fatal("model should start on the splash")
+	}
+	m, _ = m.Update(storesLoadedMsg{stores: []openfga.Store{{ID: "store-1", Name: "demo"}}})
+	if m.(Model).splash {
+		t.Error("splash should dismiss once stores load")
+	}
+}

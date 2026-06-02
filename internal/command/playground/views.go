@@ -1,44 +1,83 @@
 package playground
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/sergiught/openfga-cli/internal/style"
+	shell "github.com/sergiught/openfga-cli/internal/ui/shell"
 )
 
-// View renders the whole screen via the single bordered panel + help row.
+// View renders the whole screen via the shell frame.
 func (m Model) View() string {
 	if !m.ready {
 		return "\n  " + m.spinner.View() + " starting ofga…"
 	}
-	m.lay.Column.SetTitle(m.tabBar())
-	m.lay.Column.SetContent(m.sectionBody())
-	m.lay.SetHelp(m.helpLine())
-	return m.lay.View()
+	if m.splash {
+		return m.splashView()
+	}
+	m.sh.SetSidebar(style.Gradient("ofga"), m.sidebarContext(), m.sidebarNav(), m.sidebarFooter())
+	m.sh.SetMain(sectionNames[m.section], m.sectionBody())
+	statusLeft := m.status
+	if m.loading {
+		statusLeft = m.spinner.View() + " " + m.status
+	}
+	m.sh.SetStatus(statusLeft, m.helpKeys())
+	return m.sh.View()
 }
 
-func (m Model) tabBar() string {
-	logo := lipgloss.NewStyle().Bold(true).Foreground(style.Primary).Render(style.IconModel + " ofga")
-	ctx := ""
-	if m.storeName != "" {
-		ctx = style.Faint.Render(" · " + m.storeName)
-	} else if m.storeID != "" {
-		ctx = style.Faint.Render(" · " + short(m.storeID))
+func (m Model) sidebarContext() []string {
+	if m.storeID == "" {
+		return []string{style.Faint.Render("no store selected")}
 	}
+	name := m.storeName
+	if name == "" {
+		name = short(m.storeID)
+	}
+	lines := []string{lipgloss.NewStyle().Foreground(style.Accent).Render(style.IconStore) + " " + name}
+	if m.modelID != "" {
+		lines = append(lines, style.Faint.Render(style.IconModel+" "+short(m.modelID)))
+	}
+	return lines
+}
 
-	tabs := make([]string, len(sectionNames))
+func (m Model) sidebarNav() []shell.NavItem {
+	items := make([]shell.NavItem, len(sectionNames))
 	for i, name := range sectionNames {
-		if section(i) == m.section {
-			tabs[i] = lipgloss.NewStyle().Bold(true).
-				Foreground(style.OnAccent).Background(style.Primary).
-				Padding(0, 1).Render(name)
-		} else {
-			tabs[i] = lipgloss.NewStyle().Foreground(style.Muted).Padding(0, 1).Render(name)
+		it := shell.NavItem{Label: name, Active: section(i) == m.section}
+		switch section(i) {
+		case secTuples:
+			if len(m.tuples) > 0 {
+				it.Badge = itoa(len(m.tuples))
+			}
+		case secChanges:
+			if len(m.changes) > 0 {
+				it.Badge = itoa(len(m.changes))
+			}
 		}
+		items[i] = it
 	}
-	return logo + ctx + "   " + strings.Join(tabs, "")
+	return items
+}
+
+func (m Model) sidebarFooter() string {
+	if m.storeID == "" {
+		return style.Dot(style.DotOffline) + " " + style.Faint.Render("disconnected")
+	}
+	return style.Dot(style.DotOnline) + " " + style.Faint.Render("connected")
+}
+
+func (m Model) helpKeys() string { return m.helpLine() }
+
+func (m Model) splashView() string {
+	logo := lipgloss.NewStyle().Bold(true).Render(style.Gradient("ofga"))
+	tag := style.Faint.Render("a modern playground for OpenFGA")
+	conn := style.Dot(style.DotBusy) + " " + style.Faint.Render("connecting…")
+	hint := style.Faint.Render("press any key to continue · q quit")
+	block := lipgloss.JoinVertical(lipgloss.Center, logo, tag, "", conn, "", hint)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, block)
 }
 
 func (m Model) sectionBody() string {
@@ -165,15 +204,10 @@ func (m Model) helpLine() string {
 	case m.section == secSettings:
 		keys = "↑↓ preview · enter save"
 	}
-	nav := style.Faint.Render("tab/1-7 sections · q quit")
-	status := m.status
-	if m.loading {
-		status = m.spinner.View() + " " + status
-	}
-	return lipgloss.NewStyle().Foreground(style.Muted).Render(status) +
-		style.Faint.Render("    ") + style.Faint.Render(keys) +
-		style.Faint.Render("  ·  ") + nav
+	return style.Faint.Render(keys) + style.Faint.Render("  ·  tab/1-7 sections · q quit")
 }
+
+func itoa(n int) string { return strconv.Itoa(n) }
 
 // --- helpers ---
 

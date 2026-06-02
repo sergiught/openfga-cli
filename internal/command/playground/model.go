@@ -16,8 +16,8 @@ import (
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/theme"
 	"github.com/sergiught/openfga-cli/internal/ui/forms"
-	"github.com/sergiught/openfga-cli/internal/ui/layout"
 	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
+	shell "github.com/sergiught/openfga-cli/internal/ui/shell"
 )
 
 type section int
@@ -53,13 +53,14 @@ type Model struct {
 
 	width, height int
 	ready         bool
+	splash        bool
 
 	storeID   string
 	storeName string
 	modelID   string
 
 	section section
-	lay     *layout.SingleColumn
+	sh      *shell.Shell
 
 	spinner spinner.Model
 	loading bool
@@ -133,7 +134,8 @@ func newModel(ctx context.Context, a *app.App, cl *openfga.Client, storeID strin
 		client:         cl,
 		ctx:            ctx,
 		spinner:        sp,
-		lay:            layout.NewSingleColumn(),
+		sh:             shell.New(),
+		splash:         true,
 		section:        secStores,
 		storeID:        storeID,
 		graphSpring:    graphSpring,
@@ -190,8 +192,8 @@ func Run(ctx context.Context, a *app.App) error {
 // --- sizing ---
 
 func (m *Model) resize() {
-	m.lay.SetSize(m.width, m.height)
-	w, h := m.lay.Column.GetContentSize()
+	m.sh.SetSize(m.width, m.height)
+	w, h := m.sh.MainSize()
 	m.storesList.SetSize(w, h)
 	m.tuplesList.SetSize(w, h)
 	m.modelsList.SetSize(w, h)
@@ -209,7 +211,7 @@ func (m *Model) resize() {
 	m.rebuildQueryForm()
 }
 
-func (m *Model) contentSize() (int, int) { return m.lay.Column.GetContentSize() }
+func (m *Model) contentSize() (int, int) { return m.sh.MainSize() }
 
 // --- list population ---
 
