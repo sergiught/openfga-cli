@@ -112,6 +112,9 @@ func (m Model) sectionBody() string {
 	case secStores:
 		return m.listOrHint(m.storesList.View(), len(m.stores), "No stores yet — press n to create one")
 	case secModel:
+		if m.editorOpen {
+			return m.editorBody()
+		}
 		if m.storeID == "" {
 			return m.centerHint("Select a store first — press 1")
 		}
@@ -144,6 +147,14 @@ func (m Model) listOrHint(view string, count int, hint string) string {
 		return m.centerHint(hint)
 	}
 	return view
+}
+
+func (m Model) editorBody() string {
+	help := style.Faint.Render("ctrl+s apply · esc cancel")
+	if m.editorErr != "" {
+		help = style.Failure.Render("error: "+m.editorErr) + "  " + help
+	}
+	return m.editor.View() + "\n" + help
 }
 
 func (m Model) queryBody() string {
@@ -217,10 +228,12 @@ func (m Model) helpLine() string {
 		keys = "type to fill · enter submit · esc cancel"
 	case m.section == secStores:
 		keys = "↑↓ move · / filter · enter select · n new · r reload"
+	case m.section == secModel && m.editorOpen:
+		keys = "ctrl+s apply · esc cancel"
 	case m.section == secModel && m.modelPicking:
 		keys = "↑↓ move · enter load · esc cancel"
 	case m.section == secModel:
-		keys = "↑↓←→ pan · m switch model · r reload"
+		keys = "↑↓←→ pan · e edit model · m switch model · r reload"
 	case m.section == secTuples:
 		keys = "↑↓ move · / filter · a add · d delete · r reload"
 	case m.section == secChanges:

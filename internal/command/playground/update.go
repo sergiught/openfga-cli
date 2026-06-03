@@ -57,10 +57,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.modelID = msg.modelID
 		m.graph = msg.graph
+		m.modelDSL = msg.dsl
 		m.graphVP.SetContent(m.graph.RenderDiagram())
 		m.resetGraphScroll()
 		m.status = "model " + short(msg.modelID) + " · " + m.graph.Summary()
 		return m, nil
+
+	case modelAppliedMsg:
+		if msg.err != nil {
+			m.editorErr = msg.err.Error()
+			return m, nil
+		}
+		m.editorOpen = false
+		m.editor.Blur()
+		m.status = "model applied"
+		return m, loadModelCmd(m.ctx, m.client, m.storeID)
 
 	case modelsListedMsg:
 		if msg.err != nil {
@@ -166,6 +177,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// own (non-key) messages such as nextFieldMsg. Bubble Tea delivers those
 		// here, so an active form must see every message, not just key presses —
 		// otherwise tab/enter never moves focus and the form never completes.
+		if m.editorOpen {
+			var cmd tea.Cmd
+			m.editor, cmd = m.editor.Update(msg)
+			return m, cmd
+		}
 		if m.formKind != formNone {
 			return m.advanceTakeoverForm(msg)
 		}
@@ -198,6 +214,24 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		cmd := m.paletteList.Update(msg)
+		return m, cmd
+	}
+
+	// Editor open: route all keys to it (except esc/ctrl+s which we handle).
+	if m.editorOpen {
+		switch msg.String() {
+		case "esc":
+			m.editorOpen = false
+			m.editorErr = ""
+			m.editor.Blur()
+			return m, nil
+		case "ctrl+s":
+			m.editorErr = ""
+			m.status = "applying model…"
+			return m, applyModelCmd(m.ctx, m.client, m.storeID, m.editor.Value())
+		}
+		var cmd tea.Cmd
+		m.editor, cmd = m.editor.Update(msg)
 		return m, cmd
 	}
 
@@ -309,6 +343,19 @@ func (m Model) handleSectionKey(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd)
 			return m, cmd
 		}
 		switch key {
+		case "e":
+			if m.storeID == "" {
+				m.status = "select a store first"
+				return m, nil
+			}
+			m.editorOpen = true
+			m.editorErr = ""
+			if m.modelDSL != "" {
+				m.editor.SetValue(m.modelDSL)
+			} else {
+				m.editor.SetValue(modelTemplate)
+			}
+			return m, m.editor.Focus()
 		case "m":
 			if m.storeID == "" {
 				m.status = "select a store first"

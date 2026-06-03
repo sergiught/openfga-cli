@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/harmonica"
@@ -18,6 +19,8 @@ import (
 	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
 	shell "github.com/sergiught/openfga-cli/internal/ui/shell"
 )
+
+const modelTemplate = "model\n  schema 1.1\n\ntype user\n\ntype document\n  relations\n    define owner: [user]\n    define viewer: [user] or owner\n"
 
 type section int
 
@@ -110,6 +113,12 @@ type Model struct {
 
 	paletteOpen bool
 	paletteList *uilist.List
+
+	// DSL model editor
+	editorOpen bool
+	editor     textarea.Model
+	editorErr  string
+	modelDSL   string // DSL of the currently-loaded model, for edit pre-fill
 }
 
 func newModel(ctx context.Context, a *app.App, cl *openfga.Client, storeID string) Model {
@@ -119,6 +128,9 @@ func newModel(ctx context.Context, a *app.App, cl *openfga.Client, storeID strin
 
 	// A lightly-damped spring gives scrolling momentum without overshoot.
 	graphSpring := harmonica.NewSpring(harmonica.FPS(graphFPS), 8.0, 1.0)
+
+	ta := textarea.New()
+	ta.ShowLineNumbers = true
 
 	m := Model{
 		app:            a,
@@ -138,6 +150,7 @@ func newModel(ctx context.Context, a *app.App, cl *openfga.Client, storeID strin
 		changesList:    uilist.New(),
 		assertionsList: uilist.New(),
 		paletteList:    uilist.New(),
+		editor:         ta,
 	}
 	m.qmode = 0
 	m.populatePalette()
@@ -197,6 +210,8 @@ func (m *Model) resize() {
 	if len(m.graph.Types) > 0 {
 		m.graphVP.SetContent(m.graph.RenderDiagram())
 	}
+	m.editor.SetWidth(w)
+	m.editor.SetHeight(h - 2)
 	m.rebuildQueryForm()
 }
 

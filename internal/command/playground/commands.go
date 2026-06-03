@@ -2,8 +2,10 @@ package playground
 
 import (
 	"context"
+	"encoding/json"
 
 	tea "github.com/charmbracelet/bubbletea"
+	transformer "github.com/openfga/language/pkg/go/transformer"
 
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/fga"
@@ -19,6 +21,7 @@ type storesLoadedMsg struct {
 type modelLoadedMsg struct {
 	modelID string
 	graph   fga.Graph
+	dsl     string
 	err     error
 }
 
@@ -62,6 +65,11 @@ type storeCreatedMsg struct {
 	err   error
 }
 
+type modelAppliedMsg struct {
+	modelID string
+	err     error
+}
+
 type tupleWrittenMsg struct {
 	label   string
 	deleted bool
@@ -91,13 +99,28 @@ func loadStoresCmd(ctx context.Context, cl *openfga.Client) tea.Cmd {
 	}
 }
 
+func modelToDSL(m *openfga.AuthorizationModel) string {
+	if m == nil {
+		return ""
+	}
+	jsonBytes, err := json.Marshal(m)
+	if err != nil {
+		return ""
+	}
+	dsl, err := transformer.TransformJSONStringToDSL(string(jsonBytes))
+	if err != nil || dsl == nil {
+		return ""
+	}
+	return *dsl
+}
+
 func loadModelCmd(ctx context.Context, cl *openfga.Client, storeID string) tea.Cmd {
 	return func() tea.Msg {
 		m, _, err := cl.AuthorizationModels.ReadLatest(ctx, openfga.WithStore(storeID))
 		if err != nil {
 			return modelLoadedMsg{err: err}
 		}
-		return modelLoadedMsg{modelID: m.ID, graph: fga.ParseModel(m)}
+		return modelLoadedMsg{modelID: m.ID, graph: fga.ParseModel(m), dsl: modelToDSL(m)}
 	}
 }
 
@@ -107,7 +130,7 @@ func loadModelByIDCmd(ctx context.Context, cl *openfga.Client, storeID, modelID 
 		if err != nil {
 			return modelLoadedMsg{err: err}
 		}
-		return modelLoadedMsg{modelID: m.ID, graph: fga.ParseModel(m)}
+		return modelLoadedMsg{modelID: m.ID, graph: fga.ParseModel(m), dsl: modelToDSL(m)}
 	}
 }
 
@@ -281,6 +304,24 @@ func listUsersCmd(ctx context.Context, cl *openfga.Client, storeID, object, rela
 			lines = append(lines, formatUserEntry(u))
 		}
 		return queryResultMsg{title: title, lines: lines}
+	}
+}
+
+func applyModelCmd(ctx context.Context, cl *openfga.Client, storeID, dsl string) tea.Cmd {
+	return func() tea.Msg {
+		jsonStr, err := transformer.TransformDSLToJSON(dsl)
+		if err != nil {
+			return modelAppliedMsg{err: err}
+		}
+		var req openfga.WriteAuthorizationModelRequest
+		if err := json.Unmarshal([]byte(jsonStr), &req); err != nil {
+			return modelAppliedMsg{err: err}
+		}
+		res, _, err := cl.AuthorizationModels.Write(ctx, &req, openfga.WithStore(storeID))
+		if err != nil {
+			return modelAppliedMsg{err: err}
+		}
+		return modelAppliedMsg{modelID: res.AuthorizationModelID}
 	}
 }
 
