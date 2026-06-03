@@ -196,9 +196,12 @@ func (s *Shell) renderSidebar(height int) string {
 	// cols in lipgloss v1) so long store names/IDs never wrap and push rows down.
 	content = fitLines(content, w-2)
 
+	// No painted background: a panel fill would leave default-bg gaps wherever a
+	// fg-only element (wordmark letter-gaps, context text) sits on it. A single
+	// uniform (terminal) background keeps every surface artifact-free; structure
+	// comes from the main pane's border instead.
 	return lipgloss.NewStyle().
 		Width(w).Height(height).
-		Background(style.BgPanel).
 		Padding(0, 1).
 		Render(content)
 }
@@ -208,9 +211,9 @@ func (s *Shell) renderNav(n NavItem) string {
 	if n.Badge != "" {
 		label += "  " + n.Badge // plain badge: a nested style here would reset the bg
 	}
-	// Every item carries an explicit background so the padding cells never fall
-	// back to the terminal default (which showed as a stray mark beside labels).
-	st := lipgloss.NewStyle().Padding(0, 1).Background(style.BgPanel).Foreground(style.Muted)
+	// Inactive items are fg-only on the uniform background (no marks). The active
+	// item is a filled pill, which paints its own background cleanly.
+	st := lipgloss.NewStyle().Padding(0, 1).Foreground(style.Muted)
 	if n.Active {
 		st = lipgloss.NewStyle().Padding(0, 1).Bold(true).Background(style.Primary).Foreground(style.OnAccent)
 	}
@@ -232,8 +235,6 @@ func (s *Shell) renderMain(height int) string {
 		Width(mainTotal-2).Height(height-2).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(style.Subtle).
-		BorderBackground(style.BgBase).
-		Background(style.BgBase).
 		Padding(0, 1).
 		Render(content)
 }
@@ -253,7 +254,5 @@ func (s *Shell) renderStatus() string {
 		gap = 1
 	}
 	bar := ansi.Truncate(left+strings.Repeat(" ", gap)+right, s.width, "")
-	return lipgloss.NewStyle().
-		Width(s.width).Background(style.BgPanel).
-		Render(bar)
+	return lipgloss.NewStyle().Width(s.width).Render(bar)
 }
