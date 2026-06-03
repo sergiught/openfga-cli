@@ -14,7 +14,6 @@ import (
 	"github.com/sergiught/openfga-cli/internal/app"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/style"
-	"github.com/sergiught/openfga-cli/internal/theme"
 	"github.com/sergiught/openfga-cli/internal/ui/forms"
 	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
 	shell "github.com/sergiught/openfga-cli/internal/ui/shell"
@@ -29,10 +28,9 @@ const (
 	secChanges
 	secQuery
 	secAssertions
-	secSettings
 )
 
-var sectionNames = []string{"Stores", "Model", "Tuples", "Changes", "Query", "Assertions", "Settings"}
+var sectionNames = []string{"Stores", "Model", "Tuples", "Changes", "Query", "Assertions"}
 
 // formKind identifies a full-panel form takeover.
 type formKind int
@@ -110,11 +108,6 @@ type Model struct {
 	form     *huh.Form
 	ftheme   *huh.Theme
 
-	// settings
-	themeNames []string
-	themesList *uilist.List
-	themeOrig  string
-
 	paletteOpen bool
 	paletteList *uilist.List
 }
@@ -126,11 +119,6 @@ func newModel(ctx context.Context, a *app.App, cl *openfga.Client, storeID strin
 
 	// A lightly-damped spring gives scrolling momentum without overshoot.
 	graphSpring := harmonica.NewSpring(harmonica.FPS(graphFPS), 8.0, 1.0)
-
-	curTheme := a.Config.Theme
-	if curTheme == "" {
-		curTheme = theme.Default().Name
-	}
 
 	m := Model{
 		app:            a,
@@ -149,13 +137,9 @@ func newModel(ctx context.Context, a *app.App, cl *openfga.Client, storeID strin
 		modelsList:     uilist.New(),
 		changesList:    uilist.New(),
 		assertionsList: uilist.New(),
-		themesList:     uilist.New(),
 		paletteList:    uilist.New(),
-		themeNames:     theme.Names(),
-		themeOrig:      curTheme,
 	}
 	m.qmode = 0
-	m.populateThemes()
 	m.populatePalette()
 	if storeID == "" {
 		m.status = "no store selected — pick one in Stores"
@@ -204,7 +188,6 @@ func (m *Model) resize() {
 	m.modelsList.SetSize(w, h)
 	m.changesList.SetSize(w, h)
 	m.assertionsList.SetSize(w, h)
-	m.themesList.SetSize(w, h)
 	m.paletteList.SetSize(w, h)
 	if m.graphVP.Width == 0 {
 		m.graphVP = viewport.New(w, h)
@@ -299,19 +282,6 @@ func (m *Model) populatePalette() {
 		items[i] = uilist.Item{TitleText: "Go to " + name, DescText: "section " + itoa(i+1), Filter: name, ID: itoa(i), Index: i}
 	}
 	m.paletteList.SetItems(items)
-}
-
-func (m *Model) populateThemes() {
-	items := make([]uilist.Item, len(m.themeNames))
-	cur := m.themeOrig
-	for i, n := range m.themeNames {
-		desc := "color theme"
-		if n == cur {
-			desc = style.IconDot + " current"
-		}
-		items[i] = uilist.Item{TitleText: n, DescText: desc, Filter: n, ID: n, Index: i}
-	}
-	m.themesList.SetItems(items)
 }
 
 func (m *Model) rebuildQueryForm() {

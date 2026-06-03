@@ -124,8 +124,6 @@ func (m Model) sectionBody() string {
 		return m.queryBody()
 	case secAssertions:
 		return m.assertionsBody()
-	case secSettings:
-		return m.themesList.View()
 	}
 	return ""
 }
@@ -226,10 +224,8 @@ func (m Model) helpLine() string {
 		keys = "i edit · m mode · enter run"
 	case m.section == secAssertions:
 		keys = "↑↓ move · t run · r reload"
-	case m.section == secSettings:
-		keys = "↑↓ preview · enter save"
 	}
-	return style.Faint.Render(keys) + style.Faint.Render("  ·  tab/1-7 sections · q quit")
+	return style.Faint.Render(keys) + style.Faint.Render("  ·  tab/1-6 sections · q quit")
 }
 
 func itoa(n int) string { return strconv.Itoa(n) }

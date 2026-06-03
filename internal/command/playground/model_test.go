@@ -94,7 +94,7 @@ func render(t *testing.T, m tea.Model, ctx string) {
 
 func TestSections(t *testing.T) {
 	m := newTestModel()
-	for _, k := range []string{"1", "2", "3", "4", "5", "6", "7"} {
+	for _, k := range []string{"1", "2", "3", "4", "5", "6"} {
 		m, _ = m.Update(key(k))
 		render(t, m, "section "+k)
 	}
@@ -333,16 +333,6 @@ func TestGraphSpringScrollSettles(t *testing.T) {
 	if final.graphVP.YOffset != target {
 		t.Errorf("YOffset = %d, want %d", final.graphVP.YOffset, target)
 	}
-}
-
-// TestSettingsPreview moves the theme cursor (live preview) but does NOT press
-// enter, so it never writes to the user's real config on disk.
-func TestSettingsPreview(t *testing.T) {
-	m := newTestModel()
-	m, _ = m.Update(key("7"))
-	m, _ = m.Update(key("down"))
-	m, _ = m.Update(key("down"))
-	render(t, m, "settings preview")
 }
 
 func TestSplashShownThenDismissed(t *testing.T) {

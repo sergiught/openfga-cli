@@ -228,7 +228,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "shift+tab":
 		m.section = (m.section + section(len(sectionNames)) - 1) % section(len(sectionNames))
 		return m.onEnterSection()
-	case "1", "2", "3", "4", "5", "6", "7":
+	case "1", "2", "3", "4", "5", "6":
 		m.section = section(key[0] - '1')
 		return m.onEnterSection()
 	case "ctrl+k":
@@ -271,8 +271,6 @@ func (m *Model) activeList() *list.List {
 		return m.changesList
 	case secAssertions:
 		return m.assertionsList
-	case secSettings:
-		return m.themesList
 	}
 	return nil
 }
@@ -410,22 +408,6 @@ func (m Model) handleSectionKey(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		cmd := m.assertionsList.Update(msg)
 		return m, cmd
 
-	case secSettings:
-		cmd := m.themesList.Update(msg)
-		if it, ok := m.themesList.Selected(); ok {
-			style.SetTheme(it.ID) // live preview
-			if key == "enter" {
-				m.app.Config.Theme = it.ID
-				m.themeOrig = it.ID
-				m.populateThemes()
-				if err := m.app.SaveConfig(); err != nil {
-					m.status = "save theme: " + errStr(err)
-				} else {
-					m.status = "theme saved: " + it.ID
-				}
-			}
-		}
-		return m, cmd
 	}
 	return m, nil
 }
