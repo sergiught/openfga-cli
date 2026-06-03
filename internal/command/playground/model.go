@@ -286,6 +286,9 @@ func (m *Model) populatePalette() {
 
 func (m *Model) rebuildQueryForm() {
 	w, h := m.contentSize()
+	// The form is wrapped in a rounded box (border + padding = 4 cols) inside the
+	// main panel, so size it to leave room or it overflows and gets clipped.
+	w -= 4
 	if w < 1 {
 		w = 1
 	}
