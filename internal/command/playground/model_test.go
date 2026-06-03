@@ -68,7 +68,9 @@ func key(s string) tea.KeyMsg {
 func newTestModel() tea.Model {
 	cl, _ := openfga.NewClient("http://localhost:8080")
 	a := app.New(log.New(io.Discard), config.New(), "test")
-	var m tea.Model = newModel(context.Background(), a, cl, "store-1")
+	mdl := newModel(context.Background(), a, cl, "store-1")
+	mdl.splash = false // tests exercise the shell, not the splash
+	var m tea.Model = mdl
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
 	m, _ = m.Update(storesLoadedMsg{stores: []openfga.Store{{ID: "store-1", Name: "demo"}, {ID: "store-2", Name: "other"}}})
 	m, _ = m.Update(modelLoadedMsg{modelID: "model-1", graph: sampleGraph()})
@@ -271,7 +273,9 @@ func TestQueryFormTabNavigationRunsCheck(t *testing.T) {
 
 	cl, _ := openfga.NewClient(srv.URL)
 	a := app.New(log.New(io.Discard), config.New(), "test")
-	var m tea.Model = newModel(context.Background(), a, cl, "store-1")
+	mdl := newModel(context.Background(), a, cl, "store-1")
+	mdl.splash = false
+	var m tea.Model = mdl
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
 	m, _ = m.Update(storesLoadedMsg{stores: []openfga.Store{{ID: "store-1", Name: "demo"}}})
 
@@ -348,8 +352,12 @@ func TestSplashShownThenDismissed(t *testing.T) {
 		t.Fatal("model should start on the splash")
 	}
 	m, _ = m.Update(storesLoadedMsg{stores: []openfga.Store{{ID: "store-1", Name: "demo"}}})
+	if !m.(Model).splash {
+		t.Error("splash should persist through data load (it dismisses only on keypress)")
+	}
+	m, _ = m.Update(key("enter"))
 	if m.(Model).splash {
-		t.Error("splash should dismiss once stores load")
+		t.Error("splash should dismiss on keypress")
 	}
 }
 

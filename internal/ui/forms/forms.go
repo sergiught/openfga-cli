@@ -9,13 +9,27 @@ import (
 	"github.com/sergiught/openfga-cli/internal/style"
 )
 
-// Theme returns a charm-based huh theme recolored to the active palette.
+// Theme returns a huh theme fully recolored to the active Aurora palette, so
+// forms never show huh's default purple.
 func Theme() *huh.Theme {
 	t := huh.ThemeCharm()
+
+	// Focused field: cyan title, aqua prompt, mint cursor.
 	t.Focused.Title = t.Focused.Title.Foreground(style.Primary).Bold(true)
 	t.Focused.Base = t.Focused.Base.BorderForeground(style.Primary)
-	t.Blurred.Base = t.Blurred.Base.BorderForeground(style.Subtle)
+	t.Focused.TextInput.Prompt = t.Focused.TextInput.Prompt.Foreground(style.Accent)
+	t.Focused.TextInput.Cursor = t.Focused.TextInput.Cursor.Foreground(style.Secondary)
+	t.Focused.TextInput.Placeholder = t.Focused.TextInput.Placeholder.Foreground(style.Faintc)
+	t.Focused.TextInput.Text = t.Focused.TextInput.Text.Foreground(style.Fg)
 	t.Focused.SelectedOption = t.Focused.SelectedOption.Foreground(style.Secondary)
+
+	// Blurred (inactive) fields: muted, no purple.
+	t.Blurred.Title = t.Blurred.Title.Foreground(style.Muted)
+	t.Blurred.Base = t.Blurred.Base.BorderForeground(style.Subtle)
+	t.Blurred.TextInput.Prompt = t.Blurred.TextInput.Prompt.Foreground(style.Faintc)
+	t.Blurred.TextInput.Placeholder = t.Blurred.TextInput.Placeholder.Foreground(style.Faintc)
+	t.Blurred.TextInput.Text = t.Blurred.TextInput.Text.Foreground(style.Muted)
+
 	return t
 }
 

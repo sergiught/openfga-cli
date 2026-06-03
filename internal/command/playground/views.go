@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/sergiught/openfga-cli/internal/style"
+	"github.com/sergiught/openfga-cli/internal/ui/logo"
 	shell "github.com/sergiught/openfga-cli/internal/ui/shell"
 )
 
@@ -96,11 +97,13 @@ func (m Model) sidebarFooter() string {
 func (m Model) helpKeys() string { return m.helpLine() }
 
 func (m Model) splashView() string {
-	logo := lipgloss.NewStyle().Bold(true).Render(style.Gradient("ofga"))
+	art := style.GradientBlock(logo.Word("ofga"))
+	w := lipgloss.Width(art)
+	field := lipgloss.NewStyle().Foreground(style.Subtle).Render(strings.Repeat("╱", w))
+	hero := lipgloss.JoinVertical(lipgloss.Center, field, art, field)
 	tag := style.Faint.Render("a modern playground for OpenFGA")
-	conn := style.Dot(style.DotBusy) + " " + style.Faint.Render("connecting…")
 	hint := style.Faint.Render("press any key to continue · q quit")
-	block := lipgloss.JoinVertical(lipgloss.Center, logo, tag, "", conn, "", hint)
+	block := lipgloss.JoinVertical(lipgloss.Center, hero, "", tag, "", hint)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, block)
 }
 

@@ -162,7 +162,13 @@ func clampFrame(s string, w, h int) string {
 func (s *Shell) renderSidebar(height int) string {
 	w := s.sidebarWidth()
 	var b strings.Builder
-	b.WriteString(s.logo + "\n")
+	// Compact logo line: the wordmark followed by a diagonal field filling the
+	// remaining width (Crush's small-logo treatment).
+	logoLine := s.logo
+	if rem := (w - 2) - lipgloss.Width(logoLine) - 1; rem > 0 {
+		logoLine += " " + lipgloss.NewStyle().Foreground(style.Subtle).Render(strings.Repeat("╱", rem))
+	}
+	b.WriteString(logoLine + "\n")
 	b.WriteString(style.Faint.Render("OpenFGA playground") + "\n\n")
 	for _, line := range s.context {
 		b.WriteString(line + "\n")

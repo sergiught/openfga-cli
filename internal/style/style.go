@@ -189,3 +189,44 @@ func Gradient(s string) string {
 	}
 	return b.String()
 }
+
+// GradientBlock applies the brand gradient diagonally across multi-line block
+// art (e.g. a wordmark): color advances with column + row so it flows from the
+// top-left start color to the bottom-right end color. Mono/no-gradient themes
+// fall back to solid bold Primary.
+func GradientBlock(s string) string {
+	if Active.Name == "mono" || Active.GradStartHex == "" || Active.GradEndHex == "" {
+		return lipgloss.NewStyle().Bold(true).Foreground(Primary).Render(s)
+	}
+	c1, err1 := colorful.Hex(Active.GradStartHex)
+	c2, err2 := colorful.Hex(Active.GradEndHex)
+	if err1 != nil || err2 != nil {
+		return lipgloss.NewStyle().Bold(true).Foreground(Primary).Render(s)
+	}
+	lines := strings.Split(s, "\n")
+	maxW := 0
+	for _, ln := range lines {
+		if w := len([]rune(ln)); w > maxW {
+			maxW = w
+		}
+	}
+	denom := float64(maxW + len(lines) - 2)
+	if denom < 1 {
+		denom = 1
+	}
+	var b strings.Builder
+	for r, ln := range lines {
+		for i, ch := range ln {
+			t := float64(i+r) / denom
+			if t > 1 {
+				t = 1
+			}
+			c := c1.BlendLab(c2, t).Clamped()
+			b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(c.Hex())).Render(string(ch)))
+		}
+		if r < len(lines)-1 {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}

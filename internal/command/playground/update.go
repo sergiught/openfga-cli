@@ -33,7 +33,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case storesLoadedMsg:
-		m.splash = false
 		m.loading = false
 		if msg.err != nil {
 			m.status = errStr(msg.err)
