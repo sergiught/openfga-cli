@@ -80,8 +80,8 @@ func TestMainSizeIsInterior(t *testing.T) {
 	s := New()
 	s.SetSize(100, 24)
 	w, _ := s.MainSize()
-	// interior = mainContentWidth - 2 = (total - sidebarOccupied) - 2
-	want := 100 - s.sidebarOccupied() - 2
+	// interior = (total - sidebarOccupied) - border(2) - padding(2)
+	want := 100 - s.sidebarOccupied() - 4
 	if w != want {
 		t.Errorf("MainSize().w = %d, want interior %d", w, want)
 	}

@@ -68,14 +68,14 @@ func (s *Shell) sidebarWidth() int {
 	return w
 }
 
-// sidebarOccupied returns the actual column count the sidebar takes up
-// (content + padding + border). Zero when collapsed.
+// sidebarOccupied returns the column count the sidebar takes up. The sidebar is
+// a filled panel with no border; Width(w) already includes its padding in
+// lipgloss v1. Zero when collapsed.
 func (s *Shell) sidebarOccupied() int {
 	if s.Collapsed() {
 		return 0
 	}
-	// Width(w) already includes padding in lipgloss v1; +1 for the right border.
-	return s.sidebarWidth() + 1
+	return s.sidebarWidth()
 }
 
 func (s *Shell) bodyHeight() int {
@@ -86,14 +86,15 @@ func (s *Shell) bodyHeight() int {
 	return h
 }
 
-// MainSize returns the drawable interior width/height for main-pane content (inside the pane's padding).
+// MainSize returns the drawable interior for main-pane content. The main pane is
+// a rounded-border panel: the border consumes 2 cols + 2 rows, padding 2 cols,
+// and the title + blank header 2 rows.
 func (s *Shell) MainSize() (int, int) {
-	const header = 2 // title + blank line
-	w := s.width - s.sidebarOccupied() - 2
+	w := s.width - s.sidebarOccupied() - 4 // border(2) + padding(2)
 	if w < 1 {
 		w = 1
 	}
-	h := s.bodyHeight() - header
+	h := s.bodyHeight() - 4 // border(2) + title+blank(2)
 	if h < 1 {
 		h = 1
 	}
@@ -184,8 +185,6 @@ func (s *Shell) renderSidebar(height int) string {
 	return lipgloss.NewStyle().
 		Width(w).Height(height).
 		Background(style.BgPanel).
-		BorderStyle(lipgloss.NormalBorder()).BorderRight(true).
-		BorderForeground(style.Subtle).
 		Padding(0, 1).
 		Render(content)
 }
@@ -204,18 +203,22 @@ func (s *Shell) renderNav(n NavItem) string {
 }
 
 func (s *Shell) renderMain(height int) string {
-	// sidebarOccupied + mainContentWidth = total. Width() includes padding in lipgloss v1.
-	mainContentWidth := s.width - s.sidebarOccupied()
-	if mainContentWidth < 1 {
-		mainContentWidth = 1
+	// The main pane is a rounded-border panel filling the area beside the sidebar.
+	mainTotal := s.width - s.sidebarOccupied()
+	if mainTotal < 6 {
+		mainTotal = 6
 	}
+	innerW := mainTotal - 4 // border(2) + padding(2)
 	title := lipgloss.NewStyle().Bold(true).Foreground(style.Primary).Render(s.mainTitle)
-	content := title + "\n\n" + s.mainBody
-	// Truncate each line to the interior width so over-wide body content (graphs,
+	// Truncate each body line to the interior width so over-wide content (graphs,
 	// long rows) is clipped rather than wrapped into extra rows.
-	content = fitLines(content, mainContentWidth-2)
+	content := title + "\n\n" + fitLines(s.mainBody, innerW)
 	return lipgloss.NewStyle().
-		Width(mainContentWidth).Height(height).
+		Width(mainTotal-2).Height(height-2).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(style.Subtle).
+		BorderBackground(style.BgBase).
+		Background(style.BgBase).
 		Padding(0, 1).
 		Render(content)
 }
