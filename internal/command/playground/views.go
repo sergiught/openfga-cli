@@ -19,7 +19,7 @@ func (m Model) View() string {
 	if m.splash {
 		return m.splashView()
 	}
-	m.sh.SetSidebar(style.Gradient("ofga"), m.sidebarContext(), m.sidebarNav(), m.sidebarFooter())
+	m.sh.SetSidebar(m.sidebarContext(), m.sidebarNav(), m.sidebarFooter())
 	m.sh.SetMain(sectionNames[m.section], m.sectionBody())
 	statusLeft := m.status
 	if m.loading {
@@ -99,7 +99,7 @@ func (m Model) helpKeys() string { return m.helpLine() }
 func (m Model) splashView() string {
 	art := style.GradientBlock(logo.Word("ofga"))
 	w := lipgloss.Width(art)
-	field := lipgloss.NewStyle().Foreground(style.Subtle).Render(strings.Repeat("╱", w))
+	field := lipgloss.NewStyle().Foreground(style.Faintc).Render(strings.Repeat("╱", w))
 	hero := lipgloss.JoinVertical(lipgloss.Center, field, art, field)
 	tag := style.Faint.Render("a modern playground for OpenFGA")
 	hint := style.Faint.Render("press any key to continue · q quit")
@@ -110,19 +110,19 @@ func (m Model) splashView() string {
 func (m Model) sectionBody() string {
 	switch m.section {
 	case secStores:
-		return listOrHint(m.storesList.View(), len(m.stores), "no stores — press n to create one")
+		return m.listOrHint(m.storesList.View(), len(m.stores), "No stores yet — press n to create one")
 	case secModel:
 		if m.storeID == "" {
-			return style.Faint.Render("select a store first (press 1)")
+			return m.centerHint("Select a store first — press 1")
 		}
 		if len(m.graph.Types) == 0 {
-			return style.Faint.Render("no authorization model in this store")
+			return m.centerHint("No authorization model in this store")
 		}
 		return m.graphVP.View()
 	case secTuples:
-		return listOrHint(m.tuplesList.View(), len(m.tuples), tupleHint(m.storeID))
+		return m.listOrHint(m.tuplesList.View(), len(m.tuples), tupleHint(m.storeID))
 	case secChanges:
-		return listOrHint(m.changesList.View(), len(m.changes), changeHint(m.storeID))
+		return m.listOrHint(m.changesList.View(), len(m.changes), changeHint(m.storeID))
 	case secQuery:
 		return m.queryBody()
 	case secAssertions:
@@ -131,36 +131,40 @@ func (m Model) sectionBody() string {
 	return ""
 }
 
+// centerHint renders a muted hint centered in the main content area, so empty
+// sections read as intentional rather than blank.
+func (m Model) centerHint(text string) string {
+	w, h := m.contentSize()
+	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, style.Faint.Render(text))
+}
+
+// listOrHint shows the list when it has rows, otherwise a centered empty hint.
+func (m Model) listOrHint(view string, count int, hint string) string {
+	if count == 0 {
+		return m.centerHint(hint)
+	}
+	return view
+}
+
 func (m Model) queryBody() string {
 	if m.storeID == "" {
-		return style.Faint.Render("select a store first (press 1)")
-	}
-	_, mh := m.contentSize()
-
-	// Top: result or hint.
-	var top string
-	if m.loading {
-		top = m.spinner.View() + " running…"
-	} else if m.hasResult {
-		top = m.renderResult()
-	} else {
-		top = style.Faint.Render("press i to edit · m to change mode · enter to run")
+		return m.centerHint("Select a store first — press 1")
 	}
 
-	// Bottom: mode chip + the rounded input box.
+	// Header: mode chip + key hints. The huh fields already carry their own
+	// focus accents, so no extra box is drawn around them (the main panel frames
+	// the whole section).
 	chip := lipgloss.NewStyle().Background(style.BgPanel).Foreground(style.Secondary).
 		Bold(true).Padding(0, 1).Render(queryModes[m.qmode])
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).BorderForeground(style.Primary).
-		Padding(0, 1).Render(m.qform.View())
-	bottom := chip + "  " + style.Faint.Render("m mode · i edit · enter run") + "\n" + box
-
-	// Push the input to the bottom of the main pane.
-	gap := mh - lipgloss.Height(top) - lipgloss.Height(bottom)
-	if gap < 1 {
-		gap = 1
+	var b strings.Builder
+	b.WriteString(chip + "  " + style.Faint.Render("m mode · i edit · enter run") + "\n\n")
+	b.WriteString(m.qform.View())
+	if m.loading {
+		b.WriteString("\n\n" + m.spinner.View() + " running…")
+	} else if m.hasResult {
+		b.WriteString("\n\n" + m.renderResult())
 	}
-	return top + strings.Repeat("\n", gap) + bottom
+	return b.String()
 }
 
 func (m Model) renderResult() string {
@@ -235,23 +239,16 @@ func itoa(n int) string { return strconv.Itoa(n) }
 
 // --- helpers ---
 
-func listOrHint(view string, count int, hint string) string {
-	if count == 0 {
-		return style.Faint.Render(hint)
-	}
-	return view
-}
-
 func tupleHint(storeID string) string {
 	if storeID == "" {
-		return "select a store first (press 1)"
+		return "Select a store first — press 1"
 	}
-	return "no tuples — press a to add one"
+	return "No tuples yet — press a to add one"
 }
 
 func changeHint(storeID string) string {
 	if storeID == "" {
-		return "select a store first (press 1)"
+		return "Select a store first — press 1"
 	}
-	return "no changes recorded yet"
+	return "No changes recorded yet"
 }

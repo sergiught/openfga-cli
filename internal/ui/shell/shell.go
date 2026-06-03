@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sergiught/openfga-cli/internal/style"
+	"github.com/sergiught/openfga-cli/internal/ui/logo"
 )
 
 const (
@@ -31,7 +32,6 @@ type NavItem struct {
 type Shell struct {
 	width, height int
 
-	logo    string
 	context []string
 	nav     []NavItem
 	footer  string
@@ -101,9 +101,10 @@ func (s *Shell) MainSize() (int, int) {
 	return w, h
 }
 
-// SetSidebar sets the sidebar content (logo is pre-rendered, e.g. via style.Gradient).
-func (s *Shell) SetSidebar(logo string, context []string, nav []NavItem, footer string) {
-	s.logo, s.context, s.nav, s.footer = logo, context, nav, footer
+// SetSidebar sets the sidebar content. The logo is rendered by the shell itself
+// (sized to the sidebar width).
+func (s *Shell) SetSidebar(context []string, nav []NavItem, footer string) {
+	s.context, s.nav, s.footer = context, nav, footer
 }
 
 // SetMain sets the main pane title and body.
@@ -161,14 +162,21 @@ func clampFrame(s string, w, h int) string {
 
 func (s *Shell) renderSidebar(height int) string {
 	w := s.sidebarWidth()
+	inner := w - 2
 	var b strings.Builder
-	// Compact logo line: the wordmark followed by a diagonal field filling the
-	// remaining width (Crush's small-logo treatment).
-	logoLine := s.logo
-	if rem := (w - 2) - lipgloss.Width(logoLine) - 1; rem > 0 {
-		logoLine += " " + lipgloss.NewStyle().Foreground(style.Subtle).Render(strings.Repeat("╱", rem))
+	// Logo: the big block wordmark when the sidebar is wide enough, otherwise a
+	// compact wordmark with a diagonal field tail (Crush's small-logo treatment).
+	word := logo.Word("ofga")
+	if inner >= lipgloss.Width(word) {
+		b.WriteString(style.GradientBlock(word) + "\n")
+		b.WriteString(lipgloss.NewStyle().Foreground(style.Faintc).Render(strings.Repeat("╱", inner)) + "\n")
+	} else {
+		line := style.Gradient("ofga")
+		if rem := inner - lipgloss.Width(line) - 1; rem > 0 {
+			line += " " + lipgloss.NewStyle().Foreground(style.Faintc).Render(strings.Repeat("╱", rem))
+		}
+		b.WriteString(line + "\n")
 	}
-	b.WriteString(logoLine + "\n")
 	b.WriteString(style.Faint.Render("OpenFGA playground") + "\n\n")
 	for _, line := range s.context {
 		b.WriteString(line + "\n")
@@ -198,14 +206,15 @@ func (s *Shell) renderSidebar(height int) string {
 func (s *Shell) renderNav(n NavItem) string {
 	label := n.Label
 	if n.Badge != "" {
-		label += "  " + style.Faint.Render(n.Badge)
+		label += "  " + n.Badge // plain badge: a nested style here would reset the bg
 	}
+	// Every item carries an explicit background so the padding cells never fall
+	// back to the terminal default (which showed as a stray mark beside labels).
+	st := lipgloss.NewStyle().Padding(0, 1).Background(style.BgPanel).Foreground(style.Muted)
 	if n.Active {
-		return lipgloss.NewStyle().Bold(true).
-			Foreground(style.OnAccent).Background(style.Primary).
-			Padding(0, 1).Render(label)
+		st = lipgloss.NewStyle().Padding(0, 1).Bold(true).Background(style.Primary).Foreground(style.OnAccent)
 	}
-	return lipgloss.NewStyle().Foreground(style.Muted).Padding(0, 1).Render(label)
+	return st.Render(label)
 }
 
 func (s *Shell) renderMain(height int) string {

@@ -15,7 +15,7 @@ import (
 func TestViewClampsToExactSize(t *testing.T) {
 	s := New()
 	s.SetSize(100, 24)
-	s.SetSidebar("ofga",
+	s.SetSidebar(
 		[]string{"▣ 01KSE09DXMSJPS056SA89RX3GA-this-id-would-wrap-the-sidebar"},
 		[]NavItem{{Label: "Model", Active: true}, {Label: "Tuples", Badge: "9999"}},
 		"● connected")

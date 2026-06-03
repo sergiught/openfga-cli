@@ -37,7 +37,7 @@ func TestSizingNarrowCollapses(t *testing.T) {
 func TestViewFitsWidth(t *testing.T) {
 	s := New()
 	s.SetSize(100, 24)
-	s.SetSidebar("ofga", []string{"store: demo"}, []NavItem{{Label: "Model", Active: true}, {Label: "Tuples", Badge: "42"}}, "online")
+	s.SetSidebar([]string{"store: demo"}, []NavItem{{Label: "Model", Active: true}, {Label: "Tuples", Badge: "42"}}, "online")
 	s.SetMain("Authorization Model", "type document")
 	s.SetStatus("ready", "q quit")
 	view := s.View()
@@ -58,7 +58,7 @@ func TestRegionsFillFullWidth(t *testing.T) {
 	for _, total := range []int{100, 120, 90} { // wide (sidebar shown)
 		s := New()
 		s.SetSize(total, 24)
-		s.SetSidebar("ofga", []string{"store: demo"}, []NavItem{{Label: "Model", Active: true}}, "online")
+		s.SetSidebar([]string{"store: demo"}, []NavItem{{Label: "Model", Active: true}}, "online")
 		s.SetMain("Title", "body")
 		sb := s.renderSidebar(s.bodyHeight())
 		main := s.renderMain(s.bodyHeight())
@@ -90,7 +90,7 @@ func TestMainSizeIsInterior(t *testing.T) {
 func TestActiveNavShowsBadge(t *testing.T) {
 	s := New()
 	s.SetSize(100, 24)
-	s.SetSidebar("ofga", nil, []NavItem{{Label: "Tuples", Badge: "42", Active: true}}, "")
+	s.SetSidebar(nil, []NavItem{{Label: "Tuples", Badge: "42", Active: true}}, "")
 	if !strings.Contains(stripANSI(s.View()), "42") {
 		t.Error("active nav item should still show its badge count")
 	}
