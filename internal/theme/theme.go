@@ -5,9 +5,10 @@
 package theme
 
 import (
+	"image/color"
 	"sort"
 
-	"github.com/charmbracelet/lipgloss"
+	lipgloss "charm.land/lipgloss/v2"
 )
 
 // Theme is a semantic palette. Colors are concrete (dark-terminal tuned) so the
@@ -16,29 +17,32 @@ type Theme struct {
 	Name string
 
 	// Identity
-	Primary   lipgloss.TerminalColor // headline accent (logo, active tab, cursor)
-	Secondary lipgloss.TerminalColor // supporting accent
-	Accent    lipgloss.TerminalColor // links, computed edges
-	Keyword   lipgloss.TerminalColor // emphasis (modes, keywords)
+	Primary   color.Color // headline accent (logo, active tab, cursor)
+	Secondary color.Color // supporting accent
+	Accent    color.Color // links, computed edges
+	Keyword   color.Color // emphasis (modes, keywords)
 
 	// Foreground tiers
-	FgBase  lipgloss.TerminalColor
-	FgSubtle lipgloss.TerminalColor
-	FgFaint lipgloss.TerminalColor
+	FgBase   color.Color
+	FgSubtle color.Color
+	FgFaint  color.Color
 
 	// Background tiers
-	BgBase    lipgloss.TerminalColor
-	BgRaised  lipgloss.TerminalColor
-	Separator lipgloss.TerminalColor
+	BgBase      color.Color
+	BgPanel     color.Color // sidebar column — darker than base
+	BgRaised    color.Color // main pane, cards
+	BgHighlight color.Color // chips, badges, pills, keycaps
+	BgOverlay   color.Color // scrim/shadow behind dialogs
+	Separator   color.Color
 
 	// Status
-	Success lipgloss.TerminalColor
-	Warning lipgloss.TerminalColor
-	Error   lipgloss.TerminalColor
-	Info    lipgloss.TerminalColor
+	Success color.Color
+	Warning color.Color
+	Error   color.Color
+	Info    color.Color
 
 	// OnAccent is the text color placed on top of Primary backgrounds.
-	OnAccent lipgloss.TerminalColor
+	OnAccent color.Color
 
 	// GradStartHex/GradEndHex define the wordmark gradient endpoints as hex
 	// strings (blended per-rune by style.Gradient). Empty = solid Primary.
@@ -46,11 +50,7 @@ type Theme struct {
 	GradEndHex   string
 }
 
-func col(hex string) lipgloss.TerminalColor { return lipgloss.Color(hex) }
-
-func adaptive(light, dark string) lipgloss.TerminalColor {
-	return lipgloss.AdaptiveColor{Light: light, Dark: dark}
-}
+func col(hex string) color.Color { return lipgloss.Color(hex) }
 
 var registry = map[string]Theme{
 	// aurora is the signature ofga theme: a cool slate built around OpenFGA's
@@ -66,7 +66,10 @@ var registry = map[string]Theme{
 		FgSubtle:     col("#8893A0"),
 		FgFaint:      col("#4C5663"),
 		BgBase:       col("#0E1116"),
+		BgPanel:      col("#0A0D12"),
 		BgRaised:     col("#161B22"),
+		BgHighlight:  col("#212933"),
+		BgOverlay:    col("#070A0E"),
 		Separator:    col("#283039"),
 		Success:      col("#8BFF95"),
 		Warning:      col("#FFC24B"),
@@ -81,20 +84,20 @@ var registry = map[string]Theme{
 	// high-contrast adaptive mono foreground. It is the default.
 	"taskpilot": {
 		Name:      "taskpilot",
-		Primary:   adaptive("#5A56E0", "#7571F9"), // indigo
-		Secondary: adaptive("#02C233", "#02BF87"), // green
-		Accent:    adaptive("#5A56E0", "#7571F9"), // indigo
-		Keyword:   adaptive("#EE6FF8", "#EE6FF8"), // magenta
-		FgBase:    adaptive("#1A1A1A", "#DDDDDD"),
-		FgSubtle:  adaptive("#A49FA5", "#777777"),
-		FgFaint:   adaptive("#C2B8C2", "#4D4D4D"),
+		Primary:   col("#7571F9"), // indigo
+		Secondary: col("#02BF87"), // green
+		Accent:    col("#7571F9"), // indigo
+		Keyword:   col("#EE6FF8"), // magenta
+		FgBase:    col("#DDDDDD"),
+		FgSubtle:  col("#777777"),
+		FgFaint:   col("#4D4D4D"),
 		BgBase:    lipgloss.NoColor{},
-		BgRaised:  adaptive("#EAEAEA", "#2A2A2A"),
-		Separator: adaptive("#A49FA5", "#777777"),
-		Success:   adaptive("#02C233", "#02BF87"),
-		Warning:   adaptive("#B8860B", "#FFB454"),
-		Error:     adaptive("#FE5F86", "#FE5A62"),
-		Info:      adaptive("#5A56E0", "#7571F9"),
+		BgRaised:  col("#2A2A2A"),
+		Separator: col("#777777"),
+		Success:   col("#02BF87"),
+		Warning:   col("#FFB454"),
+		Error:     col("#FE5A62"),
+		Info:      col("#7571F9"),
 		OnAccent:  col("#FFFFFF"),
 	},
 	"charm": {
@@ -212,7 +215,8 @@ func monoTheme() Theme {
 	n := lipgloss.NoColor{}
 	return Theme{
 		Name: "mono", Primary: n, Secondary: n, Accent: n, Keyword: n,
-		FgBase: n, FgSubtle: n, FgFaint: n, BgBase: n, BgRaised: n, Separator: n,
+		FgBase: n, FgSubtle: n, FgFaint: n,
+		BgBase: n, BgPanel: n, BgRaised: n, BgHighlight: n, BgOverlay: n, Separator: n,
 		Success: n, Warning: n, Error: n, Info: n, OnAccent: n,
 	}
 }

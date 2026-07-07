@@ -165,7 +165,7 @@ func (m Model) queryBody() string {
 	// Header: mode chip + key hints. The huh fields already carry their own
 	// focus accents, so no extra box is drawn around them (the main panel frames
 	// the whole section).
-	chip := lipgloss.NewStyle().Background(style.BgPanel).Foreground(style.Secondary).
+	chip := lipgloss.NewStyle().Background(style.BgRaised).Foreground(style.Secondary).
 		Bold(true).Padding(0, 1).Render(queryModes[m.qmode])
 	var b strings.Builder
 	b.WriteString(chip + "  " + style.Faint.Render("m mode · i edit · enter run") + "\n\n")

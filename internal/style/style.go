@@ -5,9 +5,10 @@
 package style
 
 import (
+	"image/color"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	lipgloss "charm.land/lipgloss/v2"
 	colorful "github.com/lucasb-eyer/go-colorful"
 
 	"github.com/sergiught/openfga-cli/internal/theme"
@@ -40,27 +41,30 @@ var Active = theme.Default()
 
 // Colors (reassigned by Apply).
 var (
-	Primary   lipgloss.TerminalColor
-	Secondary lipgloss.TerminalColor
-	Accent    lipgloss.TerminalColor
-	Keyword   lipgloss.TerminalColor
-	Fg        lipgloss.TerminalColor
-	Muted     lipgloss.TerminalColor
-	Faintc    lipgloss.TerminalColor
-	BgBase    lipgloss.TerminalColor
-	BgPanel   lipgloss.TerminalColor
-	Subtle    lipgloss.TerminalColor
-	Green     lipgloss.TerminalColor
-	Amber     lipgloss.TerminalColor
-	Red       lipgloss.TerminalColor
-	Info      lipgloss.TerminalColor
-	OnAccent  lipgloss.TerminalColor
+	Primary     color.Color
+	Secondary   color.Color
+	Accent      color.Color
+	Keyword     color.Color
+	Fg          color.Color
+	Muted       color.Color
+	Faintc      color.Color
+	BgBase      color.Color
+	BgPanel     color.Color // sidebar column
+	BgRaised    color.Color // main pane, cards (old BgPanel call sites move here)
+	BgHighlight color.Color // chips, badges, keycaps
+	BgOverlay   color.Color // dialog scrim/shadow
+	Subtle      color.Color
+	Green       color.Color
+	Amber       color.Color
+	Red         color.Color
+	Info        color.Color
+	OnAccent    color.Color
 
 	// Back-compat aliases kept for existing call sites.
-	Violet lipgloss.TerminalColor // == Primary
-	Indigo lipgloss.TerminalColor // == Secondary
-	Pink   lipgloss.TerminalColor // == Keyword
-	Cyan   lipgloss.TerminalColor // == Accent
+	Violet color.Color // == Primary
+	Indigo color.Color // == Secondary
+	Pink   color.Color // == Keyword
+	Cyan   color.Color // == Accent
 )
 
 // Styles (reassigned by Apply).
@@ -91,7 +95,17 @@ func Apply(t theme.Theme) {
 
 	Primary, Secondary, Accent, Keyword = t.Primary, t.Secondary, t.Accent, t.Keyword
 	Fg, Muted, Faintc = t.FgBase, t.FgSubtle, t.FgFaint
-	BgBase, BgPanel, Subtle = t.BgBase, t.BgRaised, t.Separator
+	BgBase, BgRaised, Subtle = t.BgBase, t.BgRaised, t.Separator
+	BgPanel, BgHighlight, BgOverlay = t.BgPanel, t.BgHighlight, t.BgOverlay
+	if BgPanel == nil {
+		BgPanel = t.BgBase
+	}
+	if BgHighlight == nil {
+		BgHighlight = t.BgRaised
+	}
+	if BgOverlay == nil {
+		BgOverlay = t.BgBase
+	}
 	Green, Amber, Red, Info = t.Success, t.Warning, t.Error, t.Info
 	OnAccent = t.OnAccent
 

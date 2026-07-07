@@ -4,17 +4,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
-
 	"github.com/sergiught/openfga-cli/internal/theme"
 )
 
 func TestGradientPreservesText(t *testing.T) {
-	// Force TrueColor so lipgloss emits ANSI escape codes even outside a TTY.
-	lipgloss.SetColorProfile(termenv.TrueColor)
-	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
-
+	// lipgloss v2 Style.Render always emits full-fidelity ANSI codes;
+	// downsampling happens at the output/writer layer, not here.
 	Apply(theme.Default()) // aurora has gradient endpoints
 	out := Gradient("ofga")
 	stripped := stripANSI(out)
