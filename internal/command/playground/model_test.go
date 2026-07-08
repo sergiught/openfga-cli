@@ -59,6 +59,18 @@ func key(s string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyUp}
 	case "down":
 		return tea.KeyPressMsg{Code: tea.KeyDown}
+	case "left":
+		return tea.KeyPressMsg{Code: tea.KeyLeft}
+	case "right":
+		return tea.KeyPressMsg{Code: tea.KeyRight}
+	case "shift+up":
+		return tea.KeyPressMsg{Code: tea.KeyUp, Mod: tea.ModShift}
+	case "shift+down":
+		return tea.KeyPressMsg{Code: tea.KeyDown, Mod: tea.ModShift}
+	case "shift+left":
+		return tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModShift}
+	case "shift+right":
+		return tea.KeyPressMsg{Code: tea.KeyRight, Mod: tea.ModShift}
 	case "home":
 		return tea.KeyPressMsg{Code: tea.KeyHome}
 	case "end":
@@ -799,5 +811,62 @@ func TestMasterDetailRealListContentFits(t *testing.T) {
 		if w := lipgloss.Width(line); w > 100 {
 			t.Errorf("line %d width = %d, want <= 100: %q", i, w, line)
 		}
+	}
+}
+
+// TestArrowKeysSwitchSections verifies that plain left/right arrows cycle
+// sections the same way tab/shift+tab do, wrapping at both ends.
+func TestArrowKeysSwitchSections(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(key("right"))
+	if got := m.(Model).section; got != secModel {
+		t.Fatalf("right arrow: section = %v, want secModel", got)
+	}
+	m, _ = m.Update(key("left"))
+	if got := m.(Model).section; got != secStores {
+		t.Fatalf("left arrow: section = %v, want secStores", got)
+	}
+	// wraps backward
+	m, _ = m.Update(key("left"))
+	if got := m.(Model).section; got != secAssertions {
+		t.Fatalf("left arrow wrap: section = %v, want secAssertions", got)
+	}
+}
+
+// TestArrowsStayCursorMovementWhileEditing verifies that once the query form
+// is in editing mode, left/right move the field cursor instead of switching
+// sections (the query-form guard in handleKey returns before the global
+// switch that owns arrow-key section navigation).
+func TestArrowsStayCursorMovementWhileEditing(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(key("5")) // Query section
+	m = pump(t, m, key("i"))  // begin editing
+	if !m.(Model).editing {
+		t.Fatal("expected the query form to be in editing mode")
+	}
+	m2, _ := m.Update(key("left"))
+	if m2.(Model).section != secQuery {
+		t.Fatal("left arrow while editing must not switch sections")
+	}
+}
+
+// TestShiftArrowsPanModelGraph verifies that shift+down scrolls the Model
+// graph viewport rather than switching sections. The scroll is spring
+// animated, so the change is only observable after pumping graph ticks
+// (see TestGraphSpringScrollSettles for the same pattern).
+func TestShiftArrowsPanModelGraph(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(key("2")) // Model section (graph view)
+
+	mod := m.(Model)
+	mod.graphVP.SetContent(strings.Repeat("relation line\n", 200))
+	before := mod.graphVP.YOffset()
+
+	var m2 tea.Model = mod
+	m2 = pump(t, m2, key("shift+down"))
+
+	final := m2.(Model)
+	if got := final.graphVP.YOffset(); got == before {
+		t.Fatal("shift+down must pan the graph")
 	}
 }

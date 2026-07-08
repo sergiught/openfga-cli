@@ -375,6 +375,16 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.fading = true
 		nm, cmd := m.onEnterSection()
 		return nm, tea.Batch(cmd, fadeTick())
+	case "right":
+		m.section = (m.section + 1) % section(len(sectionNames))
+		m.fading = true
+		nm, cmd := m.onEnterSection()
+		return nm, tea.Batch(cmd, fadeTick())
+	case "left":
+		m.section = (m.section + section(len(sectionNames)) - 1) % section(len(sectionNames))
+		m.fading = true
+		nm, cmd := m.onEnterSection()
+		return nm, tea.Batch(cmd, fadeTick())
 	case "1", "2", "3", "4", "5", "6":
 		// In the Query section, a digit that addresses an existing history
 		// slot reruns it instead of switching sections. (m.editing is
@@ -495,13 +505,13 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			if m.storeID != "" {
 				return m, loadModelCmd(m.ctx, m.client, m.storeID)
 			}
-		case "up", "k":
+		case "up", "k", "shift+up":
 			return m.scrollGraph(-graphLineStep)
-		case "down", "j":
+		case "down", "j", "shift+down":
 			return m.scrollGraph(graphLineStep)
-		case "left", "h":
+		case "shift+left", "h":
 			return m.panGraph(-graphColStep)
-		case "right", "l":
+		case "shift+right", "l":
 			return m.panGraph(graphColStep)
 		case "pgup", "b":
 			return m.scrollGraph(-m.graphVP.Height())

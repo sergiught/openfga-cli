@@ -420,23 +420,23 @@ func (m Model) statusKeys() []string {
 	case m.formKind != formNone:
 		return []string{"↵", "esc"}
 	case m.section == secStores:
-		return []string{"↑↓", "/", "↵", "n", "r", "tab", "q"}
+		return []string{"↑↓", "/", "↵", "n", "r", "←→", "tab", "q"}
 	case m.section == secModel && m.editorOpen:
 		return []string{"ctrl+s", "esc"}
 	case m.section == secModel && m.modelPicking:
-		return []string{"↑↓", "↵", "esc", "tab", "q"}
+		return []string{"↑↓", "↵", "esc", "←→", "tab", "q"}
 	case m.section == secModel:
-		return []string{"↑↓←→", "e", "m", "r", "tab", "q"}
+		return []string{"↑↓ pan", "hjkl", "e", "m", "r", "←→", "tab", "q"}
 	case m.section == secTuples:
-		return []string{"↑↓", "/", "a", "d", "r", "tab", "q"}
+		return []string{"↑↓", "/", "a", "d", "r", "←→", "tab", "q"}
 	case m.section == secChanges:
-		return []string{"↑↓", "/", "r", "tab", "q"}
+		return []string{"↑↓", "/", "r", "←→", "tab", "q"}
 	case m.section == secQuery && m.editing:
 		return []string{"tab", "↵", "esc"}
 	case m.section == secQuery:
-		return []string{"i", "m", "↵", "tab", "q"}
+		return []string{"i", "m", "↵", "←→", "tab", "q"}
 	case m.section == secAssertions:
-		return []string{"↑↓", "t", "r", "tab", "q"}
+		return []string{"↑↓", "t", "r", "←→", "tab", "q"}
 	}
 	return nil
 }
