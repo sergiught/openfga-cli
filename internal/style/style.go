@@ -16,24 +16,24 @@ import (
 
 // Icons used across the CLI and TUI (Crush-inspired).
 const (
-	IconCheck   = "✓"
-	IconCross   = "✗"
-	IconBullet  = "•"
-	IconArrow   = "→"
-	IconCaret   = "❯"
-	IconDot     = "●"
-	IconCircle  = "○"
-	IconStore   = "▣"
-	IconModel   = "◈"
-	IconTuple   = "≡"
-	IconChange  = "⇅"
-	IconQuery   = "?"
-	IconAssert  = "✦"
-	IconGear    = "✱"
-	IconSpark   = "✦"
-	EdgeDirect  = "←"
+	IconCheck    = "✓"
+	IconCross    = "✗"
+	IconBullet   = "•"
+	IconArrow    = "→"
+	IconCaret    = "❯"
+	IconDot      = "●"
+	IconCircle   = "○"
+	IconStore    = "▣"
+	IconModel    = "◈"
+	IconTuple    = "≡"
+	IconChange   = "⇅"
+	IconQuery    = "?"
+	IconAssert   = "✦"
+	IconGear     = "✱"
+	IconSpark    = "✦"
+	EdgeDirect   = "←"
 	EdgeComputed = "="
-	EdgeTTU     = "⇡"
+	EdgeTTU      = "⇡"
 )
 
 // Active is the currently applied theme.
@@ -154,10 +154,10 @@ func Bullet() string { return lipgloss.NewStyle().Foreground(Primary).Render(Ico
 type DotState int
 
 const (
-	DotOnline DotState = iota // mint
-	DotBusy                   // amber
-	DotError                  // coral
-	DotOffline                // faint
+	DotOnline  DotState = iota // mint
+	DotBusy                    // amber
+	DotError                   // coral
+	DotOffline                 // faint
 )
 
 // Dot returns a colored ● for the given state.
