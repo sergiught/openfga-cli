@@ -616,6 +616,24 @@ func TestCommandPaletteJumpsToSection(t *testing.T) {
 	}
 }
 
+// TestCommandPaletteDialogCornersStayOnScreen guards against the palette
+// dialog growing taller than the terminal: if its list is sized to the full
+// main-pane budget instead of the dialog's own interior budget, the dialog's
+// total height (list + hint + title/blank + border) exceeds the terminal
+// height and the modal's rounded corners clip off-screen.
+func TestCommandPaletteDialogCornersStayOnScreen(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+	if !m.(Model).paletteOpen {
+		t.Fatal("ctrl+k should open the command palette")
+	}
+	view := m.(Model).viewString()
+	hasTop, hasBottom := strings.Contains(view, "╭"), strings.Contains(view, "╰")
+	if !hasTop || !hasBottom {
+		t.Fatalf("dialog corners must both be on screen: top=%v bottom=%v", hasTop, hasBottom)
+	}
+}
+
 // stripANSIView strips CSI sequences for assertions.
 func stripANSIView(s string) string {
 	var b strings.Builder

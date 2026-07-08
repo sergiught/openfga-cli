@@ -250,6 +250,28 @@ func (s *Shell) renderDialog() string {
 		Render(title + "\n\n" + s.dialogBody)
 }
 
+// DialogSize returns the interior content budget of the modal dialog:
+// renderDialog's width math (half the terminal, min 36, max width-4) minus
+// its border+padding, and a height that leaves the dialog fully on-screen.
+func (s *Shell) DialogSize() (int, int) {
+	dw := s.width / 2
+	if dw < 36 {
+		dw = 36
+	}
+	if dw > s.width-4 {
+		dw = s.width - 4
+	}
+	w := dw - 6 // border(2) + padding(4)
+	if w < 1 {
+		w = 1
+	}
+	h := s.height - 8 // border(2), title+blank(2), hint(1), margins(3)
+	if h < 1 {
+		h = 1
+	}
+	return w, h
+}
+
 // fitLines truncates every line of s to at most w display columns (ANSI-aware)
 // so lipgloss never wraps over-wide content into extra rows.
 func fitLines(s string, w int) string {

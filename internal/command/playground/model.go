@@ -263,10 +263,17 @@ func (m *Model) resize() {
 	lw := splitListWidth(w)
 	m.storesList.SetSize(lw, h)
 	m.tuplesList.SetSize(lw, h)
-	m.modelsList.SetSize(w, h)
 	m.changesList.SetSize(lw, h)
 	m.assertionsList.SetSize(w, h)
-	m.paletteList.SetSize(w, h)
+	// Dialog-hosted lists (palette, model switcher) must fit the modal's
+	// interior budget, not the full main pane — otherwise the dialog grows
+	// taller than the terminal and its rounded corners clip off-screen.
+	dw, dh := m.sh.DialogSize()
+	if dh > 12 {
+		dh = 12
+	}
+	m.paletteList.SetSize(dw, dh)
+	m.modelsList.SetSize(dw, dh)
 	if m.graphVP.Width() == 0 {
 		// First time: create the viewport and populate it.
 		m.graphVP = viewport.New(viewport.WithWidth(w), viewport.WithHeight(h))

@@ -618,13 +618,13 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 // --- forms ---
 
 func (m Model) enterForm(kind formKind) (tea.Model, tea.Cmd) {
-	w, _ := m.contentSize()
+	dw, _ := m.sh.DialogSize()
 	m.formKind = kind
 	switch kind {
 	case formCreateStore:
-		m.form = buildCreateStoreForm(w)
+		m.form = buildCreateStoreForm(dw)
 	case formWriteTuple:
-		m.form = buildWriteTupleForm(w)
+		m.form = buildWriteTupleForm(dw)
 	}
 	return m, m.form.Init()
 }
