@@ -18,3 +18,25 @@ func TestModesSwapGlyphs(t *testing.T) {
 		t.Fatal("unknown mode defaults to nerdfont")
 	}
 }
+
+func TestNerdFontGlyphsAreV2Safe(t *testing.T) {
+	Apply(ModeNerdFont)
+	s := I()
+	for name, g := range map[string]string{
+		"Store": s.Store, "Model": s.Model, "Tuple": s.Tuple,
+		"Change": s.Change, "Query": s.Query, "Assert": s.Assert,
+	} {
+		r := []rune(g)[0]
+		if r > 0xF2FF {
+			t.Fatalf("%s glyph %U is outside the Nerd-Font-v2-safe range", name, r)
+		}
+	}
+	if s.CapL != "\U0000E0B6" || s.CapR != "\U0000E0B4" {
+		t.Fatal("nerdfont rung must define powerline caps")
+	}
+	Apply(ModeUnicode)
+	if I().CapL != "" || I().CapR != "" {
+		t.Fatal("unicode rung must not define caps")
+	}
+	Apply(ModeNerdFont)
+}
