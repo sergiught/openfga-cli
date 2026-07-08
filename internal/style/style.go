@@ -244,3 +244,42 @@ func GradientBlock(s string) string {
 	}
 	return b.String()
 }
+
+// Chip renders a small filled label: bold fg on bg with 1-col padding.
+func Chip(text string, fg, bg color.Color) string {
+	return lipgloss.NewStyle().Bold(true).Foreground(fg).Background(bg).Padding(0, 1).Render(text)
+}
+
+// Keycap renders a dim key hint pill (e.g. "q", "↵") on the highlight surface.
+func Keycap(k string) string {
+	return lipgloss.NewStyle().Foreground(Muted).Background(BgHighlight).Padding(0, 1).Render(k)
+}
+
+// GradientPill renders text on a per-rune brand-gradient background with
+// OnAccent foreground — the active-nav treatment. Mono themes fall back to a
+// plain Primary chip.
+func GradientPill(text string) string {
+	if Active.Name == "mono" || Active.GradStartHex == "" || Active.GradEndHex == "" {
+		return Chip(text, OnAccent, Primary)
+	}
+	c1, err1 := colorful.Hex(Active.GradStartHex)
+	c2, err2 := colorful.Hex(Active.GradEndHex)
+	if err1 != nil || err2 != nil {
+		return Chip(text, OnAccent, Primary)
+	}
+	padded := " " + text + " "
+	runes := []rune(padded)
+	n := len(runes)
+	var b strings.Builder
+	for i, r := range runes {
+		t := 0.0
+		if n > 1 {
+			t = float64(i) / float64(n-1)
+		}
+		c := c1.BlendLab(c2, t).Clamped()
+		b.WriteString(lipgloss.NewStyle().Bold(true).
+			Foreground(OnAccent).Background(lipgloss.Color(c.Hex())).
+			Render(string(r)))
+	}
+	return b.String()
+}

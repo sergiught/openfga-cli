@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	lipgloss "charm.land/lipgloss/v2"
+
 	"github.com/sergiught/openfga-cli/internal/theme"
 )
 
@@ -35,6 +37,18 @@ func TestDotRendersGlyph(t *testing.T) {
 		if got := stripANSI(Dot(st)); got != IconDot {
 			t.Errorf("Dot(%d) glyph = %q, want %q", st, got, IconDot)
 		}
+	}
+}
+
+func TestChipKeycapPillRender(t *testing.T) {
+	if w := lipgloss.Width(Chip("CHECK", Fg, BgHighlight)); w != 7 {
+		t.Fatalf("Chip width = %d, want 7 (padded)", w)
+	}
+	if w := lipgloss.Width(Keycap("q")); w != 3 {
+		t.Fatalf("Keycap width = %d, want 3", w)
+	}
+	if w := lipgloss.Width(GradientPill("ofga")); w != 6 {
+		t.Fatalf("GradientPill width = %d, want 6", w)
 	}
 }
 
