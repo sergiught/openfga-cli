@@ -1,10 +1,13 @@
 // Package shell renders the Crush-style playground frame: a left sidebar
 // (gradient logo + context + nav + status footer), a main content pane, and a
-// bottom status bar. It also provides a centered overlay compositor for modal
-// dialogs. Styling is driven by the active theme via the style package.
+// bottom status bar, composited on a lipgloss canvas so panel backgrounds
+// paint cleanly. It also composites a centered modal dialog (with dim scrim
+// and drop shadow) and a bottom-right toast on top. Styling is driven by the
+// active theme via the style package.
 package shell
 
 import (
+	"image/color"
 	"strings"
 
 	lipgloss "charm.land/lipgloss/v2"
@@ -41,6 +44,9 @@ type Shell struct {
 
 	statusLeft  string
 	statusRight string
+
+	dialogTitle, dialogBody string
+	toast                   string
 }
 
 // New returns an empty shell.
@@ -113,21 +119,115 @@ func (s *Shell) SetMain(title, body string) { s.mainTitle, s.mainBody = title, b
 // SetStatus sets the bottom status bar's left/right text.
 func (s *Shell) SetStatus(left, right string) { s.statusLeft, s.statusRight = left, right }
 
-// View composes the full frame.
+// SetDialog sets (or clears, when both title and body are empty) the centered
+// modal dialog.
+func (s *Shell) SetDialog(title, body string) { s.dialogTitle, s.dialogBody = title, body }
+
+// SetToast sets (or clears, when empty) the bottom-right toast slot.
+func (s *Shell) SetToast(view string) { s.toast = view }
+
+// View composes the full frame on a canvas: sidebar/main/status painted with
+// their surface backgrounds, an optional dimmed scrim + shadowed dialog
+// centered on top, and a bottom-right toast layered above everything.
 func (s *Shell) View() string {
 	body := s.bodyHeight()
-	main := s.renderMain(body)
-
-	var top string
-	if s.Collapsed() {
-		top = main
-	} else {
-		top = lipgloss.JoinHorizontal(lipgloss.Top, s.renderSidebar(body), main)
-	}
-	frame := lipgloss.JoinVertical(lipgloss.Left, top, s.renderStatus())
 	// Safety net: never emit more than height rows or wider than width. Any
 	// residual overflow would scroll the terminal and corrupt the layout.
-	return clampFrame(frame, s.width, s.height)
+	base := clampFrame(
+		lipgloss.JoinVertical(lipgloss.Left, s.composeTop(body), s.renderStatus()),
+		s.width, s.height,
+	)
+
+	// Layers are collected and drawn through a single Compositor: a bare
+	// Layer's X()/Y()/Z() only take effect once the layer hierarchy has been
+	// flattened into absolute bounds, which Compositor.Draw does — composing a
+	// Layer straight onto a Canvas draws it at the canvas origin regardless of
+	// its offset.
+	var layers []*lipgloss.Layer
+	if s.dialogTitle != "" || s.dialogBody != "" {
+		// Dim the base frame into a scrim behind the dialog.
+		dim := lipgloss.NewStyle().Foreground(style.Faintc).Render(ansi.Strip(base))
+		layers = append(layers, lipgloss.NewLayer(dim).X(0).Y(0).Z(0))
+
+		dlg := s.renderDialog()
+		dx := (s.width - lipgloss.Width(dlg)) / 2
+		dy := (s.height - lipgloss.Height(dlg)) / 2
+		// Shadow: a BgOverlay-filled block offset +1,+1 behind the dialog.
+		shadow := lipgloss.NewStyle().Background(style.BgOverlay).
+			Width(lipgloss.Width(dlg)).Height(lipgloss.Height(dlg)).Render("")
+		layers = append(layers,
+			lipgloss.NewLayer(shadow).X(dx+1).Y(dy+1).Z(1),
+			lipgloss.NewLayer(dlg).X(dx).Y(dy).Z(2),
+		)
+	} else {
+		layers = append(layers, lipgloss.NewLayer(base).X(0).Y(0).Z(0))
+	}
+	if s.toast != "" {
+		tx := s.width - lipgloss.Width(s.toast) - 2
+		ty := s.height - lipgloss.Height(s.toast) - 2
+		if tx < 0 {
+			tx = 0
+		}
+		if ty < 0 {
+			ty = 0
+		}
+		layers = append(layers, lipgloss.NewLayer(s.toast).X(tx).Y(ty).Z(3))
+	}
+
+	cv := lipgloss.NewCanvas(s.width, s.height)
+	cv.Compose(lipgloss.NewCompositor(layers...))
+	if !s.Collapsed() && s.dialogTitle == "" && s.dialogBody == "" {
+		fillBg(cv, 0, 0, s.sidebarOccupied(), body, style.BgPanel)
+	}
+	return cv.Render()
+}
+
+// composeTop lays out the sidebar (when shown) beside the main pane.
+func (s *Shell) composeTop(body int) string {
+	main := s.renderMain(body)
+	if s.Collapsed() {
+		return main
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, s.renderSidebar(body), main)
+}
+
+// renderDialog draws the modal box: a rounded, primary-bordered panel on the
+// raised surface, with the title centered-bold and the body below it.
+func (s *Shell) renderDialog() string {
+	dw := s.width / 2
+	if dw < 36 {
+		dw = 36
+	}
+	if dw > s.width-4 {
+		dw = s.width - 4
+	}
+	title := lipgloss.NewStyle().Bold(true).Foreground(style.Primary).Render(s.dialogTitle)
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).BorderForeground(style.Primary).
+		Background(style.BgRaised).
+		Width(dw).Padding(0, 2).
+		Render(title + "\n\n" + s.dialogBody)
+}
+
+// fillBg paints the background of every fg-only cell in the w×h rectangle at
+// (x0, y0) to bg, leaving cells that already carry their own background
+// (badges, the active nav pill, dialog/shadow layers, …) untouched. This is
+// how a column gets a painted panel surface without discontinuities at
+// fg-only glyphs like the wordmark's letter-gaps — the exact artifact that
+// forced the panel-fill revert on lipgloss v1.
+func fillBg(cv *lipgloss.Canvas, x0, y0, w, h int, bg color.Color) {
+	for y := y0; y < y0+h; y++ {
+		for x := x0; x < x0+w; x++ {
+			c := cv.CellAt(x, y)
+			if c == nil {
+				continue
+			}
+			if c.Style.Bg == nil {
+				c.Style.Bg = bg
+				cv.SetCell(x, y, c)
+			}
+		}
+	}
 }
 
 // fitLines truncates every line of s to at most w display columns (ANSI-aware)
@@ -196,10 +296,11 @@ func (s *Shell) renderSidebar(height int) string {
 	// cols in lipgloss v1) so long store names/IDs never wrap and push rows down.
 	content = fitLines(content, w-2)
 
-	// No painted background: a panel fill would leave default-bg gaps wherever a
-	// fg-only element (wordmark letter-gaps, context text) sits on it. A single
-	// uniform (terminal) background keeps every surface artifact-free; structure
-	// comes from the main pane's border instead.
+	// Content stays fg-only: no Background() here. View's canvas-level fillBg
+	// paints the whole sidebar column to BgPanel afterward, which composites
+	// cleanly over fg-only glyphs (wordmark letter-gaps, context text) — a panel
+	// Style().Background() fill would leave default-bg gaps at those glyphs,
+	// the artifact that forced the panel-fill revert on lipgloss v1.
 	return lipgloss.NewStyle().
 		Width(w).Height(height).
 		Padding(0, 1).
@@ -234,7 +335,8 @@ func (s *Shell) renderMain(height int) string {
 	return lipgloss.NewStyle().
 		Width(mainTotal).Height(height).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(style.Subtle).
+		BorderForeground(style.Faintc).
+		Background(style.BgRaised).
 		Padding(0, 1).
 		Render(content)
 }

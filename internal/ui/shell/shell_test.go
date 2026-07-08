@@ -96,6 +96,34 @@ func TestActiveNavShowsBadge(t *testing.T) {
 	}
 }
 
+func TestSetDialogKeepsBaseDimensions(t *testing.T) {
+	s := New()
+	s.SetSize(80, 24)
+	s.SetSidebar([]string{"store: demo"}, []NavItem{{Label: "Model", Active: true}}, "online")
+	s.SetMain("Title", "body")
+	s.SetStatus("ready", "q quit")
+	s.SetDialog("Pick", "one\ntwo")
+
+	view := s.View()
+	lines := strings.Split(view, "\n")
+	if len(lines) != 24 {
+		t.Fatalf("dialog view line count = %d, want 24 (must match shell height)", len(lines))
+	}
+	for i, line := range lines {
+		if w := lipgloss.Width(line); w > 80 {
+			t.Fatalf("dialog view line %d width %d exceeds shell width 80", i, w)
+		}
+	}
+	if !strings.Contains(stripANSI(view), "Pick") {
+		t.Error("dialog title should appear in the view")
+	}
+
+	s.SetDialog("", "")
+	if strings.Contains(stripANSI(s.View()), "Pick") {
+		t.Error("clearing the dialog (empty title+body) should remove it from the view")
+	}
+}
+
 func stripANSI(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {

@@ -23,6 +23,10 @@ func (m Model) View() tea.View {
 
 // viewString renders the whole screen via the shell frame.
 func (m Model) viewString() string {
+	if m.width < 40 || m.height < 10 {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+			style.Faint.Render("terminal too small — need at least 40×10"))
+	}
 	if !m.ready {
 		return "\n  " + m.spinner.View() + " starting ofga…"
 	}
@@ -36,31 +40,29 @@ func (m Model) viewString() string {
 		statusLeft = m.spinner.View() + " " + m.status
 	}
 	m.sh.SetStatus(statusLeft, m.helpKeys())
-	base := m.sh.View()
 
-	if dlg := m.activeDialog(); dlg != "" {
-		return shell.Overlay(base, dlg, m.width, m.height)
+	if title, body := m.dialogContent(); body != "" {
+		m.sh.SetDialog(title, body)
+	} else {
+		m.sh.SetDialog("", "")
 	}
-	return base
+	return m.sh.View()
 }
 
-// activeDialog returns the rendered dialog box for the current modal state, or "".
-func (m Model) activeDialog() string {
-	dw := m.width / 2
-	if dw < 36 {
-		dw = 36
-	}
+// dialogContent returns the title and body for the current modal state, or
+// ("", "") when no dialog is open. The shell draws the box.
+func (m Model) dialogContent() (string, string) {
 	switch {
 	case m.paletteOpen:
-		return shell.Dialog("Command palette", m.paletteList.View()+"\n"+style.Faint.Render("↑↓ choose · enter go · esc close"), dw)
+		return "Command palette", m.paletteList.View() + "\n" + style.Faint.Render("↑↓ choose · enter go · esc close")
 	case m.formKind == formCreateStore:
-		return shell.Dialog("Create Store", m.form.View()+"\n"+style.Faint.Render("enter submit · esc cancel"), dw)
+		return "Create Store", m.form.View() + "\n" + style.Faint.Render("enter submit · esc cancel")
 	case m.formKind == formWriteTuple:
-		return shell.Dialog("Write Tuple", m.form.View()+"\n"+style.Faint.Render("enter submit · esc cancel"), dw)
+		return "Write Tuple", m.form.View() + "\n" + style.Faint.Render("enter submit · esc cancel")
 	case m.section == secModel && m.modelPicking:
-		return shell.Dialog("Switch model", m.modelsList.View()+"\n"+style.Faint.Render("↑↓ choose · enter load · esc cancel"), dw)
+		return "Switch model", m.modelsList.View() + "\n" + style.Faint.Render("↑↓ choose · enter load · esc cancel")
 	}
-	return ""
+	return "", ""
 }
 
 func (m Model) sidebarContext() []string {
