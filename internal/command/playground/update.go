@@ -83,8 +83,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.entering = false
-		m.entranceFrac = 0
+		// bubbletea sends the initial size report at startup, before Init()
+		// runs — that message also flips m.ready (which gates all
+		// rendering), so snapping the entrance here unconditionally would
+		// kill it before the first renderable frame. Only a genuine
+		// mid-flight resize (m.ready already true) snaps it.
+		if m.ready {
+			m.entering = false
+			m.entranceFrac = 0
+		}
 		m.width, m.height = msg.Width, msg.Height
 		m.resize()
 		m.ready = true

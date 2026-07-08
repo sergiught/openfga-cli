@@ -532,11 +532,41 @@ func TestEntranceSettlesAndTickerStops(t *testing.T) {
 	}
 }
 
-func TestResizeSnapsEntrance(t *testing.T) {
-	m := newTestModel()
-	m2, _ := m.Update(tea.WindowSizeMsg{Width: 90, Height: 28})
-	if got := m2.(Model); got.entering || got.entranceFrac != 0 {
-		t.Fatal("resize during the entrance must snap to settled")
+// TestBootSizeStartsEntranceThenResizeSnaps is the regression test for the
+// entrance never playing: bubbletea delivers the initial tea.WindowSizeMsg
+// at startup, before Init() runs, and that same message flips m.ready (which
+// gates all rendering). Snapping the entrance unconditionally on it — as the
+// handler used to — killed the animation before the first renderable frame
+// ever painted. The first size message must leave the entrance running; only
+// a later, mid-flight resize should snap it.
+func TestBootSizeStartsEntranceThenResizeSnaps(t *testing.T) {
+	cl, _ := openfga.NewClient("http://localhost:8080")
+	a := app.New(log.New(io.Discard), config.New(), "test")
+	m := newModel(context.Background(), a, cl, "store-1")
+	var cur tea.Model = m
+
+	// The FIRST WindowSizeMsg is bubbletea's boot-time size report.
+	cur, _ = cur.(Model).Update(tea.WindowSizeMsg{Width: 110, Height: 32})
+	got := cur.(Model)
+	if !got.ready {
+		t.Fatal("the first WindowSizeMsg must set ready")
+	}
+	if !got.entering || got.entranceFrac <= 0 {
+		t.Fatalf("the boot-time size report must not snap the entrance: entering=%v entranceFrac=%v", got.entering, got.entranceFrac)
+	}
+
+	// Pump a few entrance ticks: still mid-flight, not yet settled.
+	for i := 0; i < 3; i++ {
+		cur, _ = cur.(Model).Update(entranceTickMsg{})
+	}
+	if got = cur.(Model); !got.entering {
+		t.Fatal("entrance should still be running a few ticks after boot")
+	}
+
+	// A SECOND WindowSizeMsg is a genuine mid-flight resize and must snap.
+	cur, _ = cur.(Model).Update(tea.WindowSizeMsg{Width: 90, Height: 28})
+	if got = cur.(Model); got.entering || got.entranceFrac != 0 {
+		t.Fatal("a resize after boot must snap the entrance to settled")
 	}
 }
 
