@@ -134,8 +134,11 @@ func TestSectionHeader(t *testing.T) {
 	if !strings.HasPrefix(plain, "Result ") || !strings.HasSuffix(plain, "─") {
 		t.Fatalf("header = %q, want title + rule", plain)
 	}
-	if tight := stripAnsiStr(SectionHeader("VeryLongSectionTitle", 8)); lipgloss.Width(tight) > 8 {
-		t.Fatalf("narrow header must truncate, got %q", tight)
+	if tight := stripAnsiStr(SectionHeader("VeryLongSectionTitle", 8)); lipgloss.Width(tight) != 8 {
+		t.Fatalf("narrow header width = %d, want 8", lipgloss.Width(tight))
+	}
+	if w := lipgloss.Width(SectionHeader("abcdefg", 8)); w != 8 {
+		t.Fatalf("width-1 title must pad to exact width, got %d", w)
 	}
 	if SectionHeaderTinted("Result", 30, Green) == h {
 		t.Fatal("tinted rule must differ from the default")

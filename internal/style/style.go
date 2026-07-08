@@ -400,7 +400,11 @@ func SectionHeaderTinted(title string, width int, tint color.Color) string {
 	t := lipgloss.NewStyle().Bold(true).Foreground(Muted).Render(title)
 	rem := width - lipgloss.Width(t) - 1
 	if rem < 1 {
-		return ansi.Truncate(t, width, "…")
+		t = ansi.Truncate(t, width, "…")
+		if pad := width - lipgloss.Width(t); pad > 0 {
+			t += strings.Repeat(" ", pad)
+		}
+		return t
 	}
 	return t + " " + lipgloss.NewStyle().Foreground(tint).Render(strings.Repeat("─", rem))
 }
