@@ -21,6 +21,8 @@ type Theme struct {
 	Secondary color.Color // supporting accent
 	Accent    color.Color // links, computed edges
 	Keyword   color.Color // emphasis (modes, keywords)
+	Violet    color.Color // second accent: mode chips, dialog borders/titles
+	Magenta   color.Color // second accent: selection + palette highlights
 
 	// Foreground tiers
 	FgBase   color.Color
@@ -62,15 +64,17 @@ var registry = map[string]Theme{
 		Secondary:    col("#8BFF95"), // mint — selection accent
 		Accent:       col("#2EE6C6"), // aqua — keys, links, computed edges
 		Keyword:      col("#56B6FF"), // sky — emphasis (modes, "or")
+		Violet:       col("#9D7CFF"),
+		Magenta:      col("#FF6AC1"),
 		FgBase:       col("#E4EAEF"),
 		FgSubtle:     col("#8893A0"),
 		FgFaint:      col("#4C5663"),
 		BgBase:       col("#0E1116"),
-		BgPanel:      col("#0A0D12"),
-		BgRaised:     col("#161B22"),
-		BgHighlight:  col("#212933"),
+		BgPanel:      col("#06080C"),
+		BgRaised:     col("#1E2633"),
+		BgHighlight:  col("#2B3547"),
 		BgOverlay:    col("#070A0E"),
-		Separator:    col("#283039"),
+		Separator:    col("#39455A"),
 		Success:      col("#8BFF95"),
 		Warning:      col("#FFC24B"),
 		Error:        col("#FF5C7A"),
@@ -214,7 +218,7 @@ var registry = map[string]Theme{
 func monoTheme() Theme {
 	n := lipgloss.NoColor{}
 	return Theme{
-		Name: "mono", Primary: n, Secondary: n, Accent: n, Keyword: n,
+		Name: "mono", Primary: n, Secondary: n, Accent: n, Keyword: n, Violet: n, Magenta: n,
 		FgBase: n, FgSubtle: n, FgFaint: n,
 		BgBase: n, BgPanel: n, BgRaised: n, BgHighlight: n, BgOverlay: n, Separator: n,
 		Success: n, Warning: n, Error: n, Info: n, OnAccent: n,

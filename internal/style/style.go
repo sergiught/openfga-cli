@@ -6,6 +6,7 @@ package style
 
 import (
 	"image/color"
+	"math"
 	"strings"
 
 	lipgloss "charm.land/lipgloss/v2"
@@ -45,6 +46,8 @@ var (
 	Secondary   color.Color
 	Accent      color.Color
 	Keyword     color.Color
+	Violet      color.Color // second accent: mode chips, dialog borders/titles
+	Magenta     color.Color // second accent: selection + palette highlights
 	Fg          color.Color
 	Muted       color.Color
 	Faintc      color.Color
@@ -61,7 +64,6 @@ var (
 	OnAccent    color.Color
 
 	// Back-compat aliases kept for existing call sites.
-	Violet color.Color // == Primary
 	Indigo color.Color // == Secondary
 	Pink   color.Color // == Keyword
 	Cyan   color.Color // == Accent
@@ -109,7 +111,15 @@ func Apply(t theme.Theme) {
 	Green, Amber, Red, Info = t.Success, t.Warning, t.Error, t.Info
 	OnAccent = t.OnAccent
 
-	Violet, Indigo, Pink, Cyan = Primary, Secondary, Keyword, Accent
+	Violet, Magenta = t.Violet, t.Magenta
+	if Violet == nil {
+		Violet = t.Keyword
+	}
+	if Magenta == nil {
+		Magenta = t.Secondary
+	}
+
+	Indigo, Pink, Cyan = Secondary, Keyword, Accent
 
 	Title = lipgloss.NewStyle().Bold(true).Foreground(Primary)
 	Heading = lipgloss.NewStyle().Bold(true).Foreground(Secondary)
@@ -224,40 +234,7 @@ func Gradient(s string) string {
 // top-left start color to the bottom-right end color. Mono/no-gradient themes
 // fall back to solid bold Primary.
 func GradientBlock(s string) string {
-	if Active.Name == "mono" || Active.GradStartHex == "" || Active.GradEndHex == "" {
-		return lipgloss.NewStyle().Bold(true).Foreground(Primary).Render(s)
-	}
-	c1, err1 := colorful.Hex(Active.GradStartHex)
-	c2, err2 := colorful.Hex(Active.GradEndHex)
-	if err1 != nil || err2 != nil {
-		return lipgloss.NewStyle().Bold(true).Foreground(Primary).Render(s)
-	}
-	lines := strings.Split(s, "\n")
-	maxW := 0
-	for _, ln := range lines {
-		if w := len([]rune(ln)); w > maxW {
-			maxW = w
-		}
-	}
-	denom := float64(maxW + len(lines) - 2)
-	if denom < 1 {
-		denom = 1
-	}
-	var b strings.Builder
-	for r, ln := range lines {
-		for i, ch := range ln {
-			t := float64(i+r) / denom
-			if t > 1 {
-				t = 1
-			}
-			c := c1.BlendLab(c2, t).Clamped()
-			b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(c.Hex())).Render(string(ch)))
-		}
-		if r < len(lines)-1 {
-			b.WriteString("\n")
-		}
-	}
-	return b.String()
+	return GradientBlockPhase(s, 0)
 }
 
 // GradientBlockShimmer is like GradientBlock but with a moving highlight
@@ -309,6 +286,115 @@ func GradientBlockShimmer(s string, phase float64) string {
 	return b.String()
 }
 
+// phaseOffset converts a looping drift phase into a smooth ping-pong ramp
+// offset, so the gradient breathes back and forth with no wrap seam.
+func phaseOffset(phase float64) float64 { return 0.25 * math.Sin(2*math.Pi*phase) }
+
+func clamp01(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
+}
+
+// GradientBlockPhase renders block art like GradientBlock with the ramp
+// position shifted by a drift phase. Phase 0 is byte-identical to
+// GradientBlock. Mono/no-gradient themes fall back identically.
+func GradientBlockPhase(s string, phase float64) string {
+	if Active.Name == "mono" || Active.GradStartHex == "" || Active.GradEndHex == "" {
+		return lipgloss.NewStyle().Bold(true).Foreground(Primary).Render(s)
+	}
+	c1, err1 := colorful.Hex(Active.GradStartHex)
+	c2, err2 := colorful.Hex(Active.GradEndHex)
+	if err1 != nil || err2 != nil {
+		return lipgloss.NewStyle().Bold(true).Foreground(Primary).Render(s)
+	}
+	off := phaseOffset(phase)
+	lines := strings.Split(s, "\n")
+	maxW := 0
+	for _, ln := range lines {
+		if w := len([]rune(ln)); w > maxW {
+			maxW = w
+		}
+	}
+	denom := float64(maxW + len(lines) - 2)
+	if denom < 1 {
+		denom = 1
+	}
+	var b strings.Builder
+	for r, ln := range lines {
+		for i, ch := range ln {
+			t := clamp01(float64(i+r)/denom + off)
+			c := c1.BlendLab(c2, t).Clamped()
+			b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(c.Hex())).Render(string(ch)))
+		}
+		if r < len(lines)-1 {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
+// GradientPillPhase is GradientPill with a drift phase; phase 0 matches
+// GradientPill exactly.
+func GradientPillPhase(text string, phase float64) string {
+	if Active.Name == "mono" || Active.GradStartHex == "" || Active.GradEndHex == "" {
+		return Chip(text, OnAccent, Primary)
+	}
+	c1, err1 := colorful.Hex(Active.GradStartHex)
+	c2, err2 := colorful.Hex(Active.GradEndHex)
+	if err1 != nil || err2 != nil {
+		return Chip(text, OnAccent, Primary)
+	}
+	off := phaseOffset(phase)
+	padded := " " + text + " "
+	runes := []rune(padded)
+	n := len(runes)
+	var b strings.Builder
+	for i, r := range runes {
+		t := 0.0
+		if n > 1 {
+			t = float64(i) / float64(n-1)
+		}
+		t = clamp01(t + off)
+		c := c1.BlendLab(c2, t).Clamped()
+		b.WriteString(lipgloss.NewStyle().Bold(true).
+			Foreground(OnAccent).Background(lipgloss.Color(c.Hex())).
+			Render(string(r)))
+	}
+	return b.String()
+}
+
+// GradientUnderline renders a width-wide row of spaces whose backgrounds run
+// the brand gradient — the filled title bar's underline. Mono/no-gradient
+// themes render a plain Separator-colored rule instead.
+func GradientUnderline(width int) string {
+	if width < 1 {
+		return ""
+	}
+	if Active.Name == "mono" || Active.GradStartHex == "" || Active.GradEndHex == "" {
+		return lipgloss.NewStyle().Foreground(Subtle).Render(strings.Repeat("─", width))
+	}
+	c1, err1 := colorful.Hex(Active.GradStartHex)
+	c2, err2 := colorful.Hex(Active.GradEndHex)
+	if err1 != nil || err2 != nil {
+		return lipgloss.NewStyle().Foreground(Subtle).Render(strings.Repeat("─", width))
+	}
+	var b strings.Builder
+	for i := 0; i < width; i++ {
+		t := 0.0
+		if width > 1 {
+			t = float64(i) / float64(width-1)
+		}
+		c := c1.BlendLab(c2, t).Clamped()
+		b.WriteString(lipgloss.NewStyle().Background(lipgloss.Color(c.Hex())).Render(" "))
+	}
+	return b.String()
+}
+
 // Chip renders a small filled label: bold fg on bg with 1-col padding.
 func Chip(text string, fg, bg color.Color) string {
 	return lipgloss.NewStyle().Bold(true).Foreground(fg).Background(bg).Padding(0, 1).Render(text)
@@ -323,27 +409,5 @@ func Keycap(k string) string {
 // OnAccent foreground — the active-nav treatment. Mono themes fall back to a
 // plain Primary chip.
 func GradientPill(text string) string {
-	if Active.Name == "mono" || Active.GradStartHex == "" || Active.GradEndHex == "" {
-		return Chip(text, OnAccent, Primary)
-	}
-	c1, err1 := colorful.Hex(Active.GradStartHex)
-	c2, err2 := colorful.Hex(Active.GradEndHex)
-	if err1 != nil || err2 != nil {
-		return Chip(text, OnAccent, Primary)
-	}
-	padded := " " + text + " "
-	runes := []rune(padded)
-	n := len(runes)
-	var b strings.Builder
-	for i, r := range runes {
-		t := 0.0
-		if n > 1 {
-			t = float64(i) / float64(n-1)
-		}
-		c := c1.BlendLab(c2, t).Clamped()
-		b.WriteString(lipgloss.NewStyle().Bold(true).
-			Foreground(OnAccent).Background(lipgloss.Color(c.Hex())).
-			Render(string(r)))
-	}
-	return b.String()
+	return GradientPillPhase(text, 0)
 }

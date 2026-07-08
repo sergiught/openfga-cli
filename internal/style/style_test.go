@@ -91,3 +91,39 @@ func stripANSI(s string) string {
 	}
 	return b.String()
 }
+
+// stripAnsiStr is an alias for stripANSI for test compatibility.
+func stripAnsiStr(s string) string {
+	return stripANSI(s)
+}
+
+func TestVioletMagentaFallbacks(t *testing.T) {
+	tm, _ := theme.Get("charm") // has no Violet/Magenta values
+	Apply(tm)
+	if Violet != tm.Keyword {
+		t.Fatal("nil Violet should fall back to Keyword")
+	}
+	if Magenta != tm.Secondary {
+		t.Fatal("nil Magenta should fall back to Secondary")
+	}
+	Apply(theme.Default())
+	if Violet == Keyword {
+		t.Fatal("aurora must define its own Violet")
+	}
+}
+
+func TestGradientPhaseHelpers(t *testing.T) {
+	if got := GradientBlockPhase("AB\nCD", 0); got != GradientBlock("AB\nCD") {
+		t.Fatal("phase 0 must equal GradientBlock")
+	}
+	moved := GradientBlockPhase("AB\nCD", 0.25)
+	if stripAnsiStr(moved) != "AB\nCD" {
+		t.Fatal("phase must not alter content")
+	}
+	if moved == GradientBlockPhase("AB\nCD", 0) {
+		t.Fatal("nonzero phase must change colors under aurora")
+	}
+	if w := lipgloss.Width(GradientUnderline(12)); w != 12 {
+		t.Fatalf("underline width = %d, want 12", w)
+	}
+}
