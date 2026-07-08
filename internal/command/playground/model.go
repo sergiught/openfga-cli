@@ -217,6 +217,9 @@ func (m Model) Init() tea.Cmd {
 	if m.entering {
 		cmds = append(cmds, entranceTick())
 	}
+	if style.Active.Name != "mono" {
+		cmds = append(cmds, driftTick())
+	}
 	if m.storeID != "" {
 		cmds = append(cmds,
 			loadModelCmd(m.ctx, m.client, m.storeID),

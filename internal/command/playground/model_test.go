@@ -540,6 +540,23 @@ func TestResizeSnapsEntrance(t *testing.T) {
 	}
 }
 
+func TestDriftAdvancesAndLoops(t *testing.T) {
+	m := newTestModel()
+	m2, cmd := m.Update(driftTickMsg{})
+	if m2.(Model).drift <= 0 {
+		t.Fatal("drift phase must advance")
+	}
+	if cmd == nil {
+		t.Fatal("drift is ambient by design: it must re-arm")
+	}
+	mm := m2.(Model)
+	mm.drift = 0.999
+	m3, _ := mm.Update(driftTickMsg{})
+	if m3.(Model).drift >= 1 {
+		t.Fatal("drift phase must wrap below 1")
+	}
+}
+
 func TestCreateStoreRendersAsOverlay(t *testing.T) {
 	m := newTestModel()
 	m, _ = m.Update(key("1")) // Stores

@@ -51,6 +51,7 @@ func (m Model) viewString() string {
 	}
 	m.sh.SetToast(m.toasts.View())
 	m.sh.SetEntrance(m.entranceFrac, m.entering && m.entranceFrac > 0.55)
+	m.sh.SetDrift(m.drift)
 	return m.sh.View()
 }
 

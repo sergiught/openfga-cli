@@ -39,6 +39,18 @@ func pulseTick() tea.Cmd {
 	})
 }
 
+// driftTickMsg advances the ambient gradient drift on the wordmark and the
+// active nav pill. Unlike every other timer in this package it re-arms
+// forever: the drift is ambience by design (documented spec exception). It
+// is never started on the mono rung.
+type driftTickMsg struct{}
+
+func driftTick() tea.Cmd {
+	return tea.Tick(time.Millisecond*200, func(time.Time) tea.Msg {
+		return driftTickMsg{}
+	})
+}
+
 // fadeMsg fires after a section change to materialize the incoming frame from
 // its ghost preview. Does not re-arm — fires exactly once per section switch.
 type fadeMsg struct{}
@@ -273,6 +285,13 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, pulseTick()
 		}
 		return m, nil
+
+	case driftTickMsg:
+		m.drift += 0.02
+		if m.drift >= 1 {
+			m.drift -= 1
+		}
+		return m, driftTick()
 
 	case fadeMsg:
 		m.fading = false
