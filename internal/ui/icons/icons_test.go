@@ -31,6 +31,19 @@ func TestNerdFontGlyphsAreV2Safe(t *testing.T) {
 			t.Fatalf("%s glyph %U is outside the Nerd-Font-v2-safe range", name, r)
 		}
 	}
+	want := map[string][2]string{
+		"Store":  {s.Store, "\U0000F1C0"},
+		"Model":  {s.Model, "\U0000E725"},
+		"Tuple":  {s.Tuple, "\U0000F0C1"},
+		"Change": {s.Change, "\U0000F021"},
+		"Query":  {s.Query, "\U0000F002"},
+		"Assert": {s.Assert, "\U0000F058"},
+	}
+	for name, pair := range want {
+		if pair[0] != pair[1] {
+			t.Fatalf("%s glyph = %q, want %q", name, pair[0], pair[1])
+		}
+	}
 	if s.CapL != "\U0000E0B6" || s.CapR != "\U0000E0B4" {
 		t.Fatal("nerdfont rung must define powerline caps")
 	}
