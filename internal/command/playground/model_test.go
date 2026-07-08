@@ -613,6 +613,35 @@ func stripANSIView(s string) string {
 	return b.String()
 }
 
+// TestQueryDashboardHeightCapKeepsStatusBarVisible guards against the query
+// dashboard (mode chip + form + result card + history strip) growing taller
+// than the available content area on short terminals: renderMain doesn't cap
+// its content height, so an over-tall body pushed the status bar off the
+// bottom of the frame (clampFrame truncates the tail, not the overflowing
+// section). At 100x12 the uncapped body is tall enough to trigger it.
+func TestQueryDashboardHeightCapKeepsStatusBarVisible(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 12})
+	m, _ = m.Update(key("5")) // Query
+
+	mod := m.(Model)
+	for i := 0; i < 5; i++ {
+		mod.pushHistory(histEntry{mode: "check", vals: [3]string{"user:anne", "viewer", "document:roadmap"}, ok: true, ms: int64(i)})
+	}
+	mod.hasResult = true
+	mod.result = queryResultMsg{title: "Check", lines: []string{"user:anne viewer document:roadmap"}, ok: true, badge: true, ms: 12}
+
+	view := stripANSIView(mod.viewString())
+	lines := strings.Split(view, "\n")
+	if len(lines) != 12 {
+		t.Fatalf("frame has %d lines, want 12 (height)", len(lines))
+	}
+	last := lines[len(lines)-1]
+	if !strings.Contains(last, "q") {
+		t.Errorf("status bar keycap missing from the final frame line at height 12: %q", last)
+	}
+}
+
 func TestQueryBodyShowsModeChipAndResult(t *testing.T) {
 	m := newTestModel()
 	m, _ = m.Update(key("5")) // Query

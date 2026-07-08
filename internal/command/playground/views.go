@@ -318,7 +318,18 @@ func (m Model) queryBody() string {
 	if hs := m.historyStrip(); hs != "" {
 		sections = append(sections, hs)
 	}
-	return strings.Join(sections, "\n\n")
+	body := strings.Join(sections, "\n\n")
+
+	// Chip + form + result card + history can add up to more rows than short
+	// terminals have available; renderMain doesn't cap its content height, so
+	// an over-tall body pushes the status bar off the bottom of the frame.
+	// Trim to what actually fits, clipping the bottom-most content.
+	_, h := m.contentSize()
+	lines := strings.Split(body, "\n")
+	if len(lines) > h {
+		lines = lines[:h]
+	}
+	return strings.Join(lines, "\n")
 }
 
 // renderResultCard frames the current query result in a rounded card on the

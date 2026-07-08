@@ -305,6 +305,14 @@ func (s *Shell) renderSidebar(height int) string {
 	// Truncate each line to the interior width (Width(w) includes the 2 padding
 	// cols in lipgloss v1) so long store names/IDs never wrap and push rows down.
 	content = fitLines(content, w-2)
+	// Cap to the available height: lipgloss's Height() only pads content that's
+	// shorter than requested, it never truncates content that's taller (the
+	// block wordmark + context + nav can easily exceed a short terminal's
+	// budget), which would silently grow the sidebar past `height` and push the
+	// status bar off the bottom of the frame.
+	if lines := strings.Split(content, "\n"); len(lines) > height {
+		content = strings.Join(lines[:height], "\n")
+	}
 
 	// Content stays fg-only: no Background() here. View's canvas-level fillBg
 	// paints the whole sidebar column to BgPanel afterward, which composites
