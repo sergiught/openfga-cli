@@ -246,15 +246,15 @@ func (m Model) statusKeys() []string {
 	case m.formKind != formNone:
 		return []string{"↵", "esc"}
 	case m.section == secStores:
-		return []string{"↑↓", "/", "↵", "n", "r", "q"}
+		return []string{"↑↓", "/", "↵", "n", "r", "tab", "q"}
 	case m.section == secModel && m.editorOpen:
 		return []string{"ctrl+s", "esc"}
 	case m.section == secModel && m.modelPicking:
 		return []string{"↑↓", "↵", "esc", "tab", "q"}
 	case m.section == secModel:
-		return []string{"↑↓←→", "e", "m", "r", "q"}
+		return []string{"↑↓←→", "e", "m", "r", "tab", "q"}
 	case m.section == secTuples:
-		return []string{"↑↓", "/", "a", "d", "r", "q"}
+		return []string{"↑↓", "/", "a", "d", "r", "tab", "q"}
 	case m.section == secChanges:
 		return []string{"↑↓", "/", "r", "tab", "q"}
 	case m.section == secQuery && m.editing:
