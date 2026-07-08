@@ -465,8 +465,8 @@ func TestDigitKeyFallsThroughToSectionSwitchWithoutHistory(t *testing.T) {
 }
 
 // TestQueryBodyRendersNonBadgeResultInCard verifies list-objects/list-users
-// results (badge=false) still render their title+bullets, now inside the
-// result card frame alongside badge results.
+// results (badge=false) still render their title+bullets, under the same
+// "Result" section header as badge results.
 func TestQueryBodyRendersNonBadgeResultInCard(t *testing.T) {
 	m := newTestModel()
 	m, _ = m.Update(key("5")) // Query
@@ -673,6 +673,25 @@ func TestQueryBodyShowsModeChipAndResult(t *testing.T) {
 	}
 }
 
+// TestQueryBodyUsesSectionHeaders verifies the query body's result and
+// history blocks sit under flat "Result"/"Recent" header rules instead of
+// the old bordered result card (Task 3's de-boxed query body).
+func TestQueryBodyUsesSectionHeaders(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(key("5")) // Query
+	m, _ = m.Update(queryResultMsg{title: "Check", lines: []string{"user:anne viewer document:roadmap"}, ok: true, badge: true})
+	plain := stripANSIView(m.(Model).queryBody())
+	if !strings.Contains(plain, "Result ─") {
+		t.Fatal("query result must sit under a Result header rule")
+	}
+	if !strings.Contains(plain, "Recent ─") {
+		t.Fatal("history must sit under a Recent header rule")
+	}
+	if strings.Contains(plain, "╭") {
+		t.Fatal("query body must not contain boxes")
+	}
+}
+
 // TestGraphViewportScrollOffsetsPreservedOnResize verifies that when the viewport
 // is resized, the scroll offset is preserved via SetWidth/SetHeight instead of
 // recreating the viewport.
@@ -784,7 +803,7 @@ func TestQueryHistoryRecordsMessageMode(t *testing.T) {
 // TestMasterDetailSplitsWidth verifies masterDetail joins the list and the
 // preview card into a single row that fills the requested width.
 func TestMasterDetailSplitsWidth(t *testing.T) {
-	out := ansi.Strip(masterDetail("L", "R", 100, 10))
+	out := ansi.Strip(masterDetail("L", "Title", "R", 100, 10))
 	first := strings.Split(out, "\n")[0]
 	if lipgloss.Width(first) < 90 {
 		t.Fatalf("master-detail should fill width, got %d", lipgloss.Width(first))
@@ -808,7 +827,7 @@ func TestMasterDetailRealListContentFits(t *testing.T) {
 	})
 	l.SetSize(splitListWidth(100), 10)
 
-	out := ansi.Strip(masterDetail(l.View(), "PREVIEW", 100, 10))
+	out := ansi.Strip(masterDetail(l.View(), "Title", "PREVIEW", 100, 10))
 	lines := strings.Split(out, "\n")
 	if len(lines) > 10 {
 		t.Fatalf("masterDetail output has %d lines, want <= 10 (height budget overflow): %d", len(lines), len(lines))
@@ -817,6 +836,21 @@ func TestMasterDetailRealListContentFits(t *testing.T) {
 		if w := lipgloss.Width(line); w > 100 {
 			t.Errorf("line %d width = %d, want <= 100: %q", i, w, line)
 		}
+	}
+}
+
+// TestEmptyStateIsInline verifies an empty stores section renders its hint
+// inline under the section header rather than centered with lipgloss.Place
+// (which padded the hint with many blank rows).
+func TestEmptyStateIsInline(t *testing.T) {
+	mod := newTestModel().(Model)
+	mod.stores = nil
+	body := stripANSIView(mod.sectionBody())
+	if strings.Contains(body, "\n\n\n\n\n\n\n\n") {
+		t.Fatal("empty state must be inline under the header, not centered")
+	}
+	if !strings.Contains(body, "No stores yet") {
+		t.Fatal("empty state copy missing")
 	}
 }
 

@@ -34,6 +34,7 @@ func (m Model) viewString() string {
 			style.Faint.Render("terminal too small — need at least 40×10"))
 	}
 	m.sh.SetSidebar(m.sidebarContext(), m.sidebarNav(), m.sidebarFooter())
+	m.sh.SetBrand("OpenFGA playground", m.version)
 	m.sh.SetMain(sectionNames[m.section], m.sectionBody())
 	st := shell.Status{Store: m.storeName, Model: short(m.modelID), Left: m.status, Keys: m.statusKeys()}
 	if m.section == secQuery {
@@ -79,7 +80,7 @@ func (m Model) sidebarContext() []string {
 	if name == "" {
 		name = short(m.storeID)
 	}
-	lines := []string{lipgloss.NewStyle().Foreground(style.Accent).Render(style.IconStore) + " " + name}
+	lines := []string{lipgloss.NewStyle().Foreground(style.Accent).Render(style.IconStore) + " " + style.Value.Render(name)}
 	if m.modelID != "" {
 		lines = append(lines, style.Faint.Render(style.IconModel+" "+short(m.modelID)))
 	}
@@ -124,34 +125,37 @@ func (m Model) sectionBody() string {
 	switch m.section {
 	case secStores:
 		if len(m.stores) == 0 {
-			body = m.centerHint("No stores yet — press n to create one")
+			body = style.Faint.Render("No stores yet — press n to create one")
 		} else {
 			w, h := m.contentSize()
-			body = masterDetail(m.storesList.View(), m.storePreview(), w, h)
+			pt, pb := m.storePreview()
+			body = masterDetail(m.storesList.View(), pt, pb, w, h)
 		}
 	case secModel:
 		if m.editorOpen {
 			body = m.editorBody()
 		} else if m.storeID == "" {
-			body = m.centerHint("Select a store first — press 1")
+			body = style.Faint.Render("Select a store first — press 1")
 		} else if len(m.graph.Types) == 0 {
-			body = m.centerHint("No authorization model in this store")
+			body = style.Faint.Render("No authorization model in this store")
 		} else {
 			body = m.graphVP.View()
 		}
 	case secTuples:
 		if len(m.tuples) == 0 {
-			body = m.centerHint(tupleHint(m.storeID))
+			body = style.Faint.Render(tupleHint(m.storeID))
 		} else {
 			w, h := m.contentSize()
-			body = masterDetail(m.tuplesList.View(), m.tuplePreview(), w, h)
+			pt, pb := m.tuplePreview()
+			body = masterDetail(m.tuplesList.View(), pt, pb, w, h)
 		}
 	case secChanges:
 		if len(m.changes) == 0 {
-			body = m.centerHint(changeHint(m.storeID))
+			body = style.Faint.Render(changeHint(m.storeID))
 		} else {
 			w, h := m.contentSize()
-			body = masterDetail(m.changesList.View(), m.changePreview(), w, h)
+			pt, pb := m.changePreview()
+			body = masterDetail(m.changesList.View(), pt, pb, w, h)
 		}
 	case secQuery:
 		body = m.queryBody()
@@ -164,13 +168,6 @@ func (m Model) sectionBody() string {
 	return body
 }
 
-// centerHint renders a muted hint centered in the main content area, so empty
-// sections read as intentional rather than blank.
-func (m Model) centerHint(text string) string {
-	w, h := m.contentSize()
-	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, style.Faint.Render(text))
-}
-
 // splitListWidth returns the width of the list pane in masterDetail's
 // list/card split. It is the single source of truth for that 40% share —
 // resize() must size the section lists (storesList/tuplesList/changesList)
@@ -179,29 +176,25 @@ func (m Model) centerHint(text string) string {
 // rows to fit.
 func splitListWidth(w int) int { return w * 2 / 5 }
 
-// masterDetail joins a list (40%) and a raised preview card (60%) into a
-// single row. In lipgloss v2, Width/Height are border-inclusive (the border
-// size is subtracted from the requested width before the content is laid
-// out), so Width(cw).Height(h) alone already produces a card whose total
-// footprint is cw×h — no -2 compensation needed as it would be in v1.
-func masterDetail(list, card string, w, h int) string {
+// masterDetail joins a list (40%) and a flat preview pane (60%) into a
+// single row. The preview's title sits under a style.SectionHeader rule
+// instead of a bordered card; the whole split is borderless and
+// background-free, matching the main pane's flat treatment.
+func masterDetail(list, title, card string, w, h int) string {
 	lw := splitListWidth(w)
 	cw := w - lw - 2
 	if cw < 10 {
 		return list // too narrow: list only
 	}
 	left := lipgloss.NewStyle().Width(lw).Height(h).Render(list)
-	right := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).BorderForeground(style.Faintc).
-		Background(style.BgRaised).Padding(0, 1).
-		Width(cw).Height(h).
-		Render(card)
+	right := lipgloss.NewStyle().Width(cw).Height(h).
+		Render(style.SectionHeader(title, cw) + "\n" + card)
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
 }
 
 // keyValueCard renders aligned key/value lines using style.Key/style.Value,
-// mirroring output.KeyValues's alignment but returning a string for use
-// inside a masterDetail preview card instead of writing to an io.Writer.
+// mirroring output.KeyValues's alignment but returning a string for use as a
+// masterDetail preview body instead of writing to an io.Writer.
 func keyValueCard(pairs [][2]string) string {
 	width := 0
 	for _, p := range pairs {
@@ -217,30 +210,34 @@ func keyValueCard(pairs [][2]string) string {
 	return strings.Join(lines, "\n")
 }
 
-// storePreview renders the selected store's details for the stores
-// master-detail split, or "" when nothing is selected.
-func (m Model) storePreview() string {
+// storePreview renders the selected store's title and details for the
+// stores master-detail split, or ("", "") when nothing is selected.
+func (m Model) storePreview() (string, string) {
 	it, ok := m.storesList.Selected()
 	if !ok || it.Index < 0 || it.Index >= len(m.stores) {
-		return ""
+		return "", ""
 	}
 	s := m.stores[it.Index]
-	return keyValueCard([][2]string{
+	title := s.Name
+	if title == "" {
+		title = "Store"
+	}
+	return title, keyValueCard([][2]string{
 		{"Name", s.Name},
 		{"ID", s.ID},
 		{"Created", s.CreatedAt.Format("2006-01-02 15:04:05")},
 	})
 }
 
-// tuplePreview renders the selected tuple's details for the tuples
-// master-detail split, or "" when nothing is selected.
-func (m Model) tuplePreview() string {
+// tuplePreview renders the selected tuple's title and details for the
+// tuples master-detail split, or ("", "") when nothing is selected.
+func (m Model) tuplePreview() (string, string) {
 	it, ok := m.tuplesList.Selected()
 	if !ok || it.Index < 0 || it.Index >= len(m.tuples) {
-		return ""
+		return "", ""
 	}
 	t := m.tuples[it.Index]
-	return keyValueCard([][2]string{
+	return "Tuple", keyValueCard([][2]string{
 		{"User", t.Key.User},
 		{"Relation", t.Key.Relation},
 		{"Object", t.Key.Object},
@@ -248,19 +245,19 @@ func (m Model) tuplePreview() string {
 	})
 }
 
-// changePreview renders the selected change's details for the changes
-// master-detail split, or "" when nothing is selected.
-func (m Model) changePreview() string {
+// changePreview renders the selected change's title and details for the
+// changes master-detail split, or ("", "") when nothing is selected.
+func (m Model) changePreview() (string, string) {
 	it, ok := m.changesList.Selected()
 	if !ok || it.Index < 0 || it.Index >= len(m.changes) {
-		return ""
+		return "", ""
 	}
 	c := m.changes[it.Index]
 	op := "write"
 	if c.Operation == "TUPLE_OPERATION_DELETE" {
 		op = "delete"
 	}
-	return keyValueCard([][2]string{
+	return "Change", keyValueCard([][2]string{
 		{"Operation", op},
 		{"Timestamp", c.Timestamp.Format("2006-01-02 15:04:05")},
 		{"Tuple", fga.FormatTuple(c.TupleKey)},
@@ -277,7 +274,7 @@ func (m Model) editorBody() string {
 
 func (m Model) queryBody() string {
 	if m.storeID == "" {
-		return m.centerHint("Select a store first — press 1")
+		return style.Faint.Render("Select a store first — press 1")
 	}
 
 	// Header: mode chip + key hints. The huh fields already carry their own
@@ -285,58 +282,58 @@ func (m Model) queryBody() string {
 	// the whole section).
 	chip := lipgloss.NewStyle().Background(style.BgRaised).Foreground(style.Secondary).
 		Bold(true).Padding(0, 1).Render(queryModes[m.qmode])
-	sections := []string{
-		chip + "  " + style.Faint.Render("m mode · i edit · enter run"),
-		m.qform.View(),
-	}
+	var b strings.Builder
+	b.WriteString(chip + "  " + style.Faint.Render("m mode · i edit · enter run"))
+	b.WriteString("\n\n" + m.qform.View())
 
+	w, _ := m.contentSize()
 	switch {
 	case m.loading:
-		sections = append(sections, m.spinner.View()+" running…")
+		b.WriteString("\n\n" + m.spinner.View() + " running…")
 	case m.hasResult && m.result.err != nil:
-		sections = append(sections, style.Failure.Render("error: ")+m.result.err.Error())
+		b.WriteString("\n\n" + style.Failure.Render("error: ") + m.result.err.Error())
 	case m.hasResult:
-		sections = append(sections, m.renderResultCard())
+		tint := style.Faintc
+		if m.flash {
+			tint = style.Green
+			if r := m.result; r.badge && !r.ok {
+				tint = style.Red
+			}
+		}
+		b.WriteString("\n\n" + style.SectionHeaderTinted("Result", w, tint) + "\n" + m.renderResult())
 	case len(m.history) == 0:
-		sections = append(sections, style.Keycap("i")+" edit  "+style.Keycap("↵")+" run")
+		b.WriteString("\n\n" + style.Keycap("i") + " edit  " + style.Keycap("↵") + " run")
 	}
 
-	if hs := m.historyStrip(); hs != "" {
-		sections = append(sections, hs)
+	if len(m.history) > 0 {
+		b.WriteString("\n\n" + style.SectionHeader("Recent", w) + "\n" + m.historyStrip())
 	}
-	body := strings.Join(sections, "\n\n")
 
-	// Chip + form + result card + history can add up to more rows than short
+	// Chip + form + result + history can add up to more rows than short
 	// terminals have available; renderMain doesn't cap its content height, so
 	// an over-tall body pushes the status bar off the bottom of the frame.
 	// Trim to what actually fits, clipping the bottom-most content.
 	_, h := m.contentSize()
-	lines := strings.Split(body, "\n")
+	lines := strings.Split(b.String(), "\n")
 	if len(lines) > h {
 		lines = lines[:h]
 	}
 	return strings.Join(lines, "\n")
 }
 
-// renderResultCard frames the current query result in a rounded card on the
-// raised surface. Badge results (check) show a big ALLOWED/DENIED chip plus
-// latency; list-objects/list-users results show the title+bullets layout
-// inside the same card frame. While m.flash is true — for one frame right
-// after a badge result lands — the border uses the verdict color instead of
-// the default faint one.
-func (m Model) renderResultCard() string {
+// renderResult renders the current query result inline, with no box. Badge
+// results (check) show the ALLOWED/DENIED chip plus latency on one line,
+// then the raw detail lines in a faint tone; list-objects/list-users
+// results show the title+bullets layout instead. The verdict/flash tint
+// that used to color this card's border now colors the "Result" section
+// header in queryBody.
+func (m Model) renderResult() string {
 	msg := m.result
-	border := style.Faintc
 	var body string
 	if msg.badge {
 		verdict := style.Chip(" "+icons.I().Cross+" DENIED ", style.OnAccent, style.Red)
-		flashColor := style.Red
 		if msg.ok {
 			verdict = style.Chip(" "+icons.I().Check+" ALLOWED ", style.OnAccent, style.Green)
-			flashColor = style.Green
-		}
-		if m.flash {
-			border = flashColor
 		}
 		meta := style.Faint.Render(itoa(int(msg.ms)) + "ms")
 		body = verdict + "  " + meta
@@ -349,10 +346,7 @@ func (m Model) renderResultCard() string {
 			body += "\n" + style.Bullet() + " " + style.Value.Render(l)
 		}
 	}
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).BorderForeground(border).
-		Background(style.BgRaised).Padding(0, 2).
-		Render(body)
+	return body
 }
 
 // historyStrip renders up to 5 numbered chips for recent query results,

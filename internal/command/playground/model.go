@@ -98,6 +98,7 @@ type Model struct {
 
 	section section
 	sh      *shell.Shell
+	version string
 
 	spinner spinner.Model
 	loading bool
@@ -192,6 +193,7 @@ func newModel(ctx context.Context, a *app.App, cl *openfga.Client, storeID strin
 		entranceFrac:   entranceFrac,
 		entranceSpring: entranceSpring,
 		section:        secStores,
+		version:        a.Version,
 		storeID:        storeID,
 		graphSpring:    graphSpring,
 		loading:        true,
