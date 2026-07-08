@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/charmbracelet/colorprofile"
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/openfga-cli/internal/app"
@@ -23,8 +24,10 @@ import (
 
 // Command is the root command.
 type Command struct {
-	app *app.App
-	cmd *cobra.Command
+	app  *app.App
+	cmd  *cobra.Command
+	outW *colorprofile.Writer
+	errW *colorprofile.Writer
 }
 
 // New constructs the root command and wires persistent flags + sub-commands.
@@ -52,6 +55,23 @@ func New(a *app.App) *Command {
 			c.applyEnvironment()
 			return nil
 		},
+	}
+
+	// lipgloss v2 always emits full-fidelity truecolor ANSI; downsampling for
+	// non-TTY output (pipes) or NO_COLOR now happens here, at the writer layer,
+	// rather than at Render time as lipgloss v1 did. This covers all cobra
+	// output — help, usage, and the banner baked into Long above.
+	c.outW = colorprofile.NewWriter(os.Stdout, os.Environ())
+	c.errW = colorprofile.NewWriter(os.Stderr, os.Environ())
+	c.cmd.SetOut(c.outW)
+	c.cmd.SetErr(c.errW)
+	// cobra's `--help` flag short-circuits before PersistentPreRunE runs, so
+	// applyEnvironment's NO_COLOR handling below never fires for `--help`.
+	// Force the fully-stripping profile from the env var here too, so
+	// `NO_COLOR=1 ofga --help` is byte-clean even on a TTY.
+	if os.Getenv("NO_COLOR") != "" && os.Getenv("FORCE_COLOR") == "" {
+		c.outW.Profile = colorprofile.NoTTY
+		c.errW.Profile = colorprofile.NoTTY
 	}
 
 	pf := c.cmd.PersistentFlags()
@@ -84,6 +104,12 @@ func (c *Command) applyEnvironment() {
 
 	if noColor && !force {
 		style.Apply(theme.Mono())
+		// colorprofile's own NO_COLOR handling only strips color params,
+		// leaving attribute codes (bold, etc.) intact on a TTY. Force the
+		// fully-stripping profile so NO_COLOR output has zero escape bytes,
+		// matching the pre-v2 behavior.
+		c.outW.Profile = colorprofile.NoTTY
+		c.errW.Profile = colorprofile.NoTTY
 		return
 	}
 
@@ -98,6 +124,11 @@ func (c *Command) applyEnvironment() {
 
 // Command returns the root cobra command.
 func (c *Command) Command() *cobra.Command { return c.cmd }
+
+// ErrWriter returns the profile-aware writer wrapping stderr, so callers
+// outside cobra's own output path (e.g. main's final error print) can reuse
+// the same NO_COLOR/pipe-aware downsampling.
+func (c *Command) ErrWriter() *colorprofile.Writer { return c.errW }
 
 // RegisterSubCommands adds all top-level commands.
 func (c *Command) RegisterSubCommands() {

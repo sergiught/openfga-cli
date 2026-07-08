@@ -100,6 +100,13 @@ func Table(w io.Writer, headers []string, rows [][]string) {
 		fmt.Fprintln(&buf, b.String())
 	}
 
+	if style.Active.Name == "mono" {
+		// NO_COLOR/--no-color: keep the pre-framed structure (header, rule,
+		// rows) instead of drawing a box around it.
+		fmt.Fprint(w, buf.String())
+		return
+	}
+
 	fmt.Fprintln(w, lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(style.Faintc).

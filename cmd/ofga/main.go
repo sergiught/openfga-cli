@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
 	"slices"
@@ -13,7 +12,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/app"
 	"github.com/sergiught/openfga-cli/internal/command/base"
 	"github.com/sergiught/openfga-cli/internal/config"
-	"github.com/sergiught/openfga-cli/internal/style"
+	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/ui/icons"
 )
 
@@ -38,9 +37,10 @@ func main() {
 
 	a := app.New(logger, cfg, version)
 
-	if err := base.New(a).Command().ExecuteContext(ctx); err != nil {
+	root := base.New(a)
+	if err := root.Command().ExecuteContext(ctx); err != nil {
 		logger.Debugf("command failed: %+v", err)
-		fmt.Fprintln(os.Stderr, style.Failure.Render("✗ "+err.Error()))
+		output.Errorf(root.ErrWriter(), "%s", err.Error())
 		os.Exit(1)
 	}
 }
