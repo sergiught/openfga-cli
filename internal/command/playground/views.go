@@ -9,6 +9,7 @@ import (
 	lipgloss "charm.land/lipgloss/v2"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/icons"
 	"github.com/sergiught/openfga-cli/internal/ui/logo"
@@ -136,7 +137,12 @@ func (m Model) sectionBody() string {
 	var body string
 	switch m.section {
 	case secStores:
-		body = m.listOrHint(m.storesList.View(), len(m.stores), "No stores yet — press n to create one")
+		if len(m.stores) == 0 {
+			body = m.centerHint("No stores yet — press n to create one")
+		} else {
+			w, h := m.contentSize()
+			body = masterDetail(m.storesList.View(), m.storePreview(), w, h)
+		}
 	case secModel:
 		if m.editorOpen {
 			body = m.editorBody()
@@ -148,9 +154,19 @@ func (m Model) sectionBody() string {
 			body = m.graphVP.View()
 		}
 	case secTuples:
-		body = m.listOrHint(m.tuplesList.View(), len(m.tuples), tupleHint(m.storeID))
+		if len(m.tuples) == 0 {
+			body = m.centerHint(tupleHint(m.storeID))
+		} else {
+			w, h := m.contentSize()
+			body = masterDetail(m.tuplesList.View(), m.tuplePreview(), w, h)
+		}
 	case secChanges:
-		body = m.listOrHint(m.changesList.View(), len(m.changes), changeHint(m.storeID))
+		if len(m.changes) == 0 {
+			body = m.centerHint(changeHint(m.storeID))
+		} else {
+			w, h := m.contentSize()
+			body = masterDetail(m.changesList.View(), m.changePreview(), w, h)
+		}
 	case secQuery:
 		body = m.queryBody()
 	case secAssertions:
@@ -169,12 +185,92 @@ func (m Model) centerHint(text string) string {
 	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, style.Faint.Render(text))
 }
 
-// listOrHint shows the list when it has rows, otherwise a centered empty hint.
-func (m Model) listOrHint(view string, count int, hint string) string {
-	if count == 0 {
-		return m.centerHint(hint)
+// masterDetail joins a list (40%) and a raised preview card (60%) into a
+// single row. In lipgloss v2, Width/Height are border-inclusive (the border
+// size is subtracted from the requested width before the content is laid
+// out), so Width(cw).Height(h) alone already produces a card whose total
+// footprint is cw×h — no -2 compensation needed as it would be in v1.
+func masterDetail(list, card string, w, h int) string {
+	lw := w * 2 / 5
+	cw := w - lw - 2
+	if cw < 10 {
+		return list // too narrow: list only
 	}
-	return view
+	left := lipgloss.NewStyle().Width(lw).Height(h).Render(list)
+	right := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).BorderForeground(style.Faintc).
+		Background(style.BgRaised).Padding(0, 1).
+		Width(cw).Height(h).
+		Render(card)
+	return lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
+}
+
+// keyValueCard renders aligned key/value lines using style.Key/style.Value,
+// mirroring output.KeyValues's alignment but returning a string for use
+// inside a masterDetail preview card instead of writing to an io.Writer.
+func keyValueCard(pairs [][2]string) string {
+	width := 0
+	for _, p := range pairs {
+		if w := lipgloss.Width(p[0]); w > width {
+			width = w
+		}
+	}
+	lines := make([]string, len(pairs))
+	for i, p := range pairs {
+		pad := strings.Repeat(" ", width-lipgloss.Width(p[0]))
+		lines[i] = style.Key.Render(p[0]) + pad + "  " + style.Value.Render(p[1])
+	}
+	return strings.Join(lines, "\n")
+}
+
+// storePreview renders the selected store's details for the stores
+// master-detail split, or "" when nothing is selected.
+func (m Model) storePreview() string {
+	it, ok := m.storesList.Selected()
+	if !ok || it.Index < 0 || it.Index >= len(m.stores) {
+		return ""
+	}
+	s := m.stores[it.Index]
+	return keyValueCard([][2]string{
+		{"Name", s.Name},
+		{"ID", s.ID},
+		{"Created", s.CreatedAt.Format("2006-01-02 15:04:05")},
+	})
+}
+
+// tuplePreview renders the selected tuple's details for the tuples
+// master-detail split, or "" when nothing is selected.
+func (m Model) tuplePreview() string {
+	it, ok := m.tuplesList.Selected()
+	if !ok || it.Index < 0 || it.Index >= len(m.tuples) {
+		return ""
+	}
+	t := m.tuples[it.Index]
+	return keyValueCard([][2]string{
+		{"User", t.Key.User},
+		{"Relation", t.Key.Relation},
+		{"Object", t.Key.Object},
+		{"Tuple", fga.FormatTuple(t.Key)},
+	})
+}
+
+// changePreview renders the selected change's details for the changes
+// master-detail split, or "" when nothing is selected.
+func (m Model) changePreview() string {
+	it, ok := m.changesList.Selected()
+	if !ok || it.Index < 0 || it.Index >= len(m.changes) {
+		return ""
+	}
+	c := m.changes[it.Index]
+	op := "write"
+	if c.Operation == "TUPLE_OPERATION_DELETE" {
+		op = "delete"
+	}
+	return keyValueCard([][2]string{
+		{"Operation", op},
+		{"Timestamp", c.Timestamp.Format("2006-01-02 15:04:05")},
+		{"Tuple", fga.FormatTuple(c.TupleKey)},
+	})
 }
 
 func (m Model) editorBody() string {

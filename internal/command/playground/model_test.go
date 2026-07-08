@@ -14,7 +14,9 @@ import (
 	"charm.land/bubbles/v2/cursor"
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+	lipgloss "charm.land/lipgloss/v2"
 	"github.com/charmbracelet/log"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/app"
@@ -725,5 +727,15 @@ func TestQueryHistoryRecordsMessageMode(t *testing.T) {
 	}
 	if final.history[0].ms != 42 {
 		t.Errorf("history[0].ms = %d, want 42", final.history[0].ms)
+	}
+}
+
+// TestMasterDetailSplitsWidth verifies masterDetail joins the list and the
+// preview card into a single row that fills the requested width.
+func TestMasterDetailSplitsWidth(t *testing.T) {
+	out := ansi.Strip(masterDetail("L", "R", 100, 10))
+	first := strings.Split(out, "\n")[0]
+	if lipgloss.Width(first) < 90 {
+		t.Fatalf("master-detail should fill width, got %d", lipgloss.Width(first))
 	}
 }
