@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/icons"
@@ -64,7 +65,8 @@ func (m Model) View() string {
 	case Error:
 		ic, c = icons.I().Cross, style.Red
 	}
+	text := ansi.Truncate(m.text, 56, "…")
 	icon := lipgloss.NewStyle().Foreground(c).Background(style.BgRaised).Render(ic)
 	return lipgloss.NewStyle().Background(style.BgRaised).Padding(0, 1).Render(
-		icon + " " + lipgloss.NewStyle().Foreground(style.Fg).Background(style.BgRaised).Render(m.text))
+		icon + " " + lipgloss.NewStyle().Foreground(style.Fg).Background(style.BgRaised).Render(text))
 }

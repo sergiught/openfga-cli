@@ -3,6 +3,8 @@ package toast
 import (
 	"strings"
 	"testing"
+
+	lipgloss "charm.land/lipgloss/v2"
 )
 
 func TestToastLifecycle(t *testing.T) {
@@ -17,6 +19,19 @@ func TestToastLifecycle(t *testing.T) {
 	m.Update(expireMsg{id: m.id}) // exported for test via same package
 	if m.Active() {
 		t.Fatal("toast should expire")
+	}
+}
+
+func TestToastTextWidthCap(t *testing.T) {
+	m := New()
+	longMsg := "This is a very long error message that would normally overflow and break the layout if not truncated properly with ellipsis at the end to ensure it fits"
+	if len(longMsg) < 100 {
+		t.Fatal("test message must be 100+ chars")
+	}
+	m.Push(Error, longMsg)
+	w := lipgloss.Width(m.View())
+	if w > 62 {
+		t.Fatalf("toast width should be at most 62, got %d", w)
 	}
 }
 
