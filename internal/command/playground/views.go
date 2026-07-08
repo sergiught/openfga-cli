@@ -294,7 +294,7 @@ func (m Model) queryBody() string {
 	case m.loading:
 		b.WriteString("\n\n" + m.spinner.View() + " running…")
 	case m.hasResult && m.result.err != nil:
-		b.WriteString("\n\n" + style.Failure.Render("error: ") + m.result.err.Error())
+		b.WriteString("\n\n" + style.Failure.Render("error: ") + style.Faint.Render(m.result.err.Error()))
 	case m.hasResult:
 		tint := style.Faintc
 		if r := m.result; m.flash && r.badge {
@@ -344,7 +344,7 @@ func (m Model) renderResult() string {
 			body += "\n" + style.Faint.Render(l)
 		}
 	} else {
-		body = style.Heading.Render(msg.title)
+		body = lipgloss.NewStyle().Bold(true).Foreground(style.Muted).Render(msg.title)
 		for _, l := range msg.lines {
 			body += "\n" + style.Bullet() + " " + style.Value.Render(l)
 		}
@@ -368,7 +368,7 @@ func (m Model) historyStrip() string {
 		label := itoa(i+1) + " " + lipgloss.NewStyle().Foreground(c).Background(style.BgHighlight).Render(ic)
 		chips[i] = style.Chip(label+" "+h.vals[0], style.Muted, style.BgHighlight)
 	}
-	return style.Faint.Render("recent  ") + strings.Join(chips, " ")
+	return strings.Join(chips, " ")
 }
 
 func (m Model) assertionsBody() string {

@@ -1,8 +1,9 @@
 // Package shell renders the Crush-style playground frame: a left sidebar
 // (gradient logo + context + nav + status footer), a main content pane, and a
-// bottom status bar, composited on a lipgloss canvas so panel backgrounds
-// paint cleanly. It also composites a centered modal dialog (with dim scrim
-// and drop shadow) and a bottom-right toast on top. Styling is driven by the
+// bottom status bar, composited flat on a lipgloss canvas with no painted
+// panel backgrounds — structure comes from borders and rules. The one boxed
+// exception is the centered modal dialog (with dim scrim and drop shadow);
+// a bottom-right toast layers on top of everything. Styling is driven by the
 // active theme via the style package.
 package shell
 
@@ -92,7 +93,7 @@ func (s *Shell) sidebarWidth() int {
 }
 
 // sidebarOccupied returns the column count the sidebar takes up. The sidebar is
-// a filled panel with no border; Width(w) already includes its padding in
+// a flat column with no border; Width(w) already includes its padding in
 // lipgloss v1. Zero when collapsed.
 func (s *Shell) sidebarOccupied() int {
 	if s.Collapsed() {
@@ -156,9 +157,9 @@ func (s *Shell) SetEntrance(frac float64, ghost bool) {
 	s.entranceFrac, s.entranceGhost = frac, ghost
 }
 
-// View composes the full frame on a canvas: sidebar/main/status painted with
-// their surface backgrounds, an optional dimmed scrim + shadowed dialog
-// centered on top, and a bottom-right toast layered above everything.
+// View composes the full frame on a canvas: a flat sidebar/main/status base
+// with no painted surface backgrounds, an optional dimmed scrim + shadowed
+// dialog centered on top, and a bottom-right toast layered above everything.
 func (s *Shell) View() string {
 	body := s.bodyHeight()
 	// Safety net: never emit more than height rows or wider than width. Any
@@ -309,8 +310,8 @@ func (s *Shell) renderSidebar(height int) string {
 	// Logo: the big block wordmark when the sidebar is wide enough, otherwise a
 	// compact wordmark with a diagonal field tail (Crush's small-logo treatment).
 	word := logo.Word("ofga")
-	hatch := lipgloss.NewStyle().Foreground(style.Faintc).Render(strings.Repeat("╱", inner))
 	if inner >= lipgloss.Width(word) {
+		hatch := lipgloss.NewStyle().Foreground(style.Faintc).Render(strings.Repeat("╱", inner))
 		var art string
 		if s.entranceFrac > 0 {
 			art = style.GradientBlockShimmer(word, 1-s.entranceFrac)

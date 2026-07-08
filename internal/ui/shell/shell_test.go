@@ -165,6 +165,11 @@ func TestFlatMainPaneWithHeaderRule(t *testing.T) {
 	if dlg := s.View(); !strings.Contains(dlg, "╭") {
 		t.Fatal("dialogs remain the boxed exception")
 	}
+
+	icons.Apply(icons.ModeUnicode)
+	if out := s.View(); strings.Contains(out, "") {
+		t.Fatal("unicode icon rung must drop powerline caps")
+	}
 }
 
 func TestBrandLineInSidebar(t *testing.T) {

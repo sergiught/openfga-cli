@@ -61,8 +61,8 @@ func fadeTick() tea.Cmd {
 	})
 }
 
-// flashMsg ends the one-frame verdict-color flash on the result card
-// border. Does not re-arm — fires exactly once per badge result.
+// flashMsg ends the one-frame verdict-color flash on the Result
+// section-header rule. Does not re-arm — fires exactly once per badge result.
 type flashMsg struct{}
 
 func flashTick() tea.Cmd {
