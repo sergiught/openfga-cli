@@ -38,6 +38,7 @@ type Profile struct {
 type Config struct {
 	Active   string             `toml:"active_profile"`
 	Theme    string             `toml:"theme,omitempty"`
+	Icons    string             `toml:"icons,omitempty"`
 	Profiles map[string]Profile `toml:"profiles"`
 
 	path string // resolved file path; not serialized
@@ -65,6 +66,15 @@ func New() *Config {
 
 // Path returns the resolved configuration file path.
 func (c *Config) Path() string { return c.path }
+
+// IconsMode returns the configured glyph capability rung, giving precedence
+// to the OPENFGA_ICONS environment variable over the on-disk value.
+func (c *Config) IconsMode() string {
+	if v := os.Getenv("OPENFGA_ICONS"); v != "" {
+		return v
+	}
+	return c.Icons
+}
 
 // resolvePath computes the platform-appropriate config file path.
 func resolvePath() (string, error) {

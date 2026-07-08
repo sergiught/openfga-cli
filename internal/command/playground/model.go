@@ -15,6 +15,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/field"
+	"github.com/sergiught/openfga-cli/internal/ui/icons"
 	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
 	shell "github.com/sergiught/openfga-cli/internal/ui/shell"
 )
@@ -181,6 +182,7 @@ func Run(ctx context.Context, a *app.App) error {
 	if r.StoreID != "" {
 		m.storeName = r.StoreID
 	}
+	icons.Apply(icons.Parse(a.Config.IconsMode()))
 	p := tea.NewProgram(m)
 	_, err = p.Run()
 	return err

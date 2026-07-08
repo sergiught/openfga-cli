@@ -14,6 +14,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/command/base"
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/style"
+	"github.com/sergiught/openfga-cli/internal/ui/icons"
 )
 
 // version is overridden at build time via -ldflags "-X main.version=v1.2.3".
@@ -33,6 +34,7 @@ func main() {
 	if err != nil {
 		logger.Fatal("failed to load config", "error", err)
 	}
+	icons.Apply(icons.Parse(cfg.IconsMode()))
 
 	a := app.New(logger, cfg, version)
 
