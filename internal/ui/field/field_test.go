@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func key(s string) tea.KeyPressMsg {
@@ -63,6 +64,22 @@ func TestSetValuesFillsFields(t *testing.T) {
 	got := f.Values()
 	if got[0] != "user:anne" || got[1] != "viewer" || got[2] != "" {
 		t.Fatalf("values = %v, want [user:anne viewer \"\"]", got)
+	}
+}
+
+func TestFocusedFieldHasDoubleWidthBar(t *testing.T) {
+	f := NewForm(New("User", "user:anne"), New("Relation", "viewer"))
+	f.SetWidth(40)
+	f.Init()
+	lines := strings.Split(ansi.Strip(f.View()), "\n")
+	if !strings.HasPrefix(lines[1], "▐▌") {
+		t.Fatalf("focused field input line = %q, want prefix ▐▌", lines[1])
+	}
+	for _, k := range []string{"a", "tab", "b", "enter"} {
+		f.Update(key(k))
+	}
+	if !f.Completed() {
+		t.Fatal("form should still complete with the double-width bar")
 	}
 }
 

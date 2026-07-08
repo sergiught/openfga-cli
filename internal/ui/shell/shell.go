@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sergiught/openfga-cli/internal/style"
+	"github.com/sergiught/openfga-cli/internal/ui/icons"
 	"github.com/sergiught/openfga-cli/internal/ui/logo"
 )
 
@@ -57,6 +58,10 @@ type Shell struct {
 
 	dialogTitle, dialogBody string
 	toast                   string
+
+	drift         float64
+	entranceFrac  float64
+	entranceGhost bool
 }
 
 // New returns an empty shell.
@@ -136,6 +141,16 @@ func (s *Shell) SetDialog(title, body string) { s.dialogTitle, s.dialogBody = ti
 // SetToast sets (or clears, when empty) the bottom-right toast slot.
 func (s *Shell) SetToast(view string) { s.toast = view }
 
+// SetDrift sets the ambient gradient phase for the wordmark and active pill.
+func (s *Shell) SetDrift(p float64) { s.drift = p }
+
+// SetEntrance drives the launch animation: frac slides the sidebar in from
+// the left (1 = fully off-screen, 0 = settled) and ghost dims the main pane.
+// frac 0 with ghost false is the steady state.
+func (s *Shell) SetEntrance(frac float64, ghost bool) {
+	s.entranceFrac, s.entranceGhost = frac, ghost
+}
+
 // View composes the full frame on a canvas: sidebar/main/status painted with
 // their surface backgrounds, an optional dimmed scrim + shadowed dialog
 // centered on top, and a bottom-right toast layered above everything.
@@ -168,6 +183,20 @@ func (s *Shell) View() string {
 		layers = append(layers,
 			lipgloss.NewLayer(shadow).X(dx+1).Y(dy+1).Z(1),
 			lipgloss.NewLayer(dlg).X(dx).Y(dy).Z(2),
+		)
+	} else if s.entranceFrac > 0 && !s.Collapsed() {
+		// Entrance: sidebar slides in from the left as its own layer; the
+		// main pane and status stay at their final positions.
+		off := int(s.entranceFrac * float64(s.sidebarOccupied()))
+		rest := lipgloss.JoinVertical(lipgloss.Left,
+			lipgloss.JoinHorizontal(lipgloss.Top,
+				strings.Repeat(" ", s.sidebarOccupied()), s.renderMain(body)),
+			s.renderStatus(),
+		)
+		rest = clampFrame(rest, s.width, s.height)
+		layers = append(layers,
+			lipgloss.NewLayer(rest).X(0).Y(0).Z(0),
+			lipgloss.NewLayer(s.renderSidebar(body)).X(-off).Y(0).Z(1),
 		)
 	} else {
 		layers = append(layers, lipgloss.NewLayer(base).X(0).Y(0).Z(0))
@@ -211,9 +240,9 @@ func (s *Shell) renderDialog() string {
 	if dw > s.width-4 {
 		dw = s.width - 4
 	}
-	title := lipgloss.NewStyle().Bold(true).Foreground(style.Primary).Render(s.dialogTitle)
+	title := lipgloss.NewStyle().Bold(true).Foreground(style.Violet).Render(s.dialogTitle)
 	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).BorderForeground(style.Primary).
+		Border(lipgloss.RoundedBorder()).BorderForeground(style.Violet).
 		Background(style.BgRaised).
 		Width(dw).Padding(0, 2).
 		Render(title + "\n\n" + s.dialogBody)
@@ -278,7 +307,11 @@ func (s *Shell) renderSidebar(height int) string {
 	// compact wordmark with a diagonal field tail (Crush's small-logo treatment).
 	word := logo.Word("ofga")
 	if inner >= lipgloss.Width(word) {
-		b.WriteString(style.GradientBlock(word) + "\n")
+		art := style.GradientBlockPhase(word, s.drift)
+		if s.entranceFrac > 0 {
+			art = style.GradientBlockShimmer(word, 1-s.entranceFrac)
+		}
+		b.WriteString(art + "\n")
 		b.WriteString(lipgloss.NewStyle().Foreground(style.Faintc).Render(strings.Repeat("╱", inner)) + "\n")
 	} else {
 		line := style.Gradient("ofga")
@@ -328,7 +361,7 @@ func (s *Shell) renderSidebar(height int) string {
 func (s *Shell) renderNav(n NavItem) string {
 	label := strings.TrimSpace(n.Icon + " " + n.Label)
 	if n.Active {
-		out := style.GradientPill(label)
+		out := style.GradientPillPhase(label, s.drift)
 		if n.Badge != "" {
 			out += " " + style.Chip(n.Badge, style.Muted, style.BgHighlight)
 		}
@@ -348,10 +381,16 @@ func (s *Shell) renderMain(height int) string {
 		mainTotal = 6
 	}
 	innerW := mainTotal - 4 // border(2) + padding(2)
-	title := lipgloss.NewStyle().Bold(true).Foreground(style.Primary).Render(s.mainTitle)
+	titleBar := lipgloss.NewStyle().Bold(true).Foreground(style.Primary).
+		Background(style.BgHighlight).Width(innerW).Padding(0, 1).
+		Render(ansi.Truncate(s.mainTitle, innerW-2, "…"))
 	// Truncate each body line to the interior width so over-wide content (graphs,
 	// long rows) is clipped rather than wrapped into extra rows.
-	content := title + "\n\n" + fitLines(s.mainBody, innerW)
+	body := fitLines(s.mainBody, innerW)
+	if s.entranceGhost {
+		body = lipgloss.NewStyle().Foreground(style.Faintc).Render(ansi.Strip(body))
+	}
+	content := titleBar + "\n" + style.GradientUnderline(innerW) + "\n" + body
 	return lipgloss.NewStyle().
 		Width(mainTotal).Height(height).
 		Border(lipgloss.RoundedBorder()).
@@ -362,16 +401,28 @@ func (s *Shell) renderMain(height int) string {
 		Render(content)
 }
 
+// capChip wraps a filled chip with powerline end caps when the active icon
+// rung provides them; otherwise it returns the plain chip.
+func capChip(text string, fg, bg color.Color) string {
+	ic := icons.I()
+	chip := style.Chip(text, fg, bg)
+	if ic.CapL == "" {
+		return chip
+	}
+	cap := lipgloss.NewStyle().Foreground(bg)
+	return cap.Render(ic.CapL) + chip + cap.Render(ic.CapR)
+}
+
 func (s *Shell) renderStatus() string {
 	var segs []string
 	if s.status.Mode != "" {
-		segs = append(segs, style.Chip(s.status.Mode, style.OnAccent, style.Keyword))
+		segs = append(segs, capChip(s.status.Mode, style.OnAccent, style.Violet))
 	}
 	if s.status.Store != "" {
-		segs = append(segs, style.Chip(s.status.Store, style.Fg, style.BgHighlight))
+		segs = append(segs, capChip(s.status.Store, style.Fg, style.BgHighlight))
 	}
 	if s.status.Model != "" {
-		segs = append(segs, style.Chip(s.status.Model, style.Muted, style.BgHighlight))
+		segs = append(segs, capChip(s.status.Model, style.Muted, style.BgHighlight))
 	}
 	left := strings.Join(segs, " ")
 	txt := s.status.Left

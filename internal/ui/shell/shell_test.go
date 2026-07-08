@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	lipgloss "charm.land/lipgloss/v2"
+
+	"github.com/sergiught/openfga-cli/internal/ui/icons"
 )
 
 func TestSizingWideHasSidebar(t *testing.T) {
@@ -133,6 +135,42 @@ func TestStatusSegments(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("status bar missing %q", want)
 		}
+	}
+}
+
+func TestFilledTitleBarAndCaps(t *testing.T) {
+	icons.Apply(icons.ModeNerdFont)
+	s := New()
+	s.SetSize(100, 30)
+	s.SetMain("Query", "body")
+	s.SetStatus(Status{Mode: "CHECK"})
+	out := s.View()
+	if !strings.Contains(out, "48;2;43;53;71") { // BgHighlight #2B3547 behind the title
+		t.Fatal("main title must render on a filled BgHighlight bar")
+	}
+	if !strings.Contains(out, "") || !strings.Contains(out, "") {
+		t.Fatal("status chips must carry powerline caps on the nerdfont rung")
+	}
+	icons.Apply(icons.ModeUnicode)
+	if out2 := s.View(); strings.Contains(out2, "") {
+		t.Fatal("caps must disappear on the unicode rung")
+	}
+	icons.Apply(icons.ModeNerdFont)
+}
+
+func TestEntranceSlidesAndSettles(t *testing.T) {
+	s := New()
+	s.SetSize(100, 30)
+	s.SetMain("Query", "body")
+	settled := s.View()
+	s.SetEntrance(0.5, true)
+	moving := s.View()
+	if moving == settled {
+		t.Fatal("mid-entrance frame must differ from the settled frame")
+	}
+	s.SetEntrance(0, false)
+	if s.View() != settled {
+		t.Fatal("frac 0 + ghost false must render identically to steady state")
 	}
 }
 

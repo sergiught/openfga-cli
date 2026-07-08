@@ -72,12 +72,12 @@ func (l *List) Restyle() {
 		NormalDesc:  lipgloss.NewStyle().Foreground(style.Muted).Padding(0, 0, 0, 2),
 		SelectedTitle: lipgloss.NewStyle().
 			Border(lipgloss.ThickBorder(), false, false, false, true).
-			BorderForeground(style.Secondary).
+			BorderForeground(style.Magenta).
 			Foreground(style.Primary).Bold(true).
 			Padding(0, 0, 0, 1).Width(selWidth),
 		SelectedDesc: lipgloss.NewStyle().
 			Border(lipgloss.ThickBorder(), false, false, false, true).
-			BorderForeground(style.Secondary).
+			BorderForeground(style.Magenta).
 			Foreground(style.Muted).
 			Padding(0, 0, 0, 1).Width(selWidth),
 		DimmedTitle: lipgloss.NewStyle().Foreground(style.Muted).Padding(0, 0, 0, 2),

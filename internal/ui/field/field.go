@@ -48,7 +48,7 @@ func NewForm(fields ...*Field) *Form { return &Form{fields: fields} }
 
 // SetWidth sizes every input to the available content width.
 func (f *Form) SetWidth(w int) {
-	iw := w - 2 // accent bar + gap
+	iw := w - 3 // accent bar (2 cols) + gap
 	if iw < 1 {
 		iw = 1
 	}
@@ -151,10 +151,10 @@ func (f *Form) View() string {
 	for i, fl := range f.fields {
 		focused := i == f.focus && !f.completed
 		label := lipgloss.NewStyle().Foreground(style.Muted).Render(fl.label)
-		bar := " "
+		bar := "  "
 		if focused {
 			label = lipgloss.NewStyle().Bold(true).Foreground(style.Primary).Render(fl.label)
-			bar = lipgloss.NewStyle().Foreground(style.Primary).Render("▌")
+			bar = lipgloss.NewStyle().Foreground(style.Primary).Render("▐▌")
 		}
 		if i > 0 {
 			b.WriteString("\n")
