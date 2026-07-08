@@ -242,7 +242,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = "query complete"
 		cmds := []tea.Cmd{m.toasts.Push(toast.Success, m.status)}
 		if msg.badge {
-			m.pushHistory(histEntry{mode: queryModes[m.qmode], vals: msg.vals, ok: msg.ok, ms: msg.ms})
+			m.pushHistory(histEntry{mode: msg.mode, vals: msg.vals, ok: msg.ok, ms: msg.ms})
 			m.flash = true
 			cmds = append(cmds, flashTick())
 		}

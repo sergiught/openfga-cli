@@ -691,3 +691,39 @@ func TestSectionFadingTransition(t *testing.T) {
 		t.Error("fadeMsg should return no command (ticker does not re-arm)")
 	}
 }
+
+// TestQueryHistoryRecordsMessageMode verifies that the query history entry
+// records the mode from the completed message, not the live UI state. This
+// regression test catches mode-mismatch bugs where pressing "m" (mode cycle)
+// while a query is in flight causes the history entry to record the wrong mode.
+func TestQueryHistoryRecordsMessageMode(t *testing.T) {
+	m := newTestModel()
+	mod := m.(Model)
+
+	// Set the model's qmode to 1 (list-objects).
+	mod.qmode = 1
+
+	// Deliver a check result (mode "check") while qmode is 1 (list-objects).
+	// The history entry should record mode: "check" from the message, not the live qmode.
+	m, _ = mod.Update(queryResultMsg{
+		badge: true,
+		ok:    true,
+		mode:  "check",
+		vals:  [3]string{"user:anne", "viewer", "document:roadmap"},
+		ms:    42,
+	})
+
+	final := m.(Model)
+	if len(final.history) != 1 {
+		t.Fatalf("history len = %d, want 1", len(final.history))
+	}
+	if final.history[0].mode != "check" {
+		t.Errorf("history[0].mode = %q, want \"check\" (should come from message, not live qmode %d)", final.history[0].mode, final.qmode)
+	}
+	if final.history[0].ok != true {
+		t.Errorf("history[0].ok = %v, want true", final.history[0].ok)
+	}
+	if final.history[0].ms != 42 {
+		t.Errorf("history[0].ms = %d, want 42", final.history[0].ms)
+	}
+}
