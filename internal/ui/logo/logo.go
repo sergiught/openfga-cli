@@ -5,40 +5,37 @@ package logo
 
 import "strings"
 
-// glyphs holds 5-row solid-block letterforms for the wordmark.
+// glyphs holds 4-row kerned slab letterforms (o/g/a 5 cols, f 4 cols) so the
+// full wordmark spans 22 columns and fits the narrowest sidebar interior.
 var glyphs = map[rune][]string{
 	'o': {
-		" ███ ",
-		"█   █",
-		"█   █",
-		"█   █",
-		" ███ ",
+		"▄███▄",
+		"██ ██",
+		"██ ██",
+		"▀███▀",
 	},
 	'f': {
-		"█████",
-		"█    ",
-		"███  ",
-		"█    ",
-		"█    ",
+		"████",
+		"██▄ ",
+		"██  ",
+		"██  ",
 	},
 	'g': {
-		" ████",
-		"█    ",
-		"█  ██",
-		"█   █",
-		" ███ ",
+		"▄███▄",
+		"██ ▄▄",
+		"██ ██",
+		"▀███▀",
 	},
 	'a': {
-		" ███ ",
-		"█   █",
-		"█████",
-		"█   █",
-		"█   █",
+		"▄███▄",
+		"██▄██",
+		"██ ██",
+		"██ ██",
 	},
 }
 
-// Height is the number of rows in the block art.
-const Height = 5
+// Height is the number of rows in the slab art.
+const Height = 4
 
 // Word renders s as block-letter art (plain text, no color). Each rendered line
 // is padded to a uniform width so a per-line gradient aligns across rows.
