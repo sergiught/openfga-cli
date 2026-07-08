@@ -187,8 +187,11 @@ func masterDetail(list, title, card string, w, h int) string {
 		return list // too narrow: list only
 	}
 	left := lipgloss.NewStyle().Width(lw).Height(h).Render(list)
-	right := lipgloss.NewStyle().Width(cw).Height(h).
-		Render(style.SectionHeader(title, cw) + "\n" + card)
+	right := card
+	if title != "" {
+		right = style.SectionHeader(title, cw) + "\n" + card
+	}
+	right = lipgloss.NewStyle().Width(cw).Height(h).Render(right)
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
 }
 
@@ -294,9 +297,9 @@ func (m Model) queryBody() string {
 		b.WriteString("\n\n" + style.Failure.Render("error: ") + m.result.err.Error())
 	case m.hasResult:
 		tint := style.Faintc
-		if m.flash {
+		if r := m.result; m.flash && r.badge {
 			tint = style.Green
-			if r := m.result; r.badge && !r.ok {
+			if !r.ok {
 				tint = style.Red
 			}
 		}
