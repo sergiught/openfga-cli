@@ -197,9 +197,16 @@ func (m *Model) resize() {
 	m.changesList.SetSize(w, h)
 	m.assertionsList.SetSize(w, h)
 	m.paletteList.SetSize(w, h)
-	m.graphVP = viewport.New(viewport.WithWidth(w), viewport.WithHeight(h))
-	if len(m.graph.Types) > 0 {
-		m.graphVP.SetContent(m.graph.RenderDiagram())
+	if m.graphVP.Width() == 0 {
+		// First time: create the viewport and populate it.
+		m.graphVP = viewport.New(viewport.WithWidth(w), viewport.WithHeight(h))
+		if len(m.graph.Types) > 0 {
+			m.graphVP.SetContent(m.graph.RenderDiagram())
+		}
+	} else {
+		// Resize: just update dimensions to preserve scroll offset.
+		m.graphVP.SetWidth(w)
+		m.graphVP.SetHeight(h)
 	}
 	m.editor.SetWidth(w)
 	m.editor.SetHeight(h - 2)

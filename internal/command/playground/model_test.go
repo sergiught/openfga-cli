@@ -430,3 +430,41 @@ func TestQueryBodyShowsModeChipAndResult(t *testing.T) {
 		t.Error("query body should show the check result above the input")
 	}
 }
+
+// TestGraphViewportScrollOffsetsPreservedOnResize verifies that when the viewport
+// is resized, the scroll offset is preserved via SetWidth/SetHeight instead of
+// recreating the viewport.
+func TestGraphViewportScrollOffsetsPreservedOnResize(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(key("2")) // Model section (graph view)
+
+	mod := m.(Model)
+
+	// Ensure we have tall enough content to scroll. If the diagram is short,
+	// extend it so we can test scrolling.
+	if mod.graphVP.TotalLineCount() < 50 {
+		currentContent := mod.graphVP.GetContent()
+		// Add enough lines to make scrolling meaningful.
+		extendedContent := currentContent + strings.Repeat("extension line\n", 100)
+		mod.graphVP.SetContent(extendedContent)
+	}
+
+	// Scroll to a nonzero offset.
+	mod.graphVP.ScrollDown(10)
+	originalOffset := mod.graphVP.YOffset()
+	if originalOffset == 0 {
+		t.Skipf("viewport height >= total lines, cannot test offset preservation")
+	}
+
+	// Resize the terminal. The resize should use SetWidth/SetHeight to preserve
+	// the scroll offset, not recreate the viewport.
+	var m2 tea.Model = mod
+	m2, _ = m2.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+
+	// Verify the scroll offset is preserved.
+	resized := m2.(Model)
+	if resized.graphVP.YOffset() != originalOffset {
+		t.Errorf("YOffset after resize = %d, want %d (width check should have taken SetWidth/SetHeight path)",
+			resized.graphVP.YOffset(), originalOffset)
+	}
+}
