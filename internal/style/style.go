@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	lipgloss "charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	colorful "github.com/lucasb-eyer/go-colorful"
 
 	"github.com/sergiught/openfga-cli/internal/theme"
@@ -368,41 +369,14 @@ func GradientPillPhase(text string, phase float64) string {
 	return b.String()
 }
 
-// GradientUnderline renders a width-wide row of spaces whose backgrounds run
-// the brand gradient — the filled title bar's underline. Mono/no-gradient
-// themes render a plain Separator-colored rule instead.
-func GradientUnderline(width int) string {
-	if width < 1 {
-		return ""
-	}
-	if Active.Name == "mono" || Active.GradStartHex == "" || Active.GradEndHex == "" {
-		return lipgloss.NewStyle().Foreground(Subtle).Render(strings.Repeat("─", width))
-	}
-	c1, err1 := colorful.Hex(Active.GradStartHex)
-	c2, err2 := colorful.Hex(Active.GradEndHex)
-	if err1 != nil || err2 != nil {
-		return lipgloss.NewStyle().Foreground(Subtle).Render(strings.Repeat("─", width))
-	}
-	var b strings.Builder
-	for i := 0; i < width; i++ {
-		t := 0.0
-		if width > 1 {
-			t = float64(i) / float64(width-1)
-		}
-		c := c1.BlendLab(c2, t).Clamped()
-		b.WriteString(lipgloss.NewStyle().Background(lipgloss.Color(c.Hex())).Render(" "))
-	}
-	return b.String()
-}
-
 // Chip renders a small filled label: bold fg on bg with 1-col padding.
 func Chip(text string, fg, bg color.Color) string {
 	return lipgloss.NewStyle().Bold(true).Foreground(fg).Background(bg).Padding(0, 1).Render(text)
 }
 
-// Keycap renders a dim key hint pill (e.g. "q", "↵") on the highlight surface.
+// Keycap renders a dim key hint pill (e.g. "q", "↵") on the raised surface.
 func Keycap(k string) string {
-	return lipgloss.NewStyle().Foreground(Muted).Background(BgHighlight).Padding(0, 1).Render(k)
+	return lipgloss.NewStyle().Foreground(Muted).Background(BgRaised).Padding(0, 1).Render(k)
 }
 
 // GradientPill renders text on a per-rune brand-gradient background with
@@ -410,4 +384,23 @@ func Keycap(k string) string {
 // plain Primary chip.
 func GradientPill(text string) string {
 	return GradientPillPhase(text, 0)
+}
+
+// SectionHeader renders a crush-style section header: a mid-tone bold title
+// followed by a faint hairline rule filling the remaining width. This is the
+// flat UI's structural primitive — panels are delimited by headers and
+// whitespace, not borders.
+func SectionHeader(title string, width int) string {
+	return SectionHeaderTinted(title, width, Faintc)
+}
+
+// SectionHeaderTinted is SectionHeader with an explicit rule color, used for
+// the one-frame verdict flash on the query Result header.
+func SectionHeaderTinted(title string, width int, tint color.Color) string {
+	t := lipgloss.NewStyle().Bold(true).Foreground(Muted).Render(title)
+	rem := width - lipgloss.Width(t) - 1
+	if rem < 1 {
+		return ansi.Truncate(t, width, "…")
+	}
+	return t + " " + lipgloss.NewStyle().Foreground(tint).Render(strings.Repeat("─", rem))
 }

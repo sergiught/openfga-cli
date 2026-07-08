@@ -123,7 +123,21 @@ func TestGradientPhaseHelpers(t *testing.T) {
 	if moved == GradientBlockPhase("AB\nCD", 0) {
 		t.Fatal("nonzero phase must change colors under aurora")
 	}
-	if w := lipgloss.Width(GradientUnderline(12)); w != 12 {
-		t.Fatalf("underline width = %d, want 12", w)
+}
+
+func TestSectionHeader(t *testing.T) {
+	h := SectionHeader("Result", 30)
+	if w := lipgloss.Width(h); w != 30 {
+		t.Fatalf("header width = %d, want 30", w)
+	}
+	plain := stripAnsiStr(h)
+	if !strings.HasPrefix(plain, "Result ") || !strings.HasSuffix(plain, "─") {
+		t.Fatalf("header = %q, want title + rule", plain)
+	}
+	if tight := stripAnsiStr(SectionHeader("VeryLongSectionTitle", 8)); lipgloss.Width(tight) > 8 {
+		t.Fatalf("narrow header must truncate, got %q", tight)
+	}
+	if SectionHeaderTinted("Result", 30, Green) == h {
+		t.Fatal("tinted rule must differ from the default")
 	}
 }

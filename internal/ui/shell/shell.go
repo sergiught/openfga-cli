@@ -392,7 +392,7 @@ func (s *Shell) renderMain(height int) string {
 	if s.entranceGhost {
 		body = lipgloss.NewStyle().Foreground(style.Faintc).Render(ansi.Strip(body))
 	}
-	content := titleBar + "\n" + style.GradientUnderline(innerW) + "\n" + body
+	content := titleBar + "\n\n" + body
 	return lipgloss.NewStyle().
 		Width(mainTotal).Height(height).
 		Border(lipgloss.RoundedBorder()).
