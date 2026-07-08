@@ -54,6 +54,8 @@ type Shell struct {
 	mainTitle string
 	mainBody  string
 
+	tagline, version string
+
 	status Status
 
 	dialogTitle, dialogBody string
@@ -107,15 +109,14 @@ func (s *Shell) bodyHeight() int {
 	return h
 }
 
-// MainSize returns the drawable interior for main-pane content. The main pane is
-// a rounded-border panel: the border consumes 2 cols + 2 rows, padding 2 cols,
-// and the title + blank header 2 rows.
+// MainSize returns the drawable interior for main-pane content: the pane is
+// flat (1-col margins, header + blank row) — no border rows or columns.
 func (s *Shell) MainSize() (int, int) {
-	w := s.width - s.sidebarOccupied() - 4 // border(2) + padding(2)
+	w := s.width - s.sidebarOccupied() - 2 // margins
 	if w < 1 {
 		w = 1
 	}
-	h := s.bodyHeight() - 4 // border(2) + title+blank(2)
+	h := s.bodyHeight() - 2 // header + blank
 	if h < 1 {
 		h = 1
 	}
@@ -130,6 +131,10 @@ func (s *Shell) SetSidebar(context []string, nav []NavItem, footer string) {
 
 // SetMain sets the main pane title and body.
 func (s *Shell) SetMain(title, body string) { s.mainTitle, s.mainBody = title, body }
+
+// SetBrand sets the sidebar's tagline (left) and version (right), rendered
+// dim inside the wordmark's hatch band area.
+func (s *Shell) SetBrand(tagline, version string) { s.tagline, s.version = tagline, version }
 
 // SetStatus sets the bottom status bar's segments.
 func (s *Shell) SetStatus(st Status) { s.status = st }
@@ -215,9 +220,6 @@ func (s *Shell) View() string {
 
 	cv := lipgloss.NewCanvas(s.width, s.height)
 	cv.Compose(lipgloss.NewCompositor(layers...))
-	if !s.Collapsed() && s.dialogTitle == "" && s.dialogBody == "" {
-		fillBg(cv, 0, 0, s.sidebarOccupied(), body, style.BgPanel)
-	}
 	return cv.Render()
 }
 
@@ -246,27 +248,6 @@ func (s *Shell) renderDialog() string {
 		Background(style.BgRaised).
 		Width(dw).Padding(0, 2).
 		Render(title + "\n\n" + s.dialogBody)
-}
-
-// fillBg paints the background of every fg-only cell in the w×h rectangle at
-// (x0, y0) to bg, leaving cells that already carry their own background
-// (badges, the active nav pill, dialog/shadow layers, …) untouched. This is
-// how a column gets a painted panel surface without discontinuities at
-// fg-only glyphs like the wordmark's letter-gaps — the exact artifact that
-// forced the panel-fill revert on lipgloss v1.
-func fillBg(cv *lipgloss.Canvas, x0, y0, w, h int, bg color.Color) {
-	for y := y0; y < y0+h; y++ {
-		for x := x0; x < x0+w; x++ {
-			c := cv.CellAt(x, y)
-			if c == nil {
-				continue
-			}
-			if c.Style.Bg == nil {
-				c.Style.Bg = bg
-				cv.SetCell(x, y, c)
-			}
-		}
-	}
 }
 
 // fitLines truncates every line of s to at most w display columns (ANSI-aware)
@@ -306,6 +287,7 @@ func (s *Shell) renderSidebar(height int) string {
 	// Logo: the big block wordmark when the sidebar is wide enough, otherwise a
 	// compact wordmark with a diagonal field tail (Crush's small-logo treatment).
 	word := logo.Word("ofga")
+	hatch := lipgloss.NewStyle().Foreground(style.Faintc).Render(strings.Repeat("╱", inner))
 	if inner >= lipgloss.Width(word) {
 		var art string
 		if s.entranceFrac > 0 {
@@ -313,16 +295,18 @@ func (s *Shell) renderSidebar(height int) string {
 		} else {
 			art = style.GradientBlockPhase(word, s.drift)
 		}
+		b.WriteString(hatch + "\n")
+		b.WriteString(s.brandLine(inner) + "\n")
 		b.WriteString(art + "\n")
-		b.WriteString(lipgloss.NewStyle().Foreground(style.Faintc).Render(strings.Repeat("╱", inner)) + "\n")
+		b.WriteString(hatch + "\n\n")
 	} else {
 		line := style.Gradient("ofga")
 		if rem := inner - lipgloss.Width(line) - 1; rem > 0 {
 			line += " " + lipgloss.NewStyle().Foreground(style.Faintc).Render(strings.Repeat("╱", rem))
 		}
 		b.WriteString(line + "\n")
+		b.WriteString(s.brandLine(inner) + "\n\n")
 	}
-	b.WriteString(style.Faint.Render("OpenFGA playground") + "\n\n")
 	for _, line := range s.context {
 		b.WriteString(line + "\n")
 	}
@@ -349,15 +333,25 @@ func (s *Shell) renderSidebar(height int) string {
 		content = strings.Join(lines[:height], "\n")
 	}
 
-	// Content stays fg-only: no Background() here. View's canvas-level fillBg
-	// paints the whole sidebar column to BgPanel afterward, which composites
-	// cleanly over fg-only glyphs (wordmark letter-gaps, context text) — a panel
-	// Style().Background() fill would leave default-bg gaps at those glyphs,
-	// the artifact that forced the panel-fill revert on lipgloss v1.
+	// Content stays fg-only: no Background() here. The sidebar is a flat
+	// column on the shared base background — structure comes from the hatch
+	// bands and typography, not a painted panel fill.
 	return lipgloss.NewStyle().
 		Width(w).Height(height).
 		Padding(0, 1).
 		Render(content)
+}
+
+// brandLine sets the tagline (left) and version (right) in the dim tone,
+// space-filled to width — the context row inside the wordmark's hatch band.
+func (s *Shell) brandLine(width int) string {
+	tag := lipgloss.NewStyle().Foreground(style.Faintc).Render(s.tagline)
+	ver := lipgloss.NewStyle().Foreground(style.Faintc).Render(s.version)
+	gap := width - lipgloss.Width(tag) - lipgloss.Width(ver)
+	if gap < 1 {
+		return ansi.Truncate(tag, width, "…")
+	}
+	return tag + strings.Repeat(" ", gap) + ver
 }
 
 func (s *Shell) renderNav(n NavItem) string {
@@ -377,30 +371,23 @@ func (s *Shell) renderNav(n NavItem) string {
 }
 
 func (s *Shell) renderMain(height int) string {
-	// The main pane is a rounded-border panel filling the area beside the sidebar.
+	// Flat main pane: a section header + hairline rule over left-aligned
+	// content, on the shared base background. Structure comes from typography
+	// and whitespace; dialogs are the only boxed surface.
 	mainTotal := s.width - s.sidebarOccupied()
 	if mainTotal < 6 {
 		mainTotal = 6
 	}
-	innerW := mainTotal - 4 // border(2) + padding(2)
-	titleBar := lipgloss.NewStyle().Bold(true).Foreground(style.Primary).
-		Background(style.BgHighlight).Width(innerW).Padding(0, 1).
-		Render(ansi.Truncate(s.mainTitle, innerW-2, "…"))
-	// Truncate each body line to the interior width so over-wide content (graphs,
-	// long rows) is clipped rather than wrapped into extra rows.
+	innerW := mainTotal - 2 // 1-col margin each side
+	header := style.SectionHeader(s.mainTitle, innerW)
 	body := fitLines(s.mainBody, innerW)
 	if s.entranceGhost {
 		body = lipgloss.NewStyle().Foreground(style.Faintc).Render(ansi.Strip(body))
 	}
-	content := titleBar + "\n\n" + body
 	return lipgloss.NewStyle().
 		Width(mainTotal).Height(height).
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(style.Faintc).
-		BorderBackground(style.BgRaised).
-		Background(style.BgRaised).
 		Padding(0, 1).
-		Render(content)
+		Render(header + "\n\n" + body)
 }
 
 // capChip wraps a filled chip with powerline end caps when the active icon
@@ -432,7 +419,7 @@ func (s *Shell) renderStatus() string {
 		txt = s.status.Spinner + " " + txt
 	}
 	if txt != "" {
-		left += " " + lipgloss.NewStyle().Foreground(style.Muted).Render(txt)
+		left += " " + lipgloss.NewStyle().Foreground(style.Faintc).Render(txt)
 	}
 	var keys []string
 	for _, k := range s.status.Keys {

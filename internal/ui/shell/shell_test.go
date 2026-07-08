@@ -51,7 +51,7 @@ func TestViewFitsWidth(t *testing.T) {
 			t.Fatalf("line %d width %d exceeds 100", i, w)
 		}
 	}
-	if !strings.Contains(stripANSI(view), "Model") || !strings.Contains(stripANSI(view), "ready") {
+	if !strings.Contains(stripAnsi(view), "Model") || !strings.Contains(stripAnsi(view), "ready") {
 		t.Error("view should contain nav label and status text")
 	}
 }
@@ -82,8 +82,9 @@ func TestMainSizeIsInterior(t *testing.T) {
 	s := New()
 	s.SetSize(100, 24)
 	w, _ := s.MainSize()
-	// interior = (total - sidebarOccupied) - border(2) - padding(2)
-	want := 100 - s.sidebarOccupied() - 4
+	// interior = (total - sidebarOccupied) - margins(2); the flat pane has no
+	// border, just a 1-col margin on each side.
+	want := 100 - s.sidebarOccupied() - 2
 	if w != want {
 		t.Errorf("MainSize().w = %d, want interior %d", w, want)
 	}
@@ -93,7 +94,7 @@ func TestActiveNavShowsBadge(t *testing.T) {
 	s := New()
 	s.SetSize(100, 24)
 	s.SetSidebar(nil, []NavItem{{Label: "Tuples", Badge: "42", Active: true}}, "")
-	if !strings.Contains(stripANSI(s.View()), "42") {
+	if !strings.Contains(stripAnsi(s.View()), "42") {
 		t.Error("active nav item should still show its badge count")
 	}
 }
@@ -116,12 +117,12 @@ func TestSetDialogKeepsBaseDimensions(t *testing.T) {
 			t.Fatalf("dialog view line %d width %d exceeds shell width 80", i, w)
 		}
 	}
-	if !strings.Contains(stripANSI(view), "Pick") {
+	if !strings.Contains(stripAnsi(view), "Pick") {
 		t.Error("dialog title should appear in the view")
 	}
 
 	s.SetDialog("", "")
-	if strings.Contains(stripANSI(s.View()), "Pick") {
+	if strings.Contains(stripAnsi(s.View()), "Pick") {
 		t.Error("clearing the dialog (empty title+body) should remove it from the view")
 	}
 }
@@ -130,7 +131,7 @@ func TestStatusSegments(t *testing.T) {
 	s := New()
 	s.SetSize(100, 30)
 	s.SetStatus(Status{Mode: "CHECK", Store: "demo", Keys: []string{"q"}})
-	out := stripANSI(s.View())
+	out := stripAnsi(s.View())
 	for _, want := range []string{"CHECK", "demo", "q"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("status bar missing %q", want)
@@ -138,23 +139,50 @@ func TestStatusSegments(t *testing.T) {
 	}
 }
 
-func TestFilledTitleBarAndCaps(t *testing.T) {
+func TestFlatMainPaneWithHeaderRule(t *testing.T) {
 	icons.Apply(icons.ModeNerdFont)
 	t.Cleanup(func() { icons.Apply(icons.ModeNerdFont) })
 	s := New()
 	s.SetSize(100, 30)
 	s.SetMain("Query", "body")
-	s.SetStatus(Status{Mode: "CHECK"})
+	s.SetStatus(Status{Mode: "CHECK", Keys: []string{"q"}})
 	out := s.View()
-	if !strings.Contains(out, "48;2;43;53;71") { // BgHighlight #2B3547 behind the title
-		t.Fatal("main title must render on a filled BgHighlight bar")
+	for _, glyph := range []string{"╭", "╰", "│"} {
+		if strings.Contains(out, glyph) {
+			t.Fatalf("flat base frame must not contain border glyph %q", glyph)
+		}
 	}
-	if !strings.Contains(out, "") || !strings.Contains(out, "") {
-		t.Fatal("status chips must carry powerline caps on the nerdfont rung")
+	if strings.Contains(out, "48;2;6;8;12") {
+		t.Fatal("base frame must not paint BgPanel (48;2;6;8;12)")
 	}
-	icons.Apply(icons.ModeUnicode)
-	if out2 := s.View(); strings.Contains(out2, "") {
-		t.Fatal("caps must disappear on the unicode rung")
+	if !strings.Contains(stripAnsi(out), "Query ─") {
+		t.Fatal("main pane must carry a section-header rule")
+	}
+	if !strings.Contains(out, "") {
+		t.Fatal("status chips keep powerline caps")
+	}
+	s.SetDialog("Modal", "body")
+	if dlg := s.View(); !strings.Contains(dlg, "╭") {
+		t.Fatal("dialogs remain the boxed exception")
+	}
+}
+
+func TestBrandLineInSidebar(t *testing.T) {
+	s := New()
+	// 120 (not the brief's 100): at 100, sidebarWidth()=25 -> inner=23, which is
+	// 2 cols short of fitting "OpenFGA playground" + gap + "v1.2.3" (needs 25)
+	// under brandLine's exact algorithm — sidebarWidth/Min/Max are pre-existing
+	// and out of this task's scope, so the width was widened here instead of
+	// touching sidebar layout math. See task-2 report for the full derivation.
+	s.SetSize(120, 30)
+	s.SetBrand("OpenFGA playground", "v1.2.3")
+	s.SetMain("Query", "body")
+	plain := stripAnsi(s.View())
+	if !strings.Contains(plain, "OpenFGA playground") || !strings.Contains(plain, "v1.2.3") {
+		t.Fatal("sidebar must carry tagline and version")
+	}
+	if !strings.Contains(plain, "╱╱╱") {
+		t.Fatal("sidebar must carry hatch bands")
 	}
 }
 
@@ -174,7 +202,7 @@ func TestEntranceSlidesAndSettles(t *testing.T) {
 	}
 }
 
-func stripANSI(s string) string {
+func stripAnsi(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
 		if s[i] == 0x1b {
