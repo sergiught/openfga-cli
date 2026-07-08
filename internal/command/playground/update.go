@@ -50,6 +50,16 @@ func fadeTick() tea.Cmd {
 	})
 }
 
+// flashMsg ends the one-frame verdict-color flash on the result card
+// border. Does not re-arm — fires exactly once per badge result.
+type flashMsg struct{}
+
+func flashTick() tea.Cmd {
+	return tea.Tick(80*time.Millisecond, func(time.Time) tea.Msg {
+		return flashMsg{}
+	})
+}
+
 // Update is the central dispatcher. It forwards every message to the toast
 // model first (so its expiry timer advances regardless of which branch below
 // handles the message), then dispatches as before.
@@ -230,7 +240,13 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.connLost = false
 		m.status = "query complete"
-		return m, m.toasts.Push(toast.Success, m.status)
+		cmds := []tea.Cmd{m.toasts.Push(toast.Success, m.status)}
+		if msg.badge {
+			m.pushHistory(histEntry{mode: queryModes[m.qmode], vals: msg.vals, ok: msg.ok, ms: msg.ms})
+			m.flash = true
+			cmds = append(cmds, flashTick())
+		}
+		return m, tea.Batch(cmds...)
 
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
@@ -258,6 +274,10 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case fadeMsg:
 		m.fading = false
+		return m, nil
+
+	case flashMsg:
+		m.flash = false
 		return m, nil
 
 	default:
@@ -355,6 +375,18 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		nm, cmd := m.onEnterSection()
 		return nm, tea.Batch(cmd, fadeTick())
 	case "1", "2", "3", "4", "5", "6":
+		// In the Query section, a digit that addresses an existing history
+		// slot reruns it instead of switching sections. (m.editing is
+		// always false here: the secQuery-and-editing case above returns
+		// before this switch, so digits typed into the form never reach
+		// this branch.) Digits with no matching entry — including "6",
+		// since history never grows past 5 — fall through to the normal
+		// section switch below.
+		if m.section == secQuery {
+			if n := int(key[0] - '1'); n < len(m.history) {
+				return m.rerunHistory(n)
+			}
+		}
 		m.section = section(key[0] - '1')
 		m.fading = true
 		nm, cmd := m.onEnterSection()
@@ -640,6 +672,29 @@ func (m Model) advanceQueryForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, cmd
+}
+
+// rerunHistory replays history entry idx: switches to its mode, refills the
+// query form with its values, and dispatches the same run command enter
+// uses on form completion.
+func (m Model) rerunHistory(idx int) (tea.Model, tea.Cmd) {
+	h := m.history[idx]
+	m.qmode = queryModeIndex(h.mode)
+	m.rebuildQueryForm()
+	m.qform.SetValues(h.vals[:])
+	m.editing = false
+	a, b, c := h.vals[0], h.vals[1], h.vals[2]
+	m.loading = true
+	m.status = "running " + queryModes[m.qmode] + "…"
+	switch queryModes[m.qmode] {
+	case "check":
+		return m, checkCmd(m.ctx, m.client, m.storeID, a, b, c)
+	case "list-objects":
+		return m, listObjectsCmd(m.ctx, m.client, m.storeID, a, b, c)
+	case "list-users":
+		return m, listUsersCmd(m.ctx, m.client, m.storeID, a, b, c)
+	}
+	return m, nil
 }
 
 // staleSuffix returns a styled " stale" marker to append to a status line

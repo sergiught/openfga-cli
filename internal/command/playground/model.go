@@ -50,6 +50,26 @@ const (
 
 var queryModes = []string{"check", "list-objects", "list-users"}
 
+// queryModeIndex returns the index of mode within queryModes, defaulting to 0
+// ("check") if mode isn't recognized.
+func queryModeIndex(mode string) int {
+	for i, m := range queryModes {
+		if m == mode {
+			return i
+		}
+	}
+	return 0
+}
+
+// histEntry is one rerunnable query-history record. Model.history holds up
+// to 5, newest first (see pushHistory).
+type histEntry struct {
+	mode string
+	vals [3]string
+	ok   bool
+	ms   int64
+}
+
 // Model is the task-pilot-style playground model.
 type Model struct {
 	app    *app.App
@@ -125,6 +145,8 @@ type Model struct {
 	editing   bool // a form (query or takeover) is capturing keys
 	hasResult bool
 	result    queryResultMsg
+	history   []histEntry // rerunnable results, newest first, capped at 5
+	flash     bool        // true for one frame right after a badge result lands
 
 	// full-panel form takeover
 	formKind formKind
@@ -336,6 +358,15 @@ func (m *Model) rebuildQueryForm() {
 	}
 	m.qform = buildQueryForm(queryModes[m.qmode], w)
 	m.qform.Init()
+}
+
+// pushHistory records a query result at the front of the history, newest
+// first, capped at 5 entries.
+func (m *Model) pushHistory(h histEntry) {
+	m.history = append([]histEntry{h}, m.history...)
+	if len(m.history) > 5 {
+		m.history = m.history[:5]
+	}
 }
 
 // --- store selection ---

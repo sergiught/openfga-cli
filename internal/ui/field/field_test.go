@@ -55,6 +55,17 @@ func TestValidationBlocksCompletion(t *testing.T) {
 	}
 }
 
+func TestSetValuesFillsFields(t *testing.T) {
+	f := NewForm(New("User", ""), New("Relation", ""), New("Object", ""))
+	f.SetWidth(40)
+	f.Init()
+	f.SetValues([]string{"user:anne", "viewer"}) // fewer vals than fields
+	got := f.Values()
+	if got[0] != "user:anne" || got[1] != "viewer" || got[2] != "" {
+		t.Fatalf("values = %v, want [user:anne viewer \"\"]", got)
+	}
+}
+
 func TestResetClearsState(t *testing.T) {
 	f := NewForm(New("User", ""))
 	f.SetWidth(40)

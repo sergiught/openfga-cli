@@ -310,6 +310,162 @@ func TestQueryFormTabNavigationRunsCheck(t *testing.T) {
 	}
 }
 
+// TestHistoryCapsAtFive pushes 7 entries and checks the history is capped at
+// 5, newest first (the most recently pushed entry lands at index 0, and the
+// oldest surviving entry — the third pushed, since the first two are
+// evicted — lands at index 4).
+func TestHistoryCapsAtFive(t *testing.T) {
+	mod := newTestModel().(Model)
+	for i := 0; i < 7; i++ {
+		mod.pushHistory(histEntry{mode: "check", ok: i%2 == 0, ms: int64(i)})
+	}
+	if len(mod.history) != 5 {
+		t.Fatalf("history len = %d, want 5", len(mod.history))
+	}
+	if mod.history[0].ms != 6 {
+		t.Errorf("history[0].ms = %d, want 6 (newest pushed first)", mod.history[0].ms)
+	}
+	if mod.history[4].ms != 2 {
+		t.Errorf("history[4].ms = %d, want 2 (oldest surviving entry)", mod.history[4].ms)
+	}
+}
+
+// TestCheckCmdRecordsLatencyAndVals drives checkCmd directly against a slow
+// mock server and asserts the returned message carries both the measured
+// latency and the three values the query ran with.
+func TestCheckCmdRecordsLatencyAndVals(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(5 * time.Millisecond)
+		_, _ = w.Write([]byte(`{"allowed":true}`))
+	}))
+	defer srv.Close()
+
+	cl, _ := openfga.NewClient(srv.URL)
+	cmd := checkCmd(context.Background(), cl, "store-1", "user:anne", "viewer", "document:roadmap")
+	msg, ok := cmd().(queryResultMsg)
+	if !ok {
+		t.Fatal("checkCmd should return a queryResultMsg")
+	}
+	if msg.ms < 5 {
+		t.Errorf("ms = %d, want >= 5 (server slept 5ms)", msg.ms)
+	}
+	want := [3]string{"user:anne", "viewer", "document:roadmap"}
+	if msg.vals != want {
+		t.Errorf("vals = %v, want %v", msg.vals, want)
+	}
+}
+
+// TestVerdictFlashClearsAfterOneTick verifies a badge result sets the
+// one-frame flash and schedules its own clear, and that the clear does not
+// re-arm — mirroring the fadeMsg precedent in TestSectionFadingTransition.
+func TestVerdictFlashClearsAfterOneTick(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(key("5")) // Query
+	m, cmd := m.Update(queryResultMsg{lines: []string{"user:anne viewer document:roadmap"}, ok: true, badge: true})
+	mod := m.(Model)
+	if !mod.flash {
+		t.Fatal("a badge result should set flash=true")
+	}
+	if cmd == nil {
+		t.Fatal("a badge result should schedule the flash-clear tick")
+	}
+
+	m2, cmd2 := mod.Update(flashMsg{})
+	final := m2.(Model)
+	if final.flash {
+		t.Error("flashMsg should clear flash")
+	}
+	if cmd2 != nil {
+		t.Error("flashMsg should not re-arm")
+	}
+}
+
+// TestDigitKeyRerunsHistoryEntry drives a full check through the form, then
+// presses "1" in the Query section (not editing) and asserts it reruns the
+// same query — hitting the server again — rather than switching sections.
+func TestDigitKeyRerunsHistoryEntry(t *testing.T) {
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/check") {
+			hits++
+			_, _ = w.Write([]byte(`{"allowed":true}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	cl, _ := openfga.NewClient(srv.URL)
+	a := app.New(log.New(io.Discard), config.New(), "test")
+	mdl := newModel(context.Background(), a, cl, "store-1")
+	mdl.splash = false
+	var m tea.Model = mdl
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
+	m, _ = m.Update(storesLoadedMsg{stores: []openfga.Store{{ID: "store-1", Name: "demo"}}})
+
+	m, _ = m.Update(key("5")) // Query section
+	m = pump(t, m, key("i"))
+	for _, r := range "user:anne" {
+		m = pump(t, m, key(string(r)))
+	}
+	m = pump(t, m, key("tab"))
+	for _, r := range "viewer" {
+		m = pump(t, m, key(string(r)))
+	}
+	m = pump(t, m, key("tab"))
+	for _, r := range "document:roadmap" {
+		m = pump(t, m, key(string(r)))
+	}
+	m = pump(t, m, key("enter")) // first run
+
+	mod := m.(Model)
+	if len(mod.history) != 1 {
+		t.Fatalf("history len after first run = %d, want 1", len(mod.history))
+	}
+	if hits != 1 {
+		t.Fatalf("server hits after first run = %d, want 1", hits)
+	}
+
+	m2 := pump(t, mod, key("1")) // rerun history[0]
+	mod2 := m2.(Model)
+	if hits != 2 {
+		t.Errorf("server hits after digit rerun = %d, want 2 (digit should have rerun the check)", hits)
+	}
+	if mod2.section != secQuery {
+		t.Errorf("digit rerun should not change section; got %v", mod2.section)
+	}
+	if len(mod2.history) != 2 {
+		t.Errorf("history len after rerun = %d, want 2", len(mod2.history))
+	}
+}
+
+// TestDigitKeyFallsThroughToSectionSwitchWithoutHistory verifies the digit
+// precedence resolution the other way: with no matching history entry, "1"
+// in the Query section falls through to the normal section switch.
+func TestDigitKeyFallsThroughToSectionSwitchWithoutHistory(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(key("5")) // Query, no history yet
+	m, _ = m.Update(key("1"))
+	mod := m.(Model)
+	if mod.section != secStores {
+		t.Errorf("digit with no matching history entry should switch sections; got %v", mod.section)
+	}
+}
+
+// TestQueryBodyRendersNonBadgeResultInCard verifies list-objects/list-users
+// results (badge=false) still render their title+bullets, now inside the
+// result card frame alongside badge results.
+func TestQueryBodyRendersNonBadgeResultInCard(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(key("5")) // Query
+	m, _ = m.Update(key("m")) // cycle to list-objects
+	m, _ = m.Update(queryResultMsg{title: "objects", lines: []string{"document:roadmap"}})
+	plain := stripANSIView(m.(Model).viewString())
+	if !strings.Contains(plain, "objects") || !strings.Contains(plain, "document:roadmap") {
+		t.Error("non-badge result should render title+bullets in the query body")
+	}
+}
+
 // TestGraphSpringScrollSettles drives the spring-scroll animation and verifies
 // the viewport reaches the requested offset and the animation flag clears.
 func TestGraphSpringScrollSettles(t *testing.T) {

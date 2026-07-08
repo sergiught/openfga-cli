@@ -120,6 +120,17 @@ func (f *Form) Values() []string {
 	return vals
 }
 
+// SetValues fills each field's input with the corresponding entry in vals, in
+// field order. Bounds-safe: extra vals are ignored, missing ones leave the
+// field untouched.
+func (f *Form) SetValues(vals []string) {
+	for i, fl := range f.fields {
+		if i < len(vals) {
+			fl.in.SetValue(vals[i])
+		}
+	}
+}
+
 // Reset clears values, errors, and completion, refocusing the first field.
 func (f *Form) Reset() {
 	for _, fl := range f.fields {

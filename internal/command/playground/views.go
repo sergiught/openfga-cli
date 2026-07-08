@@ -195,35 +195,82 @@ func (m Model) queryBody() string {
 	// the whole section).
 	chip := lipgloss.NewStyle().Background(style.BgRaised).Foreground(style.Secondary).
 		Bold(true).Padding(0, 1).Render(queryModes[m.qmode])
-	var b strings.Builder
-	b.WriteString(chip + "  " + style.Faint.Render("m mode · i edit · enter run") + "\n\n")
-	b.WriteString(m.qform.View())
-	if m.loading {
-		b.WriteString("\n\n" + m.spinner.View() + " running…")
-	} else if m.hasResult {
-		b.WriteString("\n\n" + m.renderResult())
+	sections := []string{
+		chip + "  " + style.Faint.Render("m mode · i edit · enter run"),
+		m.qform.View(),
 	}
-	return b.String()
+
+	switch {
+	case m.loading:
+		sections = append(sections, m.spinner.View()+" running…")
+	case m.hasResult && m.result.err != nil:
+		sections = append(sections, style.Failure.Render("error: ")+m.result.err.Error())
+	case m.hasResult:
+		sections = append(sections, m.renderResultCard())
+	case len(m.history) == 0:
+		sections = append(sections, style.Keycap("i")+" edit  "+style.Keycap("↵")+" run")
+	}
+
+	if hs := m.historyStrip(); hs != "" {
+		sections = append(sections, hs)
+	}
+	return strings.Join(sections, "\n\n")
 }
 
-func (m Model) renderResult() string {
+// renderResultCard frames the current query result in a rounded card on the
+// raised surface. Badge results (check) show a big ALLOWED/DENIED chip plus
+// latency; list-objects/list-users results show the title+bullets layout
+// inside the same card frame. While m.flash is true — for one frame right
+// after a badge result lands — the border uses the verdict color instead of
+// the default faint one.
+func (m Model) renderResultCard() string {
 	msg := m.result
-	if msg.err != nil {
-		return style.Failure.Render("error: ") + msg.err.Error()
-	}
-	var b strings.Builder
+	border := style.Faintc
+	var body string
 	if msg.badge {
-		b.WriteString(style.Allowed(msg.ok) + "  " + style.Faint.Render(msg.lines[0]))
-		for _, l := range msg.lines[1:] {
-			b.WriteString("\n" + style.Faint.Render(l))
+		verdict := style.Chip(" "+icons.I().Cross+" DENIED ", style.OnAccent, style.Red)
+		flashColor := style.Red
+		if msg.ok {
+			verdict = style.Chip(" "+icons.I().Check+" ALLOWED ", style.OnAccent, style.Green)
+			flashColor = style.Green
 		}
-		return b.String()
+		if m.flash {
+			border = flashColor
+		}
+		meta := style.Faint.Render(itoa(int(msg.ms)) + "ms")
+		body = verdict + "  " + meta
+		for _, l := range msg.lines {
+			body += "\n" + style.Faint.Render(l)
+		}
+	} else {
+		body = style.Heading.Render(msg.title)
+		for _, l := range msg.lines {
+			body += "\n" + style.Bullet() + " " + style.Value.Render(l)
+		}
 	}
-	b.WriteString(style.Heading.Render(msg.title))
-	for _, l := range msg.lines {
-		b.WriteString("\n" + style.Bullet() + " " + style.Value.Render(l))
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).BorderForeground(border).
+		Background(style.BgRaised).Padding(0, 2).
+		Render(body)
+}
+
+// historyStrip renders up to 5 numbered chips for recent query results,
+// newest first: a colored check/cross plus the first field value. Returns ""
+// when there is no history yet.
+func (m Model) historyStrip() string {
+	if len(m.history) == 0 {
+		return ""
 	}
-	return b.String()
+	chips := make([]string, len(m.history))
+	for i, h := range m.history {
+		ic, c := icons.I().Cross, style.Red
+		if h.ok {
+			ic, c = icons.I().Check, style.Green
+		}
+		label := itoa(i+1) + " " + lipgloss.NewStyle().Foreground(c).Background(style.BgHighlight).Render(ic)
+		chips[i] = style.Chip(label+" "+h.vals[0], style.Muted, style.BgHighlight)
+	}
+	return style.Faint.Render("recent  ") + strings.Join(chips, " ")
 }
 
 func (m Model) assertionsBody() string {

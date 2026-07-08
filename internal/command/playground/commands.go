@@ -3,6 +3,7 @@ package playground
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	transformer "github.com/openfga/language/pkg/go/transformer"
@@ -82,6 +83,8 @@ type queryResultMsg struct {
 	ok    bool
 	badge bool
 	err   error
+	ms    int64     // latency of the query, from command build to result
+	vals  [3]string // the three field values the query ran with, in form order
 }
 
 // --- command builders ---
@@ -254,56 +257,64 @@ func writeTupleCmd(ctx context.Context, cl *openfga.Client, storeID string, key 
 }
 
 func checkCmd(ctx context.Context, cl *openfga.Client, storeID, user, relation, object string) tea.Cmd {
+	start := time.Now()
 	return func() tea.Msg {
 		res, _, err := cl.Relationships.Check(ctx, &openfga.CheckRequest{
 			TupleKey: openfga.CheckRequestTupleKey{User: user, Relation: relation, Object: object},
 		}, openfga.WithStore(storeID))
+		ms := time.Since(start).Milliseconds()
 		if err != nil {
-			return queryResultMsg{err: err}
+			return queryResultMsg{err: err, ms: ms}
 		}
 		lines := []string{user + " " + relation + " " + object}
 		if res.Resolution != "" {
 			lines = append(lines, "resolution: "+res.Resolution)
 		}
-		return queryResultMsg{title: "Check", lines: lines, ok: res.Allowed, badge: true}
+		return queryResultMsg{title: "Check", lines: lines, ok: res.Allowed, badge: true, ms: ms, vals: [3]string{user, relation, object}}
 	}
 }
 
 func listObjectsCmd(ctx context.Context, cl *openfga.Client, storeID, typ, relation, user string) tea.Cmd {
+	start := time.Now()
 	return func() tea.Msg {
 		res, _, err := cl.Relationships.ListObjects(ctx, &openfga.ListObjectsRequest{
 			Type: typ, Relation: relation, User: user,
 		}, openfga.WithStore(storeID))
+		ms := time.Since(start).Milliseconds()
 		if err != nil {
-			return queryResultMsg{err: err}
+			return queryResultMsg{err: err, ms: ms}
 		}
 		title := user + " can " + relation + " these " + typ + " objects:"
+		vals := [3]string{typ, relation, user}
 		if len(res.Objects) == 0 {
-			return queryResultMsg{title: title, lines: []string{"(none)"}}
+			return queryResultMsg{title: title, lines: []string{"(none)"}, ms: ms, vals: vals}
 		}
-		return queryResultMsg{title: title, lines: res.Objects}
+		return queryResultMsg{title: title, lines: res.Objects, ms: ms, vals: vals}
 	}
 }
 
 func listUsersCmd(ctx context.Context, cl *openfga.Client, storeID, object, relation, userType string) tea.Cmd {
+	start := time.Now()
 	return func() tea.Msg {
 		res, _, err := cl.Relationships.ListUsers(ctx, &openfga.ListUsersRequest{
 			Object:      openfga.FGAObjectRelation{Object: object},
 			Relation:    relation,
 			UserFilters: []openfga.UserTypeFilter{{Type: userType}},
 		}, openfga.WithStore(storeID))
+		ms := time.Since(start).Milliseconds()
 		if err != nil {
-			return queryResultMsg{err: err}
+			return queryResultMsg{err: err, ms: ms}
 		}
 		title := "users with " + relation + " on " + object + ":"
+		vals := [3]string{object, relation, userType}
 		if len(res.Users) == 0 {
-			return queryResultMsg{title: title, lines: []string{"(none)"}}
+			return queryResultMsg{title: title, lines: []string{"(none)"}, ms: ms, vals: vals}
 		}
 		lines := make([]string, 0, len(res.Users))
 		for _, u := range res.Users {
 			lines = append(lines, formatUserEntry(u))
 		}
-		return queryResultMsg{title: title, lines: lines}
+		return queryResultMsg{title: title, lines: lines, ms: ms, vals: vals}
 	}
 }
 
