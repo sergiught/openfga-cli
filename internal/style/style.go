@@ -174,6 +174,17 @@ func Dot(state DotState) string {
 	return lipgloss.NewStyle().Foreground(c).Render(IconDot)
 }
 
+// Blend returns the color k of the way (in Lab space) from a to b. k=0 is a,
+// k=1 is b. Falls back to a when either color can't be converted.
+func Blend(a, b color.Color, k float64) color.Color {
+	ca, ok1 := colorful.MakeColor(a)
+	cb, ok2 := colorful.MakeColor(b)
+	if !ok1 || !ok2 {
+		return a
+	}
+	return lipgloss.Color(ca.BlendLab(cb, k).Clamped().Hex())
+}
+
 // Gradient renders s with a per-rune color blend between the active theme's
 // GradStartHex and GradEndHex (Lab space). Under the mono theme it returns the
 // text unstyled; when the theme defines no gradient it falls back to a solid

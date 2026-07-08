@@ -1,6 +1,7 @@
 package playground
 
 import (
+	"math"
 	"strconv"
 	"strings"
 
@@ -50,6 +51,7 @@ func (m Model) viewString() string {
 	} else {
 		m.sh.SetDialog("", "")
 	}
+	m.sh.SetToast(m.toasts.View())
 	return m.sh.View()
 }
 
@@ -109,7 +111,12 @@ func (m Model) sidebarFooter() string {
 	if m.storeID == "" {
 		return style.Dot(style.DotOffline) + " " + style.Faint.Render("disconnected")
 	}
-	return style.Dot(style.DotOnline) + " " + style.Faint.Render("connected")
+	if m.connLost {
+		return style.Dot(style.DotError) + " " + style.Failure.Render("connection lost")
+	}
+	k := 0.5 + 0.5*math.Sin(m.pulse)
+	dot := lipgloss.NewStyle().Foreground(style.Blend(style.Green, style.Faintc, k)).Render(style.IconDot)
+	return dot + " " + style.Faint.Render("connected")
 }
 
 func (m Model) splashView() string {

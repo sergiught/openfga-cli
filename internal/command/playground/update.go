@@ -11,6 +11,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/list"
+	"github.com/sergiught/openfga-cli/internal/ui/toast"
 )
 
 type pendingAction struct{ runAssertions bool }
@@ -28,8 +29,27 @@ func splashTick() tea.Cmd {
 	})
 }
 
-// Update is the central dispatcher.
+// pulseTickMsg drives the sidebar's breathing connection dot. It re-arms
+// itself only while a store is selected; the initial tick is kicked off once
+// (from Init or selectStore, whichever first sees a non-empty storeID).
+type pulseTickMsg struct{}
+
+func pulseTick() tea.Cmd {
+	return tea.Tick(time.Millisecond*500, func(time.Time) tea.Msg {
+		return pulseTickMsg{}
+	})
+}
+
+// Update is the central dispatcher. It forwards every message to the toast
+// model first (so its expiry timer advances regardless of which branch below
+// handles the message), then dispatches as before.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	toastCmd := m.toasts.Update(msg)
+	nm, cmd := m.dispatch(msg)
+	return nm, tea.Batch(toastCmd, cmd)
+}
+
+func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -45,9 +65,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case storesLoadedMsg:
 		m.loading = false
 		if msg.err != nil {
-			m.status = errStr(msg.err)
-			return m, nil
+			m.connLost = isConnErr(msg.err)
+			m.status = errStr(msg.err) + staleSuffix(m.connLost)
+			return m, m.toasts.Push(toast.Error, m.status)
 		}
+		m.connLost = false
 		m.stores = msg.stores
 		for _, s := range m.stores {
 			if s.ID == m.storeID {
@@ -56,47 +78,57 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.populateStores()
 		m.status = plural(len(msg.stores), "store")
-		return m, nil
+		return m, m.toasts.Push(toast.Success, m.status)
 
 	case modelLoadedMsg:
 		if msg.err != nil {
-			m.status = "model: " + errStr(msg.err)
-			m.graph = fga.Graph{}
-			m.graphVP.SetContent(style.Faint.Render("no model: " + errStr(msg.err)))
-			return m, nil
+			m.connLost = isConnErr(msg.err)
+			m.status = "model: " + errStr(msg.err) + staleSuffix(m.connLost)
+			if !m.connLost {
+				m.graph = fga.Graph{}
+				m.graphVP.SetContent(style.Faint.Render("no model: " + errStr(msg.err)))
+			}
+			return m, m.toasts.Push(toast.Error, m.status)
 		}
+		m.connLost = false
 		m.modelID = msg.modelID
 		m.graph = msg.graph
 		m.modelDSL = msg.dsl
 		m.graphVP.SetContent(m.graph.RenderDiagram())
 		m.resetGraphScroll()
 		m.status = "model " + short(msg.modelID) + " · " + m.graph.Summary()
-		return m, nil
+		return m, m.toasts.Push(toast.Success, m.status)
 
 	case modelAppliedMsg:
 		if msg.err != nil {
+			m.connLost = isConnErr(msg.err)
 			m.editorErr = msg.err.Error()
-			return m, nil
+			return m, m.toasts.Push(toast.Error, "apply model: "+m.editorErr)
 		}
+		m.connLost = false
 		m.editorOpen = false
 		m.editor.Blur()
 		m.status = "model applied"
-		return m, loadModelCmd(m.ctx, m.client, m.storeID)
+		return m, tea.Batch(m.toasts.Push(toast.Success, m.status), loadModelCmd(m.ctx, m.client, m.storeID))
 
 	case modelsListedMsg:
 		if msg.err != nil {
-			m.status = "models: " + errStr(msg.err)
-			return m, nil
+			m.connLost = isConnErr(msg.err)
+			m.status = "models: " + errStr(msg.err) + staleSuffix(m.connLost)
+			return m, m.toasts.Push(toast.Error, m.status)
 		}
+		m.connLost = false
 		m.models = msg.models
 		m.populateModels()
 		return m, nil
 
 	case tuplesLoadedMsg:
 		if msg.err != nil {
-			m.status = "tuples: " + errStr(msg.err)
-			return m, nil
+			m.connLost = isConnErr(msg.err)
+			m.status = "tuples: " + errStr(msg.err) + staleSuffix(m.connLost)
+			return m, m.toasts.Push(toast.Error, m.status)
 		}
+		m.connLost = false
 		m.tuples = msg.tuples
 		m.populateTuples()
 		return m, nil
@@ -104,22 +136,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case changesLoadedMsg:
 		m.loading = false
 		if msg.err != nil {
-			m.status = "changes: " + errStr(msg.err)
-			return m, nil
+			m.connLost = isConnErr(msg.err)
+			m.status = "changes: " + errStr(msg.err) + staleSuffix(m.connLost)
+			return m, m.toasts.Push(toast.Error, m.status)
 		}
+		m.connLost = false
 		m.changes = msg.changes
 		m.populateChanges()
 		m.status = plural(len(msg.changes), "change")
-		return m, nil
+		return m, m.toasts.Push(toast.Success, m.status)
 
 	case assertionsLoadedMsg:
 		m.loading = false
 		m.assertModelID = msg.modelID
 		if msg.err != nil {
-			m.status = "assertions: " + errStr(msg.err)
-			m.assertions = nil
-			return m, nil
+			m.connLost = isConnErr(msg.err)
+			m.status = "assertions: " + errStr(msg.err) + staleSuffix(m.connLost)
+			if !m.connLost {
+				m.assertions = nil
+			}
+			return m, m.toasts.Push(toast.Error, m.status)
 		}
+		m.connLost = false
 		m.assertions = msg.assertions
 		m.assertResults = nil
 		m.assertSummary = ""
@@ -131,50 +169,58 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "running assertions…"
 			return m, runAssertionsCmd(m.ctx, m.client, m.storeID, m.assertModelID, m.assertions)
 		}
-		return m, nil
+		return m, m.toasts.Push(toast.Success, m.status)
 
 	case assertTestMsg:
 		m.loading = false
 		if msg.err != nil {
+			m.connLost = isConnErr(msg.err)
 			m.status = "assertion test: " + errStr(msg.err)
-			return m, nil
+			return m, m.toasts.Push(toast.Error, m.status)
 		}
+		m.connLost = false
 		m.assertResults = msg.results
 		m.assertSummary = strconv.Itoa(msg.passed) + "/" + strconv.Itoa(msg.total) + " passed"
 		m.populateAssertions()
 		m.status = m.assertSummary
-		return m, nil
+		return m, m.toasts.Push(toast.Success, m.status)
 
 	case storeCreatedMsg:
 		if msg.err != nil {
+			m.connLost = isConnErr(msg.err)
 			m.status = "create store: " + errStr(msg.err)
-			return m, nil
+			return m, m.toasts.Push(toast.Error, m.status)
 		}
+		m.connLost = false
 		m.status = "created store " + msg.store.Name
-		return m, tea.Batch(m.selectStore(msg.store), loadStoresCmd(m.ctx, m.client))
+		return m, tea.Batch(m.toasts.Push(toast.Success, m.status), m.selectStore(msg.store), loadStoresCmd(m.ctx, m.client))
 
 	case tupleWrittenMsg:
 		if msg.err != nil {
+			m.connLost = isConnErr(msg.err)
 			m.status = "tuple: " + errStr(msg.err)
-			return m, nil
+			return m, m.toasts.Push(toast.Error, m.status)
 		}
+		m.connLost = false
 		verb := "wrote"
 		if msg.deleted {
 			verb = "deleted"
 		}
 		m.status = verb + " " + msg.label
-		return m, loadTuplesCmd(m.ctx, m.client, m.storeID)
+		return m, tea.Batch(m.toasts.Push(toast.Success, m.status), loadTuplesCmd(m.ctx, m.client, m.storeID))
 
 	case queryResultMsg:
 		m.loading = false
 		m.hasResult = true
 		m.result = msg
 		if msg.err != nil {
+			m.connLost = isConnErr(msg.err)
 			m.status = "query: " + errStr(msg.err)
-		} else {
-			m.status = "query complete"
+			return m, m.toasts.Push(toast.Error, m.status)
 		}
-		return m, nil
+		m.connLost = false
+		m.status = "query complete"
+		return m, m.toasts.Push(toast.Success, m.status)
 
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
@@ -190,6 +236,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.splashY, m.splashYVel = m.splashSpring.Update(m.splashY, m.splashYVel, 0)
 		if m.splashPhase < 1.3 {
 			return m, splashTick()
+		}
+		return m, nil
+
+	case pulseTickMsg:
+		m.pulse += 0.6
+		if m.storeID != "" {
+			return m, pulseTick()
 		}
 		return m, nil
 
@@ -565,6 +618,16 @@ func (m Model) advanceQueryForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, cmd
+}
+
+// staleSuffix returns a styled " stale" marker to append to a status line
+// when a data load failed because the connection dropped and cached data is
+// being kept on screen, or "" when nothing needs marking.
+func staleSuffix(connLost bool) string {
+	if !connLost {
+		return ""
+	}
+	return "  " + style.Warn.Render("stale")
 }
 
 func plural(n int, noun string) string {

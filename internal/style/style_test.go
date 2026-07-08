@@ -1,6 +1,7 @@
 package style
 
 import (
+	"image/color"
 	"strings"
 	"testing"
 
@@ -37,6 +38,22 @@ func TestDotRendersGlyph(t *testing.T) {
 		if got := stripANSI(Dot(st)); got != IconDot {
 			t.Errorf("Dot(%d) glyph = %q, want %q", st, got, IconDot)
 		}
+	}
+}
+
+func TestBlend(t *testing.T) {
+	Apply(theme.Default())
+	if got := Blend(Green, Faintc, 0); got != Green {
+		t.Errorf("Blend(a, b, 0) = %v, want a %v", got, Green)
+	}
+	// Midway blend must not panic and must render as a valid foreground color.
+	mid := Blend(Green, Faintc, 0.5)
+	if w := lipgloss.Width(lipgloss.NewStyle().Foreground(mid).Render("●")); w != 1 {
+		t.Fatalf("blended dot width = %d, want 1", w)
+	}
+	// Falls back to a when a color can't be converted (e.g. fully transparent).
+	if got := Blend(Green, color.Transparent, 0.5); got != Green {
+		t.Errorf("Blend with unconvertible b = %v, want fallback a %v", got, Green)
 	}
 }
 

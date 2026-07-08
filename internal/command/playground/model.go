@@ -2,6 +2,9 @@ package playground
 
 import (
 	"context"
+	"errors"
+	"net"
+	"strings"
 
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textarea"
@@ -18,6 +21,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/ui/icons"
 	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
 	shell "github.com/sergiught/openfga-cli/internal/ui/shell"
+	"github.com/sergiught/openfga-cli/internal/ui/toast"
 )
 
 const modelTemplate = "model\n  schema 1.1\n\ntype user\n\ntype document\n  relations\n    define owner: [user]\n    define viewer: [user] or owner\n"
@@ -73,6 +77,14 @@ type Model struct {
 	spinner spinner.Model
 	loading bool
 	status  string
+
+	toasts toast.Model
+
+	// breathing status dot: pulse advances every 500ms while a store is
+	// selected; connLost flips the footer to a solid "connection lost" dot
+	// when the last command failed with a network-level error.
+	pulse    float64
+	connLost bool
 
 	// data + lists
 	stores     []openfga.Store
@@ -157,6 +169,7 @@ func newModel(ctx context.Context, a *app.App, cl *openfga.Client, storeID strin
 		assertionsList: uilist.New(),
 		paletteList:    uilist.New(),
 		editor:         ta,
+		toasts:         toast.New(),
 	}
 	m.qmode = 0
 	m.populatePalette()
@@ -173,6 +186,8 @@ func (m Model) Init() tea.Cmd {
 		cmds = append(cmds,
 			loadModelCmd(m.ctx, m.client, m.storeID),
 			loadTuplesCmd(m.ctx, m.client, m.storeID),
+			pulseTick(), // the breathing dot loop starts here; selectStore starts
+			// it instead when the store is chosen after launch with none preset.
 		)
 	}
 	return tea.Batch(cmds...)
@@ -324,6 +339,7 @@ func (m *Model) rebuildQueryForm() {
 // --- store selection ---
 
 func (m *Model) selectStore(s openfga.Store) tea.Cmd {
+	firstStore := m.storeID == "" // pulse loop isn't running yet in this case
 	m.storeID = s.ID
 	m.storeName = s.Name
 	m.modelID = ""
@@ -333,10 +349,14 @@ func (m *Model) selectStore(s openfga.Store) tea.Cmd {
 	m.assertions = nil
 	m.assertResults = nil
 	m.status = "loaded store " + s.Name
-	return tea.Batch(
+	cmds := []tea.Cmd{
 		loadModelCmd(m.ctx, m.client, m.storeID),
 		loadTuplesCmd(m.ctx, m.client, m.storeID),
-	)
+	}
+	if firstStore {
+		cmds = append(cmds, pulseTick())
+	}
+	return tea.Batch(cmds...)
 }
 
 func boolWord(b bool) string {
@@ -358,4 +378,32 @@ func errStr(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+// isConnErr reports whether err looks like a network-level failure (refused
+// connection, DNS lookup failure, timeout) rather than a normal API error
+// response (validation, auth, not-found, …), which the SDK returns as typed
+// *openfga.ErrorResponse variants carrying an actual HTTP status. There is no
+// existing error-classification helper in the codebase to key off, so this is
+// a minimal heuristic: first the idiomatic net.Error check (matches the
+// *url.Error the standard http.Client wraps transport failures in), then a
+// substring fallback for anything that slips through unwrapped.
+func isConnErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	var ne net.Error
+	if errors.As(err, &ne) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	for _, s := range []string{
+		"connection refused", "no such host", "network is unreachable",
+		"i/o timeout", "connection reset", "broken pipe",
+	} {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
 }
