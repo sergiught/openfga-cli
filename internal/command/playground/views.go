@@ -12,7 +12,6 @@ import (
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/icons"
-	"github.com/sergiught/openfga-cli/internal/ui/logo"
 	shell "github.com/sergiught/openfga-cli/internal/ui/shell"
 )
 
@@ -34,9 +33,6 @@ func (m Model) viewString() string {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
 			style.Faint.Render("terminal too small — need at least 40×10"))
 	}
-	if m.splash {
-		return m.splashView()
-	}
 	m.sh.SetSidebar(m.sidebarContext(), m.sidebarNav(), m.sidebarFooter())
 	m.sh.SetMain(sectionNames[m.section], m.sectionBody())
 	st := shell.Status{Store: m.storeName, Model: short(m.modelID), Left: m.status, Keys: m.statusKeys()}
@@ -54,6 +50,7 @@ func (m Model) viewString() string {
 		m.sh.SetDialog("", "")
 	}
 	m.sh.SetToast(m.toasts.View())
+	m.sh.SetEntrance(m.entranceFrac, m.entering && m.entranceFrac > 0.55)
 	return m.sh.View()
 }
 
@@ -119,18 +116,6 @@ func (m Model) sidebarFooter() string {
 	k := 0.5 + 0.5*math.Sin(m.pulse)
 	dot := lipgloss.NewStyle().Foreground(style.Blend(style.Green, style.Faintc, k)).Render(style.IconDot)
 	return dot + " " + style.Faint.Render("connected")
-}
-
-func (m Model) splashView() string {
-	art := style.GradientBlockShimmer(logo.Word("ofga"), min(m.splashPhase, 1.0))
-	w := lipgloss.Width(art)
-	field := lipgloss.NewStyle().Foreground(style.Faintc).Render(strings.Repeat("╱", w))
-	hero := lipgloss.JoinVertical(lipgloss.Center, field, art, field)
-	hero = strings.Repeat("\n", max(0, int(m.splashY+0.5))) + hero
-	tag := style.Faint.Render("a modern playground for OpenFGA")
-	hint := style.Faint.Render("press any key to continue · q quit")
-	block := lipgloss.JoinVertical(lipgloss.Center, hero, "", tag, "", hint)
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, block)
 }
 
 func (m Model) sectionBody() string {

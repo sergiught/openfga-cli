@@ -78,14 +78,15 @@ type Model struct {
 
 	width, height int
 	ready         bool
-	splash        bool
 
-	// splash animation: shimmer sweep phase + a spring-driven rise of the
-	// hero block from below.
-	splashPhase  float64
-	splashY      float64
-	splashYVel   float64
-	splashSpring harmonica.Spring
+	// launch entrance: entranceFrac springs 1→0 (driven by entranceSpring)
+	// while entering is true; the shell uses it to slide the sidebar in and
+	// ghost the main pane. drift is wired by a later task.
+	entering       bool
+	entranceFrac   float64
+	entranceVel    float64
+	entranceSpring harmonica.Spring
+	drift          float64
 
 	fading bool // true while rendering incoming section as a ghost frame
 
@@ -167,7 +168,14 @@ func newModel(ctx context.Context, a *app.App, cl *openfga.Client, storeID strin
 
 	// A lightly-damped spring gives scrolling momentum without overshoot.
 	graphSpring := harmonica.NewSpring(harmonica.FPS(graphFPS), 8.0, 1.0)
-	splashSpring := harmonica.NewSpring(harmonica.FPS(30), 6.0, 0.8)
+	entranceSpring := harmonica.NewSpring(harmonica.FPS(30), 7.0, 0.9)
+
+	// The mono theme boots settled — no motion to speak of, so the entrance
+	// animation is skipped entirely.
+	entering, entranceFrac := true, 1.0
+	if style.Active.Name == "mono" {
+		entering, entranceFrac = false, 0
+	}
 
 	ta := textarea.New()
 	ta.ShowLineNumbers = true
@@ -178,9 +186,9 @@ func newModel(ctx context.Context, a *app.App, cl *openfga.Client, storeID strin
 		ctx:            ctx,
 		spinner:        sp,
 		sh:             shell.New(),
-		splash:         true,
-		splashY:        4,
-		splashSpring:   splashSpring,
+		entering:       entering,
+		entranceFrac:   entranceFrac,
+		entranceSpring: entranceSpring,
 		section:        secStores,
 		storeID:        storeID,
 		graphSpring:    graphSpring,
@@ -205,7 +213,10 @@ func newModel(ctx context.Context, a *app.App, cl *openfga.Client, storeID strin
 
 // Init kicks off initial loads.
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.spinner.Tick, loadStoresCmd(m.ctx, m.client), splashTick()}
+	cmds := []tea.Cmd{m.spinner.Tick, loadStoresCmd(m.ctx, m.client)}
+	if m.entering {
+		cmds = append(cmds, entranceTick())
+	}
 	if m.storeID != "" {
 		cmds = append(cmds,
 			loadModelCmd(m.ctx, m.client, m.storeID),

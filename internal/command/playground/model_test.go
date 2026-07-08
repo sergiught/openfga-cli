@@ -85,7 +85,6 @@ func newTestModel() tea.Model {
 	cl, _ := openfga.NewClient("http://localhost:8080")
 	a := app.New(log.New(io.Discard), config.New(), "test")
 	mdl := newModel(context.Background(), a, cl, "store-1")
-	mdl.splash = false // tests exercise the shell, not the splash
 	var m tea.Model = mdl
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
 	m, _ = m.Update(storesLoadedMsg{stores: []openfga.Store{{ID: "store-1", Name: "demo"}, {ID: "store-2", Name: "other"}}})
@@ -288,7 +287,6 @@ func TestQueryFormTabNavigationRunsCheck(t *testing.T) {
 	cl, _ := openfga.NewClient(srv.URL)
 	a := app.New(log.New(io.Discard), config.New(), "test")
 	mdl := newModel(context.Background(), a, cl, "store-1")
-	mdl.splash = false
 	var m tea.Model = mdl
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
 	m, _ = m.Update(storesLoadedMsg{stores: []openfga.Store{{ID: "store-1", Name: "demo"}}})
@@ -413,7 +411,6 @@ func TestDigitKeyRerunsHistoryEntry(t *testing.T) {
 	cl, _ := openfga.NewClient(srv.URL)
 	a := app.New(log.New(io.Discard), config.New(), "test")
 	mdl := newModel(context.Background(), a, cl, "store-1")
-	mdl.splash = false
 	var m tea.Model = mdl
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
 	m, _ = m.Update(storesLoadedMsg{stores: []openfga.Store{{ID: "store-1", Name: "demo"}}})
@@ -509,75 +506,37 @@ func TestGraphSpringScrollSettles(t *testing.T) {
 	}
 }
 
-func TestSplashShownThenDismissed(t *testing.T) {
+func TestEntranceSettlesAndTickerStops(t *testing.T) {
+	// newTestModel already fires a WindowSizeMsg during setup, which snaps
+	// the entrance to settled — so this constructs via newModel directly to
+	// observe the pre-resize boot state.
 	cl, _ := openfga.NewClient("http://localhost:8080")
 	a := app.New(log.New(io.Discard), config.New(), "test")
-	var m tea.Model = newModel(context.Background(), a, cl, "store-1")
-	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
-
-	if !strings.Contains(m.(Model).viewString(), "playground") {
-		t.Error("splash should be visible before stores load")
+	m := newModel(context.Background(), a, cl, "store-1")
+	if !m.entering {
+		t.Fatal("model must boot in the entering state")
 	}
-	if !m.(Model).splash {
-		t.Fatal("model should start on the splash")
-	}
-	m, _ = m.Update(storesLoadedMsg{stores: []openfga.Store{{ID: "store-1", Name: "demo"}}})
-	if !m.(Model).splash {
-		t.Error("splash should persist through data load (it dismisses only on keypress)")
-	}
-	m, _ = m.Update(key("enter"))
-	if m.(Model).splash {
-		t.Error("splash should dismiss on keypress")
-	}
-}
-
-func TestSplashDismissedByKeypress(t *testing.T) {
-	cl, _ := openfga.NewClient("http://localhost:8080")
-	a := app.New(log.New(io.Discard), config.New(), "test")
-	var m tea.Model = newModel(context.Background(), a, cl, "store-1")
-	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
-	if !m.(Model).splash {
-		t.Fatal("should start on splash")
-	}
-	m, _ = m.Update(key("enter")) // any non-quit key dismisses
-	if m.(Model).splash {
-		t.Error("a keypress should dismiss the splash")
-	}
-}
-
-func TestSplashTickStopsAfterDismissal(t *testing.T) {
-	cl, _ := openfga.NewClient("http://localhost:8080")
-	a := app.New(log.New(io.Discard), config.New(), "test")
-	var m tea.Model = newModel(context.Background(), a, cl, "store-1")
-	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
-	m, _ = m.Update(key("enter")) // dismiss splash
-	if m.(Model).splash {
-		t.Fatal("splash should be dismissed")
-	}
-	_, cmd := m.Update(splashTickMsg{})
-	if cmd != nil {
-		t.Error("splashTickMsg after dismissal should not re-arm the ticker")
-	}
-}
-
-func TestSplashTickStopsWhenAnimationCompletes(t *testing.T) {
-	cl, _ := openfga.NewClient("http://localhost:8080")
-	a := app.New(log.New(io.Discard), config.New(), "test")
-	var m tea.Model = newModel(context.Background(), a, cl, "store-1")
-	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
-
+	var cur tea.Model = m
 	var cmd tea.Cmd
-	for i := 0; i < 40; i++ { // 40 * 0.04 = 1.6, comfortably past the 1.3 cutoff
-		m, cmd = m.Update(splashTickMsg{})
+	for i := 0; i < 60; i++ { // 60 ticks × 33ms ≈ 2s, far past the ~700ms settle
+		cur, cmd = cur.(Model).Update(entranceTickMsg{})
+		if !cur.(Model).entering {
+			break
+		}
 	}
-	if got := m.(Model).splashPhase; got < 1.3 {
-		t.Fatalf("splashPhase = %v, want >= 1.3 after enough ticks", got)
+	if cur.(Model).entering {
+		t.Fatal("entrance must settle")
 	}
 	if cmd != nil {
-		t.Error("ticker should stop re-arming once splashPhase >= 1.3")
+		t.Fatal("settled entrance must not re-arm its ticker")
 	}
-	if m.(Model).splash {
-		t.Error("splash should auto-dismiss into the shell once the animation completes")
+}
+
+func TestResizeSnapsEntrance(t *testing.T) {
+	m := newTestModel()
+	m2, _ := m.Update(tea.WindowSizeMsg{Width: 90, Height: 28})
+	if got := m2.(Model); got.entering || got.entranceFrac != 0 {
+		t.Fatal("resize during the entrance must snap to settled")
 	}
 }
 

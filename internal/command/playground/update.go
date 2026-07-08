@@ -18,14 +18,13 @@ type pendingAction struct{ runAssertions bool }
 
 var pending pendingAction
 
-// splashTickMsg drives the splash shimmer/rise animation, one frame at a
-// time. It re-arms itself while the splash is showing and the animation is
-// still in progress, then stops.
-type splashTickMsg struct{}
+// entranceTickMsg drives the launch animation: the sidebar springs in from
+// the left while the main pane materializes. Stops when settled.
+type entranceTickMsg struct{}
 
-func splashTick() tea.Cmd {
+func entranceTick() tea.Cmd {
 	return tea.Tick(time.Millisecond*33, func(time.Time) tea.Msg {
-		return splashTickMsg{}
+		return entranceTickMsg{}
 	})
 }
 
@@ -72,6 +71,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		m.entering = false
+		m.entranceFrac = 0
 		m.width, m.height = msg.Width, msg.Height
 		m.resize()
 		m.ready = true
@@ -254,17 +255,17 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case graphTickMsg:
 		return m.advanceGraphScroll()
 
-	case splashTickMsg:
-		if !m.splash {
+	case entranceTickMsg:
+		if !m.entering {
 			return m, nil
 		}
-		m.splashPhase += 0.04
-		m.splashY, m.splashYVel = m.splashSpring.Update(m.splashY, m.splashYVel, 0)
-		if m.splashPhase < 1.3 {
-			return m, splashTick()
+		m.entranceFrac, m.entranceVel = m.entranceSpring.Update(m.entranceFrac, m.entranceVel, 0)
+		if m.entranceFrac < 0.01 {
+			m.entranceFrac = 0
+			m.entering = false
+			return m, nil
 		}
-		m.splash = false
-		return m, nil
+		return m, entranceTick()
 
 	case pulseTickMsg:
 		m.pulse += 0.6
@@ -301,14 +302,6 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if m.splash {
-		if msg.String() == "q" || msg.String() == "ctrl+c" {
-			return m, tea.Quit
-		}
-		m.splash = false
-		return m, nil
-	}
-
 	if m.paletteOpen {
 		switch msg.String() {
 		case "esc", "ctrl+k":
