@@ -39,7 +39,7 @@ func TestViewFitsWidth(t *testing.T) {
 	s.SetSize(100, 24)
 	s.SetSidebar([]string{"store: demo"}, []NavItem{{Label: "Model", Active: true}, {Label: "Tuples", Badge: "42"}}, "online")
 	s.SetMain("Authorization Model", "type document")
-	s.SetStatus("ready", "q quit")
+	s.SetStatus(Status{Left: "ready", Keys: []string{"q"}})
 	view := s.View()
 	if strings.TrimSpace(view) == "" {
 		t.Fatal("empty view")
@@ -101,7 +101,7 @@ func TestSetDialogKeepsBaseDimensions(t *testing.T) {
 	s.SetSize(80, 24)
 	s.SetSidebar([]string{"store: demo"}, []NavItem{{Label: "Model", Active: true}}, "online")
 	s.SetMain("Title", "body")
-	s.SetStatus("ready", "q quit")
+	s.SetStatus(Status{Left: "ready", Keys: []string{"q"}})
 	s.SetDialog("Pick", "one\ntwo")
 
 	view := s.View()
@@ -121,6 +121,18 @@ func TestSetDialogKeepsBaseDimensions(t *testing.T) {
 	s.SetDialog("", "")
 	if strings.Contains(stripANSI(s.View()), "Pick") {
 		t.Error("clearing the dialog (empty title+body) should remove it from the view")
+	}
+}
+
+func TestStatusSegments(t *testing.T) {
+	s := New()
+	s.SetSize(100, 30)
+	s.SetStatus(Status{Mode: "CHECK", Store: "demo", Keys: []string{"q"}})
+	out := stripANSI(s.View())
+	for _, want := range []string{"CHECK", "demo", "q"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("status bar missing %q", want)
+		}
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	lipgloss "charm.land/lipgloss/v2"
 
 	"github.com/sergiught/openfga-cli/internal/style"
+	"github.com/sergiught/openfga-cli/internal/ui/icons"
 	"github.com/sergiught/openfga-cli/internal/ui/logo"
 	shell "github.com/sergiught/openfga-cli/internal/ui/shell"
 )
@@ -35,11 +36,14 @@ func (m Model) viewString() string {
 	}
 	m.sh.SetSidebar(m.sidebarContext(), m.sidebarNav(), m.sidebarFooter())
 	m.sh.SetMain(sectionNames[m.section], m.sectionBody())
-	statusLeft := m.status
-	if m.loading {
-		statusLeft = m.spinner.View() + " " + m.status
+	st := shell.Status{Store: m.storeName, Model: short(m.modelID), Left: m.status, Keys: m.statusKeys()}
+	if m.section == secQuery {
+		st.Mode = strings.ToUpper(queryModes[m.qmode])
 	}
-	m.sh.SetStatus(statusLeft, m.helpKeys())
+	if m.loading {
+		st.Spinner = m.spinner.View()
+	}
+	m.sh.SetStatus(st)
 
 	if title, body := m.dialogContent(); body != "" {
 		m.sh.SetDialog(title, body)
@@ -81,9 +85,11 @@ func (m Model) sidebarContext() []string {
 }
 
 func (m Model) sidebarNav() []shell.NavItem {
+	ic := icons.I()
+	sectionIcons := []string{ic.Store, ic.Model, ic.Tuple, ic.Change, ic.Query, ic.Assert}
 	items := make([]shell.NavItem, len(sectionNames))
 	for i, name := range sectionNames {
-		it := shell.NavItem{Label: name, Active: section(i) == m.section}
+		it := shell.NavItem{Label: name, Icon: sectionIcons[i], Active: section(i) == m.section}
 		switch section(i) {
 		case secTuples:
 			if len(m.tuples) > 0 {
@@ -105,8 +111,6 @@ func (m Model) sidebarFooter() string {
 	}
 	return style.Dot(style.DotOnline) + " " + style.Faint.Render("connected")
 }
-
-func (m Model) helpKeys() string { return m.helpLine() }
 
 func (m Model) splashView() string {
 	art := style.GradientBlock(logo.Word("ofga"))
@@ -233,31 +237,34 @@ func (m Model) assertionsBody() string {
 	return body
 }
 
-func (m Model) helpLine() string {
-	var keys string
+// statusKeys returns the right-aligned keycap hints for the current state.
+// Quit ("q") and section-switch ("tab") are only listed where those keys
+// actually work: takeover forms, the model editor, and the query form all
+// capture every keypress, so those states omit them.
+func (m Model) statusKeys() []string {
 	switch {
 	case m.formKind != formNone:
-		keys = "type to fill · enter submit · esc cancel"
+		return []string{"↵", "esc"}
 	case m.section == secStores:
-		keys = "↑↓ move · / filter · enter select · n new · r reload"
+		return []string{"↑↓", "/", "↵", "n", "r", "q"}
 	case m.section == secModel && m.editorOpen:
-		keys = "ctrl+s apply · esc cancel"
+		return []string{"ctrl+s", "esc"}
 	case m.section == secModel && m.modelPicking:
-		keys = "↑↓ move · enter load · esc cancel"
+		return []string{"↑↓", "↵", "esc", "tab", "q"}
 	case m.section == secModel:
-		keys = "↑↓←→ pan · e edit model · m switch model · r reload"
+		return []string{"↑↓←→", "e", "m", "r", "q"}
 	case m.section == secTuples:
-		keys = "↑↓ move · / filter · a add · d delete · r reload"
+		return []string{"↑↓", "/", "a", "d", "r", "q"}
 	case m.section == secChanges:
-		keys = "↑↓ move · / filter · r reload"
+		return []string{"↑↓", "/", "r", "tab", "q"}
 	case m.section == secQuery && m.editing:
-		keys = "tab next · enter run · esc cancel"
+		return []string{"tab", "↵", "esc"}
 	case m.section == secQuery:
-		keys = "i edit · m mode · enter run"
+		return []string{"i", "m", "↵", "tab", "q"}
 	case m.section == secAssertions:
-		keys = "↑↓ move · t run · r reload"
+		return []string{"↑↓", "t", "r", "tab", "q"}
 	}
-	return style.Faint.Render(keys) + style.Faint.Render("  ·  tab/1-6 sections · q quit")
+	return nil
 }
 
 func itoa(n int) string { return strconv.Itoa(n) }

@@ -27,8 +27,19 @@ const (
 // NavItem is one sidebar navigation row.
 type NavItem struct {
 	Label  string
+	Icon   string
 	Badge  string
 	Active bool
+}
+
+// Status describes the segmented bottom bar.
+type Status struct {
+	Mode    string   // filled keyword chip, e.g. "CHECK" (empty = none)
+	Store   string   // raised chip (empty = none)
+	Model   string   // raised chip (empty = none)
+	Spinner string   // prepended to Left when non-empty
+	Left    string   // free status text
+	Keys    []string // right-aligned keycaps
 }
 
 // Shell holds the current size and the content of each region.
@@ -42,8 +53,7 @@ type Shell struct {
 	mainTitle string
 	mainBody  string
 
-	statusLeft  string
-	statusRight string
+	status Status
 
 	dialogTitle, dialogBody string
 	toast                   string
@@ -116,8 +126,8 @@ func (s *Shell) SetSidebar(context []string, nav []NavItem, footer string) {
 // SetMain sets the main pane title and body.
 func (s *Shell) SetMain(title, body string) { s.mainTitle, s.mainBody = title, body }
 
-// SetStatus sets the bottom status bar's left/right text.
-func (s *Shell) SetStatus(left, right string) { s.statusLeft, s.statusRight = left, right }
+// SetStatus sets the bottom status bar's segments.
+func (s *Shell) SetStatus(st Status) { s.status = st }
 
 // SetDialog sets (or clears, when both title and body are empty) the centered
 // modal dialog.
@@ -308,17 +318,19 @@ func (s *Shell) renderSidebar(height int) string {
 }
 
 func (s *Shell) renderNav(n NavItem) string {
-	label := n.Label
-	if n.Badge != "" {
-		label += "  " + n.Badge // plain badge: a nested style here would reset the bg
-	}
-	// Inactive items are fg-only on the uniform background (no marks). The active
-	// item is a filled pill, which paints its own background cleanly.
-	st := lipgloss.NewStyle().Padding(0, 1).Foreground(style.Muted)
+	label := strings.TrimSpace(n.Icon + " " + n.Label)
 	if n.Active {
-		st = lipgloss.NewStyle().Padding(0, 1).Bold(true).Background(style.Primary).Foreground(style.OnAccent)
+		out := style.GradientPill(label)
+		if n.Badge != "" {
+			out += " " + style.Chip(n.Badge, style.Muted, style.BgHighlight)
+		}
+		return out
 	}
-	return st.Render(label)
+	out := lipgloss.NewStyle().Padding(0, 1).Foreground(style.Muted).Render(label)
+	if n.Badge != "" {
+		out += " " + style.Chip(n.Badge, style.Muted, style.BgHighlight)
+	}
+	return out
 }
 
 func (s *Shell) renderMain(height int) string {
@@ -342,7 +354,29 @@ func (s *Shell) renderMain(height int) string {
 }
 
 func (s *Shell) renderStatus() string {
-	right := lipgloss.NewStyle().Foreground(style.Faintc).Render(s.statusRight)
+	var segs []string
+	if s.status.Mode != "" {
+		segs = append(segs, style.Chip(s.status.Mode, style.OnAccent, style.Keyword))
+	}
+	if s.status.Store != "" {
+		segs = append(segs, style.Chip(s.status.Store, style.Fg, style.BgHighlight))
+	}
+	if s.status.Model != "" {
+		segs = append(segs, style.Chip(s.status.Model, style.Muted, style.BgHighlight))
+	}
+	left := strings.Join(segs, " ")
+	txt := s.status.Left
+	if s.status.Spinner != "" {
+		txt = s.status.Spinner + " " + txt
+	}
+	if txt != "" {
+		left += " " + lipgloss.NewStyle().Foreground(style.Muted).Render(txt)
+	}
+	var keys []string
+	for _, k := range s.status.Keys {
+		keys = append(keys, style.Keycap(k))
+	}
+	right := strings.Join(keys, " ")
 	rw := lipgloss.Width(right)
 	// Truncate the (possibly long) status text so the bar fits one line and never
 	// wraps; keep the right-side key hints visible.
@@ -350,11 +384,10 @@ func (s *Shell) renderStatus() string {
 	if maxLeft < 0 {
 		maxLeft = 0
 	}
-	left := ansi.Truncate(lipgloss.NewStyle().Foreground(style.Muted).Render(s.statusLeft), maxLeft, "…")
+	left = ansi.Truncate(left, maxLeft, "…")
 	gap := s.width - lipgloss.Width(left) - rw
 	if gap < 1 {
 		gap = 1
 	}
-	bar := ansi.Truncate(left+strings.Repeat(" ", gap)+right, s.width, "")
-	return lipgloss.NewStyle().Width(s.width).Render(bar)
+	return ansi.Truncate(left+strings.Repeat(" ", gap)+right, s.width, "")
 }

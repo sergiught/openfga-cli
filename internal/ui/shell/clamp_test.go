@@ -20,10 +20,10 @@ func TestViewClampsToExactSize(t *testing.T) {
 		[]NavItem{{Label: "Model", Active: true}, {Label: "Tuples", Badge: "9999"}},
 		"● connected")
 	s.SetMain("Model", "type document\n  define viewer: [user]")
-	s.SetStatus(
-		"model: openfga: no authorization models found in this store right now",
-		"↑↓ move · / filter · enter select · n new · r reload  ·  tab/1-7 sections · q quit",
-	)
+	s.SetStatus(Status{
+		Left: "model: openfga: no authorization models found in this store right now",
+		Keys: []string{"↑↓", "/", "↵", "n", "r", "q"},
+	})
 
 	v := s.View()
 	lines := strings.Split(v, "\n")
