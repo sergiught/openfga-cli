@@ -40,6 +40,16 @@ func pulseTick() tea.Cmd {
 	})
 }
 
+// fadeMsg fires after a section change to materialize the incoming frame from
+// its ghost preview. Does not re-arm — fires exactly once per section switch.
+type fadeMsg struct{}
+
+func fadeTick() tea.Cmd {
+	return tea.Tick(70*time.Millisecond, func(time.Time) tea.Msg {
+		return fadeMsg{}
+	})
+}
+
 // Update is the central dispatcher. It forwards every message to the toast
 // model first (so its expiry timer advances regardless of which branch below
 // handles the message), then dispatches as before.
@@ -246,6 +256,10 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case fadeMsg:
+		m.fading = false
+		return m, nil
+
 	default:
 		// Field cursors blink via their own (non-key) messages. An active form
 		// must see every message, not just key presses, or the focused input's
@@ -283,7 +297,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if it, ok := m.paletteList.Selected(); ok {
 				m.paletteOpen = false
 				m.section = section(it.Index)
-				return m.onEnterSection()
+				m.fading = true
+				nm, cmd := m.onEnterSection()
+				return nm, tea.Batch(cmd, fadeTick())
 			}
 		}
 		cmd := m.paletteList.Update(msg)
@@ -330,13 +346,19 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "tab":
 		m.section = (m.section + 1) % section(len(sectionNames))
-		return m.onEnterSection()
+		m.fading = true
+		nm, cmd := m.onEnterSection()
+		return nm, tea.Batch(cmd, fadeTick())
 	case "shift+tab":
 		m.section = (m.section + section(len(sectionNames)) - 1) % section(len(sectionNames))
-		return m.onEnterSection()
+		m.fading = true
+		nm, cmd := m.onEnterSection()
+		return nm, tea.Batch(cmd, fadeTick())
 	case "1", "2", "3", "4", "5", "6":
 		m.section = section(key[0] - '1')
-		return m.onEnterSection()
+		m.fading = true
+		nm, cmd := m.onEnterSection()
+		return nm, tea.Batch(cmd, fadeTick())
 	case "ctrl+k":
 		m.paletteOpen = true
 		return m, nil

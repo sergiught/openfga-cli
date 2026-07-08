@@ -501,3 +501,37 @@ func TestGraphViewportScrollOffsetsPreservedOnResize(t *testing.T) {
 			resized.graphVP.YOffset(), originalOffset)
 	}
 }
+
+// TestSectionFadingTransition verifies that switching sections via key press
+// sets the fading flag and that the fadeMsg clears it, without re-arming.
+func TestSectionFadingTransition(t *testing.T) {
+	m := newTestModel()
+
+	// Start at Stores section
+	m, _ = m.Update(key("1"))
+
+	// Press tab to switch sections; fading should be set.
+	m, cmd := m.Update(key("tab"))
+	mod := m.(Model)
+	if !mod.fading {
+		t.Fatal("section switch should set fading=true")
+	}
+	if mod.section != secModel {
+		t.Errorf("section should be secModel after tab; got %v", mod.section)
+	}
+
+	// Verify that a command was returned (the fade ticker).
+	if cmd == nil {
+		t.Fatal("section switch should return a command (fade ticker)")
+	}
+
+	// Send a direct fadeMsg; fading should clear and no command should be returned.
+	m, cmd = mod.Update(fadeMsg{})
+	final := m.(Model)
+	if final.fading {
+		t.Error("fadeMsg should clear fading flag")
+	}
+	if cmd != nil {
+		t.Error("fadeMsg should return no command (ticker does not re-arm)")
+	}
+}

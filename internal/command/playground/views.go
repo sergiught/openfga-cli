@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/icons"
 	"github.com/sergiught/openfga-cli/internal/ui/logo"
@@ -132,30 +133,33 @@ func (m Model) splashView() string {
 }
 
 func (m Model) sectionBody() string {
+	var body string
 	switch m.section {
 	case secStores:
-		return m.listOrHint(m.storesList.View(), len(m.stores), "No stores yet — press n to create one")
+		body = m.listOrHint(m.storesList.View(), len(m.stores), "No stores yet — press n to create one")
 	case secModel:
 		if m.editorOpen {
-			return m.editorBody()
+			body = m.editorBody()
+		} else if m.storeID == "" {
+			body = m.centerHint("Select a store first — press 1")
+		} else if len(m.graph.Types) == 0 {
+			body = m.centerHint("No authorization model in this store")
+		} else {
+			body = m.graphVP.View()
 		}
-		if m.storeID == "" {
-			return m.centerHint("Select a store first — press 1")
-		}
-		if len(m.graph.Types) == 0 {
-			return m.centerHint("No authorization model in this store")
-		}
-		return m.graphVP.View()
 	case secTuples:
-		return m.listOrHint(m.tuplesList.View(), len(m.tuples), tupleHint(m.storeID))
+		body = m.listOrHint(m.tuplesList.View(), len(m.tuples), tupleHint(m.storeID))
 	case secChanges:
-		return m.listOrHint(m.changesList.View(), len(m.changes), changeHint(m.storeID))
+		body = m.listOrHint(m.changesList.View(), len(m.changes), changeHint(m.storeID))
 	case secQuery:
-		return m.queryBody()
+		body = m.queryBody()
 	case secAssertions:
-		return m.assertionsBody()
+		body = m.assertionsBody()
 	}
-	return ""
+	if m.fading {
+		return style.Faint.Render(ansi.Strip(body))
+	}
+	return body
 }
 
 // centerHint renders a muted hint centered in the main content area, so empty

@@ -67,6 +67,8 @@ type Model struct {
 	splashYVel   float64
 	splashSpring harmonica.Spring
 
+	fading bool // true while rendering incoming section as a ghost frame
+
 	storeID   string
 	storeName string
 	modelID   string
