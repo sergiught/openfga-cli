@@ -27,12 +27,12 @@ func (m Model) View() tea.View {
 
 // viewString renders the whole screen via the shell frame.
 func (m Model) viewString() string {
+	if !m.ready {
+		return "\n  " + m.spinner.View() + " starting ofga…"
+	}
 	if m.width < 40 || m.height < 10 {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
 			style.Faint.Render("terminal too small — need at least 40×10"))
-	}
-	if !m.ready {
-		return "\n  " + m.spinner.View() + " starting ofga…"
 	}
 	if m.splash {
 		return m.splashView()
@@ -126,7 +126,7 @@ func (m Model) splashView() string {
 	w := lipgloss.Width(art)
 	field := lipgloss.NewStyle().Foreground(style.Faintc).Render(strings.Repeat("╱", w))
 	hero := lipgloss.JoinVertical(lipgloss.Center, field, art, field)
-	hero = strings.Repeat("\n", int(m.splashY+0.5)) + hero
+	hero = strings.Repeat("\n", max(0, int(m.splashY+0.5))) + hero
 	tag := style.Faint.Render("a modern playground for OpenFGA")
 	hint := style.Faint.Render("press any key to continue · q quit")
 	block := lipgloss.JoinVertical(lipgloss.Center, hero, "", tag, "", hint)

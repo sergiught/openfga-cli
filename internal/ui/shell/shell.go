@@ -356,6 +356,7 @@ func (s *Shell) renderMain(height int) string {
 		Width(mainTotal).Height(height).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(style.Faintc).
+		BorderBackground(style.BgRaised).
 		Background(style.BgRaised).
 		Padding(0, 1).
 		Render(content)

@@ -382,6 +382,10 @@ func (m *Model) selectStore(s openfga.Store) tea.Cmd {
 	m.changes = nil
 	m.assertions = nil
 	m.assertResults = nil
+	m.history = nil
+	m.hasResult = false
+	m.result = queryResultMsg{}
+	m.rebuildQueryForm()
 	m.status = "loaded store " + s.Name
 	cmds := []tea.Cmd{
 		loadModelCmd(m.ctx, m.client, m.storeID),

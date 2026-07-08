@@ -175,8 +175,12 @@ func Dot(state DotState) string {
 }
 
 // Blend returns the color k of the way (in Lab space) from a to b. k=0 is a,
-// k=1 is b. Falls back to a when either color can't be converted.
+// k=1 is b. Falls back to a when either color can't be converted, or under
+// the mono theme (no color blending).
 func Blend(a, b color.Color, k float64) color.Color {
+	if Active.Name == "mono" {
+		return a
+	}
 	ca, ok1 := colorful.MakeColor(a)
 	cb, ok2 := colorful.MakeColor(b)
 	if !ok1 || !ok2 {

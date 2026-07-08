@@ -98,7 +98,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.populateStores()
 		m.status = plural(len(msg.stores), "store")
-		return m, m.toasts.Push(toast.Success, m.status)
+		return m, nil
 
 	case modelLoadedMsg:
 		if msg.err != nil {
@@ -117,7 +117,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.graphVP.SetContent(m.graph.RenderDiagram())
 		m.resetGraphScroll()
 		m.status = "model " + short(msg.modelID) + " · " + m.graph.Summary()
-		return m, m.toasts.Push(toast.Success, m.status)
+		return m, nil
 
 	case modelAppliedMsg:
 		if msg.err != nil {
@@ -164,7 +164,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.changes = msg.changes
 		m.populateChanges()
 		m.status = plural(len(msg.changes), "change")
-		return m, m.toasts.Push(toast.Success, m.status)
+		return m, nil
 
 	case assertionsLoadedMsg:
 		m.loading = false
@@ -189,7 +189,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "running assertions…"
 			return m, runAssertionsCmd(m.ctx, m.client, m.storeID, m.assertModelID, m.assertions)
 		}
-		return m, m.toasts.Push(toast.Success, m.status)
+		return m, nil
 
 	case assertTestMsg:
 		m.loading = false
