@@ -2,10 +2,11 @@ package fga
 
 import (
 	"container/heap"
+	"image/color"
 	"sort"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	lipgloss "charm.land/lipgloss/v2"
 
 	"github.com/sergiught/openfga-cli/internal/style"
 )
@@ -49,8 +50,8 @@ func (g Graph) diagramHeader() string {
 
 type scell struct {
 	r    rune
-	fg   lipgloss.TerminalColor
-	bg   lipgloss.TerminalColor
+	fg   color.Color
+	bg   color.Color
 	bold bool
 }
 
@@ -127,7 +128,7 @@ func relationRow(r Relation) []scell {
 	return cells
 }
 
-func styledRunes(s string, fg lipgloss.TerminalColor) []scell {
+func styledRunes(s string, fg color.Color) []scell {
 	rs := []rune(s)
 	out := make([]scell, len(rs))
 	for i, r := range rs {
@@ -484,7 +485,7 @@ func routeEdges(c *canvas, boxes []*nodeBox, edges []DiagramEdge) {
 		sy := portRow(src, e, edges, true)
 		ty := portRow(dst, e, edges, false)
 		start := [2]int{src.x + src.w, sy} // gutter cell right of source
-		goal := [2]int{dst.x - 1, ty}       // gutter cell left of target
+		goal := [2]int{dst.x - 1, ty}      // gutter cell left of target
 		path := routeAStar(c, blocked, used, start, goal)
 		if path == nil {
 			continue
@@ -581,15 +582,15 @@ type aStarNode struct {
 
 type pq []*aStarNode
 
-func (p pq) Len() int            { return len(p) }
-func (p pq) Less(i, j int) bool  { return p[i].f < p[j].f }
-func (p pq) Swap(i, j int)       { p[i], p[j] = p[j], p[i]; p[i].index = i; p[j].index = j }
-func (p *pq) Push(x any)         { n := x.(*aStarNode); n.index = len(*p); *p = append(*p, n) }
-func (p *pq) Pop() any           { old := *p; n := old[len(old)-1]; *p = old[:len(old)-1]; return n }
+func (p pq) Len() int           { return len(p) }
+func (p pq) Less(i, j int) bool { return p[i].f < p[j].f }
+func (p pq) Swap(i, j int)      { p[i], p[j] = p[j], p[i]; p[i].index = i; p[j].index = j }
+func (p *pq) Push(x any)        { n := x.(*aStarNode); n.index = len(*p); *p = append(*p, n) }
+func (p *pq) Pop() any          { old := *p; n := old[len(old)-1]; *p = old[:len(old)-1]; return n }
 
 const (
-	stepCost    = 1
-	turnPenalty = 5
+	stepCost     = 1
+	turnPenalty  = 5
 	reusePenalty = 3
 )
 
@@ -669,7 +670,7 @@ func routeAStar(c *canvas, blocked [][]bool, used map[[2]int]bool, start, goal [
 
 // paintPath stamps a routed path with rounded corners, crossing glyphs, and a
 // terminal arrowhead.
-func paintPath(c *canvas, path [][2]int, used map[[2]int]bool, col lipgloss.TerminalColor) {
+func paintPath(c *canvas, path [][2]int, used map[[2]int]bool, col color.Color) {
 	dirOf := func(a, b [2]int) int {
 		switch {
 		case b[0] > a[0]:
@@ -752,14 +753,14 @@ func indexBoxes(boxes []*nodeBox) map[string]*nodeBox {
 	return m
 }
 
-func edgeColor(kind string) lipgloss.TerminalColor {
+func edgeColor(kind string) color.Color {
 	if kind == "ttu" {
 		return style.Amber
 	}
 	return style.Green
 }
 
-func colorRune(r rune, fg lipgloss.TerminalColor) string {
+func colorRune(r rune, fg color.Color) string {
 	return lipgloss.NewStyle().Foreground(fg).Render(string(r))
 }
 

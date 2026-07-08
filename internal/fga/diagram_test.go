@@ -46,10 +46,10 @@ func TestParseModelInterTypeEdges(t *testing.T) {
 	g := ParseModel(githubModel())
 
 	want := map[string]bool{
-		"organization|direct|user":  true, // organization#member: [user]
-		"repo|direct|user":          true, // repo#admin: [user]
-		"repo|direct|organization":  true, // repo#owner: [organization]
-		"repo|ttu|organization":     true, // repo#admin: member from owner -> organization
+		"organization|direct|user": true, // organization#member: [user]
+		"repo|direct|user":         true, // repo#admin: [user]
+		"repo|direct|organization": true, // repo#owner: [organization]
+		"repo|ttu|organization":    true, // repo#admin: member from owner -> organization
 	}
 	got := map[string]bool{}
 	for _, e := range g.Edges {
