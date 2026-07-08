@@ -8,7 +8,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	lipgloss "charm.land/lipgloss/v2"
+
 	"github.com/sergiught/openfga-cli/internal/style"
 )
 
@@ -61,6 +62,8 @@ func Table(w io.Writer, headers []string, rows [][]string) {
 		return s + strings.Repeat(" ", pad)
 	}
 
+	var buf strings.Builder
+
 	// Header.
 	var hb strings.Builder
 	for i, h := range headers {
@@ -69,7 +72,7 @@ func Table(w io.Writer, headers []string, rows [][]string) {
 		}
 		hb.WriteString(style.TableHeader.Render(cell(h, i)))
 	}
-	fmt.Fprintln(w, hb.String())
+	fmt.Fprintln(&buf, hb.String())
 
 	// Rule.
 	var rb strings.Builder
@@ -79,7 +82,7 @@ func Table(w io.Writer, headers []string, rows [][]string) {
 		}
 		rb.WriteString(style.Faint.Render(strings.Repeat("─", widths[i])))
 	}
-	fmt.Fprintln(w, rb.String())
+	fmt.Fprintln(&buf, rb.String())
 
 	// Rows.
 	for _, row := range rows {
@@ -94,8 +97,14 @@ func Table(w io.Writer, headers []string, rows [][]string) {
 			}
 			b.WriteString(cell(val, i))
 		}
-		fmt.Fprintln(w, b.String())
+		fmt.Fprintln(&buf, b.String())
 	}
+
+	fmt.Fprintln(w, lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(style.Faintc).
+		Padding(0, 1).
+		Render(strings.TrimRight(buf.String(), "\n")))
 }
 
 // KeyValues renders an aligned key/value block (used for "get" style output).
@@ -112,20 +121,30 @@ func KeyValues(w io.Writer, pairs [][2]string) {
 	}
 }
 
-// Successf prints a success line with a green check (suppressed in Quiet/Plain).
+// Successf prints a success line with a green dot (suppressed in Quiet/Plain).
 func Successf(w io.Writer, format string, a ...any) {
 	if Quiet || Plain {
 		return
 	}
-	fmt.Fprintf(w, "%s %s\n", style.Success.Render(style.IconCheck), fmt.Sprintf(format, a...))
+	dot := lipgloss.NewStyle().Foreground(style.Green).Render(style.IconDot)
+	fmt.Fprintf(w, "%s %s\n", dot, fmt.Sprintf(format, a...))
 }
 
-// Infof prints a muted informational line with a bullet (suppressed in Quiet/Plain).
+// Infof prints a muted informational line with a primary-colored dot
+// (suppressed in Quiet/Plain).
 func Infof(w io.Writer, format string, a ...any) {
 	if Quiet || Plain {
 		return
 	}
-	fmt.Fprintf(w, "%s %s\n", style.Bullet(), fmt.Sprintf(format, a...))
+	dot := lipgloss.NewStyle().Foreground(style.Primary).Render(style.IconDot)
+	fmt.Fprintf(w, "%s %s\n", dot, fmt.Sprintf(format, a...))
+}
+
+// Errorf prints an error line with a red dot. Unlike Successf/Infof it is
+// never suppressed by Quiet — errors must always reach the user.
+func Errorf(w io.Writer, format string, a ...any) {
+	dot := lipgloss.NewStyle().Foreground(style.Red).Render(style.IconDot)
+	fmt.Fprintf(w, "%s %s\n", dot, fmt.Sprintf(format, a...))
 }
 
 // Title prints a bold violet title line.
