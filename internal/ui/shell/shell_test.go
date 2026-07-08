@@ -140,6 +140,7 @@ func TestStatusSegments(t *testing.T) {
 
 func TestFilledTitleBarAndCaps(t *testing.T) {
 	icons.Apply(icons.ModeNerdFont)
+	t.Cleanup(func() { icons.Apply(icons.ModeNerdFont) })
 	s := New()
 	s.SetSize(100, 30)
 	s.SetMain("Query", "body")
@@ -155,7 +156,6 @@ func TestFilledTitleBarAndCaps(t *testing.T) {
 	if out2 := s.View(); strings.Contains(out2, "") {
 		t.Fatal("caps must disappear on the unicode rung")
 	}
-	icons.Apply(icons.ModeNerdFont)
 }
 
 func TestEntranceSlidesAndSettles(t *testing.T) {

@@ -81,7 +81,9 @@ type Model struct {
 
 	// launch entrance: entranceFrac springs 1→0 (driven by entranceSpring)
 	// while entering is true; the shell uses it to slide the sidebar in and
-	// ghost the main pane. drift is wired by a later task.
+	// ghost the main pane. drift is the ambient gradient phase (0→1, wraps)
+	// that animates the wordmark and active nav pill continuously, on its
+	// own perpetual ticker, independent of the entrance.
 	entering       bool
 	entranceFrac   float64
 	entranceVel    float64

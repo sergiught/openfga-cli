@@ -839,6 +839,35 @@ func TestArrowKeysSwitchSections(t *testing.T) {
 	}
 }
 
+// TestArrowKeysSwitchSectionsFromModel verifies left/right arrows cycle
+// sections from a section other than Stores too, matching
+// TestArrowKeysSwitchSections's coverage of the default start section.
+func TestArrowKeysSwitchSectionsFromModel(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(key("2")) // Model
+	if got := m.(Model).section; got != secModel {
+		t.Fatalf("digit 2: section = %v, want secModel", got)
+	}
+	m, _ = m.Update(key("right"))
+	if got := m.(Model).section; got != secTuples {
+		t.Fatalf("right arrow from secModel: section = %v, want secTuples", got)
+	}
+}
+
+// TestArrowsDoNotSwitchSectionsDuringTakeoverForm verifies that left/right
+// arrows are captured by an open takeover form (create-store) instead of
+// switching sections, mirroring TestArrowsStayCursorMovementWhileEditing's
+// coverage of the query form.
+func TestArrowsDoNotSwitchSectionsDuringTakeoverForm(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(key("1")) // Stores
+	m, _ = m.Update(key("n")) // create store form -> takeover
+	m2, _ := m.Update(key("left"))
+	if m2.(Model).section != secStores {
+		t.Fatal("left arrow while a takeover form is open must not switch sections")
+	}
+}
+
 // TestArrowsStayCursorMovementWhileEditing verifies that once the query form
 // is in editing mode, left/right move the field cursor instead of switching
 // sections (the query-form guard in handleKey returns before the global

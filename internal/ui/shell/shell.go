@@ -307,9 +307,11 @@ func (s *Shell) renderSidebar(height int) string {
 	// compact wordmark with a diagonal field tail (Crush's small-logo treatment).
 	word := logo.Word("ofga")
 	if inner >= lipgloss.Width(word) {
-		art := style.GradientBlockPhase(word, s.drift)
+		var art string
 		if s.entranceFrac > 0 {
 			art = style.GradientBlockShimmer(word, 1-s.entranceFrac)
+		} else {
+			art = style.GradientBlockPhase(word, s.drift)
 		}
 		b.WriteString(art + "\n")
 		b.WriteString(lipgloss.NewStyle().Foreground(style.Faintc).Render(strings.Repeat("╱", inner)) + "\n")
@@ -409,8 +411,8 @@ func capChip(text string, fg, bg color.Color) string {
 	if ic.CapL == "" {
 		return chip
 	}
-	cap := lipgloss.NewStyle().Foreground(bg)
-	return cap.Render(ic.CapL) + chip + cap.Render(ic.CapR)
+	capSt := lipgloss.NewStyle().Foreground(bg)
+	return capSt.Render(ic.CapL) + chip + capSt.Render(ic.CapR)
 }
 
 func (s *Shell) renderStatus() string {
