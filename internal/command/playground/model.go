@@ -3,19 +3,18 @@ package playground
 import (
 	"context"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	lipgloss "charm.land/lipgloss/v2"
 	"github.com/charmbracelet/harmonica"
-	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
 
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/app"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/style"
-	"github.com/sergiught/openfga-cli/internal/ui/forms"
+	"github.com/sergiught/openfga-cli/internal/ui/field"
 	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
 	shell "github.com/sergiught/openfga-cli/internal/ui/shell"
 )
@@ -92,24 +91,22 @@ type Model struct {
 	changes     []openfga.TupleChange
 	changesList *uilist.List
 
-	assertions    []openfga.Assertion
+	assertions     []openfga.Assertion
 	assertionsList *uilist.List
-	assertResults []assertResult
-	assertSummary string
-	assertModelID string
+	assertResults  []assertResult
+	assertSummary  string
+	assertModelID  string
 
 	// query
 	qmode     int
-	qform     *huh.Form
-	qtheme    *huh.Theme
+	qform     *field.Form
 	editing   bool // a form (query or takeover) is capturing keys
 	hasResult bool
 	result    queryResultMsg
 
 	// full-panel form takeover
 	formKind formKind
-	form     *huh.Form
-	ftheme   *huh.Theme
+	form     *field.Form
 
 	paletteOpen bool
 	paletteList *uilist.List
@@ -122,9 +119,7 @@ type Model struct {
 }
 
 func newModel(ctx context.Context, a *app.App, cl *openfga.Client, storeID string) Model {
-	sp := spinner.New()
-	sp.Spinner = spinner.Dot
-	sp.Style = lipgloss.NewStyle().Foreground(style.Primary)
+	sp := spinner.New(spinner.WithSpinner(spinner.Dot), spinner.WithStyle(lipgloss.NewStyle().Foreground(style.Primary)))
 
 	// A lightly-damped spring gives scrolling momentum without overshoot.
 	graphSpring := harmonica.NewSpring(harmonica.FPS(graphFPS), 8.0, 1.0)
@@ -186,7 +181,7 @@ func Run(ctx context.Context, a *app.App) error {
 	if r.StoreID != "" {
 		m.storeName = r.StoreID
 	}
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m)
 	_, err = p.Run()
 	return err
 }
@@ -202,11 +197,7 @@ func (m *Model) resize() {
 	m.changesList.SetSize(w, h)
 	m.assertionsList.SetSize(w, h)
 	m.paletteList.SetSize(w, h)
-	if m.graphVP.Width == 0 {
-		m.graphVP = viewport.New(w, h)
-	} else {
-		m.graphVP.Width, m.graphVP.Height = w, h
-	}
+	m.graphVP = viewport.New(viewport.WithWidth(w), viewport.WithHeight(h))
 	if len(m.graph.Types) > 0 {
 		m.graphVP.SetContent(m.graph.RenderDiagram())
 	}
@@ -300,18 +291,14 @@ func (m *Model) populatePalette() {
 }
 
 func (m *Model) rebuildQueryForm() {
-	w, h := m.contentSize()
-	// Leave a small margin for the huh fields' own focus accent so they don't
+	w, _ := m.contentSize()
+	// Leave a small margin for the fields' own focus accent so they don't
 	// touch the panel edge or get clipped.
 	w -= 2
 	if w < 1 {
 		w = 1
 	}
-	fh := h - 6
-	if fh < 4 {
-		fh = 4
-	}
-	m.qform, m.qtheme = forms.Query(queryModes[m.qmode], w, fh)
+	m.qform = buildQueryForm(queryModes[m.qmode], w)
 	m.qform.Init()
 }
 

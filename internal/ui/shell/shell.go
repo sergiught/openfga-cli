@@ -7,7 +7,7 @@ package shell
 import (
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	lipgloss "charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sergiught/openfga-cli/internal/style"
@@ -232,7 +232,7 @@ func (s *Shell) renderMain(height int) string {
 	// long rows) is clipped rather than wrapped into extra rows.
 	content := title + "\n\n" + fitLines(s.mainBody, innerW)
 	return lipgloss.NewStyle().
-		Width(mainTotal-2).Height(height-2).
+		Width(mainTotal).Height(height).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(style.Subtle).
 		Padding(0, 1).

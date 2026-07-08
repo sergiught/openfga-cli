@@ -4,15 +4,25 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	lipgloss "charm.land/lipgloss/v2"
 
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/logo"
 	shell "github.com/sergiught/openfga-cli/internal/ui/shell"
 )
 
-// View renders the whole screen via the shell frame.
-func (m Model) View() string {
+// View implements tea.Model in v2, owning terminal background and alt-screen
+// state.
+func (m Model) View() tea.View {
+	v := tea.NewView(m.viewString())
+	v.AltScreen = true
+	v.BackgroundColor = style.BgBase
+	return v
+}
+
+// viewString renders the whole screen via the shell frame.
+func (m Model) viewString() string {
 	if !m.ready {
 		return "\n  " + m.spinner.View() + " starting ofga…"
 	}

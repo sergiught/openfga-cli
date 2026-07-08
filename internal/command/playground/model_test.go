@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/bubbles/cursor"
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/cursor"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/log"
 
 	"github.com/sergiught/go-openfga/openfga"
@@ -42,26 +42,27 @@ func sampleGraph() fga.Graph {
 	})
 }
 
-func key(s string) tea.KeyMsg {
+func key(s string) tea.KeyPressMsg {
 	switch s {
 	case "tab":
-		return tea.KeyMsg{Type: tea.KeyTab}
+		return tea.KeyPressMsg{Code: tea.KeyTab}
 	case "shift+tab":
-		return tea.KeyMsg{Type: tea.KeyShiftTab}
+		return tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}
 	case "enter":
-		return tea.KeyMsg{Type: tea.KeyEnter}
+		return tea.KeyPressMsg{Code: tea.KeyEnter}
 	case "esc":
-		return tea.KeyMsg{Type: tea.KeyEsc}
+		return tea.KeyPressMsg{Code: tea.KeyEsc}
 	case "up":
-		return tea.KeyMsg{Type: tea.KeyUp}
+		return tea.KeyPressMsg{Code: tea.KeyUp}
 	case "down":
-		return tea.KeyMsg{Type: tea.KeyDown}
+		return tea.KeyPressMsg{Code: tea.KeyDown}
 	case "home":
-		return tea.KeyMsg{Type: tea.KeyHome}
+		return tea.KeyPressMsg{Code: tea.KeyHome}
 	case "end":
-		return tea.KeyMsg{Type: tea.KeyEnd}
+		return tea.KeyPressMsg{Code: tea.KeyEnd}
 	default:
-		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+		r := []rune(s)[0]
+		return tea.KeyPressMsg{Code: r, Text: s}
 	}
 }
 
@@ -89,7 +90,7 @@ func newTestModel() tea.Model {
 
 func render(t *testing.T, m tea.Model, ctx string) {
 	t.Helper()
-	if strings.TrimSpace(m.View()) == "" {
+	if strings.TrimSpace(m.(Model).viewString()) == "" {
 		t.Fatalf("empty view: %s", ctx)
 	}
 }
@@ -109,15 +110,15 @@ func TestSections(t *testing.T) {
 
 func TestStoresSelectAndModelSwitch(t *testing.T) {
 	m := newTestModel()
-	m, _ = m.Update(key("1"))      // Stores
-	m, _ = m.Update(key("down"))   // move to store-2
-	m, _ = m.Update(key("enter"))  // select
+	m, _ = m.Update(key("1"))     // Stores
+	m, _ = m.Update(key("down"))  // move to store-2
+	m, _ = m.Update(key("enter")) // select
 	render(t, m, "store selected")
 
-	m, _ = m.Update(key("2"))      // Model
-	m, _ = m.Update(key("m"))      // open model picker
+	m, _ = m.Update(key("2")) // Model
+	m, _ = m.Update(key("m")) // open model picker
 	render(t, m, "model picking")
-	m, _ = m.Update(key("esc"))    // cancel
+	m, _ = m.Update(key("esc")) // cancel
 	render(t, m, "model picker cancelled")
 }
 
@@ -192,9 +193,9 @@ func skipBackgroundMsg(msg tea.Msg) bool {
 }
 
 // runCmd executes a command but gives up if it doesn't return promptly. The
-// messages we care about (huh navigation, query results, graph frames) arrive
-// near-instantly; the long timer-based cursor-blink commands we'd discard anyway
-// block for ~half a second each, so abandoning them keeps the pump fast.
+// messages we care about (query results, graph frames) arrive near-instantly;
+// the long timer-based cursor-blink commands we'd discard anyway block for
+// ~half a second each, so abandoning them keeps the pump fast.
 func runCmd(cmd tea.Cmd) tea.Msg {
 	done := make(chan tea.Msg, 1)
 	go func() { done <- cmd() }()
@@ -207,8 +208,8 @@ func runCmd(cmd tea.Cmd) tea.Msg {
 }
 
 // collectCmd runs a command (recursing into batches) and enqueues the resulting
-// messages, mimicking the Bubble Tea runtime so huh's internal navigation
-// messages (nextFieldMsg, nextGroupMsg, …) actually flow back into the model.
+// messages, mimicking the Bubble Tea runtime so async command results actually
+// flow back into the model.
 func collectCmd(cmd tea.Cmd, queue *[]tea.Msg) {
 	if cmd == nil {
 		return
@@ -244,11 +245,9 @@ func pump(t *testing.T, m tea.Model, msgs ...tea.Msg) tea.Model {
 	return m
 }
 
-// TestQueryFormTabNavigationRunsCheck is the regression test for the dropped
-// huh navigation messages: it types into all three check fields, advancing with
-// tab, and asserts the form completed and dispatched a check carrying every
-// typed value. Before the fix, tab never moved focus so the form never filled
-// or completed.
+// TestQueryFormTabNavigationRunsCheck types into all three check fields,
+// advancing with tab, and asserts the form completed and dispatched a check
+// carrying every typed value.
 func TestQueryFormTabNavigationRunsCheck(t *testing.T) {
 	var got struct{ user, relation, object string }
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -279,8 +278,8 @@ func TestQueryFormTabNavigationRunsCheck(t *testing.T) {
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
 	m, _ = m.Update(storesLoadedMsg{stores: []openfga.Store{{ID: "store-1", Name: "demo"}}})
 
-	m, _ = m.Update(key("5"))  // Query section (default mode: check)
-	m = pump(t, m, key("i"))   // begin editing
+	m, _ = m.Update(key("5")) // Query section (default mode: check)
+	m = pump(t, m, key("i"))  // begin editing
 	if !m.(Model).editing {
 		t.Fatal("expected the query form to be in editing mode")
 	}
@@ -334,8 +333,8 @@ func TestGraphSpringScrollSettles(t *testing.T) {
 	if final.graphAnimating {
 		t.Error("animation should have settled")
 	}
-	if final.graphVP.YOffset != target {
-		t.Errorf("YOffset = %d, want %d", final.graphVP.YOffset, target)
+	if final.graphVP.YOffset() != target {
+		t.Errorf("YOffset = %d, want %d", final.graphVP.YOffset(), target)
 	}
 }
 
@@ -345,7 +344,7 @@ func TestSplashShownThenDismissed(t *testing.T) {
 	var m tea.Model = newModel(context.Background(), a, cl, "store-1")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
 
-	if !strings.Contains(m.View(), "playground") {
+	if !strings.Contains(m.(Model).viewString(), "playground") {
 		t.Error("splash should be visible before stores load")
 	}
 	if !m.(Model).splash {
@@ -379,7 +378,7 @@ func TestCreateStoreRendersAsOverlay(t *testing.T) {
 	m := newTestModel()
 	m, _ = m.Update(key("1")) // Stores
 	m, _ = m.Update(key("n")) // create form -> overlay
-	plain := stripANSIView(m.View())
+	plain := stripANSIView(m.(Model).viewString())
 	if !strings.Contains(plain, "Create Store") {
 		t.Error("overlay should show the dialog title")
 	}
@@ -391,11 +390,11 @@ func TestCreateStoreRendersAsOverlay(t *testing.T) {
 func TestCommandPaletteJumpsToSection(t *testing.T) {
 	m := newTestModel()
 	m, _ = m.Update(key("1")) // Stores
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlK})
+	m, _ = m.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
 	if !m.(Model).paletteOpen {
 		t.Fatal("ctrl+k should open the command palette")
 	}
-	if !strings.Contains(stripANSIView(m.View()), "Go to") {
+	if !strings.Contains(stripANSIView(m.(Model).viewString()), "Go to") {
 		t.Error("palette overlay should be visible")
 	}
 	m, _ = m.Update(key("esc"))
@@ -423,7 +422,7 @@ func TestQueryBodyShowsModeChipAndResult(t *testing.T) {
 	m := newTestModel()
 	m, _ = m.Update(key("5")) // Query
 	m, _ = m.Update(queryResultMsg{title: "Check", lines: []string{"user:anne viewer document:roadmap"}, ok: true, badge: true})
-	plain := stripANSIView(m.View())
+	plain := stripANSIView(m.(Model).viewString())
 	if !strings.Contains(plain, "check") {
 		t.Error("query body should show the mode chip")
 	}

@@ -4,13 +4,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/huh"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/style"
-	"github.com/sergiught/openfga-cli/internal/ui/forms"
 	"github.com/sergiught/openfga-cli/internal/ui/list"
 )
 
@@ -166,17 +164,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 
 	case graphTickMsg:
 		return m.advanceGraphScroll()
 
 	default:
-		// huh drives field navigation, cursor blinking, and submission via its
-		// own (non-key) messages such as nextFieldMsg. Bubble Tea delivers those
-		// here, so an active form must see every message, not just key presses —
-		// otherwise tab/enter never moves focus and the form never completes.
+		// Field cursors blink via their own (non-key) messages. An active form
+		// must see every message, not just key presses, or the focused input's
+		// cursor never blinks.
 		if m.editorOpen {
 			var cmd tea.Cmd
 			m.editor, cmd = m.editor.Update(msg)
@@ -192,7 +189,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.splash {
 		if msg.String() == "q" || msg.String() == "ctrl+c" {
 			return m, tea.Quit
@@ -308,7 +305,7 @@ func (m *Model) activeList() *list.List {
 	return nil
 }
 
-func (m Model) handleSectionKey(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch m.section {
 	case secStores:
 		switch key {
@@ -376,9 +373,9 @@ func (m Model) handleSectionKey(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		case "right", "l":
 			return m.panGraph(graphColStep)
 		case "pgup", "b":
-			return m.scrollGraph(-m.graphVP.Height)
+			return m.scrollGraph(-m.graphVP.Height())
 		case "pgdown", "f", " ":
-			return m.scrollGraph(m.graphVP.Height)
+			return m.scrollGraph(m.graphVP.Height())
 		case "home", "g":
 			return m.scrollGraphTo(0)
 		case "end", "G":
@@ -461,22 +458,18 @@ func (m Model) handleSectionKey(key string, msg tea.KeyMsg) (tea.Model, tea.Cmd)
 // --- forms ---
 
 func (m Model) enterForm(kind formKind) (tea.Model, tea.Cmd) {
-	w, h := m.contentSize()
-	fh := h - 2
-	if fh < 4 {
-		fh = 4
-	}
+	w, _ := m.contentSize()
 	m.formKind = kind
 	switch kind {
 	case formCreateStore:
-		m.form, m.ftheme = forms.CreateStore(w, fh)
+		m.form = buildCreateStoreForm(w)
 	case formWriteTuple:
-		m.form, m.ftheme = forms.WriteTuple(w, fh)
+		m.form = buildWriteTupleForm(w)
 	}
 	return m, m.form.Init()
 }
 
-func (m Model) handleTakeoverForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) handleTakeoverForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "esc" {
 		m.formKind = formNone
 		return m, nil
@@ -484,17 +477,17 @@ func (m Model) handleTakeoverForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m.advanceTakeoverForm(msg)
 }
 
-// advanceTakeoverForm feeds any message (key or huh-internal) to the takeover
-// form and dispatches the resulting action once the form completes.
+// advanceTakeoverForm feeds any message to the takeover form and dispatches
+// the resulting action once the form completes.
 func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
-	fm, cmd := m.form.Update(msg)
-	m.form = fm.(*huh.Form)
-	if m.form.State == huh.StateCompleted {
+	cmd := m.form.Update(msg)
+	if m.form.Completed() {
+		vals := m.form.Values()
 		kind := m.formKind
 		m.formKind = formNone
 		switch kind {
 		case formCreateStore:
-			name := strings.TrimSpace(m.form.GetString("name"))
+			name := strings.TrimSpace(vals[0])
 			if name == "" {
 				m.status = "store name required"
 				return m, nil
@@ -502,7 +495,7 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "creating store " + name + "…"
 			return m, createStoreCmd(m.ctx, m.client, name)
 		case formWriteTuple:
-			key, err := fga.ParseTuple(m.form.GetString("user"), m.form.GetString("relation"), m.form.GetString("object"))
+			key, err := fga.ParseTuple(vals[0], vals[1], vals[2])
 			if err != nil {
 				m.status = err.Error()
 				return m, nil
@@ -514,7 +507,7 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m Model) handleQueryForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) handleQueryForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "esc" {
 		m.editing = false
 		return m, nil
@@ -522,16 +515,16 @@ func (m Model) handleQueryForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m.advanceQueryForm(msg)
 }
 
-// advanceQueryForm feeds any message (key or huh-internal) to the query form
-// and runs the selected query once the form completes.
+// advanceQueryForm feeds any message to the query form and runs the selected
+// query once the form completes.
 func (m Model) advanceQueryForm(msg tea.Msg) (tea.Model, tea.Cmd) {
-	fm, cmd := m.qform.Update(msg)
-	m.qform = fm.(*huh.Form)
-	if m.qform.State == huh.StateCompleted {
+	cmd := m.qform.Update(msg)
+	if m.qform.Completed() {
 		m.editing = false
-		a := strings.TrimSpace(m.qform.GetString("a"))
-		b := strings.TrimSpace(m.qform.GetString("b"))
-		c := strings.TrimSpace(m.qform.GetString("c"))
+		vals := m.qform.Values()
+		a := strings.TrimSpace(vals[0])
+		b := strings.TrimSpace(vals[1])
+		c := strings.TrimSpace(vals[2])
 		m.rebuildQueryForm()
 		if a == "" || b == "" || c == "" {
 			m.status = "all three fields are required"

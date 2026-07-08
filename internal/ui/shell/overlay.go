@@ -3,7 +3,7 @@ package shell
 import (
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	lipgloss "charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sergiught/openfga-cli/internal/style"
@@ -23,7 +23,7 @@ func Dialog(title, body string, width int) string {
 		Width(width).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(style.Primary).
-		Background(style.BgPanel).
+		Background(style.BgRaised).
 		Padding(0, 1).
 		Render(content)
 }

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	transformer "github.com/openfga/language/pkg/go/transformer"
 
 	"github.com/sergiught/go-openfga/openfga"

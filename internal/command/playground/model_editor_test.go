@@ -36,7 +36,7 @@ func TestModelEditorOpensAndCloses(t *testing.T) {
 	if !m.(Model).editorOpen {
 		t.Fatal("e should open the editor")
 	}
-	if strings.TrimSpace(m.View()) == "" {
+	if strings.TrimSpace(m.(Model).viewString()) == "" {
 		t.Fatal("editor view empty")
 	}
 	m, _ = m.Update(key("esc"))

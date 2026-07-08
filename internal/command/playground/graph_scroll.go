@@ -4,7 +4,7 @@ import (
 	"math"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 const (
@@ -37,7 +37,7 @@ func (m *Model) resetGraphScroll() {
 
 // graphMaxOffset is the furthest the graph viewport can scroll down.
 func (m *Model) graphMaxOffset() int {
-	maxOff := m.graphVP.TotalLineCount() - m.graphVP.Height
+	maxOff := m.graphVP.TotalLineCount() - m.graphVP.Height()
 	if maxOff < 0 {
 		maxOff = 0
 	}
