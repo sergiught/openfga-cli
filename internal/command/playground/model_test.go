@@ -564,6 +564,9 @@ func TestSplashTickStopsWhenAnimationCompletes(t *testing.T) {
 	if cmd != nil {
 		t.Error("ticker should stop re-arming once splashPhase >= 1.3")
 	}
+	if m.(Model).splash {
+		t.Error("splash should auto-dismiss into the shell once the animation completes")
+	}
 }
 
 func TestCreateStoreRendersAsOverlay(t *testing.T) {

@@ -263,6 +263,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.splashPhase < 1.3 {
 			return m, splashTick()
 		}
+		m.splash = false
 		return m, nil
 
 	case pulseTickMsg:
