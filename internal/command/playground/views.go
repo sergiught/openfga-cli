@@ -185,13 +185,21 @@ func (m Model) centerHint(text string) string {
 	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, style.Faint.Render(text))
 }
 
+// splitListWidth returns the width of the list pane in masterDetail's
+// list/card split. It is the single source of truth for that 40% share —
+// resize() must size the section lists (storesList/tuplesList/changesList)
+// to this same width so the list's rendered content matches the box
+// masterDetail wraps it in; otherwise lipgloss word-wraps the over-wide
+// rows to fit.
+func splitListWidth(w int) int { return w * 2 / 5 }
+
 // masterDetail joins a list (40%) and a raised preview card (60%) into a
 // single row. In lipgloss v2, Width/Height are border-inclusive (the border
 // size is subtracted from the requested width before the content is laid
 // out), so Width(cw).Height(h) alone already produces a card whose total
 // footprint is cw×h — no -2 compensation needed as it would be in v1.
 func masterDetail(list, card string, w, h int) string {
-	lw := w * 2 / 5
+	lw := splitListWidth(w)
 	cw := w - lw - 2
 	if cw < 10 {
 		return list // too narrow: list only

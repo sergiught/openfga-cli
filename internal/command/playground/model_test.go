@@ -22,6 +22,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/app"
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/fga"
+	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
 )
 
 func sampleGraph() fga.Graph {
@@ -737,5 +738,34 @@ func TestMasterDetailSplitsWidth(t *testing.T) {
 	first := strings.Split(out, "\n")[0]
 	if lipgloss.Width(first) < 90 {
 		t.Fatalf("master-detail should fill width, got %d", lipgloss.Width(first))
+	}
+}
+
+// TestMasterDetailRealListContentFits verifies that a real list rendered at
+// the split's list-pane width (splitListWidth) fits the box masterDetail
+// wraps it in. If the list were instead sized to the full section width (as
+// resize() used to do), its rows would already be padded to that full
+// width; masterDetail's narrower Width(lw) box would then word-wrap those
+// over-wide rows, mangling titles mid-word and pushing the total line count
+// past the requested height (lipgloss's Height() pads short content but
+// does not truncate content that's already too tall).
+func TestMasterDetailRealListContentFits(t *testing.T) {
+	l := uilist.New()
+	l.SetItems([]uilist.Item{
+		{TitleText: "alpha", DescText: "first store"},
+		{TitleText: "a very long store name that just keeps going and going", DescText: "second store"},
+		{TitleText: "gamma", DescText: "third store"},
+	})
+	l.SetSize(splitListWidth(100), 10)
+
+	out := ansi.Strip(masterDetail(l.View(), "PREVIEW", 100, 10))
+	lines := strings.Split(out, "\n")
+	if len(lines) > 10 {
+		t.Fatalf("masterDetail output has %d lines, want <= 10 (height budget overflow): %d", len(lines), len(lines))
+	}
+	for i, line := range lines {
+		if w := lipgloss.Width(line); w > 100 {
+			t.Errorf("line %d width = %d, want <= 100: %q", i, w, line)
+		}
 	}
 }

@@ -242,10 +242,11 @@ func Run(ctx context.Context, a *app.App) error {
 func (m *Model) resize() {
 	m.sh.SetSize(m.width, m.height)
 	w, h := m.sh.MainSize()
-	m.storesList.SetSize(w, h)
-	m.tuplesList.SetSize(w, h)
+	lw := splitListWidth(w)
+	m.storesList.SetSize(lw, h)
+	m.tuplesList.SetSize(lw, h)
 	m.modelsList.SetSize(w, h)
-	m.changesList.SetSize(w, h)
+	m.changesList.SetSize(lw, h)
 	m.assertionsList.SetSize(w, h)
 	m.paletteList.SetSize(w, h)
 	if m.graphVP.Width() == 0 {
