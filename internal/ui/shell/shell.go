@@ -1,7 +1,7 @@
 // Package shell renders the Crush-style playground frame: a left sidebar
 // (gradient logo + context + nav + status footer), a main content pane, and a
 // bottom status bar, composited flat on a lipgloss canvas with no painted
-// panel backgrounds — structure comes from borders and rules. The one boxed
+// panel backgrounds — structure comes from headers and rules. The one boxed
 // exception is the centered modal dialog (with dim scrim and drop shadow);
 // a bottom-right toast layers on top of everything. Styling is driven by the
 // active theme via the style package.
