@@ -374,6 +374,39 @@ func TestSplashDismissedByKeypress(t *testing.T) {
 	}
 }
 
+func TestSplashTickStopsAfterDismissal(t *testing.T) {
+	cl, _ := openfga.NewClient("http://localhost:8080")
+	a := app.New(log.New(io.Discard), config.New(), "test")
+	var m tea.Model = newModel(context.Background(), a, cl, "store-1")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
+	m, _ = m.Update(key("enter")) // dismiss splash
+	if m.(Model).splash {
+		t.Fatal("splash should be dismissed")
+	}
+	_, cmd := m.Update(splashTickMsg{})
+	if cmd != nil {
+		t.Error("splashTickMsg after dismissal should not re-arm the ticker")
+	}
+}
+
+func TestSplashTickStopsWhenAnimationCompletes(t *testing.T) {
+	cl, _ := openfga.NewClient("http://localhost:8080")
+	a := app.New(log.New(io.Discard), config.New(), "test")
+	var m tea.Model = newModel(context.Background(), a, cl, "store-1")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
+
+	var cmd tea.Cmd
+	for i := 0; i < 40; i++ { // 40 * 0.04 = 1.6, comfortably past the 1.3 cutoff
+		m, cmd = m.Update(splashTickMsg{})
+	}
+	if got := m.(Model).splashPhase; got < 1.3 {
+		t.Fatalf("splashPhase = %v, want >= 1.3 after enough ticks", got)
+	}
+	if cmd != nil {
+		t.Error("ticker should stop re-arming once splashPhase >= 1.3")
+	}
+}
+
 func TestCreateStoreRendersAsOverlay(t *testing.T) {
 	m := newTestModel()
 	m, _ = m.Update(key("1")) // Stores

@@ -3,6 +3,7 @@ package playground
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
@@ -15,6 +16,17 @@ import (
 type pendingAction struct{ runAssertions bool }
 
 var pending pendingAction
+
+// splashTickMsg drives the splash shimmer/rise animation, one frame at a
+// time. It re-arms itself while the splash is showing and the animation is
+// still in progress, then stops.
+type splashTickMsg struct{}
+
+func splashTick() tea.Cmd {
+	return tea.Tick(time.Millisecond*33, func(time.Time) tea.Msg {
+		return splashTickMsg{}
+	})
+}
 
 // Update is the central dispatcher.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -169,6 +181,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case graphTickMsg:
 		return m.advanceGraphScroll()
+
+	case splashTickMsg:
+		if !m.splash {
+			return m, nil
+		}
+		m.splashPhase += 0.04
+		m.splashY, m.splashYVel = m.splashSpring.Update(m.splashY, m.splashYVel, 0)
+		if m.splashPhase < 1.3 {
+			return m, splashTick()
+		}
+		return m, nil
 
 	default:
 		// Field cursors blink via their own (non-key) messages. An active form

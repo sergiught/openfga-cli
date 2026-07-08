@@ -56,6 +56,13 @@ type Model struct {
 	ready         bool
 	splash        bool
 
+	// splash animation: shimmer sweep phase + a spring-driven rise of the
+	// hero block from below.
+	splashPhase  float64
+	splashY      float64
+	splashYVel   float64
+	splashSpring harmonica.Spring
+
 	storeID   string
 	storeName string
 	modelID   string
@@ -124,6 +131,7 @@ func newModel(ctx context.Context, a *app.App, cl *openfga.Client, storeID strin
 
 	// A lightly-damped spring gives scrolling momentum without overshoot.
 	graphSpring := harmonica.NewSpring(harmonica.FPS(graphFPS), 8.0, 1.0)
+	splashSpring := harmonica.NewSpring(harmonica.FPS(30), 6.0, 0.8)
 
 	ta := textarea.New()
 	ta.ShowLineNumbers = true
@@ -135,6 +143,8 @@ func newModel(ctx context.Context, a *app.App, cl *openfga.Client, storeID strin
 		spinner:        sp,
 		sh:             shell.New(),
 		splash:         true,
+		splashY:        4,
+		splashSpring:   splashSpring,
 		section:        secStores,
 		storeID:        storeID,
 		graphSpring:    graphSpring,
@@ -158,7 +168,7 @@ func newModel(ctx context.Context, a *app.App, cl *openfga.Client, storeID strin
 
 // Init kicks off initial loads.
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.spinner.Tick, loadStoresCmd(m.ctx, m.client)}
+	cmds := []tea.Cmd{m.spinner.Tick, loadStoresCmd(m.ctx, m.client), splashTick()}
 	if m.storeID != "" {
 		cmds = append(cmds,
 			loadModelCmd(m.ctx, m.client, m.storeID),

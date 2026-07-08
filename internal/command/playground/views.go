@@ -113,10 +113,11 @@ func (m Model) sidebarFooter() string {
 }
 
 func (m Model) splashView() string {
-	art := style.GradientBlock(logo.Word("ofga"))
+	art := style.GradientBlockShimmer(logo.Word("ofga"), min(m.splashPhase, 1.0))
 	w := lipgloss.Width(art)
 	field := lipgloss.NewStyle().Foreground(style.Faintc).Render(strings.Repeat("╱", w))
 	hero := lipgloss.JoinVertical(lipgloss.Center, field, art, field)
+	hero = strings.Repeat("\n", int(m.splashY+0.5)) + hero
 	tag := style.Faint.Render("a modern playground for OpenFGA")
 	hint := style.Faint.Render("press any key to continue · q quit")
 	block := lipgloss.JoinVertical(lipgloss.Center, hero, "", tag, "", hint)
