@@ -175,10 +175,10 @@ func TestFlatMainPaneWithHeaderRule(t *testing.T) {
 func TestBrandLineInSidebar(t *testing.T) {
 	s := New()
 	s.SetSize(120, 30)
-	s.SetBrand("OpenFGA CLI", "v1.2.3")
+	s.SetBrand("authorization playground", "v1")
 	s.SetMain("Query", "body")
 	plain := stripAnsi(s.View())
-	if !strings.Contains(plain, "OpenFGA CLI") || !strings.Contains(plain, "v1.2.3") {
+	if !strings.Contains(plain, "authorization playground") || !strings.Contains(plain, "v1") {
 		t.Fatal("sidebar must carry tagline and version")
 	}
 	if !strings.Contains(plain, "╱╱╱") {
@@ -202,31 +202,31 @@ func TestEntranceSlidesAndSettles(t *testing.T) {
 	}
 }
 
-func TestMarkRendersInWideSidebar(t *testing.T) {
+func TestWordmarkRendersInWideSidebar(t *testing.T) {
 	s := New()
 	s.SetSize(120, 35)
-	s.SetBrand("OpenFGA CLI", "v1")
+	s.SetBrand("authorization playground", "v1")
 	s.SetMain("Query", "body")
-	out := s.View()
-	if !strings.Contains(out, "48;2;0;0;0") {
-		t.Fatal("wide sidebar must render the mark (container black bg)")
+	out := stripAnsi(s.View())
+	if !strings.Contains(out, "▟███▙") {
+		t.Fatal("wide sidebar must render the block wordmark")
 	}
-	if !strings.Contains(stripAnsi(out), "OpenFGA CLI") {
-		t.Fatal("brand line must read OpenFGA CLI")
+	if !strings.Contains(out, "authorization playground") {
+		t.Fatal("brand line must read the tagline")
 	}
 }
 
-func TestMarkFallsBackOnShortTerminal(t *testing.T) {
+func TestWordmarkFallsBackOnShortTerminal(t *testing.T) {
 	s := New()
 	s.SetSize(120, 20) // bodyHeight 19 < 26
-	s.SetBrand("OpenFGA CLI", "v1")
+	s.SetBrand("authorization playground", "v1")
 	s.SetMain("Query", "body")
-	out := s.View()
-	if strings.Contains(out, "48;2;0;0;0") {
+	out := stripAnsi(s.View())
+	if strings.Contains(out, "▟███▙") {
 		t.Fatal("short terminal must fall back to the text wordmark")
 	}
-	if !strings.Contains(stripAnsi(out), "ofga") {
-		t.Fatal("fallback wordmark missing")
+	if !strings.Contains(out, "OpenFGA") {
+		t.Fatal("fallback wordmark must read OpenFGA")
 	}
 }
 

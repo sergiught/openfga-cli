@@ -34,7 +34,7 @@ func (m Model) viewString() string {
 			style.Faint.Render("terminal too small — need at least 40×10"))
 	}
 	m.sh.SetSidebar(m.sidebarContext(), m.sidebarNav(), m.sidebarFooter())
-	m.sh.SetBrand("OpenFGA CLI", m.version)
+	m.sh.SetBrand("authorization playground", m.version)
 	m.sh.SetMain(sectionNames[m.section], m.sectionBody())
 	st := shell.Status{Store: m.storeName, Model: short(m.modelID), Left: m.status, Keys: m.statusKeys()}
 	if m.section == secQuery {

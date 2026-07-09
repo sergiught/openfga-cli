@@ -311,20 +311,20 @@ func (s *Shell) renderSidebar(height int) string {
 	// otherwise a compact wordmark with a diagonal field tail (Crush's
 	// small-logo treatment).
 	hatch := lipgloss.NewStyle().Foreground(style.Faintc).Render(strings.Repeat("╱", inner))
-	mw, _ := logo.MarkSize()
+	mw, _ := logo.WordmarkSize()
 	if inner >= mw && height >= 26 {
 		var art string
 		if s.entranceFrac > 0 {
-			art = logo.MarkShimmer(1 - s.entranceFrac)
+			art = logo.Wordmark(1 - s.entranceFrac)
 		} else {
-			art = logo.Mark()
+			art = logo.Wordmark(-1)
 		}
 		b.WriteString(hatch + "\n")
 		b.WriteString(s.brandLine(inner) + "\n")
 		b.WriteString(art + "\n")
 		b.WriteString(hatch + "\n\n")
 	} else {
-		line := style.Gradient("ofga")
+		line := style.Gradient("OpenFGA")
 		if rem := inner - lipgloss.Width(line) - 1; rem > 0 {
 			line += " " + lipgloss.NewStyle().Foreground(style.Faintc).Render(strings.Repeat("╱", rem))
 		}
