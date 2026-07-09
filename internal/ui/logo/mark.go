@@ -94,7 +94,7 @@ func pixelHex(img image.Image, px, py, cx, cy int, phase float64) string {
 	rf, gf, bf := mix(r, br), mix(g, bg), mix(bl, bb)
 	if phase >= 0 {
 		// Highlight band on the normalized x+y diagonal — the same band math
-		// as the retired GradientBlockShimmer, applied per pixel cell.
+		// as style's retired block-shimmer helper, applied per pixel cell.
 		d := math.Abs(float64(cx+cy)/float64(markCols+markRows-2) - phase)
 		if d < 0.18 {
 			k := (0.18 - d) / 0.18 * 0.6

@@ -307,16 +307,17 @@ func (s *Shell) renderSidebar(height int) string {
 	w := s.sidebarWidth()
 	inner := w - 2
 	var b strings.Builder
-	// Logo: the big block wordmark when the sidebar is wide enough, otherwise a
-	// compact wordmark with a diagonal field tail (Crush's small-logo treatment).
-	word := logo.Word("ofga")
-	if inner >= lipgloss.Width(word) {
-		hatch := lipgloss.NewStyle().Foreground(style.Faintc).Render(strings.Repeat("╱", inner))
+	// Logo: the real OpenFGA mark when the sidebar is wide and tall enough,
+	// otherwise a compact wordmark with a diagonal field tail (Crush's
+	// small-logo treatment).
+	hatch := lipgloss.NewStyle().Foreground(style.Faintc).Render(strings.Repeat("╱", inner))
+	mw, _ := logo.MarkSize()
+	if inner >= mw && height >= 26 {
 		var art string
 		if s.entranceFrac > 0 {
-			art = style.GradientBlockShimmer(word, 1-s.entranceFrac)
+			art = logo.MarkShimmer(1 - s.entranceFrac)
 		} else {
-			art = style.GradientBlockPhase(word, s.drift)
+			art = logo.Mark()
 		}
 		b.WriteString(hatch + "\n")
 		b.WriteString(s.brandLine(inner) + "\n")

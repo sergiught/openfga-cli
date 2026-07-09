@@ -174,16 +174,11 @@ func TestFlatMainPaneWithHeaderRule(t *testing.T) {
 
 func TestBrandLineInSidebar(t *testing.T) {
 	s := New()
-	// 120 (not the brief's 100): at 100, sidebarWidth()=25 -> inner=23, which is
-	// 2 cols short of fitting "OpenFGA playground" + gap + "v1.2.3" (needs 25)
-	// under brandLine's exact algorithm — sidebarWidth/Min/Max are pre-existing
-	// and out of this task's scope, so the width was widened here instead of
-	// touching sidebar layout math. See task-2 report for the full derivation.
 	s.SetSize(120, 30)
-	s.SetBrand("OpenFGA playground", "v1.2.3")
+	s.SetBrand("OpenFGA CLI", "v1.2.3")
 	s.SetMain("Query", "body")
 	plain := stripAnsi(s.View())
-	if !strings.Contains(plain, "OpenFGA playground") || !strings.Contains(plain, "v1.2.3") {
+	if !strings.Contains(plain, "OpenFGA CLI") || !strings.Contains(plain, "v1.2.3") {
 		t.Fatal("sidebar must carry tagline and version")
 	}
 	if !strings.Contains(plain, "╱╱╱") {
@@ -204,6 +199,34 @@ func TestEntranceSlidesAndSettles(t *testing.T) {
 	s.SetEntrance(0, false)
 	if s.View() != settled {
 		t.Fatal("frac 0 + ghost false must render identically to steady state")
+	}
+}
+
+func TestMarkRendersInWideSidebar(t *testing.T) {
+	s := New()
+	s.SetSize(120, 35)
+	s.SetBrand("OpenFGA CLI", "v1")
+	s.SetMain("Query", "body")
+	out := s.View()
+	if !strings.Contains(out, "48;2;0;0;0") {
+		t.Fatal("wide sidebar must render the mark (container black bg)")
+	}
+	if !strings.Contains(stripAnsi(out), "OpenFGA CLI") {
+		t.Fatal("brand line must read OpenFGA CLI")
+	}
+}
+
+func TestMarkFallsBackOnShortTerminal(t *testing.T) {
+	s := New()
+	s.SetSize(120, 20) // bodyHeight 19 < 26
+	s.SetBrand("OpenFGA CLI", "v1")
+	s.SetMain("Query", "body")
+	out := s.View()
+	if strings.Contains(out, "48;2;0;0;0") {
+		t.Fatal("short terminal must fall back to the text wordmark")
+	}
+	if !strings.Contains(stripAnsi(out), "ofga") {
+		t.Fatal("fallback wordmark missing")
 	}
 }
 

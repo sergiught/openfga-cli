@@ -238,55 +238,6 @@ func GradientBlock(s string) string {
 	return GradientBlockPhase(s, 0)
 }
 
-// GradientBlockShimmer is like GradientBlock but with a moving highlight
-// band: phase in [0,1] positions the band along the same diagonal used for
-// the base gradient, blending each rune's color toward white as the band
-// sweeps across it. Mono/no-gradient themes fall back to solid bold Primary.
-func GradientBlockShimmer(s string, phase float64) string {
-	if Active.Name == "mono" || Active.GradStartHex == "" || Active.GradEndHex == "" {
-		return lipgloss.NewStyle().Bold(true).Foreground(Primary).Render(s)
-	}
-	c1, err1 := colorful.Hex(Active.GradStartHex)
-	c2, err2 := colorful.Hex(Active.GradEndHex)
-	if err1 != nil || err2 != nil {
-		return lipgloss.NewStyle().Bold(true).Foreground(Primary).Render(s)
-	}
-	lines := strings.Split(s, "\n")
-	maxW := 0
-	for _, ln := range lines {
-		if w := len([]rune(ln)); w > maxW {
-			maxW = w
-		}
-	}
-	denom := float64(maxW + len(lines) - 2)
-	if denom < 1 {
-		denom = 1
-	}
-	var b strings.Builder
-	for r, ln := range lines {
-		for i, ch := range ln {
-			t := float64(i+r) / denom
-			if t > 1 {
-				t = 1
-			}
-			c := c1.BlendLab(c2, t).Clamped()
-			d := float64(i+r)/denom - phase
-			if d < 0 {
-				d = -d
-			}
-			if d < 0.18 {
-				k := (0.18 - d) / 0.18 * 0.6
-				c = c.BlendLuv(colorful.Color{R: 1, G: 1, B: 1}, k).Clamped()
-			}
-			b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(c.Hex())).Render(string(ch)))
-		}
-		if r < len(lines)-1 {
-			b.WriteString("\n")
-		}
-	}
-	return b.String()
-}
-
 // phaseOffset converts a looping drift phase into a smooth ping-pong ramp
 // offset, so the gradient breathes back and forth with no wrap seam.
 func phaseOffset(phase float64) float64 { return 0.25 * math.Sin(2*math.Pi*phase) }

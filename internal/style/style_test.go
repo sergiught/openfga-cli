@@ -69,14 +69,6 @@ func TestChipKeycapPillRender(t *testing.T) {
 	}
 }
 
-func TestShimmerPreservesShape(t *testing.T) {
-	art := "ABC\nDEF"
-	plain := stripANSI(GradientBlockShimmer(art, 0.5))
-	if plain != art {
-		t.Fatalf("shimmer altered content: %q", plain)
-	}
-}
-
 // stripANSI removes CSI sequences for assertion purposes.
 func stripANSI(s string) string {
 	var b strings.Builder
