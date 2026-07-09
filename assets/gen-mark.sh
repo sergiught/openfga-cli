@@ -6,6 +6,6 @@ set -e
 cd "$(dirname "$0")/.."
 tmp=$(mktemp -t ofga_logo_XXXX.png)
 rsvg-convert -w 1161 assets/openfga_logo.svg -o "$tmp"
-magick "$tmp" -crop 278x278+0+0 +repage -filter point -resize 22x22 png32:internal/ui/logo/mark_22.png
+magick "$tmp" -crop 278x278+0+0 +repage -resize 22x22 png32:internal/ui/logo/mark_22.png
 rm -f "$tmp"
 echo "wrote internal/ui/logo/mark_22.png"

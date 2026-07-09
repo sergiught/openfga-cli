@@ -24,6 +24,10 @@ var markPNG []byte
 const (
 	markCols = 22
 	markRows = 11
+	// alphaCull drops resize-artifact pixels: smooth downsampling bleeds tiny
+	// alphas (<12%) next to the rounded corners, while genuine anti-aliased
+	// edges start near 50%. Anything below the cull renders transparent.
+	alphaCull = 0.15
 )
 
 var (
@@ -79,11 +83,11 @@ func markRender(phase float64) string {
 // phase >= 0 is given. Returns "" for fully transparent pixels.
 func pixelHex(img image.Image, px, py, cx, cy int, phase float64) string {
 	r, g, bl, a := img.At(px, py).RGBA()
-	if a == 0 {
+	af := float64(a) / 0xffff
+	if af < alphaCull {
 		return ""
 	}
 	br, bg, bb, _ := style.BgBase.RGBA()
-	af := float64(a) / 0xffff
 	mix := func(fg, bgc uint32) float64 {
 		return (float64(fg) + float64(bgc)*(1-af)) / 0xffff * 255
 	}
@@ -99,7 +103,7 @@ func pixelHex(img image.Image, px, py, cx, cy int, phase float64) string {
 			bf += (255 - bf) * k
 		}
 	}
-	return fmt.Sprintf("#%02X%02X%02X", int(rf), int(gf), int(bf))
+	return fmt.Sprintf("#%02X%02X%02X", int(math.Round(rf)), int(math.Round(gf)), int(math.Round(bf)))
 }
 
 // cell emits one half-block cell from the top/bottom pixel colors ("" =
