@@ -26,6 +26,15 @@ func New(label, placeholder string) *Field {
 	in := textinput.New()
 	in.Placeholder = placeholder
 	in.Prompt = ""
+	// Theme the input so it matches the rest of the UI: the library defaults
+	// leak a 256-color placeholder gray and a white reverse-video cursor.
+	st := in.Styles()
+	text := lipgloss.NewStyle().Foreground(style.Fg)
+	placeholderStyle := lipgloss.NewStyle().Foreground(style.Faintc)
+	st.Focused.Text, st.Focused.Placeholder = text, placeholderStyle
+	st.Blurred.Text, st.Blurred.Placeholder = text, placeholderStyle
+	st.Cursor.Color = style.Primary
+	in.SetStyles(st)
 	f := &Field{label: label, in: in}
 	return f
 }

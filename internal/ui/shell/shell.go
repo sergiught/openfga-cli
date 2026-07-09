@@ -258,9 +258,9 @@ func (s *Shell) renderDialog() string {
 	if dw > s.width-4 {
 		dw = s.width - 4
 	}
-	title := lipgloss.NewStyle().Bold(true).Foreground(style.Violet).Render(s.dialogTitle)
+	title := lipgloss.NewStyle().Bold(true).Foreground(style.Primary).Render(s.dialogTitle)
 	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).BorderForeground(style.Violet).
+		Border(lipgloss.RoundedBorder()).BorderForeground(style.Primary).
 		Background(style.BgRaised).
 		Width(dw).Padding(0, 2).
 		Render(title + "\n\n" + s.dialogBody)
