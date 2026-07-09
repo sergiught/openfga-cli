@@ -196,11 +196,12 @@ func (s *Shell) View() string {
 		layers = append(layers, lipgloss.NewLayer(dim).X(0).Y(0).Z(0))
 
 		dlg := s.renderDialog()
-		dx := (s.width - lipgloss.Width(dlg)) / 2
-		dy := (s.height - lipgloss.Height(dlg)) / 2
+		dw, dh := lipgloss.Width(dlg), lipgloss.Height(dlg)
+		dx := (s.width - dw) / 2
+		dy := (s.height - dh) / 2
 		// Shadow: a BgOverlay-filled block offset +1,+1 behind the dialog.
 		shadow := lipgloss.NewStyle().Background(style.BgOverlay).
-			Width(lipgloss.Width(dlg)).Height(lipgloss.Height(dlg)).Render("")
+			Width(dw).Height(dh).Render("")
 		layers = append(layers,
 			lipgloss.NewLayer(shadow).X(dx+1).Y(dy+1).Z(1),
 			lipgloss.NewLayer(dlg).X(dx).Y(dy).Z(2),
@@ -260,7 +261,8 @@ func (s *Shell) renderDialog() string {
 	}
 	title := lipgloss.NewStyle().Bold(true).Foreground(style.Primary).Render(s.dialogTitle)
 	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).BorderForeground(style.Primary).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(style.Primary).BorderBackground(style.BgRaised).
 		Background(style.BgRaised).
 		Width(dw).Padding(0, 2).
 		Render(title + "\n\n" + s.dialogBody)

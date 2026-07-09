@@ -4,6 +4,7 @@
 package field
 
 import (
+	"image/color"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
@@ -50,10 +51,35 @@ type Form struct {
 	fields    []*Field
 	focus     int
 	completed bool
+	bg        color.Color // surface tint; nil renders transparently (flat pane)
 }
 
 // NewForm builds a form; the first field takes focus on Init.
 func NewForm(fields ...*Field) *Form { return &Form{fields: fields} }
+
+// SetBackground tints every field's chrome (labels, accent bar, input text,
+// placeholder) with bg so the form sits flush on a colored surface — e.g. the
+// raised modal panel — instead of the inputs punching base-colored holes in
+// it. The flat query pane leaves this unset (transparent).
+func (f *Form) SetBackground(bg color.Color) {
+	f.bg = bg
+	for _, fl := range f.fields {
+		st := fl.in.Styles()
+		st.Focused.Text = st.Focused.Text.Background(bg)
+		st.Focused.Placeholder = st.Focused.Placeholder.Background(bg)
+		st.Blurred.Text = st.Blurred.Text.Background(bg)
+		st.Blurred.Placeholder = st.Blurred.Placeholder.Background(bg)
+		fl.in.SetStyles(st)
+	}
+}
+
+// tint applies the form's surface background to s when one is set.
+func (f *Form) tint(s lipgloss.Style) lipgloss.Style {
+	if f.bg == nil {
+		return s
+	}
+	return s.Background(f.bg)
+}
 
 // SetWidth sizes every input to the available content width.
 func (f *Form) SetWidth(w int) {
@@ -159,19 +185,19 @@ func (f *Form) View() string {
 	var b strings.Builder
 	for i, fl := range f.fields {
 		focused := i == f.focus && !f.completed
-		label := lipgloss.NewStyle().Foreground(style.Muted).Render(fl.label)
-		bar := "  "
+		label := f.tint(lipgloss.NewStyle().Foreground(style.Muted)).Render(fl.label)
+		bar := f.tint(lipgloss.NewStyle()).Render("  ")
 		if focused {
-			label = lipgloss.NewStyle().Bold(true).Foreground(style.Primary).Render(fl.label)
-			bar = lipgloss.NewStyle().Foreground(style.Primary).Render("▐▌")
+			label = f.tint(lipgloss.NewStyle().Bold(true).Foreground(style.Primary)).Render(fl.label)
+			bar = f.tint(lipgloss.NewStyle().Foreground(style.Primary)).Render("▐▌")
 		}
 		if i > 0 {
 			b.WriteString("\n")
 		}
 		b.WriteString(label + "\n")
-		b.WriteString(bar + " " + fl.in.View())
+		b.WriteString(bar + f.tint(lipgloss.NewStyle()).Render(" ") + fl.in.View())
 		if fl.err != "" {
-			b.WriteString("\n" + lipgloss.NewStyle().Foreground(style.Red).Render("  "+fl.err))
+			b.WriteString("\n" + f.tint(lipgloss.NewStyle().Foreground(style.Red)).Render("  "+fl.err))
 		}
 		b.WriteString("\n")
 	}

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	lipgloss "charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -18,6 +19,24 @@ func key(s string) tea.KeyPressMsg {
 	default:
 		r := []rune(s)[0]
 		return tea.KeyPressMsg{Code: r, Text: s}
+	}
+}
+
+func TestSetBackgroundTintsChrome(t *testing.T) {
+	const bgSGR = "48;2;18;52;86" // #123456
+	f := NewForm(New("User", "user:anne"))
+	f.SetWidth(40)
+	f.SetBackground(lipgloss.Color("#123456"))
+	f.Init()
+	if !strings.Contains(f.View(), bgSGR) {
+		t.Fatal("SetBackground should tint the form chrome to fill a colored surface")
+	}
+	// Without a background the form stays transparent (the flat query pane).
+	g := NewForm(New("User", "user:anne"))
+	g.SetWidth(40)
+	g.Init()
+	if strings.Contains(g.View(), bgSGR) {
+		t.Fatal("a form without SetBackground must not paint a background")
 	}
 }
 
