@@ -23,6 +23,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
+	shell "github.com/sergiught/openfga-cli/internal/ui/shell"
 )
 
 func sampleGraph() fga.Graph {
@@ -122,24 +123,107 @@ func TestSections(t *testing.T) {
 	}
 }
 
+// TestFocusEnterDescendsEscAscends covers the core master-detail toggle: the
+// model launches in sidebar (tab) focus, enter descends into the panel without
+// changing the section, and esc returns to the sidebar.
+func TestFocusEnterDescendsEscAscends(t *testing.T) {
+	m := newTestModel()
+	if m.(Model).focus != shell.FocusSidebar {
+		t.Fatal("should launch in sidebar (tab) focus")
+	}
+	before := m.(Model).section
+	m, _ = m.Update(key("enter"))
+	if mod := m.(Model); mod.focus != shell.FocusPanel {
+		t.Fatal("enter should descend into panel focus")
+	} else if mod.section != before {
+		t.Fatal("enter should not change the section")
+	}
+	m, _ = m.Update(key("esc"))
+	if m.(Model).focus != shell.FocusSidebar {
+		t.Fatal("esc should return to sidebar focus")
+	}
+}
+
+// TestFocusSidebarMovesTabsPanelDoesNot verifies ↑↓ move the highlighted tab
+// in sidebar focus, while in panel focus tab/arrows never switch sections
+// (strict modes).
+func TestFocusSidebarMovesTabsPanelDoesNot(t *testing.T) {
+	m := newTestModel() // secStores, sidebar focus
+	m, _ = m.Update(key("down"))
+	if m.(Model).section != secModel {
+		t.Fatal("down in sidebar focus should move to the next tab")
+	}
+	m, _ = m.Update(key("up"))
+	if m.(Model).section != secStores {
+		t.Fatal("up in sidebar focus should move to the previous tab")
+	}
+	m, _ = m.Update(key("enter")) // descend
+	sec := m.(Model).section
+	for _, k := range []string{"tab", "shift+tab", "right", "left"} {
+		m, _ = m.Update(key(k))
+		if m.(Model).section != sec {
+			t.Fatalf("%q must not switch sections in panel focus", k)
+		}
+		if m.(Model).focus != shell.FocusPanel {
+			t.Fatalf("%q must not drop panel focus", k)
+		}
+	}
+}
+
+// TestFocusLayeredEscInQuery verifies esc unwinds one level at a time: first
+// esc closes the edit form (staying in the panel), second esc returns to the
+// sidebar.
+func TestFocusLayeredEscInQuery(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(key("5"))     // Query tab
+	m, _ = m.Update(key("enter")) // descend
+	m = pump(t, m, key("i"))      // open the edit form
+	if !m.(Model).editing {
+		t.Fatal("i should start editing")
+	}
+	m, _ = m.Update(key("esc")) // layer 1: close the form, stay in the panel
+	if mod := m.(Model); mod.editing {
+		t.Fatal("first esc should exit editing")
+	} else if mod.focus != shell.FocusPanel {
+		t.Fatal("first esc should stay in panel focus")
+	}
+	m, _ = m.Update(key("esc")) // layer 2: back to the sidebar
+	if m.(Model).focus != shell.FocusSidebar {
+		t.Fatal("second esc should return to sidebar focus")
+	}
+}
+
 func TestStoresSelectAndModelSwitch(t *testing.T) {
 	m := newTestModel()
-	m, _ = m.Update(key("1"))     // Stores
-	m, _ = m.Update(key("down"))  // move to store-2
-	m, _ = m.Update(key("enter")) // select
+	m, _ = m.Update(key("1"))     // Stores tab
+	m, _ = m.Update(key("enter")) // descend into the panel
+	m, _ = m.Update(key("down"))  // move to store-2 in the list
+	m, _ = m.Update(key("enter")) // select it
+	if mod := m.(Model); mod.storeID != "store-2" {
+		t.Fatalf("expected store-2 selected after descend+enter, got %q", mod.storeID)
+	}
 	render(t, m, "store selected")
 
-	m, _ = m.Update(key("2")) // Model
-	m, _ = m.Update(key("m")) // open model picker
+	m, _ = m.Update(key("esc"))   // back to the sidebar
+	m, _ = m.Update(key("2"))     // Model tab
+	m, _ = m.Update(key("enter")) // descend into the panel
+	m, _ = m.Update(key("m"))     // open model picker
+	if !m.(Model).modelPicking {
+		t.Fatal("m should open the model picker in the panel")
+	}
 	render(t, m, "model picking")
-	m, _ = m.Update(key("esc")) // cancel
+	m, _ = m.Update(key("esc")) // cancel picker (layered esc)
+	if m.(Model).modelPicking {
+		t.Fatal("esc should close the model picker")
+	}
 	render(t, m, "model picker cancelled")
 }
 
 func TestFiltering(t *testing.T) {
 	m := newTestModel()
-	m, _ = m.Update(key("3")) // Tuples
-	m, _ = m.Update(key("/")) // start filter
+	m, _ = m.Update(key("3"))     // Tuples
+	m, _ = m.Update(key("enter")) // descend into the panel
+	m, _ = m.Update(key("/"))     // start filter
 	for _, r := range "anne" {
 		m, _ = m.Update(key(string(r)))
 	}
@@ -150,9 +234,10 @@ func TestFiltering(t *testing.T) {
 
 func TestQueryForm(t *testing.T) {
 	m := newTestModel()
-	m, _ = m.Update(key("5")) // Query
-	m, _ = m.Update(key("m")) // cycle mode -> list-objects
-	m, _ = m.Update(key("i")) // edit
+	m, _ = m.Update(key("5"))     // Query
+	m, _ = m.Update(key("enter")) // descend into the panel
+	m, _ = m.Update(key("m"))     // cycle mode -> list-objects
+	m, _ = m.Update(key("i"))     // edit
 	for _, r := range "document" {
 		m, _ = m.Update(key(string(r)))
 	}
@@ -164,8 +249,9 @@ func TestQueryForm(t *testing.T) {
 
 func TestCreateStoreForm(t *testing.T) {
 	m := newTestModel()
-	m, _ = m.Update(key("1")) // Stores
-	m, _ = m.Update(key("n")) // create form
+	m, _ = m.Update(key("1"))     // Stores
+	m, _ = m.Update(key("enter")) // descend into the panel
+	m, _ = m.Update(key("n"))     // create form
 	render(t, m, "create store form")
 	for _, r := range "newstore" {
 		m, _ = m.Update(key(string(r)))
@@ -176,8 +262,9 @@ func TestCreateStoreForm(t *testing.T) {
 
 func TestWriteTupleForm(t *testing.T) {
 	m := newTestModel()
-	m, _ = m.Update(key("3")) // Tuples
-	m, _ = m.Update(key("a")) // write form
+	m, _ = m.Update(key("3"))     // Tuples
+	m, _ = m.Update(key("enter")) // descend into the panel
+	m, _ = m.Update(key("a"))     // write form
 	render(t, m, "write tuple form")
 	m, _ = m.Update(key("esc"))
 	render(t, m, "write tuple cancelled")
@@ -291,8 +378,9 @@ func TestQueryFormTabNavigationRunsCheck(t *testing.T) {
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
 	m, _ = m.Update(storesLoadedMsg{stores: []openfga.Store{{ID: "store-1", Name: "demo"}}})
 
-	m, _ = m.Update(key("5")) // Query section (default mode: check)
-	m = pump(t, m, key("i"))  // begin editing
+	m, _ = m.Update(key("5"))     // Query section (default mode: check)
+	m, _ = m.Update(key("enter")) // descend into the panel
+	m = pump(t, m, key("i"))      // begin editing
 	if !m.(Model).editing {
 		t.Fatal("expected the query form to be in editing mode")
 	}
@@ -415,7 +503,8 @@ func TestDigitKeyRerunsHistoryEntry(t *testing.T) {
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
 	m, _ = m.Update(storesLoadedMsg{stores: []openfga.Store{{ID: "store-1", Name: "demo"}}})
 
-	m, _ = m.Update(key("5")) // Query section
+	m, _ = m.Update(key("5"))     // Query section
+	m, _ = m.Update(key("enter")) // descend into the panel
 	m = pump(t, m, key("i"))
 	for _, r := range "user:anne" {
 		m = pump(t, m, key(string(r)))
@@ -451,16 +540,17 @@ func TestDigitKeyRerunsHistoryEntry(t *testing.T) {
 	}
 }
 
-// TestDigitKeyFallsThroughToSectionSwitchWithoutHistory verifies the digit
-// precedence resolution the other way: with no matching history entry, "1"
-// in the Query section falls through to the normal section switch.
-func TestDigitKeyFallsThroughToSectionSwitchWithoutHistory(t *testing.T) {
+// TestQueryDigitWithoutHistoryIsNoop verifies that inside the Query panel a
+// digit addressing no history entry is a no-op: strict panel focus never
+// switches sections (only the sidebar does).
+func TestQueryDigitWithoutHistoryIsNoop(t *testing.T) {
 	m := newTestModel()
-	m, _ = m.Update(key("5")) // Query, no history yet
-	m, _ = m.Update(key("1"))
+	m, _ = m.Update(key("5"))     // Query, no history yet
+	m, _ = m.Update(key("enter")) // descend into the panel
+	m, _ = m.Update(key("1"))     // no matching history -> no-op
 	mod := m.(Model)
-	if mod.section != secStores {
-		t.Errorf("digit with no matching history entry should switch sections; got %v", mod.section)
+	if mod.section != secQuery {
+		t.Errorf("digit with no history in the panel should stay in Query; got %v", mod.section)
 	}
 }
 
@@ -469,8 +559,9 @@ func TestDigitKeyFallsThroughToSectionSwitchWithoutHistory(t *testing.T) {
 // "Result" section header as badge results.
 func TestQueryBodyRendersNonBadgeResultInCard(t *testing.T) {
 	m := newTestModel()
-	m, _ = m.Update(key("5")) // Query
-	m, _ = m.Update(key("m")) // cycle to list-objects
+	m, _ = m.Update(key("5"))     // Query
+	m, _ = m.Update(key("enter")) // descend into the panel
+	m, _ = m.Update(key("m"))     // cycle to list-objects
 	m, _ = m.Update(queryResultMsg{title: "objects", lines: []string{"document:roadmap"}})
 	plain := stripANSIView(m.(Model).viewString())
 	if !strings.Contains(plain, "objects") || !strings.Contains(plain, "document:roadmap") {
@@ -482,7 +573,8 @@ func TestQueryBodyRendersNonBadgeResultInCard(t *testing.T) {
 // the viewport reaches the requested offset and the animation flag clears.
 func TestGraphSpringScrollSettles(t *testing.T) {
 	m := newTestModel()
-	m, _ = m.Update(key("2")) // Model section (graph view)
+	m, _ = m.Update(key("2"))     // Model section (graph view)
+	m, _ = m.Update(key("enter")) // descend into the panel
 
 	// Make the content taller than the viewport so there is room to scroll.
 	mod := m.(Model)
@@ -589,8 +681,9 @@ func TestDriftAdvancesAndLoops(t *testing.T) {
 
 func TestCreateStoreRendersAsOverlay(t *testing.T) {
 	m := newTestModel()
-	m, _ = m.Update(key("1")) // Stores
-	m, _ = m.Update(key("n")) // create form -> overlay
+	m, _ = m.Update(key("1"))     // Stores
+	m, _ = m.Update(key("enter")) // descend into the panel
+	m, _ = m.Update(key("n"))     // create form -> overlay
 	plain := stripANSIView(m.(Model).viewString())
 	if !strings.Contains(plain, "Create Store") {
 		t.Error("overlay should show the dialog title")
@@ -953,8 +1046,9 @@ func TestArrowKeysSwitchSectionsFromModel(t *testing.T) {
 // coverage of the query form.
 func TestArrowsDoNotSwitchSectionsDuringTakeoverForm(t *testing.T) {
 	m := newTestModel()
-	m, _ = m.Update(key("1")) // Stores
-	m, _ = m.Update(key("n")) // create store form -> takeover
+	m, _ = m.Update(key("1"))     // Stores
+	m, _ = m.Update(key("enter")) // descend into the panel
+	m, _ = m.Update(key("n"))     // create store form -> takeover
 	m2, _ := m.Update(key("left"))
 	if m2.(Model).section != secStores {
 		t.Fatal("left arrow while a takeover form is open must not switch sections")
@@ -967,8 +1061,9 @@ func TestArrowsDoNotSwitchSectionsDuringTakeoverForm(t *testing.T) {
 // switch that owns arrow-key section navigation).
 func TestArrowsStayCursorMovementWhileEditing(t *testing.T) {
 	m := newTestModel()
-	m, _ = m.Update(key("5")) // Query section
-	m = pump(t, m, key("i"))  // begin editing
+	m, _ = m.Update(key("5"))     // Query section
+	m, _ = m.Update(key("enter")) // descend into the panel
+	m = pump(t, m, key("i"))      // begin editing
 	if !m.(Model).editing {
 		t.Fatal("expected the query form to be in editing mode")
 	}
@@ -984,7 +1079,8 @@ func TestArrowsStayCursorMovementWhileEditing(t *testing.T) {
 // (see TestGraphSpringScrollSettles for the same pattern).
 func TestShiftArrowsPanModelGraph(t *testing.T) {
 	m := newTestModel()
-	m, _ = m.Update(key("2")) // Model section (graph view)
+	m, _ = m.Update(key("2"))     // Model section (graph view)
+	m, _ = m.Update(key("enter")) // descend into the panel
 
 	mod := m.(Model)
 	mod.graphVP.SetContent(strings.Repeat("relation line\n", 200))

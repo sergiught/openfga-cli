@@ -31,8 +31,9 @@ func TestDSLTransformsToWriteRequest(t *testing.T) {
 
 func TestModelEditorOpensAndCloses(t *testing.T) {
 	m := newTestModel()
-	m, _ = m.Update(key("2")) // Model section
-	m, _ = m.Update(key("e")) // open editor
+	m, _ = m.Update(key("2"))     // Model section
+	m, _ = m.Update(key("enter")) // descend into the panel
+	m, _ = m.Update(key("e"))     // open editor
 	if !m.(Model).editorOpen {
 		t.Fatal("e should open the editor")
 	}
@@ -47,7 +48,8 @@ func TestModelEditorOpensAndCloses(t *testing.T) {
 
 func TestModelEditorPreFillsWithModelDSL(t *testing.T) {
 	m := newTestModel()
-	m, _ = m.Update(key("2")) // Model section
+	m, _ = m.Update(key("2"))     // Model section
+	m, _ = m.Update(key("enter")) // descend into the panel
 	// Pre-load a DSL string into modelDSL
 	mod := m.(Model)
 	mod.modelDSL = "model\n  schema 1.1\ntype user\n"
@@ -61,7 +63,8 @@ func TestModelEditorPreFillsWithModelDSL(t *testing.T) {
 
 func TestModelEditorFallsBackToTemplate(t *testing.T) {
 	m := newTestModel()
-	m, _ = m.Update(key("2")) // Model section
+	m, _ = m.Update(key("2"))     // Model section
+	m, _ = m.Update(key("enter")) // descend into the panel
 	// Ensure no DSL pre-fill
 	mod := m.(Model)
 	mod.modelDSL = ""
@@ -79,6 +82,7 @@ func TestModelEditorFallsBackToTemplate(t *testing.T) {
 func TestModelEditorApplyErrorKeepsEditorOpen(t *testing.T) {
 	m := newTestModel()
 	m, _ = m.Update(key("2"))
+	m, _ = m.Update(key("enter")) // descend into the panel
 	m, _ = m.Update(key("e"))
 	if !m.(Model).editorOpen {
 		t.Fatal("editor should be open")
@@ -96,6 +100,7 @@ func TestModelEditorApplyErrorKeepsEditorOpen(t *testing.T) {
 func TestModelEditorApplySuccessClosesEditor(t *testing.T) {
 	m := newTestModel()
 	m, _ = m.Update(key("2"))
+	m, _ = m.Update(key("enter")) // descend into the panel
 	m, _ = m.Update(key("e"))
 	// Simulate a successful apply
 	m, _ = m.Update(modelAppliedMsg{err: nil, modelID: "new-model-id"})

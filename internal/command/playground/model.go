@@ -97,6 +97,7 @@ type Model struct {
 	modelID   string
 
 	section section
+	focus   shell.Focus // FocusSidebar (tab selection) or FocusPanel (right pane)
 	sh      *shell.Shell
 	version string
 

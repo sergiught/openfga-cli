@@ -189,6 +189,37 @@ func TestBrandLineInSidebar(t *testing.T) {
 	}
 }
 
+// TestFocusHighlightIsReciprocal verifies the focus tint moves between the
+// sidebar frame and the main header without altering either region's layout.
+func TestFocusHighlightIsReciprocal(t *testing.T) {
+	s := New()
+	s.SetSize(120, 32)
+	s.SetMain("Stores", "body")
+	s.SetBrand("", "v1")
+
+	s.SetFocus(FocusSidebar)
+	sbSidebar := s.renderSidebar(s.bodyHeight())
+	mainSidebar := s.renderMain(s.bodyHeight())
+
+	s.SetFocus(FocusPanel)
+	sbPanel := s.renderSidebar(s.bodyHeight())
+	mainPanel := s.renderMain(s.bodyHeight())
+
+	if sbSidebar == sbPanel {
+		t.Fatal("sidebar hatch/version tint must change with focus")
+	}
+	if mainSidebar == mainPanel {
+		t.Fatal("main header tint must change with focus")
+	}
+	// Only the color changes — the stripped layout must be identical.
+	if stripAnsi(sbSidebar) != stripAnsi(sbPanel) {
+		t.Fatal("focus must not change sidebar layout, only color")
+	}
+	if stripAnsi(mainSidebar) != stripAnsi(mainPanel) {
+		t.Fatal("focus must not change main layout, only color")
+	}
+}
+
 func TestEntranceSlidesAndSettles(t *testing.T) {
 	s := New()
 	s.SetSize(100, 30)

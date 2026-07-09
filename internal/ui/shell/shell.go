@@ -26,6 +26,16 @@ const (
 	statusHeight  = 1
 )
 
+// Focus identifies which region owns the highlight: the sidebar (tab
+// selection) lights up its hatch bands + version; the main panel lights up its
+// section header. Exactly one is focused at a time.
+type Focus int
+
+const (
+	FocusSidebar Focus = iota
+	FocusPanel
+)
+
 // NavItem is one sidebar navigation row.
 type NavItem struct {
 	Label  string
@@ -56,6 +66,8 @@ type Shell struct {
 	mainBody  string
 
 	tagline, version string
+
+	focus Focus
 
 	status Status
 
@@ -149,6 +161,9 @@ func (s *Shell) SetToast(view string) { s.toast = view }
 
 // SetDrift sets the ambient gradient phase for the wordmark and active pill.
 func (s *Shell) SetDrift(p float64) { s.drift = p }
+
+// SetFocus sets which region carries the focus highlight (sidebar or panel).
+func (s *Shell) SetFocus(f Focus) { s.focus = f }
 
 // SetEntrance drives the launch animation: frac slides the sidebar in from
 // the left (1 = fully off-screen, 0 = settled) and ghost dims the main pane.
@@ -310,7 +325,15 @@ func (s *Shell) renderSidebar(height int) string {
 	// Logo: the stacked OPENFGA block wordmark when the sidebar is wide and
 	// tall enough, otherwise a single-line gradient "OpenFGA" with a diagonal
 	// field tail (Crush's small-logo treatment).
-	hatch := lipgloss.NewStyle().Foreground(style.Faintc).Render(strings.Repeat("╱", inner))
+	// The hatch bands + version are the sidebar's focus indicator: dim when the
+	// panel owns focus, lit to bold Primary when the sidebar (tab selection)
+	// does.
+	frameStyle := lipgloss.NewStyle().Foreground(style.Faintc)
+	if s.focus == FocusSidebar {
+		frameStyle = lipgloss.NewStyle().Foreground(style.Primary).Bold(true)
+	}
+	hatch := frameStyle.Render(strings.Repeat("╱", inner))
+	hatchDown := frameStyle.Render(strings.Repeat("╲", inner))
 	mw, _ := logo.WordmarkSize()
 	if inner >= mw && height >= 26 {
 		var art string
@@ -319,17 +342,29 @@ func (s *Shell) renderSidebar(height int) string {
 		} else {
 			art = logo.Wordmark(-1)
 		}
-		b.WriteString(hatch + "\n")
-		b.WriteString(s.brandLine(inner) + "\n")
-		b.WriteString(art + "\n")
+		// Tuck the version onto the wordmark's baseline (the FGA row),
+		// right-aligned to the sidebar edge; it shares the frame's focus tint.
+		lines := strings.Split(art, "\n")
+		last := strings.TrimRight(lines[len(lines)-1], " ")
+		ver := frameStyle.Render(s.version)
+		gap := inner - lipgloss.Width(last) - lipgloss.Width(ver)
+		if gap < 1 {
+			gap = 1
+		}
+		lines[len(lines)-1] = last + strings.Repeat(" ", gap) + ver
+		art = strings.Join(lines, "\n")
+		// Hatch bands frame the title with one blank line of breathing room on
+		// each side; the bottom band mirrors the top with the inverse diagonal.
 		b.WriteString(hatch + "\n\n")
+		b.WriteString(art + "\n\n")
+		b.WriteString(hatchDown + "\n\n")
 	} else {
 		line := style.Gradient("OpenFGA")
 		if rem := inner - lipgloss.Width(line) - 1; rem > 0 {
-			line += " " + lipgloss.NewStyle().Foreground(style.Faintc).Render(strings.Repeat("╱", rem))
+			line += " " + frameStyle.Render(strings.Repeat("╱", rem))
 		}
 		b.WriteString(line + "\n")
-		b.WriteString(s.brandLine(inner) + "\n\n")
+		b.WriteString(s.brandLine(inner, frameStyle) + "\n\n")
 	}
 	for _, line := range s.context {
 		b.WriteString(line + "\n")
@@ -366,11 +401,11 @@ func (s *Shell) renderSidebar(height int) string {
 		Render(content)
 }
 
-// brandLine sets the tagline (left) and version (right) in the dim tone,
-// space-filled to width — the context row inside the wordmark's hatch band.
-func (s *Shell) brandLine(width int) string {
-	tag := lipgloss.NewStyle().Foreground(style.Faintc).Render(s.tagline)
-	ver := lipgloss.NewStyle().Foreground(style.Faintc).Render(s.version)
+// brandLine sets the tagline (left) and version (right) in the frame's focus
+// tone, space-filled to width — the fallback brand row for the narrow sidebar.
+func (s *Shell) brandLine(width int, st lipgloss.Style) string {
+	tag := st.Render(s.tagline)
+	ver := st.Render(s.version)
 	gap := width - lipgloss.Width(tag) - lipgloss.Width(ver)
 	if gap < 1 {
 		return ansi.Truncate(tag, width, "…")
@@ -404,6 +439,9 @@ func (s *Shell) renderMain(height int) string {
 	}
 	innerW := mainTotal - 2 // 1-col margin each side
 	header := style.SectionHeader(s.mainTitle, innerW)
+	if s.focus == FocusPanel {
+		header = style.SectionHeaderFocused(s.mainTitle, innerW)
+	}
 	body := fitLines(s.mainBody, innerW)
 	if s.entranceGhost {
 		body = lipgloss.NewStyle().Foreground(style.Faintc).Render(ansi.Strip(body))

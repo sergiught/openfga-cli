@@ -11,6 +11,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/list"
+	shell "github.com/sergiught/openfga-cli/internal/ui/shell"
 	"github.com/sergiught/openfga-cli/internal/ui/toast"
 )
 
@@ -337,6 +338,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if it, ok := m.paletteList.Selected(); ok {
 				m.paletteOpen = false
 				m.section = section(it.Index)
+				m.focus = shell.FocusSidebar
 				m.fading = true
 				nm, cmd := m.onEnterSection()
 				return nm, tea.Batch(cmd, fadeTick())
@@ -371,6 +373,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.section == secQuery && m.editing {
 		return m.handleQueryForm(msg)
 	}
+	// The model-switcher overlay captures its own keys (including Esc, which
+	// closes the overlay rather than the panel) so it must be handled before
+	// the focus routing below.
+	if m.section == secModel && m.modelPicking {
+		return m.handleModelPicker(msg)
+	}
 
 	// While a list is filtering, route everything to it.
 	if lst := m.activeList(); lst != nil && lst.SettingFilter() {
@@ -379,53 +387,77 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	key := msg.String()
+	// Keys that work in either focus mode.
 	switch key {
 	case "ctrl+c":
 		return m, tea.Quit
-	case "q":
-		return m, tea.Quit
-	case "tab":
-		m.section = (m.section + 1) % section(len(sectionNames))
-		m.fading = true
-		nm, cmd := m.onEnterSection()
-		return nm, tea.Batch(cmd, fadeTick())
-	case "shift+tab":
-		m.section = (m.section + section(len(sectionNames)) - 1) % section(len(sectionNames))
-		m.fading = true
-		nm, cmd := m.onEnterSection()
-		return nm, tea.Batch(cmd, fadeTick())
-	case "right":
-		m.section = (m.section + 1) % section(len(sectionNames))
-		m.fading = true
-		nm, cmd := m.onEnterSection()
-		return nm, tea.Batch(cmd, fadeTick())
-	case "left":
-		m.section = (m.section + section(len(sectionNames)) - 1) % section(len(sectionNames))
-		m.fading = true
-		nm, cmd := m.onEnterSection()
-		return nm, tea.Batch(cmd, fadeTick())
-	case "1", "2", "3", "4", "5", "6":
-		// In the Query section, a digit that addresses an existing history
-		// slot reruns it instead of switching sections. (m.editing is
-		// always false here: the secQuery-and-editing case above returns
-		// before this switch, so digits typed into the form never reach
-		// this branch.) Digits with no matching entry — including "6",
-		// since history never grows past 5 — fall through to the normal
-		// section switch below.
-		if m.section == secQuery {
-			if n := int(key[0] - '1'); n < len(m.history) {
-				return m.rerunHistory(n)
-			}
-		}
-		m.section = section(key[0] - '1')
-		m.fading = true
-		nm, cmd := m.onEnterSection()
-		return nm, tea.Batch(cmd, fadeTick())
 	case "ctrl+k":
 		m.paletteOpen = true
 		return m, nil
 	}
+
+	if m.focus == shell.FocusSidebar {
+		return m.handleSidebarKey(key)
+	}
+	// Panel focus: Esc returns to the sidebar (tab selection); every other key
+	// is section-specific logic.
+	if key == "esc" {
+		m.focus = shell.FocusSidebar
+		return m, nil
+	}
 	return m.handleSectionKey(key, msg)
+}
+
+// handleSidebarKey handles keys while the sidebar (tab selection) owns focus:
+// ↑↓ / tab / shift+tab / ←→ move between tabs, digits 1-6 jump, enter descends
+// into the panel, q quits.
+func (m Model) handleSidebarKey(key string) (tea.Model, tea.Cmd) {
+	n := section(len(sectionNames))
+	switch key {
+	case "q":
+		return m, tea.Quit
+	case "down", "tab", "right":
+		return m.gotoSection((m.section + 1) % n)
+	case "up", "shift+tab", "left":
+		return m.gotoSection((m.section + n - 1) % n)
+	case "1", "2", "3", "4", "5", "6":
+		return m.gotoSection(section(key[0] - '1'))
+	case "enter":
+		m.focus = shell.FocusPanel
+		m.fading = true
+		nm, cmd := m.onEnterSection()
+		return nm, tea.Batch(cmd, fadeTick())
+	}
+	return m, nil
+}
+
+// gotoSection moves the highlighted tab (staying in sidebar focus) and plays
+// the section-change fade, lazy-loading the target section's data.
+func (m Model) gotoSection(to section) (tea.Model, tea.Cmd) {
+	m.section = to
+	m.fading = true
+	nm, cmd := m.onEnterSection()
+	return nm, tea.Batch(cmd, fadeTick())
+}
+
+// handleModelPicker handles keys while the Model section's model-switcher
+// overlay is open: enter loads the picked model, esc closes the overlay.
+func (m Model) handleModelPicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		if it, ok := m.modelsList.Selected(); ok && it.Index < len(m.models) {
+			m.modelPicking = false
+			id := m.models[it.Index].ID
+			m.status = "loading model " + short(id) + "…"
+			return m, loadModelByIDCmd(m.ctx, m.client, m.storeID, id)
+		}
+		return m, nil
+	case "esc":
+		m.modelPicking = false
+		return m, nil
+	}
+	cmd := m.modelsList.Update(msg)
+	return m, cmd
 }
 
 // onEnterSection lazy-loads data when first visiting a section.
@@ -483,22 +515,6 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 		return m, cmd
 
 	case secModel:
-		if m.modelPicking {
-			switch key {
-			case "enter":
-				if it, ok := m.modelsList.Selected(); ok && it.Index < len(m.models) {
-					m.modelPicking = false
-					id := m.models[it.Index].ID
-					m.status = "loading model " + short(id) + "…"
-					return m, loadModelByIDCmd(m.ctx, m.client, m.storeID, id)
-				}
-			case "esc":
-				m.modelPicking = false
-				return m, nil
-			}
-			cmd := m.modelsList.Update(msg)
-			return m, cmd
-		}
 		switch key {
 		case "e":
 			if m.storeID == "" {
@@ -589,6 +605,12 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			m.qmode = (m.qmode + 1) % len(queryModes)
 			m.rebuildQueryForm()
 			m.hasResult = false
+		case "1", "2", "3", "4", "5", "6":
+			// A digit addressing an existing history slot reruns it; "6"
+			// never matches since history is capped at 5.
+			if n := int(key[0] - '1'); n < len(m.history) {
+				return m.rerunHistory(n)
+			}
 		}
 		return m, nil
 

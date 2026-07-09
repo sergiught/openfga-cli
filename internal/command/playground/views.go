@@ -53,6 +53,7 @@ func (m Model) viewString() string {
 	m.sh.SetToast(m.toasts.View())
 	m.sh.SetEntrance(m.entranceFrac, m.entering && m.entranceFrac > 0.55)
 	m.sh.SetDrift(m.drift)
+	m.sh.SetFocus(m.focus)
 	return m.sh.View()
 }
 
@@ -399,27 +400,35 @@ func (m Model) assertionsBody() string {
 // actually work: takeover forms, the model editor, and the query form all
 // capture every keypress, so those states omit them.
 func (m Model) statusKeys() []string {
+	// Sub-editors that capture every key advertise only their own bindings.
 	switch {
 	case m.formKind != formNone:
 		return []string{"↵", "esc"}
-	case m.section == secStores:
-		return []string{"↑↓", "/", "↵", "n", "r", "←→", "tab", "q"}
 	case m.section == secModel && m.editorOpen:
 		return []string{"ctrl+s", "esc"}
 	case m.section == secModel && m.modelPicking:
-		return []string{"↑↓", "↵", "esc", "←→", "tab", "q"}
-	case m.section == secModel:
-		return []string{"↑↓ pan", "hjkl", "e", "m", "r", "←→", "tab", "q"}
-	case m.section == secTuples:
-		return []string{"↑↓", "/", "a", "d", "r", "←→", "tab", "q"}
-	case m.section == secChanges:
-		return []string{"↑↓", "/", "r", "←→", "tab", "q"}
+		return []string{"↑↓", "↵", "esc"}
 	case m.section == secQuery && m.editing:
 		return []string{"tab", "↵", "esc"}
-	case m.section == secQuery:
-		return []string{"i", "m", "↵", "←→", "tab", "q"}
-	case m.section == secAssertions:
-		return []string{"↑↓", "t", "r", "←→", "tab", "q"}
+	}
+	// Sidebar (tab selection) focus: browse tabs, enter to descend.
+	if m.focus == shell.FocusSidebar {
+		return []string{"↑↓", "tab", "↵ open", "1-6", "ctrl+k", "q"}
+	}
+	// Panel focus: section-specific keys, esc back to the tabs.
+	switch m.section {
+	case secStores:
+		return []string{"↑↓", "/", "↵", "n", "r", "esc"}
+	case secModel:
+		return []string{"↑↓ pan", "hjkl", "e", "m", "r", "esc"}
+	case secTuples:
+		return []string{"↑↓", "/", "a", "d", "r", "esc"}
+	case secChanges:
+		return []string{"↑↓", "/", "r", "esc"}
+	case secQuery:
+		return []string{"i", "m", "↵", "esc"}
+	case secAssertions:
+		return []string{"↑↓", "t", "r", "esc"}
 	}
 	return nil
 }

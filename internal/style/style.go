@@ -348,7 +348,19 @@ func SectionHeader(title string, width int) string {
 // SectionHeaderTinted is SectionHeader with an explicit rule color, used for
 // the one-frame verdict flash on the query Result header.
 func SectionHeaderTinted(title string, width int, tint color.Color) string {
-	t := lipgloss.NewStyle().Bold(true).Foreground(Muted).Render(title)
+	return sectionHeader(title, width, Muted, tint)
+}
+
+// SectionHeaderFocused renders the header with both the title and rule in the
+// Primary accent, marking the main panel as the focused region.
+func SectionHeaderFocused(title string, width int) string {
+	return sectionHeader(title, width, Primary, Primary)
+}
+
+// sectionHeader is the shared body: a bold titleColor title followed by a
+// ruleColor hairline rule filling the remaining width.
+func sectionHeader(title string, width int, titleColor, ruleColor color.Color) string {
+	t := lipgloss.NewStyle().Bold(true).Foreground(titleColor).Render(title)
 	rem := width - lipgloss.Width(t) - 1
 	if rem < 1 {
 		t = ansi.Truncate(t, width, "…")
@@ -357,5 +369,5 @@ func SectionHeaderTinted(title string, width int, tint color.Color) string {
 		}
 		return t
 	}
-	return t + " " + lipgloss.NewStyle().Foreground(tint).Render(strings.Repeat("─", rem))
+	return t + " " + lipgloss.NewStyle().Foreground(ruleColor).Render(strings.Repeat("─", rem))
 }
