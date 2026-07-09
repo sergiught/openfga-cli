@@ -175,11 +175,14 @@ func TestFlatMainPaneWithHeaderRule(t *testing.T) {
 func TestBrandLineInSidebar(t *testing.T) {
 	s := New()
 	s.SetSize(120, 30)
-	s.SetBrand("authorization playground", "v1")
+	s.SetBrand("", "v1")
 	s.SetMain("Query", "body")
 	plain := stripAnsi(s.View())
-	if !strings.Contains(plain, "authorization playground") || !strings.Contains(plain, "v1") {
-		t.Fatal("sidebar must carry tagline and version")
+	if !strings.Contains(plain, "v1") {
+		t.Fatal("sidebar must carry version")
+	}
+	if strings.Contains(plain, "authorization playground") {
+		t.Fatal("sidebar must not carry the tagline")
 	}
 	if !strings.Contains(plain, "╱╱╱") {
 		t.Fatal("sidebar must carry hatch bands")
@@ -205,21 +208,24 @@ func TestEntranceSlidesAndSettles(t *testing.T) {
 func TestWordmarkRendersInWideSidebar(t *testing.T) {
 	s := New()
 	s.SetSize(120, 35)
-	s.SetBrand("authorization playground", "v1")
+	s.SetBrand("", "v1")
 	s.SetMain("Query", "body")
 	out := stripAnsi(s.View())
 	if !strings.Contains(out, "▟███▙") {
 		t.Fatal("wide sidebar must render the block wordmark")
 	}
-	if !strings.Contains(out, "authorization playground") {
-		t.Fatal("brand line must read the tagline")
+	if !strings.Contains(out, "v1") {
+		t.Fatal("brand line must show version")
+	}
+	if strings.Contains(out, "authorization playground") {
+		t.Fatal("brand line must not show tagline")
 	}
 }
 
 func TestWordmarkFallsBackOnShortTerminal(t *testing.T) {
 	s := New()
 	s.SetSize(120, 20) // bodyHeight 19 < 26
-	s.SetBrand("authorization playground", "v1")
+	s.SetBrand("", "v1")
 	s.SetMain("Query", "body")
 	out := stripAnsi(s.View())
 	if strings.Contains(out, "▟███▙") {
