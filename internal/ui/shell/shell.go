@@ -307,9 +307,9 @@ func (s *Shell) renderSidebar(height int) string {
 	w := s.sidebarWidth()
 	inner := w - 2
 	var b strings.Builder
-	// Logo: the real OpenFGA mark when the sidebar is wide and tall enough,
-	// otherwise a compact wordmark with a diagonal field tail (Crush's
-	// small-logo treatment).
+	// Logo: the stacked OPENFGA block wordmark when the sidebar is wide and
+	// tall enough, otherwise a single-line gradient "OpenFGA" with a diagonal
+	// field tail (Crush's small-logo treatment).
 	hatch := lipgloss.NewStyle().Foreground(style.Faintc).Render(strings.Repeat("╱", inner))
 	mw, _ := logo.WordmarkSize()
 	if inner >= mw && height >= 26 {
