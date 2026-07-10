@@ -93,9 +93,9 @@ func TestMarkGrantedUnion(t *testing.T) {
 	}}
 	root, _ := ParseResolution(tree)
 	// anne is an owner, not a direct viewer.
-	MarkGranted(root, "user:anne", func(u, rel, obj string) bool {
+	MarkGranted(root, "user:anne", GrantResolver{Check: func(u, rel, obj string) bool {
 		return u == "user:anne" && rel == "owner" && obj == "document:x"
-	})
+	}})
 	if !root.Granted {
 		t.Fatal("root should be granted (via the owner branch)")
 	}
@@ -104,5 +104,26 @@ func TestMarkGrantedUnion(t *testing.T) {
 	}
 	if !root.Children[1].Granted {
 		t.Fatal("computed(owner) leaf should grant anne")
+	}
+}
+
+func TestMarkGrantedTupleToUserset(t *testing.T) {
+	// repo:x#reader granted via "reader from owner": repo:x owner organization:acme,
+	// and anne has repo_reader on organization:acme.
+	tree := map[string]any{"root": leafTTU("repo:x#reader", "repo:x#owner", "organization#repo_reader")}
+	root, _ := ParseResolution(tree)
+	MarkGranted(root, "user:anne", GrantResolver{
+		Check: func(u, rel, obj string) bool {
+			return u == "user:anne" && rel == "repo_reader" && obj == "organization:acme"
+		},
+		Tupleset: func(object, relation string) []string {
+			if object == "repo:x" && relation == "owner" {
+				return []string{"organization:acme"}
+			}
+			return nil
+		},
+	})
+	if !root.Granted {
+		t.Fatal("TTU leaf should grant anne via organization:acme#repo_reader")
 	}
 }

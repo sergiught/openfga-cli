@@ -334,11 +334,30 @@ func expandCmd(ctx context.Context, cl *openfga.Client, storeID, user, relation,
 		if !ok {
 			return resolutionMsg{err: errors.New("empty resolution tree")}
 		}
-		fga.MarkGranted(root, user, func(u, rel, obj string) bool {
-			cr, _, cerr := cl.Relationships.Check(ctx, &openfga.CheckRequest{
-				TupleKey: openfga.CheckRequestTupleKey{User: u, Relation: rel, Object: obj},
-			}, openfga.WithStore(storeID))
-			return cerr == nil && cr.Allowed
+		fga.MarkGranted(root, user, fga.GrantResolver{
+			Check: func(u, rel, obj string) bool {
+				cr, _, cerr := cl.Relationships.Check(ctx, &openfga.CheckRequest{
+					TupleKey: openfga.CheckRequestTupleKey{User: u, Relation: rel, Object: obj},
+				}, openfga.WithStore(storeID))
+				return cerr == nil && cr.Allowed
+			},
+			Tupleset: func(object, relation string) []string {
+				var xs []string
+				req := &openfga.ReadRequest{
+					TupleKey: &openfga.ReadRequestTupleKey{Object: object, Relation: relation},
+					PageSize: 100,
+				}
+				for tp, terr := range cl.Tuples.ReadAll(ctx, req, openfga.WithStore(storeID)) {
+					if terr != nil {
+						break
+					}
+					xs = append(xs, tp.Key.User)
+					if len(xs) >= 100 {
+						break
+					}
+				}
+				return xs
+			},
 		})
 		return resolutionMsg{root: root}
 	}

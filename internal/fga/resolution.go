@@ -1,5 +1,7 @@
 package fga
 
+import "slices"
+
 // This file turns an OpenFGA Expand response — the userset tree that grants a
 // relation — into a structured ResNode tree the playground can render. The
 // Expand tree arrives as an untyped, recursive map[string]any (its shape is
@@ -32,38 +34,47 @@ type ResNode struct {
 	Granted bool // set by MarkGranted: this node reaches the queried user
 }
 
-// MarkGranted annotates each node with whether it grants `user`, using `check`
-// to resolve computed usersets. Direct-user leaves match the user string
-// exactly; tuple-to-userset leaves are left unresolved (not marked) in this
-// pass. It returns the root's grant status.
-func MarkGranted(root *ResNode, user string, check func(user, relation, object string) bool) bool {
+// GrantResolver supplies the live lookups MarkGranted needs. Check reports
+// whether `user` has `relation` on `object`. Tupleset returns the objects
+// related to `object` via `relation` — the "user" side of matching tuples —
+// and may be nil to skip tuple-to-userset resolution.
+type GrantResolver struct {
+	Check    func(user, relation, object string) bool
+	Tupleset func(object, relation string) []string
+}
+
+// MarkGranted annotates each node with whether it grants `user`. Direct-user
+// leaves match the user string exactly, computed usersets resolve via a Check,
+// and tuple-to-userset leaves read the tupleset then Check the computed
+// relation on each related object. It returns the root's grant status.
+func MarkGranted(root *ResNode, user string, r GrantResolver) bool {
 	if root == nil {
 		return false
 	}
 	switch root.Op {
 	case ResLeaf:
-		root.Granted = leafGrants(root, user, check)
+		root.Granted = leafGrants(root, user, r)
 	case ResUnion:
 		root.Granted = false
 		for _, c := range root.Children {
-			if MarkGranted(c, user, check) {
+			if MarkGranted(c, user, r) {
 				root.Granted = true
 			}
 		}
 	case ResIntersection:
 		root.Granted = len(root.Children) > 0
 		for _, c := range root.Children {
-			if !MarkGranted(c, user, check) {
+			if !MarkGranted(c, user, r) {
 				root.Granted = false
 			}
 		}
 	case ResExclusion:
 		base, sub := false, false
 		if len(root.Children) > 0 {
-			base = MarkGranted(root.Children[0], user, check)
+			base = MarkGranted(root.Children[0], user, r)
 		}
 		if len(root.Children) > 1 {
-			sub = MarkGranted(root.Children[1], user, check)
+			sub = MarkGranted(root.Children[1], user, r)
 		}
 		root.Granted = base && !sub
 	}
@@ -87,21 +98,34 @@ func GrantedPath(n *ResNode) *ResNode {
 	return &c
 }
 
-func leafGrants(n *ResNode, user string, check func(user, relation, object string) bool) bool {
+func leafGrants(n *ResNode, user string, r GrantResolver) bool {
 	switch {
 	case len(n.Users) > 0:
-		for _, u := range n.Users {
-			if u == user {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(n.Users, user)
 	case n.Computed != "":
 		if obj, rel, ok := splitUserset(n.Computed); ok {
-			return check(user, rel, obj)
+			return r.Check(user, rel, obj)
+		}
+	case n.TTUFrom != "" && r.Tupleset != nil:
+		// The object relates to some X via the tupleset; the user is granted if
+		// they hold one of the computed relations on any such X.
+		tObj, tRel, ok := splitUserset(n.TTUFrom)
+		if !ok {
+			return false
+		}
+		for _, x := range r.Tupleset(tObj, tRel) {
+			for _, cu := range n.TTUTo {
+				rel := cu
+				if _, r2, ok := splitUserset(cu); ok {
+					rel = r2
+				}
+				if r.Check(user, rel, x) {
+					return true
+				}
+			}
 		}
 	}
-	return false // tuple-to-userset leaves are not resolved in this pass
+	return false
 }
 
 func splitUserset(s string) (object, relation string, ok bool) {
