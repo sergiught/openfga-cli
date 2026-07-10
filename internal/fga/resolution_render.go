@@ -100,27 +100,27 @@ func resTreeHeight(b *resBox) int {
 	return resChildY + ch
 }
 
-// RenderResolution draws root as a top-down node-link diagram. Nodes in granted
-// are drawn in the success accent (the branch that reaches the user); pass nil
-// to draw the whole tree neutrally.
-func RenderResolution(root *ResNode, granted map[*ResNode]bool) string {
+// RenderResolution draws root as a top-down node-link diagram. Nodes whose
+// Granted flag is set (see MarkGranted) are drawn in the success accent — the
+// branch(es) that reach the queried user.
+func RenderResolution(root *ResNode) string {
 	if root == nil {
 		return ""
 	}
 	b := layoutResBox(root)
 	placeResBox(b, 0, 0)
 	c := newCanvas(b.subW+1, resTreeHeight(b))
-	drawResTree(c, b, granted)
+	drawResTree(c, b)
 	return c.String()
 }
 
-func drawResTree(c *canvas, b *resBox, granted map[*ResNode]bool) {
-	drawResBox(c, b, granted[b.node])
+func drawResTree(c *canvas, b *resBox) {
+	drawResBox(c, b, b.node.Granted)
 	for _, k := range b.kids {
-		drawResTree(c, k, granted)
+		drawResTree(c, k)
 	}
 	if len(b.kids) > 0 {
-		drawResConnectors(c, b, granted)
+		drawResConnectors(c, b)
 	}
 }
 
@@ -152,9 +152,9 @@ func drawResBox(c *canvas, b *resBox, on bool) {
 	}
 }
 
-func drawResConnectors(c *canvas, b *resBox, granted map[*ResNode]bool) {
+func drawResConnectors(c *canvas, b *resBox) {
 	edge := style.Subtle
-	if granted[b.node] {
+	if b.node.Granted {
 		edge = style.Green
 	}
 	px := b.cx
@@ -177,7 +177,7 @@ func drawResConnectors(c *canvas, b *resBox, granted map[*ResNode]bool) {
 	// Each child's top border receives the drop.
 	for i, k := range b.kids {
 		ke := edge
-		if granted[k.node] {
+		if k.node.Granted {
 			ke = style.Green
 		}
 		c.set(centers[i], k.y, scell{r: '┴', fg: ke})

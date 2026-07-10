@@ -28,6 +28,80 @@ type ResNode struct {
 	Computed string   // a computed userset, e.g. "document:roadmap#owner"
 	TTUFrom  string   // tuple-to-userset: the tupleset relation, e.g. "document:x#parent"
 	TTUTo    []string // the computed usersets reached through that tupleset
+
+	Granted bool // set by MarkGranted: this node reaches the queried user
+}
+
+// MarkGranted annotates each node with whether it grants `user`, using `check`
+// to resolve computed usersets. Direct-user leaves match the user string
+// exactly; tuple-to-userset leaves are left unresolved (not marked) in this
+// pass. It returns the root's grant status.
+func MarkGranted(root *ResNode, user string, check func(user, relation, object string) bool) bool {
+	if root == nil {
+		return false
+	}
+	switch root.Op {
+	case ResLeaf:
+		root.Granted = leafGrants(root, user, check)
+	case ResUnion:
+		root.Granted = false
+		for _, c := range root.Children {
+			if MarkGranted(c, user, check) {
+				root.Granted = true
+			}
+		}
+	case ResIntersection:
+		root.Granted = len(root.Children) > 0
+		for _, c := range root.Children {
+			if !MarkGranted(c, user, check) {
+				root.Granted = false
+			}
+		}
+	case ResExclusion:
+		base, sub := false, false
+		if len(root.Children) > 0 {
+			base = MarkGranted(root.Children[0], user, check)
+		}
+		if len(root.Children) > 1 {
+			sub = MarkGranted(root.Children[1], user, check)
+		}
+		root.Granted = base && !sub
+	}
+	return root.Granted
+}
+
+func leafGrants(n *ResNode, user string, check func(user, relation, object string) bool) bool {
+	switch {
+	case len(n.Users) > 0:
+		for _, u := range n.Users {
+			if u == user {
+				return true
+			}
+		}
+		return false
+	case n.Computed != "":
+		if obj, rel, ok := splitUserset(n.Computed); ok {
+			return check(user, rel, obj)
+		}
+	}
+	return false // tuple-to-userset leaves are not resolved in this pass
+}
+
+func splitUserset(s string) (object, relation string, ok bool) {
+	i := indexRune(s, '#')
+	if i < 0 {
+		return "", "", false
+	}
+	return s[:i], s[i+1:], true
+}
+
+func indexRune(s string, r rune) int {
+	for i, c := range s {
+		if c == r {
+			return i
+		}
+	}
+	return -1
 }
 
 // ParseResolution builds a ResNode tree from an Expand response's untyped tree

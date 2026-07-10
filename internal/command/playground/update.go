@@ -269,7 +269,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.connLost = false
 		m.resTree = msg.root
 		m.showRes = true
-		m.resVP.SetContent(fga.RenderResolution(msg.root, nil))
+		m.resVP.SetContent(fga.RenderResolution(msg.root))
 		m.resVP.SetYOffset(0)
 		m.status = "resolution tree"
 		return m, nil
@@ -681,7 +681,8 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			// Show the Check resolution tree for the last check.
 			if m.hasResult && m.result.badge {
 				m.loading = true
-				return m, expandCmd(m.ctx, m.client, m.storeID, m.result.vals[1], m.result.vals[2])
+				return m, expandCmd(m.ctx, m.client, m.storeID,
+					m.result.vals[0], m.result.vals[1], m.result.vals[2])
 			}
 			m.status = "run a check first (r shows its resolution)"
 		case "1", "2", "3", "4", "5", "6":
@@ -722,8 +723,19 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			return m, nil
 		case "enter":
 			if it, ok := m.assertionsList.Selected(); ok && it.Index < len(m.assertions) {
-				m.status = "running assertion…"
-				return m, runOneAssertionCmd(m.ctx, m.client, m.storeID, m.assertModelID, it.Index, m.assertions[it.Index])
+				a := m.assertions[it.Index]
+				u, rel, obj := a.TupleKey.User, a.TupleKey.Relation, a.TupleKey.Object
+				// Run the assertion (updates its badge) and open its resolution
+				// tree in the Query panel.
+				m.section = secQuery
+				m.result = queryResultMsg{badge: true, vals: [3]string{u, rel, obj}, mode: "check"}
+				m.hasResult = true
+				m.loading = true
+				m.status = "resolving assertion…"
+				return m, tea.Batch(
+					runOneAssertionCmd(m.ctx, m.client, m.storeID, m.assertModelID, it.Index, a),
+					expandCmd(m.ctx, m.client, m.storeID, u, rel, obj),
+				)
 			}
 			return m, nil
 		case "t":

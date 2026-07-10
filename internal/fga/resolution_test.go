@@ -81,3 +81,28 @@ func TestParseResolutionNoRoot(t *testing.T) {
 		t.Fatal("empty tree should have no root")
 	}
 }
+
+func TestMarkGrantedUnion(t *testing.T) {
+	// viewer := [user] or owner ; user granted via owner (computed), not direct.
+	tree := map[string]any{"root": map[string]any{
+		"name": "document:x#viewer",
+		"union": map[string]any{"nodes": []any{
+			leafUsers("document:x#viewer", "user:bob"),
+			leafComputed("document:x#viewer", "document:x#owner"),
+		}},
+	}}
+	root, _ := ParseResolution(tree)
+	// anne is an owner, not a direct viewer.
+	MarkGranted(root, "user:anne", func(u, rel, obj string) bool {
+		return u == "user:anne" && rel == "owner" && obj == "document:x"
+	})
+	if !root.Granted {
+		t.Fatal("root should be granted (via the owner branch)")
+	}
+	if root.Children[0].Granted {
+		t.Fatal("direct-users leaf should NOT grant anne")
+	}
+	if !root.Children[1].Granted {
+		t.Fatal("computed(owner) leaf should grant anne")
+	}
+}

@@ -319,9 +319,10 @@ func writeTupleCmd(ctx context.Context, cl *openfga.Client, storeID string, key 
 	}
 }
 
-// expandCmd fetches the Expand (userset) tree for object#relation and parses it
-// into a resolution tree.
-func expandCmd(ctx context.Context, cl *openfga.Client, storeID, relation, object string) tea.Cmd {
+// expandCmd fetches the Expand (userset) tree for object#relation, parses it,
+// and marks the branch that grants `user` (resolving computed usersets with
+// live Checks) so the tree can highlight the resolution path.
+func expandCmd(ctx context.Context, cl *openfga.Client, storeID, user, relation, object string) tea.Cmd {
 	return func() tea.Msg {
 		res, _, err := cl.Relationships.Expand(ctx, &openfga.ExpandRequest{
 			TupleKey: openfga.CheckRequestTupleKey{Relation: relation, Object: object},
@@ -333,6 +334,12 @@ func expandCmd(ctx context.Context, cl *openfga.Client, storeID, relation, objec
 		if !ok {
 			return resolutionMsg{err: errors.New("empty resolution tree")}
 		}
+		fga.MarkGranted(root, user, func(u, rel, obj string) bool {
+			cr, _, cerr := cl.Relationships.Check(ctx, &openfga.CheckRequest{
+				TupleKey: openfga.CheckRequestTupleKey{User: u, Relation: rel, Object: obj},
+			}, openfga.WithStore(storeID))
+			return cerr == nil && cr.Allowed
+		})
 		return resolutionMsg{root: root}
 	}
 }
