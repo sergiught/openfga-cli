@@ -154,6 +154,11 @@ type Model struct {
 	history   []histEntry // rerunnable results, newest first, capped at 5
 	flash     bool        // true for one frame right after a badge result lands
 
+	// check resolution tree (Expand), shown over the query result
+	resVP   viewport.Model
+	resTree *fga.ResNode
+	showRes bool
+
 	// full-panel form takeover
 	formKind      formKind
 	form          *field.Form
@@ -299,6 +304,17 @@ func (m *Model) resize() {
 	}
 	m.editor.SetWidth(w)
 	m.editor.SetHeight(h - 2)
+	// Resolution viewport: a couple of rows below the query header/hint.
+	rh := h - 2
+	if rh < 1 {
+		rh = 1
+	}
+	if m.resVP.Width() == 0 {
+		m.resVP = viewport.New(viewport.WithWidth(w), viewport.WithHeight(rh))
+	} else {
+		m.resVP.SetWidth(w)
+		m.resVP.SetHeight(rh)
+	}
 	m.rebuildQueryForm()
 }
 

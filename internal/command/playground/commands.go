@@ -3,6 +3,7 @@ package playground
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -65,6 +66,12 @@ type assertOneMsg struct {
 type assertionsWrittenMsg struct {
 	modelID string
 	err     error
+}
+
+// resolutionMsg carries the parsed Expand (userset) tree for a check.
+type resolutionMsg struct {
+	root *fga.ResNode
+	err  error
 }
 
 type assertResult struct {
@@ -309,6 +316,24 @@ func writeTupleCmd(ctx context.Context, cl *openfga.Client, storeID string, key 
 			return tupleWrittenMsg{err: err, deleted: del}
 		}
 		return tupleWrittenMsg{label: fga.FormatTuple(key), deleted: del}
+	}
+}
+
+// expandCmd fetches the Expand (userset) tree for object#relation and parses it
+// into a resolution tree.
+func expandCmd(ctx context.Context, cl *openfga.Client, storeID, relation, object string) tea.Cmd {
+	return func() tea.Msg {
+		res, _, err := cl.Relationships.Expand(ctx, &openfga.ExpandRequest{
+			TupleKey: openfga.CheckRequestTupleKey{Relation: relation, Object: object},
+		}, openfga.WithStore(storeID))
+		if err != nil {
+			return resolutionMsg{err: err}
+		}
+		root, ok := fga.ParseResolution(res.Tree)
+		if !ok {
+			return resolutionMsg{err: errors.New("empty resolution tree")}
+		}
+		return resolutionMsg{root: root}
 	}
 }
 

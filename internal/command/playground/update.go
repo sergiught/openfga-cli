@@ -259,6 +259,21 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.toasts.Push(toast.Success, m.status),
 			loadAssertionsCmd(m.ctx, m.client, m.storeID, msg.modelID))
 
+	case resolutionMsg:
+		m.loading = false
+		if msg.err != nil {
+			m.connLost = isConnErr(msg.err)
+			m.status = "resolution: " + errStr(msg.err)
+			return m, m.toasts.Push(toast.Error, m.status)
+		}
+		m.connLost = false
+		m.resTree = msg.root
+		m.showRes = true
+		m.resVP.SetContent(fga.RenderResolution(msg.root, nil))
+		m.resVP.SetYOffset(0)
+		m.status = "resolution tree"
+		return m, nil
+
 	case storeCreatedMsg:
 		if msg.err != nil {
 			m.connLost = isConnErr(msg.err)
@@ -287,6 +302,9 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.hasResult = true
 		m.result = msg
+		// A fresh result invalidates any open resolution tree.
+		m.showRes = false
+		m.resTree = nil
 		if msg.err != nil {
 			m.connLost = isConnErr(msg.err)
 			m.status = "query: " + errStr(msg.err)
@@ -433,8 +451,13 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleSidebarKey(key)
 	}
 	// Panel focus: Esc returns to the sidebar (tab selection); every other key
-	// is section-specific logic.
+	// is section-specific logic. The query resolution view is a sub-mode, so Esc
+	// closes it first (layered).
 	if key == "esc" {
+		if m.section == secQuery && m.showRes {
+			m.showRes = false
+			return m, nil
+		}
 		m.focus = shell.FocusSidebar
 		return m, nil
 	}
@@ -626,6 +649,22 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 		return m, cmd
 
 	case secQuery:
+		// While the resolution tree is open it captures navigation.
+		if m.showRes {
+			switch key {
+			case "r":
+				m.showRes = false
+			case "left", "h":
+				m.resVP.ScrollLeft(4)
+			case "right", "l":
+				m.resVP.ScrollRight(4)
+			default:
+				var cmd tea.Cmd
+				m.resVP, cmd = m.resVP.Update(msg)
+				return m, cmd
+			}
+			return m, nil
+		}
 		switch key {
 		case "i", "enter":
 			if m.storeID == "" {
@@ -638,6 +677,13 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			m.qmode = (m.qmode + 1) % len(queryModes)
 			m.rebuildQueryForm()
 			m.hasResult = false
+		case "r":
+			// Show the Check resolution tree for the last check.
+			if m.hasResult && m.result.badge {
+				m.loading = true
+				return m, expandCmd(m.ctx, m.client, m.storeID, m.result.vals[1], m.result.vals[2])
+			}
+			m.status = "run a check first (r shows its resolution)"
 		case "1", "2", "3", "4", "5", "6":
 			// A digit addressing an existing history slot reruns it; "6"
 			// never matches since history is capped at 5.

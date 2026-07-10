@@ -287,13 +287,26 @@ func (m Model) queryBody() string {
 		return style.Faint.Render("Select a store first — press 1")
 	}
 
+	// Resolution tree takes over the panel when open.
+	if m.showRes && m.resTree != nil {
+		w, _ := m.contentSize()
+		head := style.Heading.Render("Resolution") + "  " +
+			style.Faint.Render(m.result.vals[0]+" "+m.result.vals[1]+" "+m.result.vals[2]) +
+			"  " + style.Faint.Render("↑↓←→ scroll · r/esc close")
+		return head + "\n" + style.SectionHeader("", w) + "\n" + m.resVP.View()
+	}
+
 	// Header: mode chip + key hints. The huh fields already carry their own
 	// focus accents, so no extra box is drawn around them (the main panel frames
 	// the whole section).
 	chip := lipgloss.NewStyle().Background(style.BgRaised).Foreground(style.Secondary).
 		Bold(true).Padding(0, 1).Render(queryModes[m.qmode])
+	hint := "m mode · i edit · enter run"
+	if m.hasResult && m.result.badge {
+		hint += " · r resolution"
+	}
 	var b strings.Builder
-	b.WriteString(chip + "  " + style.Faint.Render("m mode · i edit · enter run"))
+	b.WriteString(chip + "  " + style.Faint.Render(hint))
 	b.WriteString("\n\n" + m.qform.View())
 
 	w, _ := m.contentSize()
@@ -440,7 +453,7 @@ func (m Model) statusKeys() []string {
 	case secChanges:
 		return []string{"↑↓", "/", "r", "esc"}
 	case secQuery:
-		return []string{"i", "m", "↵", "esc"}
+		return []string{"i", "m", "↵", "r", "esc"}
 	case secAssertions:
 		return []string{"↑↓", "↵", "a", "e", "d", "t", "esc"}
 	}
