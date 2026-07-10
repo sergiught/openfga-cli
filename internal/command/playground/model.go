@@ -155,9 +155,10 @@ type Model struct {
 	flash     bool        // true for one frame right after a badge result lands
 
 	// check resolution tree (Expand), shown over the query result
-	resVP   viewport.Model
-	resTree *fga.ResNode
-	showRes bool
+	resVP       viewport.Model
+	resTree     *fga.ResNode
+	showRes     bool
+	resPathOnly bool // collapse to just the granting branch (ACL path) vs full tree
 
 	// full-panel form takeover
 	formKind      formKind
@@ -319,6 +320,23 @@ func (m *Model) resize() {
 }
 
 func (m *Model) contentSize() (int, int) { return m.sh.MainSize() }
+
+// refreshResVP re-renders the resolution viewport for the current mode: the
+// full tree, or (ACL path) collapsed to just the branch that grants the user.
+func (m *Model) refreshResVP() {
+	if m.resTree == nil {
+		return
+	}
+	if m.resPathOnly {
+		if p := fga.GrantedPath(m.resTree); p != nil {
+			m.resVP.SetContent(fga.RenderResolution(p))
+		} else {
+			m.resVP.SetContent(style.Faint.Render("no granting path — this relation doesn't resolve to the user"))
+		}
+		return
+	}
+	m.resVP.SetContent(fga.RenderResolution(m.resTree))
+}
 
 // --- list population ---
 

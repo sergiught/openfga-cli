@@ -269,7 +269,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.connLost = false
 		m.resTree = msg.root
 		m.showRes = true
-		m.resVP.SetContent(fga.RenderResolution(msg.root))
+		m.refreshResVP()
 		m.resVP.SetYOffset(0)
 		m.status = "resolution tree"
 		return m, nil
@@ -654,6 +654,10 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			switch key {
 			case "r":
 				m.showRes = false
+			case "p":
+				m.resPathOnly = !m.resPathOnly
+				m.refreshResVP()
+				m.resVP.SetYOffset(0)
 			case "left", "h":
 				m.resVP.ScrollLeft(4)
 			case "right", "l":

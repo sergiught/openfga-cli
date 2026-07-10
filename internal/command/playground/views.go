@@ -290,9 +290,16 @@ func (m Model) queryBody() string {
 	// Resolution tree takes over the panel when open.
 	if m.showRes && m.resTree != nil {
 		w, _ := m.contentSize()
+		full, path := style.Faint.Render("full tree"), style.Faint.Render("ACL path")
+		if m.resPathOnly {
+			path = style.Heading.Render("ACL path")
+		} else {
+			full = style.Heading.Render("full tree")
+		}
 		head := style.Heading.Render("Resolution") + "  " +
 			style.Faint.Render(m.result.vals[0]+" "+m.result.vals[1]+" "+m.result.vals[2]) +
-			"  " + style.Faint.Render("↑↓←→ scroll · r/esc close")
+			"   " + full + " " + style.Faint.Render("·") + " " + path +
+			"   " + style.Faint.Render("p toggle · ↑↓←→ scroll · r/esc close")
 		return head + "\n" + style.SectionHeader("", w) + "\n" + m.resVP.View()
 	}
 
@@ -437,6 +444,8 @@ func (m Model) statusKeys() []string {
 		return []string{"↑↓", "↵", "esc"}
 	case m.section == secQuery && m.editing:
 		return []string{"tab", "↵", "esc"}
+	case m.section == secQuery && m.showRes:
+		return []string{"↑↓←→", "p", "r", "esc"}
 	}
 	// Sidebar (tab selection) focus: browse tabs, enter to descend.
 	if m.focus == shell.FocusSidebar {

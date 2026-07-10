@@ -70,6 +70,23 @@ func MarkGranted(root *ResNode, user string, check func(user, relation, object s
 	return root.Granted
 }
 
+// GrantedPath returns a pruned copy of the tree keeping only the branch(es)
+// that reach the user — the ACL resolution path. It returns nil when nothing
+// grants (e.g. a denied check). Call MarkGranted first.
+func GrantedPath(n *ResNode) *ResNode {
+	if n == nil || !n.Granted {
+		return nil
+	}
+	c := *n
+	c.Children = nil
+	for _, k := range n.Children {
+		if g := GrantedPath(k); g != nil {
+			c.Children = append(c.Children, g)
+		}
+	}
+	return &c
+}
+
 func leafGrants(n *ResNode, user string, check func(user, relation, object string) bool) bool {
 	switch {
 	case len(n.Users) > 0:
