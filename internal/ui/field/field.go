@@ -5,6 +5,7 @@ package field
 
 import (
 	"image/color"
+	"strconv"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
@@ -14,15 +15,26 @@ import (
 	"github.com/sergiught/openfga-cli/internal/style"
 )
 
-// Field is one labeled input with optional validation.
+type fieldKind int
+
+const (
+	kindText fieldKind = iota
+	kindToggle
+)
+
+// Field is one labeled input: a text entry or a two-choice toggle.
 type Field struct {
+	kind     fieldKind
 	label    string
-	in       textinput.Model
+	in       textinput.Model // kindText
+	on       bool            // kindToggle value
+	onLabel  string          // kindToggle labels for the two choices
+	offLabel string
 	validate func(string) error
 	err      string
 }
 
-// New returns a field with the given label and placeholder.
+// New returns a text field with the given label and placeholder.
 func New(label, placeholder string) *Field {
 	in := textinput.New()
 	in.Placeholder = placeholder
@@ -36,14 +48,95 @@ func New(label, placeholder string) *Field {
 	st.Blurred.Text, st.Blurred.Placeholder = text, placeholderStyle
 	st.Cursor.Color = style.Primary
 	in.SetStyles(st)
-	f := &Field{label: label, in: in}
-	return f
+	return &Field{kind: kindText, label: label, in: in}
+}
+
+// NewToggle returns a two-choice toggle field (◉ on / ○ off). Space or ←→ flip
+// the choice; its value is "true"/"false".
+func NewToggle(label, onLabel, offLabel string, on bool) *Field {
+	return &Field{kind: kindToggle, label: label, onLabel: onLabel, offLabel: offLabel, on: on}
 }
 
 // WithValidate attaches a validation function, run on submit.
 func (f *Field) WithValidate(fn func(string) error) *Field {
 	f.validate = fn
 	return f
+}
+
+// --- per-field behavior, dispatched on kind ---
+
+func (f *Field) focus() tea.Cmd {
+	if f.kind == kindToggle {
+		return nil
+	}
+	return f.in.Focus()
+}
+
+func (f *Field) blur() {
+	if f.kind == kindText {
+		f.in.Blur()
+	}
+}
+
+func (f *Field) update(msg tea.Msg) tea.Cmd {
+	if f.kind == kindToggle {
+		if k, ok := msg.(tea.KeyPressMsg); ok {
+			switch k.String() {
+			case " ", "space", "left", "right":
+				f.on = !f.on
+			}
+		}
+		return nil
+	}
+	var cmd tea.Cmd
+	f.in, cmd = f.in.Update(msg)
+	return cmd
+}
+
+func (f *Field) value() string {
+	if f.kind == kindToggle {
+		return strconv.FormatBool(f.on)
+	}
+	return f.in.Value()
+}
+
+func (f *Field) setValue(s string) {
+	if f.kind == kindToggle {
+		f.on = s == "true" || s == "allowed" || s == "Allowed" || s == "t"
+		return
+	}
+	f.in.SetValue(s)
+}
+
+func (f *Field) setWidth(w int) {
+	if f.kind == kindText {
+		f.in.SetWidth(w)
+	}
+}
+
+// inputView renders the field's input line (no label), honoring focus and the
+// optional highlight background.
+func (f *Field) inputView(focused bool, hl color.Color) string {
+	if f.kind == kindText {
+		return f.in.View()
+	}
+	base := lipgloss.NewStyle()
+	if hl != nil && focused {
+		base = base.Background(hl)
+	}
+	choice := func(sel bool, label string) string {
+		mark, st := "○", base.Foreground(style.Faintc)
+		if sel {
+			mark = "◉"
+			c := style.Fg
+			if focused {
+				c = style.Primary
+			}
+			st = base.Bold(true).Foreground(c)
+		}
+		return st.Render(mark + " " + label)
+	}
+	return choice(f.on, f.onLabel) + base.Render("   ") + choice(!f.on, f.offLabel)
 }
 
 // Form owns focus order and completion state for its fields.
@@ -65,6 +158,9 @@ func NewForm(fields ...*Field) *Form { return &Form{fields: fields} }
 func (f *Form) SetHighlight(c color.Color) {
 	f.highlight = c
 	for _, fl := range f.fields {
+		if fl.kind != kindText {
+			continue // toggles carry the highlight via inputView
+		}
 		st := fl.in.Styles()
 		st.Focused.Text = lipgloss.NewStyle().Foreground(style.Fg).Background(c)
 		st.Focused.Placeholder = lipgloss.NewStyle().Foreground(style.Faintc).Background(c)
@@ -82,7 +178,7 @@ func (f *Form) SetWidth(w int) {
 		iw = 1
 	}
 	for _, fl := range f.fields {
-		fl.in.SetWidth(iw)
+		fl.setWidth(iw)
 	}
 }
 
@@ -92,7 +188,7 @@ func (f *Form) Init() tea.Cmd {
 		return nil
 	}
 	f.focus = 0
-	return f.fields[0].in.Focus()
+	return f.fields[0].focus()
 }
 
 // Update routes keys: tab/down and shift+tab/up cycle, enter submits,
@@ -108,19 +204,21 @@ func (f *Form) Update(msg tea.Msg) tea.Cmd {
 		case "shift+tab", "up":
 			return f.moveFocus(-1)
 		case "enter":
-			f.submit()
-			return nil
+			// Enter advances to the next field; on the last field it submits.
+			if f.focus >= len(f.fields)-1 {
+				f.submit()
+				return nil
+			}
+			return f.moveFocus(1)
 		}
 	}
-	var cmd tea.Cmd
-	f.fields[f.focus].in, cmd = f.fields[f.focus].in.Update(msg)
-	return cmd
+	return f.fields[f.focus].update(msg)
 }
 
 func (f *Form) moveFocus(d int) tea.Cmd {
-	f.fields[f.focus].in.Blur()
+	f.fields[f.focus].blur()
 	f.focus = (f.focus + d + len(f.fields)) % len(f.fields)
-	return f.fields[f.focus].in.Focus()
+	return f.fields[f.focus].focus()
 }
 
 func (f *Form) submit() {
@@ -128,7 +226,7 @@ func (f *Form) submit() {
 	for _, fl := range f.fields {
 		fl.err = ""
 		if fl.validate != nil {
-			if err := fl.validate(fl.in.Value()); err != nil {
+			if err := fl.validate(fl.value()); err != nil {
 				fl.err = err.Error()
 				ok = false
 			}
@@ -140,22 +238,23 @@ func (f *Form) submit() {
 // Completed reports whether a submit passed validation.
 func (f *Form) Completed() bool { return f.completed }
 
-// Values returns every field's current text, in field order.
+// Values returns every field's current value, in field order (toggles as
+// "true"/"false").
 func (f *Form) Values() []string {
 	vals := make([]string, len(f.fields))
 	for i, fl := range f.fields {
-		vals[i] = fl.in.Value()
+		vals[i] = fl.value()
 	}
 	return vals
 }
 
-// SetValues fills each field's input with the corresponding entry in vals, in
-// field order. Bounds-safe: extra vals are ignored, missing ones leave the
-// field untouched.
+// SetValues fills each field with the corresponding entry in vals, in field
+// order. Bounds-safe: extra vals are ignored, missing ones leave the field
+// untouched.
 func (f *Form) SetValues(vals []string) {
 	for i, fl := range f.fields {
 		if i < len(vals) {
-			fl.in.SetValue(vals[i])
+			fl.setValue(vals[i])
 		}
 	}
 }
@@ -163,20 +262,20 @@ func (f *Form) SetValues(vals []string) {
 // Reset clears values, errors, and completion, refocusing the first field.
 func (f *Form) Reset() {
 	for _, fl := range f.fields {
-		fl.in.SetValue("")
+		fl.setValue("")
 		fl.err = ""
-		fl.in.Blur()
+		fl.blur()
 	}
 	f.completed = false
 	f.focus = 0
 	if len(f.fields) > 0 {
-		f.fields[0].in.Focus()
+		f.fields[0].focus()
 	}
 }
 
-// View renders fields stacked: label, accent-barred input, optional error. The
-// focused field's whole row (label + input) is filled with the highlight; the
-// others render plain so only the active field is emphasized.
+// View renders fields stacked: label, input, optional error. The focused
+// field's whole row (label + input) is filled with the highlight; the others
+// render plain so only the active field is emphasized.
 func (f *Form) View() string {
 	var b strings.Builder
 	for i, fl := range f.fields {
@@ -187,10 +286,10 @@ func (f *Form) View() string {
 		if focused && f.highlight != nil {
 			hl := lipgloss.NewStyle().Background(f.highlight)
 			label := hl.Bold(true).Foreground(style.Primary).Width(f.width).Render(fl.label)
-			b.WriteString(label + "\n" + hl.Width(f.width).Render(fl.in.View()))
+			b.WriteString(label + "\n" + hl.Width(f.width).Render(fl.inputView(true, f.highlight)))
 		} else {
 			label := lipgloss.NewStyle().Foreground(style.Muted).Render(fl.label)
-			b.WriteString(label + "\n" + fl.in.View())
+			b.WriteString(label + "\n" + fl.inputView(false, nil))
 		}
 		if fl.err != "" {
 			b.WriteString("\n" + lipgloss.NewStyle().Foreground(style.Red).Render("  "+fl.err))

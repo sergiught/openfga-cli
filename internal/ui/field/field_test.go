@@ -111,6 +111,27 @@ func TestFocusedInputStartsAtCursor(t *testing.T) {
 	}
 }
 
+func TestToggleFieldFlips(t *testing.T) {
+	f := NewForm(New("User", "user:anne"), NewToggle("Expect", "Allowed", "Denied", true))
+	f.SetWidth(40)
+	f.Init()
+	f.Update(key("tab")) // focus the toggle
+	if got := f.Values()[1]; got != "true" {
+		t.Fatalf("toggle should start true, got %q", got)
+	}
+	f.Update(key(" ")) // flip
+	if got := f.Values()[1]; got != "false" {
+		t.Fatalf("space should flip the toggle to false, got %q", got)
+	}
+	f.Update(key(" ")) // flip back
+	if got := f.Values()[1]; got != "true" {
+		t.Fatalf("space should flip the toggle back to true, got %q", got)
+	}
+	if v := ansi.Strip(f.View()); !strings.Contains(v, "Allowed") || !strings.Contains(v, "Denied") {
+		t.Fatalf("toggle view should show both choice labels, got %q", v)
+	}
+}
+
 func TestResetClearsState(t *testing.T) {
 	f := NewForm(New("User", ""))
 	f.SetWidth(40)
