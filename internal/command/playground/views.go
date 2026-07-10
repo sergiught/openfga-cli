@@ -67,6 +67,12 @@ func (m Model) dialogContent() (string, string) {
 		return "Create Store", m.form.View() + "\n" + style.Faint.Render("enter submit · esc cancel")
 	case m.formKind == formWriteTuple:
 		return "Write Tuple", m.form.View() + "\n" + style.Faint.Render("enter submit · esc cancel")
+	case m.formKind == formWriteAssertion:
+		title := "Add Assertion"
+		if m.assertEditIdx >= 0 {
+			title = "Edit Assertion"
+		}
+		return title, m.form.View() + "\n" + style.Faint.Render("tab move · space toggle · enter save · esc cancel")
 	case m.section == secModel && m.modelPicking:
 		return "Switch model", m.modelsList.View() + "\n" + style.Faint.Render("↑↓ choose · enter load · esc cancel")
 	}
@@ -380,19 +386,27 @@ func (m Model) assertionsBody() string {
 		return m.spinner.View() + " loading…"
 	}
 	if len(m.assertions) == 0 {
-		return style.Faint.Render("no assertions defined for this model")
+		return style.Faint.Render("no assertions yet — press a to add one")
 	}
-	body := m.assertionsList.View()
-	if m.assertSummary != "" {
-		sumSt := style.Success
-		if parts := strings.SplitN(strings.TrimSuffix(m.assertSummary, " passed"), "/", 2); len(parts) == 2 && parts[0] != parts[1] {
-			sumSt = style.Failure
+	// Key hints live in the status bar like every other panel; here we show only
+	// the pass/fail tally, and only once a run has produced one.
+	if !m.assertHasResults() {
+		return m.assertionsList.View()
+	}
+	pass, fail := 0, 0
+	for _, r := range m.assertResults {
+		if !r.ran {
+			continue
 		}
-		body += "\n" + sumSt.Render(m.assertSummary)
-	} else {
-		body += "\n" + style.Faint.Render("press t to run the test-suite")
+		if r.pass {
+			pass++
+		} else {
+			fail++
+		}
 	}
-	return body
+	tally := style.Success.Render(style.IconCheck+" "+itoa(pass)) + "   " +
+		style.Failure.Render(style.IconCross+" "+itoa(fail))
+	return tally + "\n" + m.assertionsList.View()
 }
 
 // statusKeys returns the right-aligned keycap hints for the current state.
@@ -428,7 +442,7 @@ func (m Model) statusKeys() []string {
 	case secQuery:
 		return []string{"i", "m", "↵", "esc"}
 	case secAssertions:
-		return []string{"↑↓", "t", "r", "esc"}
+		return []string{"↑↓", "↵", "a", "e", "d", "t", "esc"}
 	}
 	return nil
 }

@@ -274,10 +274,82 @@ func TestAssertionsRun(t *testing.T) {
 	m := newTestModel()
 	m, _ = m.Update(key("6"))
 	m, _ = m.Update(assertTestMsg{
-		results: []assertResult{{label: "user:anne viewer document:roadmap", expected: true, got: true, pass: true}},
+		results: []assertResult{{ran: true, label: "user:anne viewer document:roadmap", expected: true, got: true, pass: true}},
 		passed:  1, total: 1,
 	})
 	render(t, m, "assertions results")
+}
+
+func TestAssertionAddFlow(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(key("6"))     // Assertions
+	m, _ = m.Update(key("enter")) // descend
+	m, _ = m.Update(key("a"))     // add form
+	if mod := m.(Model); mod.formKind != formWriteAssertion || mod.assertEditIdx != -1 {
+		t.Fatalf("a should open the add form; got kind=%d idx=%d", mod.formKind, mod.assertEditIdx)
+	}
+	for _, r := range "user:zed" {
+		m, _ = m.Update(key(string(r)))
+	}
+	m, _ = m.Update(key("tab"))
+	for _, r := range "admin" {
+		m, _ = m.Update(key(string(r)))
+	}
+	m, _ = m.Update(key("tab"))
+	for _, r := range "repo:x" {
+		m, _ = m.Update(key(string(r)))
+	}
+	m, _ = m.Update(key("tab")) // Expect toggle (starts Allowed)
+	m, _ = m.Update(key(" "))   // flip to Denied
+	m, cmd := m.Update(key("enter"))
+	if mod := m.(Model); mod.formKind != formNone {
+		t.Fatal("submitting the form should close it")
+	}
+	if cmd == nil {
+		t.Fatal("submitting should trigger the assertion write")
+	}
+}
+
+func TestAssertionEditPrefill(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(key("6"))
+	m, _ = m.Update(key("enter"))
+	m, _ = m.Update(key("e")) // edit the selected (only) assertion
+	mod := m.(Model)
+	if mod.formKind != formWriteAssertion || mod.assertEditIdx != 0 {
+		t.Fatalf("e should open the edit form for idx 0; got kind=%d idx=%d", mod.formKind, mod.assertEditIdx)
+	}
+	got := mod.form.Values()
+	want := []string{"user:anne", "viewer", "document:roadmap", "true"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("prefill[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestAssertionRunOneSetsBadge(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(key("6"))
+	m, _ = m.Update(key("enter"))
+	m, _ = m.Update(assertOneMsg{idx: 0, result: assertResult{ran: true, expected: true, got: false, pass: false}})
+	mod := m.(Model)
+	if len(mod.assertResults) != 1 || !mod.assertResults[0].ran {
+		t.Fatal("assertOneMsg should record the row's result")
+	}
+	if body := stripANSIView(mod.viewString()); !strings.Contains(body, "FAIL") {
+		t.Fatalf("body should show the FAIL badge; got:\n%s", body)
+	}
+}
+
+func TestAssertionDeleteWrites(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(key("6"))
+	m, _ = m.Update(key("enter"))
+	_, cmd := m.Update(key("d")) // delete the selected assertion
+	if cmd == nil {
+		t.Fatal("d should trigger a write with the assertion removed")
+	}
 }
 
 // skipBackgroundMsg filters out the cursor-blink and animation-tick messages

@@ -54,11 +54,25 @@ type assertTestMsg struct {
 	err     error
 }
 
+// assertOneMsg carries the result of running a single assertion by index.
+type assertOneMsg struct {
+	idx    int
+	result assertResult
+	err    error
+}
+
+// assertionsWrittenMsg reports the outcome of replacing a model's assertion set.
+type assertionsWrittenMsg struct {
+	modelID string
+	err     error
+}
+
 type assertResult struct {
-	label    string
+	ran      bool
 	expected bool
 	got      bool
 	pass     bool
+	label    string
 }
 
 type storeCreatedMsg struct {
@@ -204,31 +218,72 @@ func loadAssertionsCmd(ctx context.Context, cl *openfga.Client, storeID, modelID
 	}
 }
 
+// checkAssertion runs a single assertion's Check and scores it against the
+// expectation.
+func checkAssertion(ctx context.Context, cl *openfga.Client, storeID, modelID string, a openfga.Assertion) (assertResult, error) {
+	var ct *openfga.ContextualTupleKeys
+	if len(a.ContextualTuples) > 0 {
+		ct = &openfga.ContextualTupleKeys{TupleKeys: a.ContextualTuples}
+	}
+	cr, _, err := cl.Relationships.Check(ctx, &openfga.CheckRequest{
+		TupleKey: a.TupleKey, ContextualTuples: ct, Context: a.Context,
+	}, openfga.WithStore(storeID), openfga.WithAuthorizationModel(modelID))
+	if err != nil {
+		return assertResult{}, err
+	}
+	return assertResult{
+		ran:      true,
+		label:    a.TupleKey.User + " " + a.TupleKey.Relation + " " + a.TupleKey.Object,
+		expected: a.Expectation, got: cr.Allowed, pass: cr.Allowed == a.Expectation,
+	}, nil
+}
+
 func runAssertionsCmd(ctx context.Context, cl *openfga.Client, storeID, modelID string, assertions []openfga.Assertion) tea.Cmd {
 	return func() tea.Msg {
-		var results []assertResult
+		results := make([]assertResult, len(assertions))
 		passed := 0
-		for _, a := range assertions {
-			var ct *openfga.ContextualTupleKeys
-			if len(a.ContextualTuples) > 0 {
-				ct = &openfga.ContextualTupleKeys{TupleKeys: a.ContextualTuples}
-			}
-			cr, _, err := cl.Relationships.Check(ctx, &openfga.CheckRequest{
-				TupleKey: a.TupleKey, ContextualTuples: ct, Context: a.Context,
-			}, openfga.WithStore(storeID), openfga.WithAuthorizationModel(modelID))
+		for i, a := range assertions {
+			r, err := checkAssertion(ctx, cl, storeID, modelID, a)
 			if err != nil {
 				return assertTestMsg{err: err}
 			}
-			pass := cr.Allowed == a.Expectation
-			if pass {
+			results[i] = r
+			if r.pass {
 				passed++
 			}
-			results = append(results, assertResult{
-				label:    a.TupleKey.User + " " + a.TupleKey.Relation + " " + a.TupleKey.Object,
-				expected: a.Expectation, got: cr.Allowed, pass: pass,
-			})
 		}
 		return assertTestMsg{results: results, passed: passed, total: len(assertions)}
+	}
+}
+
+// runOneAssertionCmd runs a single assertion by index and reports its result.
+func runOneAssertionCmd(ctx context.Context, cl *openfga.Client, storeID, modelID string, idx int, a openfga.Assertion) tea.Cmd {
+	return func() tea.Msg {
+		r, err := checkAssertion(ctx, cl, storeID, modelID, a)
+		if err != nil {
+			return assertOneMsg{idx: idx, err: err}
+		}
+		return assertOneMsg{idx: idx, result: r}
+	}
+}
+
+// writeAssertionsCmd replaces the model's whole assertion set (the OpenFGA API
+// is a full PUT), then the caller reloads to confirm.
+func writeAssertionsCmd(ctx context.Context, cl *openfga.Client, storeID, modelID string, assertions []openfga.Assertion) tea.Cmd {
+	return func() tea.Msg {
+		id := modelID
+		if id == "" {
+			m, _, err := cl.AuthorizationModels.ReadLatest(ctx, openfga.WithStore(storeID))
+			if err != nil {
+				return assertionsWrittenMsg{err: err}
+			}
+			id = m.ID
+		}
+		req := &openfga.WriteAssertionsRequest{Assertions: assertions}
+		if _, err := cl.Assertions.Write(ctx, id, req, openfga.WithStore(storeID)); err != nil {
+			return assertionsWrittenMsg{modelID: id, err: err}
+		}
+		return assertionsWrittenMsg{modelID: id}
 	}
 }
 

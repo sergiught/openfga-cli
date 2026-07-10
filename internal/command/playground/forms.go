@@ -44,3 +44,16 @@ func buildWriteTupleForm(w int) *field.Form {
 	f.SetWidth(w)
 	return f
 }
+
+// buildWriteAssertionForm builds the add/edit-assertion form.
+// Values() = [user, relation, object, expect("true"|"false")].
+func buildWriteAssertionForm(w int) *field.Form {
+	f := field.NewForm(
+		field.New("User", "user:anne"),
+		field.New("Relation", "reader"),
+		field.New("Object", "repo:openfga/openfga"),
+		field.NewToggle("Expect", "Allowed", "Denied", true),
+	)
+	f.SetWidth(w)
+	return f
+}

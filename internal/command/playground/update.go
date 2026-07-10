@@ -7,6 +7,7 @@ import (
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+	"github.com/sergiught/go-openfga/openfga"
 
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/style"
@@ -203,6 +204,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.assertResults = nil
 		m.assertSummary = ""
 		m.populateAssertions()
+		m.resize()
 		m.status = plural(len(msg.assertions), "assertion")
 		if pending.runAssertions && len(m.assertions) > 0 {
 			pending.runAssertions = false
@@ -223,8 +225,39 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.assertResults = msg.results
 		m.assertSummary = strconv.Itoa(msg.passed) + "/" + strconv.Itoa(msg.total) + " passed"
 		m.populateAssertions()
+		m.resize()
 		m.status = m.assertSummary
 		return m, m.toasts.Push(toast.Success, m.status)
+
+	case assertOneMsg:
+		if msg.err != nil {
+			m.connLost = isConnErr(msg.err)
+			m.status = "assertion: " + errStr(msg.err)
+			return m, m.toasts.Push(toast.Error, m.status)
+		}
+		m.connLost = false
+		if len(m.assertResults) != len(m.assertions) {
+			m.assertResults = make([]assertResult, len(m.assertions))
+		}
+		if msg.idx < len(m.assertResults) {
+			m.assertResults[msg.idx] = msg.result
+		}
+		m.populateAssertions()
+		m.resize()
+		m.status = assertResultWord(msg.result)
+		return m, nil
+
+	case assertionsWrittenMsg:
+		if msg.err != nil {
+			m.connLost = isConnErr(msg.err)
+			m.status = "assertions: " + errStr(msg.err)
+			return m, m.toasts.Push(toast.Error, m.status)
+		}
+		m.connLost = false
+		m.status = "assertions saved"
+		// Reload to confirm the write and reset the per-row badges.
+		return m, tea.Batch(m.toasts.Push(toast.Success, m.status),
+			loadAssertionsCmd(m.ctx, m.client, m.storeID, msg.modelID))
 
 	case storeCreatedMsg:
 		if msg.err != nil {
@@ -616,6 +649,37 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 
 	case secAssertions:
 		switch key {
+		case "a":
+			if m.storeID == "" {
+				m.status = "select a store first"
+				return m, nil
+			}
+			m.assertEditIdx = -1
+			return m.enterForm(formWriteAssertion)
+		case "e":
+			if it, ok := m.assertionsList.Selected(); ok && it.Index < len(m.assertions) {
+				m.assertEditIdx = it.Index
+				nm, cmd := m.enterForm(formWriteAssertion)
+				mm := nm.(Model)
+				a := m.assertions[it.Index]
+				mm.form.SetValues([]string{a.TupleKey.User, a.TupleKey.Relation, a.TupleKey.Object, strconv.FormatBool(a.Expectation)})
+				return mm, cmd
+			}
+			return m, nil
+		case "d":
+			if it, ok := m.assertionsList.Selected(); ok && it.Index < len(m.assertions) {
+				list := append([]openfga.Assertion{}, m.assertions...)
+				list = append(list[:it.Index], list[it.Index+1:]...)
+				m.status = "deleting assertion…"
+				return m, writeAssertionsCmd(m.ctx, m.client, m.storeID, m.assertModelID, list)
+			}
+			return m, nil
+		case "enter":
+			if it, ok := m.assertionsList.Selected(); ok && it.Index < len(m.assertions) {
+				m.status = "running assertion…"
+				return m, runOneAssertionCmd(m.ctx, m.client, m.storeID, m.assertModelID, it.Index, m.assertions[it.Index])
+			}
+			return m, nil
 		case "t":
 			if len(m.assertions) == 0 {
 				m.status = "no assertions to run"
@@ -647,6 +711,8 @@ func (m Model) enterForm(kind formKind) (tea.Model, tea.Cmd) {
 		m.form = buildCreateStoreForm(dw)
 	case formWriteTuple:
 		m.form = buildWriteTupleForm(dw)
+	case formWriteAssertion:
+		m.form = buildWriteAssertionForm(dw)
 	}
 	// Emphasize the active field with the theme highlight; others stay plain.
 	m.form.SetHighlight(style.FieldHighlight())
@@ -686,6 +752,24 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.status = "writing " + fga.FormatTuple(key) + "…"
 			return m, writeTupleCmd(m.ctx, m.client, m.storeID, key, false)
+		case formWriteAssertion:
+			key, err := fga.ParseTuple(vals[0], vals[1], vals[2])
+			if err != nil {
+				m.status = err.Error()
+				return m, nil
+			}
+			a := openfga.Assertion{
+				TupleKey:    openfga.CheckRequestTupleKey{User: key.User, Relation: key.Relation, Object: key.Object},
+				Expectation: vals[3] == "true",
+			}
+			list := append([]openfga.Assertion{}, m.assertions...)
+			if m.assertEditIdx >= 0 && m.assertEditIdx < len(list) {
+				list[m.assertEditIdx] = a
+			} else {
+				list = append(list, a)
+			}
+			m.status = "writing assertions…"
+			return m, writeAssertionsCmd(m.ctx, m.client, m.storeID, m.assertModelID, list)
 		}
 	}
 	return m, cmd

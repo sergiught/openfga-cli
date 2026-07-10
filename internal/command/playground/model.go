@@ -46,6 +46,7 @@ const (
 	formNone formKind = iota
 	formCreateStore
 	formWriteTuple
+	formWriteAssertion
 )
 
 var queryModes = []string{"check", "list-objects", "list-users"}
@@ -154,8 +155,9 @@ type Model struct {
 	flash     bool        // true for one frame right after a badge result lands
 
 	// full-panel form takeover
-	formKind formKind
-	form     *field.Form
+	formKind      formKind
+	form          *field.Form
+	assertEditIdx int // index being edited in the assertion form; -1 = adding
 
 	paletteOpen bool
 	paletteList *uilist.List
@@ -265,7 +267,16 @@ func (m *Model) resize() {
 	m.storesList.SetSize(lw, h)
 	m.tuplesList.SetSize(lw, h)
 	m.changesList.SetSize(lw, h)
-	m.assertionsList.SetSize(w, h)
+	// The assertions panel reserves one line for the pass/fail tally, but only
+	// once a run has produced one.
+	ah := h
+	if m.assertHasResults() {
+		ah = h - 1
+	}
+	if ah < 1 {
+		ah = 1
+	}
+	m.assertionsList.SetSize(w, ah)
 	// Dialog-hosted lists (palette, model switcher) must fit the modal's
 	// interior budget, not the full main pane — otherwise the dialog grows
 	// taller than the terminal and its rounded corners clip off-screen.
@@ -354,17 +365,35 @@ func (m *Model) populateAssertions() {
 		}
 		title := a.TupleKey.User + " " + a.TupleKey.Relation + " " + a.TupleKey.Object
 		desc := exp
-		if i < len(m.assertResults) {
+		if i < len(m.assertResults) && m.assertResults[i].ran {
 			r := m.assertResults[i]
 			if r.pass {
-				desc = style.IconCheck + " pass · " + exp
+				desc = style.Success.Render(style.IconCheck+" PASS") + style.Faint.Render(" · "+exp)
 			} else {
-				desc = style.IconCross + " FAIL · got " + boolWord(r.got)
+				desc = style.Failure.Render(style.IconCross+" FAIL") + style.Faint.Render(" · got "+boolWord(r.got))
 			}
 		}
 		items[i] = uilist.Item{TitleText: title, DescText: desc, Filter: title, Index: i}
 	}
 	m.assertionsList.SetItems(items)
+}
+
+// assertHasResults reports whether any assertion has been run (and thus has a
+// badge / tally to show).
+func (m Model) assertHasResults() bool {
+	for _, r := range m.assertResults {
+		if r.ran {
+			return true
+		}
+	}
+	return false
+}
+
+func assertResultWord(r assertResult) string {
+	if r.pass {
+		return "assertion passed"
+	}
+	return "assertion FAILED (got " + boolWord(r.got) + ")"
 }
 
 func (m *Model) populatePalette() {
