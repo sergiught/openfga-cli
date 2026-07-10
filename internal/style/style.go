@@ -185,6 +185,13 @@ func Dot(state DotState) string {
 	return lipgloss.NewStyle().Foreground(c).Render(IconDot)
 }
 
+// FieldHighlight is the background that marks the focused form field's row:
+// the base surface lifted toward the primary accent so the active field reads
+// as "here" without falling back on a neutral gray.
+func FieldHighlight() color.Color {
+	return Blend(BgBase, Primary, 0.2)
+}
+
 // Blend returns the color k of the way (in Lab space) from a to b. k=0 is a,
 // k=1 is b. Falls back to a when either color can't be converted, or under
 // the mono theme (no color blending).

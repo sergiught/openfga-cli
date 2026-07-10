@@ -249,8 +249,10 @@ func (s *Shell) composeTop(body int) string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, s.renderSidebar(body), main)
 }
 
-// renderDialog draws the modal box: a rounded, primary-bordered panel on the
-// raised surface, with the title centered-bold and the body below it.
+// renderDialog draws the modal box: a rounded, primary-bordered panel with the
+// title bold above the body. The interior is flat (base surface) — the active
+// form field carries the only highlight; the drop shadow and dimmed scrim give
+// the modal its depth.
 func (s *Shell) renderDialog() string {
 	dw := s.width / 2
 	if dw < 36 {
@@ -261,9 +263,7 @@ func (s *Shell) renderDialog() string {
 	}
 	title := lipgloss.NewStyle().Bold(true).Foreground(style.Primary).Render(s.dialogTitle)
 	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(style.Primary).BorderBackground(style.BgRaised).
-		Background(style.BgRaised).
+		Border(lipgloss.RoundedBorder()).BorderForeground(style.Primary).
 		Width(dw).Padding(0, 2).
 		Render(title + "\n\n" + s.dialogBody)
 }

@@ -648,9 +648,8 @@ func (m Model) enterForm(kind formKind) (tea.Model, tea.Cmd) {
 	case formWriteTuple:
 		m.form = buildWriteTupleForm(dw)
 	}
-	// The takeover form sits on the raised modal panel; tint its inputs to
-	// match so they don't punch base-colored holes in it.
-	m.form.SetBackground(style.BgRaised)
+	// Emphasize the active field with the theme highlight; others stay plain.
+	m.form.SetHighlight(style.FieldHighlight())
 	return m, m.form.Init()
 }
 

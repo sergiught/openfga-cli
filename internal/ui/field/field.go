@@ -51,38 +51,32 @@ type Form struct {
 	fields    []*Field
 	focus     int
 	completed bool
-	bg        color.Color // surface tint; nil renders transparently (flat pane)
+	width     int         // content width, for the focused row's full-width highlight
+	highlight color.Color // focused-row background; nil disables highlighting
 }
 
 // NewForm builds a form; the first field takes focus on Init.
 func NewForm(fields ...*Field) *Form { return &Form{fields: fields} }
 
-// SetBackground tints every field's chrome (labels, accent bar, input text,
-// placeholder) with bg so the form sits flush on a colored surface — e.g. the
-// raised modal panel — instead of the inputs punching base-colored holes in
-// it. The flat query pane leaves this unset (transparent).
-func (f *Form) SetBackground(bg color.Color) {
-	f.bg = bg
+// SetHighlight sets the background that marks the focused field's row (label +
+// input). Unfocused fields render with no background so only the active field
+// is emphasized. The focused input carries the same background so its row fills
+// cleanly; blurred inputs stay transparent.
+func (f *Form) SetHighlight(c color.Color) {
+	f.highlight = c
 	for _, fl := range f.fields {
 		st := fl.in.Styles()
-		st.Focused.Text = st.Focused.Text.Background(bg)
-		st.Focused.Placeholder = st.Focused.Placeholder.Background(bg)
-		st.Blurred.Text = st.Blurred.Text.Background(bg)
-		st.Blurred.Placeholder = st.Blurred.Placeholder.Background(bg)
+		st.Focused.Text = lipgloss.NewStyle().Foreground(style.Fg).Background(c)
+		st.Focused.Placeholder = lipgloss.NewStyle().Foreground(style.Faintc).Background(c)
+		st.Blurred.Text = lipgloss.NewStyle().Foreground(style.Fg)
+		st.Blurred.Placeholder = lipgloss.NewStyle().Foreground(style.Faintc)
 		fl.in.SetStyles(st)
 	}
 }
 
-// tint applies the form's surface background to s when one is set.
-func (f *Form) tint(s lipgloss.Style) lipgloss.Style {
-	if f.bg == nil {
-		return s
-	}
-	return s.Background(f.bg)
-}
-
 // SetWidth sizes every input to the available content width.
 func (f *Form) SetWidth(w int) {
+	f.width = w
 	iw := w - 3 // accent bar (2 cols) + gap
 	if iw < 1 {
 		iw = 1
@@ -180,24 +174,26 @@ func (f *Form) Reset() {
 	}
 }
 
-// View renders fields stacked: label, accent-barred input, optional error.
+// View renders fields stacked: label, accent-barred input, optional error. The
+// focused field's whole row (label + input) is filled with the highlight; the
+// others render plain so only the active field is emphasized.
 func (f *Form) View() string {
 	var b strings.Builder
 	for i, fl := range f.fields {
 		focused := i == f.focus && !f.completed
-		label := f.tint(lipgloss.NewStyle().Foreground(style.Muted)).Render(fl.label)
-		bar := f.tint(lipgloss.NewStyle()).Render("  ")
-		if focused {
-			label = f.tint(lipgloss.NewStyle().Bold(true).Foreground(style.Primary)).Render(fl.label)
-			bar = f.tint(lipgloss.NewStyle().Foreground(style.Primary)).Render("▐▌")
-		}
 		if i > 0 {
 			b.WriteString("\n")
 		}
-		b.WriteString(label + "\n")
-		b.WriteString(bar + f.tint(lipgloss.NewStyle()).Render(" ") + fl.in.View())
+		if focused && f.highlight != nil {
+			hl := lipgloss.NewStyle().Background(f.highlight)
+			label := hl.Bold(true).Foreground(style.Primary).Width(f.width).Render(fl.label)
+			b.WriteString(label + "\n" + hl.Width(f.width).Render(fl.in.View()))
+		} else {
+			label := lipgloss.NewStyle().Foreground(style.Muted).Render(fl.label)
+			b.WriteString(label + "\n" + fl.in.View())
+		}
 		if fl.err != "" {
-			b.WriteString("\n" + f.tint(lipgloss.NewStyle().Foreground(style.Red)).Render("  "+fl.err))
+			b.WriteString("\n" + lipgloss.NewStyle().Foreground(style.Red).Render("  "+fl.err))
 		}
 		b.WriteString("\n")
 	}

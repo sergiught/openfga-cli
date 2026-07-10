@@ -384,6 +384,7 @@ func (m *Model) rebuildQueryForm() {
 		w = 1
 	}
 	m.qform = buildQueryForm(queryModes[m.qmode], w)
+	m.qform.SetHighlight(style.FieldHighlight())
 	m.qform.Init()
 }
 

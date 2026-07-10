@@ -22,21 +22,29 @@ func key(s string) tea.KeyPressMsg {
 	}
 }
 
-func TestSetBackgroundTintsChrome(t *testing.T) {
+func TestSetHighlightMarksFocusedRowOnly(t *testing.T) {
 	const bgSGR = "48;2;18;52;86" // #123456
-	f := NewForm(New("User", "user:anne"))
+	f := NewForm(New("Alpha", "aa"), New("Beta", "bb"))
 	f.SetWidth(40)
-	f.SetBackground(lipgloss.Color("#123456"))
-	f.Init()
-	if !strings.Contains(f.View(), bgSGR) {
-		t.Fatal("SetBackground should tint the form chrome to fill a colored surface")
+	f.SetHighlight(lipgloss.Color("#123456"))
+	f.Init() // focuses "Alpha"
+	var focusedHL, unfocusedHL bool
+	for _, ln := range strings.Split(f.View(), "\n") {
+		plain := ansi.Strip(ln)
+		if strings.Contains(ln, bgSGR) {
+			if strings.Contains(plain, "Alpha") {
+				focusedHL = true
+			}
+			if strings.Contains(plain, "Beta") {
+				unfocusedHL = true
+			}
+		}
 	}
-	// Without a background the form stays transparent (the flat query pane).
-	g := NewForm(New("User", "user:anne"))
-	g.SetWidth(40)
-	g.Init()
-	if strings.Contains(g.View(), bgSGR) {
-		t.Fatal("a form without SetBackground must not paint a background")
+	if !focusedHL {
+		t.Fatal("the focused field's row must carry the highlight")
+	}
+	if unfocusedHL {
+		t.Fatal("unfocused fields must not carry any highlight")
 	}
 }
 
@@ -86,19 +94,20 @@ func TestSetValuesFillsFields(t *testing.T) {
 	}
 }
 
-func TestFocusedFieldHasDoubleWidthBar(t *testing.T) {
+func TestFocusedInputStartsAtCursor(t *testing.T) {
 	f := NewForm(New("User", "user:anne"), New("Relation", "viewer"))
 	f.SetWidth(40)
+	f.SetHighlight(lipgloss.Color("#123456"))
 	f.Init()
 	lines := strings.Split(ansi.Strip(f.View()), "\n")
-	if !strings.HasPrefix(lines[1], "▐▌") {
-		t.Fatalf("focused field input line = %q, want prefix ▐▌", lines[1])
+	if strings.Contains(lines[1], "▐▌") {
+		t.Fatalf("focused input line should have no accent bar, got %q", lines[1])
 	}
 	for _, k := range []string{"a", "tab", "b", "enter"} {
 		f.Update(key(k))
 	}
 	if !f.Completed() {
-		t.Fatal("form should still complete with the double-width bar")
+		t.Fatal("form should still complete")
 	}
 }
 
