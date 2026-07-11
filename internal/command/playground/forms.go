@@ -35,8 +35,8 @@ func buildQueryForm(mode string, w int, showContext bool) *field.Form {
 	}
 	if showContext {
 		fields = append(fields,
-			field.New("Context (JSON)", "optional ABAC context"),
-			field.New("Contextual tuples", "optional: user rel obj; …"),
+			field.New("Context (JSON)", `{"current_time":"2023-01-01T00:00:00Z"}`),
+			field.New("Contextual tuples", "user:anne member team:eng; user:bob viewer doc:1"),
 		)
 	}
 	f := field.NewForm(fields...)
@@ -59,7 +59,7 @@ func buildWriteTupleForm(w int) *field.Form {
 		field.New("User", "user:anne"),
 		field.New("Relation", "viewer"),
 		field.New("Object", "document:roadmap"),
-		field.New("Condition", "optional"),
+		field.New("Condition", "non_expired_grant"),
 		field.New("Condition context (JSON)", `{"grant_duration":"10m"}`),
 	)
 	f.SetWidth(w)
@@ -75,8 +75,8 @@ func buildWriteAssertionForm(w int) *field.Form {
 		field.New("Relation", "reader"),
 		field.New("Object", "repo:openfga/openfga"),
 		field.NewToggle("Expect", "Allowed", "Denied", true),
-		field.New("Contextual tuples", "user:anne member team:eng; …"),
-		field.New("Context (JSON)", `{"current_time":"…"}`),
+		field.New("Contextual tuples", "user:anne member team:eng; user:bob viewer doc:1"),
+		field.New("Context (JSON)", `{"current_time":"2023-01-01T00:00:00Z"}`),
 	)
 	f.SetWidth(w)
 	return f
