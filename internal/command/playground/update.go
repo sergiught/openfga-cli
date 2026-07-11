@@ -1000,10 +1000,9 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) handleQueryForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
-		// One esc leaves the panel entirely: stop editing and hand focus back to
-		// the tab selection, rather than parking in a non-editing panel layer.
+		// First esc drops to the (non-editing) panel layer, where r / history
+		// digits / resolution live; a second esc returns to the tab selection.
 		m.editing = false
-		m.focus = shell.FocusSidebar
 		return m, nil
 	case "tab":
 		// tab keeps shifting modes even mid-edit, landing in the new mode's
@@ -1033,7 +1032,6 @@ func (m Model) advanceQueryForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	if m.qform.Completed() {
-		m.editing = false
 		vals := m.qform.Values()
 		a := strings.TrimSpace(vals[0])
 		b := strings.TrimSpace(vals[1])
@@ -1043,6 +1041,8 @@ func (m Model) advanceQueryForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.qShowContext && len(vals) >= 6 {
 			qctx, cerr = parseQueryCtx(vals[4], vals[5])
 		}
+		// Stay in editing with a fresh, focused form so the next query can be
+		// typed immediately (esc drops to the panel for r / history / resolution).
 		m.rebuildQueryForm()
 		if cerr != nil {
 			m.status = cerr.Error()

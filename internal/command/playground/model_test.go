@@ -181,13 +181,17 @@ func TestEscFromQueryEditReturnsToSidebar(t *testing.T) {
 	if !m.(Model).editing {
 		t.Fatal("descending into the panel should start editing")
 	}
-	m, _ = m.Update(key("esc")) // one esc: exit editing AND return to the sidebar
+	m, _ = m.Update(key("esc")) // first esc: exit editing, stay in the panel layer
 	mod := m.(Model)
 	if mod.editing {
 		t.Fatal("esc should exit editing")
 	}
-	if mod.focus != shell.FocusSidebar {
-		t.Fatal("a single esc should return all the way to sidebar focus")
+	if mod.focus != shell.FocusPanel {
+		t.Fatal("first esc should drop to the non-editing panel layer (for r / history / resolution)")
+	}
+	m, _ = m.Update(key("esc")) // second esc: back to the sidebar
+	if m.(Model).focus != shell.FocusSidebar {
+		t.Fatal("second esc should return to sidebar focus")
 	}
 }
 
@@ -470,8 +474,8 @@ func TestQueryFormEnterNavigationRunsCheck(t *testing.T) {
 	m = pump(t, m, key("enter")) // submit from the last field
 
 	mod := m.(Model)
-	if mod.editing {
-		t.Error("form should have completed and left editing mode")
+	if !mod.editing {
+		t.Error("after running a query the form should stay in editing mode for immediate re-typing")
 	}
 	if got.user != "user:anne" || got.relation != "viewer" || got.object != "document:roadmap" {
 		t.Errorf("check received user=%q relation=%q object=%q — field navigation lost values",
@@ -668,7 +672,11 @@ func TestDigitKeyRerunsHistoryEntry(t *testing.T) {
 		t.Fatalf("server hits after first run = %d, want 1", hits)
 	}
 
-	m2 := pump(t, mod, key("1")) // rerun history[0]
+	// A query leaves editing on for immediate re-typing; esc drops to the panel
+	// layer where the history digits work.
+	var mq tea.Model = mod
+	mq, _ = mq.Update(key("esc"))
+	m2 := pump(t, mq.(Model), key("1")) // rerun history[0]
 	mod2 := m2.(Model)
 	if hits != 2 {
 		t.Errorf("server hits after digit rerun = %d, want 2 (digit should have rerun the check)", hits)
