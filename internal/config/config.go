@@ -26,12 +26,51 @@ const (
 // ErrNoProfile is returned when a requested profile does not exist.
 var ErrNoProfile = errors.New("profile not found")
 
+// Auth method names for Auth.Method.
+const (
+	AuthNone              = "none"
+	AuthAPIToken          = "api_token"
+	AuthClientCredentials = "client_credentials"
+	AuthPrivateKeyJWT     = "private_key_jwt"
+)
+
+// Auth holds a profile's authentication configuration. Which fields apply
+// depends on Method; unused ones stay empty.
+type Auth struct {
+	Method string `toml:"method,omitempty"` // none | api_token | client_credentials | private_key_jwt
+
+	Token string `toml:"token,omitempty"` // api_token
+
+	// client_credentials and private_key_jwt share the OAuth2 grant shape.
+	ClientID     string   `toml:"client_id,omitempty"`
+	ClientSecret string   `toml:"client_secret,omitempty"` // client_credentials
+	TokenURL     string   `toml:"token_url,omitempty"`
+	Audience     string   `toml:"audience,omitempty"`
+	Scopes       []string `toml:"scopes,omitempty"`
+
+	// private_key_jwt.
+	APIAudience   string `toml:"api_audience,omitempty"` // audience requested in the grant
+	KeyFile       string `toml:"key_file,omitempty"`     // path to the PEM signing key
+	SigningMethod string `toml:"signing_method,omitempty"`
+	KeyID         string `toml:"key_id,omitempty"`
+}
+
 // Profile is a single named connection context.
 type Profile struct {
 	APIURL   string `toml:"api_url"`
 	StoreID  string `toml:"store_id,omitempty"`
 	ModelID  string `toml:"model_id,omitempty"`
-	APIToken string `toml:"api_token,omitempty"`
+	APIToken string `toml:"api_token,omitempty"` // legacy pre-shared token; see resolveAuth
+	Auth     Auth   `toml:"auth,omitempty"`
+}
+
+// ResolvedAuth returns the profile's effective auth, folding the legacy
+// top-level api_token into an api_token method when no explicit method is set.
+func (p Profile) ResolvedAuth() Auth {
+	if p.Auth.Method == "" && p.APIToken != "" {
+		return Auth{Method: AuthAPIToken, Token: p.APIToken}
+	}
+	return p.Auth
 }
 
 // Config is the on-disk configuration document.
@@ -41,17 +80,27 @@ type Config struct {
 	Icons    string             `toml:"icons,omitempty"`
 	Profiles map[string]Profile `toml:"profiles"`
 
-	path string // resolved file path; not serialized
+	path    string // resolved file path; not serialized
+	existed bool   // whether the config was read from an existing file
 }
 
 // Resolved is the fully merged, ready-to-use connection configuration after
 // applying profile values, environment variables and flag overrides.
 type Resolved struct {
-	Profile  string
-	APIURL   string
-	StoreID  string
-	ModelID  string
-	APIToken string
+	Profile string
+	APIURL  string
+	StoreID string
+	ModelID string
+	Auth    Auth
+}
+
+// APIToken returns the pre-shared token when the resolved auth uses one, for
+// callers that only care about the legacy token (e.g. masked display).
+func (r Resolved) APIToken() string {
+	if r.Auth.Method == AuthAPIToken {
+		return r.Auth.Token
+	}
+	return ""
 }
 
 // New returns an empty Config seeded with a sensible default profile.
@@ -66,6 +115,11 @@ func New() *Config {
 
 // Path returns the resolved configuration file path.
 func (c *Config) Path() string { return c.path }
+
+// Existed reports whether the config was read from an existing file on disk,
+// as opposed to a freshly-minted in-memory default. Callers use this to write
+// out a starter config on first run.
+func (c *Config) Existed() bool { return c.existed }
 
 // IconsMode returns the configured glyph capability rung, giving precedence
 // to the OPENFGA_ICONS environment variable over the on-disk value.
@@ -110,6 +164,7 @@ func Load() (*Config, error) {
 	if err := toml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse config %s: %w", path, err)
 	}
+	cfg.existed = true
 	if cfg.Profiles == nil {
 		cfg.Profiles = map[string]Profile{}
 	}
@@ -215,11 +270,11 @@ func (c *Config) Resolve(o Overrides) (Resolved, error) {
 	}
 
 	r := Resolved{
-		Profile:  name,
-		APIURL:   p.APIURL,
-		StoreID:  p.StoreID,
-		ModelID:  p.ModelID,
-		APIToken: p.APIToken,
+		Profile: name,
+		APIURL:  p.APIURL,
+		StoreID: p.StoreID,
+		ModelID: p.ModelID,
+		Auth:    p.ResolvedAuth(),
 	}
 
 	// Environment overrides.
@@ -235,8 +290,9 @@ func (c *Config) Resolve(o Overrides) (Resolved, error) {
 	if v := os.Getenv("OPENFGA_AUTHORIZATION_MODEL_ID"); v != "" {
 		r.ModelID = v
 	}
+	// A token from the environment or a flag forces the api_token method.
 	if v := os.Getenv("OPENFGA_API_TOKEN"); v != "" {
-		r.APIToken = v
+		r.Auth = Auth{Method: AuthAPIToken, Token: v}
 	}
 
 	// Flag overrides (highest precedence).
@@ -250,7 +306,7 @@ func (c *Config) Resolve(o Overrides) (Resolved, error) {
 		r.ModelID = o.ModelID
 	}
 	if o.APIToken != "" {
-		r.APIToken = o.APIToken
+		r.Auth = Auth{Method: AuthAPIToken, Token: o.APIToken}
 	}
 
 	if r.APIURL == "" {

@@ -1,6 +1,6 @@
-// Package contextcmd implements `ofga context`: manage named connection
-// profiles (contexts) — list, switch, inspect, create, edit and remove them.
-package contextcmd
+// Package profiles implements `ofga profiles`: manage named connection
+// profiles — list, switch, inspect, create, edit and remove them.
+package profiles
 
 import (
 	"fmt"
@@ -25,10 +25,9 @@ type Command struct {
 func New(a *app.App) *Command {
 	c := &Command{app: a}
 	c.cmd = &cobra.Command{
-		Use:     "context",
-		Aliases: []string{"ctx", "config"},
-		Short:   "Manage connection profiles (contexts)",
-		Long:    "Manage named connection profiles. Each profile stores an API URL, optional store and authorization-model IDs, and an optional API token.",
+		Use:   "profiles",
+		Short: "Manage connection profiles",
+		Long:  "Manage named connection profiles. Each profile stores an API URL, optional store and authorization-model IDs, and an optional API token.",
 	}
 	c.RegisterSubCommands()
 	return c
@@ -112,10 +111,10 @@ func (c *Command) listCmd() *cobra.Command {
 				if name == cfg.Active {
 					active = style.Success.Render("●")
 				}
-				rows = append(rows, []string{active, name, p.APIURL, orDash(p.StoreID), orDash(p.ModelID), tokenState(p.APIToken)})
+				rows = append(rows, []string{active, name, p.APIURL, orDash(p.StoreID), orDash(p.ModelID), authMethod(p)})
 			}
 			output.Table(cmd.OutOrStdout(),
-				[]string{"", "PROFILE", "API URL", "STORE", "MODEL", "TOKEN"}, rows)
+				[]string{"", "PROFILE", "API URL", "STORE", "MODEL", "AUTH"}, rows)
 			return nil
 		},
 	}
@@ -151,13 +150,13 @@ func (c *Command) showCmd() *cobra.Command {
 				if c.app.JSON {
 					return output.JSON(cmd.OutOrStdout(), p)
 				}
-				output.KeyValues(cmd.OutOrStdout(), [][2]string{
+				rows := [][2]string{
 					{"profile", args[0]},
 					{"api_url", p.APIURL},
 					{"store_id", orDash(p.StoreID)},
 					{"model_id", orDash(p.ModelID)},
-					{"api_token", tokenState(p.APIToken)},
-				})
+				}
+				output.KeyValues(cmd.OutOrStdout(), append(rows, authRows(p.ResolvedAuth())...))
 				return nil
 			}
 			r, err := c.app.Resolve()
@@ -170,16 +169,17 @@ func (c *Command) showCmd() *cobra.Command {
 					"api_url":   r.APIURL,
 					"store_id":  r.StoreID,
 					"model_id":  r.ModelID,
-					"api_token": tokenState(r.APIToken),
+					"auth":      authName(r.Auth),
+					"api_token": tokenState(r.APIToken()),
 				})
 			}
-			output.KeyValues(cmd.OutOrStdout(), [][2]string{
+			rows := [][2]string{
 				{"profile (active)", r.Profile},
 				{"api_url", r.APIURL},
 				{"store_id", orDash(r.StoreID)},
 				{"model_id", orDash(r.ModelID)},
-				{"api_token", tokenState(r.APIToken)},
-			})
+			}
+			output.KeyValues(cmd.OutOrStdout(), append(rows, authRows(r.Auth)...))
 			return nil
 		},
 	}
@@ -207,8 +207,12 @@ func (c *Command) setCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "set <key> <value>",
 		Short: "Set a field on a profile",
-		Long:  "Set a field on the active profile (or --profile). Valid keys: api_url, store_id, model_id, api_token.",
-		Args:  cobra.ExactArgs(2),
+		Long: "Set a field on the active profile (or --profile).\n\n" +
+			"Connection: api_url, store_id, model_id.\n" +
+			"Auth: auth_method (none|api_token|client_credentials|private_key_jwt), token,\n" +
+			"client_id, client_secret, token_url, audience, api_audience, key_file,\n" +
+			"signing_method, key_id, scopes (space-separated).",
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := c.app.Config.Active
 			if c.app.Overrides.Profile != "" {
@@ -226,10 +230,30 @@ func (c *Command) setCmd() *cobra.Command {
 				p.StoreID = val
 			case "model_id", "model":
 				p.ModelID = val
+			case "auth_method", "auth":
+				p.Auth.Method, p.APIToken = val, ""
 			case "api_token", "token":
-				p.APIToken = val
+				p.Auth.Method, p.Auth.Token, p.APIToken = config.AuthAPIToken, val, ""
+			case "client_id":
+				p.Auth.ClientID = val
+			case "client_secret":
+				p.Auth.ClientSecret = val
+			case "token_url":
+				p.Auth.TokenURL = val
+			case "audience":
+				p.Auth.Audience = val
+			case "api_audience":
+				p.Auth.APIAudience = val
+			case "key_file":
+				p.Auth.KeyFile = val
+			case "signing_method":
+				p.Auth.SigningMethod = val
+			case "key_id":
+				p.Auth.KeyID = val
+			case "scopes":
+				p.Auth.Scopes = strings.Fields(val)
 			default:
-				return fmt.Errorf("unknown key %q (valid: api_url, store_id, model_id, api_token)", args[0])
+				return fmt.Errorf("unknown key %q (see `ofga profiles set --help`)", args[0])
 			}
 			c.app.Config.Set(name, p)
 			if err := c.app.SaveConfig(); err != nil {
@@ -310,6 +334,54 @@ func orDash(s string) string {
 		return "—"
 	}
 	return s
+}
+
+// authName returns a profile auth method label, defaulting to "none".
+func authName(a config.Auth) string {
+	if a.Method == "" {
+		return config.AuthNone
+	}
+	return a.Method
+}
+
+// authMethod returns a profile's effective auth method label (folding the
+// legacy top-level token into api_token).
+func authMethod(p config.Profile) string { return authName(p.ResolvedAuth()) }
+
+// authRows renders an auth config as key/value rows for `profiles show`, with
+// secrets masked.
+func authRows(a config.Auth) [][2]string {
+	rows := [][2]string{{"auth", authName(a)}}
+	switch a.Method {
+	case config.AuthAPIToken:
+		rows = append(rows, [2]string{"token", tokenState(a.Token)})
+	case config.AuthClientCredentials:
+		rows = append(rows,
+			[2]string{"client_id", orDash(a.ClientID)},
+			[2]string{"client_secret", tokenState(a.ClientSecret)},
+			[2]string{"token_url", orDash(a.TokenURL)},
+			[2]string{"audience", orDash(a.Audience)},
+		)
+		if len(a.Scopes) > 0 {
+			rows = append(rows, [2]string{"scopes", strings.Join(a.Scopes, " ")})
+		}
+	case config.AuthPrivateKeyJWT:
+		rows = append(rows,
+			[2]string{"client_id", orDash(a.ClientID)},
+			[2]string{"token_url", orDash(a.TokenURL)},
+			[2]string{"audience", orDash(a.Audience)},
+			[2]string{"api_audience", orDash(a.APIAudience)},
+			[2]string{"key_file", orDash(a.KeyFile)},
+			[2]string{"signing_method", orDash(a.SigningMethod)},
+		)
+		if a.KeyID != "" {
+			rows = append(rows, [2]string{"key_id", a.KeyID})
+		}
+		if len(a.Scopes) > 0 {
+			rows = append(rows, [2]string{"scopes", strings.Join(a.Scopes, " ")})
+		}
+	}
+	return rows
 }
 
 func tokenState(tok string) string {

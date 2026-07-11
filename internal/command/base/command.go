@@ -11,9 +11,9 @@ import (
 
 	"github.com/sergiught/openfga-cli/internal/app"
 	"github.com/sergiught/openfga-cli/internal/command/assertions"
-	contextcmd "github.com/sergiught/openfga-cli/internal/command/contextcmd"
 	"github.com/sergiught/openfga-cli/internal/command/model"
 	"github.com/sergiught/openfga-cli/internal/command/playground"
+	"github.com/sergiught/openfga-cli/internal/command/profiles"
 	"github.com/sergiught/openfga-cli/internal/command/query"
 	"github.com/sergiught/openfga-cli/internal/command/store"
 	"github.com/sergiught/openfga-cli/internal/command/tuple"
@@ -133,7 +133,7 @@ func (c *Command) ErrWriter() *colorprofile.Writer { return c.errW }
 // RegisterSubCommands adds all top-level commands.
 func (c *Command) RegisterSubCommands() {
 	c.cmd.AddCommand(
-		contextcmd.New(c.app).Command(),
+		profiles.New(c.app).Command(),
 		store.New(c.app).Command(),
 		model.New(c.app).Command(),
 		tuple.New(c.app).Command(),
