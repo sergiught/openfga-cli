@@ -251,6 +251,7 @@ func (m Model) Init() tea.Cmd {
 			m.startModelCmd(),
 			loadTuplesCmd(m.ctx, m.client, m.storeID),
 			loadChangesCmd(m.ctx, m.client, m.storeID),
+			loadAssertionsCmd(m.ctx, m.client, m.storeID, m.modelID),
 		)
 	}
 	return tea.Batch(cmds...)
@@ -563,6 +564,7 @@ func (m *Model) selectStore(s openfga.Store) tea.Cmd {
 		loadModelCmd(m.ctx, m.client, m.storeID),
 		loadTuplesCmd(m.ctx, m.client, m.storeID),
 		loadChangesCmd(m.ctx, m.client, m.storeID),
+		loadAssertionsCmd(m.ctx, m.client, m.storeID, m.modelID),
 	)
 }
 
@@ -675,6 +677,7 @@ func (m *Model) reloadActive(status string) tea.Cmd {
 			m.startModelCmd(),
 			loadTuplesCmd(m.ctx, m.client, m.storeID),
 			loadChangesCmd(m.ctx, m.client, m.storeID),
+			loadAssertionsCmd(m.ctx, m.client, m.storeID, m.modelID),
 		)
 	}
 	return tea.Batch(cmds...)

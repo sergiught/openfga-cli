@@ -142,9 +142,9 @@ func (m Model) sidebarNav() []shell.NavItem {
 				it.Badge = itoa(len(m.changes))
 			}
 		case secAssertions:
-			if len(m.assertions) > 0 {
-				it.Badge = itoa(len(m.assertions))
-			}
+			// Always shown (including 0) — assertions are loaded up front, so 0
+			// genuinely means none rather than "not loaded yet".
+			it.Badge = itoa(len(m.assertions))
 		}
 		items[i] = it
 	}
