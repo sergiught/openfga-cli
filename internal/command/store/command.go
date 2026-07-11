@@ -1,4 +1,4 @@
-// Package store implements `ofga store`: create, list, inspect and delete
+// Package store implements `ofga stores`: create, list, inspect and delete
 // OpenFGA stores.
 package store
 
@@ -23,9 +23,8 @@ type Command struct {
 func New(a *app.App) *Command {
 	c := &Command{app: a}
 	c.cmd = &cobra.Command{
-		Use:     "store",
-		Aliases: []string{"stores"},
-		Short:   "Create, list, inspect and delete stores",
+		Use:   "stores",
+		Short: "Create, list, inspect and delete stores",
 	}
 	c.RegisterSubCommands()
 	return c

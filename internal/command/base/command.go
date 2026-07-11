@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/openfga-cli/internal/app"
+	"github.com/sergiught/openfga-cli/internal/command/api"
 	"github.com/sergiught/openfga-cli/internal/command/assertions"
 	"github.com/sergiught/openfga-cli/internal/command/model"
 	"github.com/sergiught/openfga-cli/internal/command/playground"
@@ -39,7 +40,7 @@ func New(a *app.App) *Command {
 		Short: "A modern CLI & TUI for OpenFGA",
 		Long:  banner(a.Version),
 		Example: `  ofga                       launch the interactive TUI
-  ofga store list            list stores
+  ofga stores list           list stores
   ofga query check user:anne viewer document:roadmap
   ofga model graph           visualize the latest model`,
 		SilenceUsage:  true,
@@ -76,10 +77,8 @@ func New(a *app.App) *Command {
 
 	pf := c.cmd.PersistentFlags()
 	pf.StringVarP(&a.Overrides.Profile, "profile", "p", "", "configuration profile to use")
-	pf.StringVar(&a.Overrides.APIURL, "api-url", "", "OpenFGA API URL (overrides profile/env)")
 	pf.StringVar(&a.Overrides.StoreID, "store", "", "store ID (overrides profile/env)")
 	pf.StringVar(&a.Overrides.ModelID, "model", "", "authorization model ID (overrides profile/env)")
-	pf.StringVar(&a.Overrides.APIToken, "token", "", "API bearer token (use OPENFGA_API_TOKEN to avoid leaking via ps)")
 	pf.BoolVar(&a.JSON, "json", false, "output machine-readable JSON")
 	pf.BoolVar(&a.Plain, "plain", false, "output unstyled, tab-separated rows (grep/awk friendly)")
 	pf.BoolVarP(&a.Quiet, "quiet", "q", false, "suppress incidental output")
@@ -139,6 +138,7 @@ func (c *Command) RegisterSubCommands() {
 		tuple.New(c.app).Command(),
 		query.New(c.app).Command(),
 		assertions.New(c.app).Command(),
+		api.New(c.app).Command(),
 	)
 }
 

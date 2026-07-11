@@ -1,4 +1,4 @@
-// Package tuple implements `ofga tuple`: write, delete, read relationship
+// Package tuple implements `ofga tuples`: write, delete, read relationship
 // tuples and follow the changelog.
 package tuple
 
@@ -24,9 +24,8 @@ type Command struct {
 func New(a *app.App) *Command {
 	c := &Command{app: a}
 	c.cmd = &cobra.Command{
-		Use:     "tuple",
-		Aliases: []string{"tuples"},
-		Short:   "Write, delete and read relationship tuples",
+		Use:   "tuples",
+		Short: "Write, delete and read relationship tuples",
 	}
 	c.RegisterSubCommands()
 	return c
@@ -50,7 +49,7 @@ func (c *Command) writeCmd() *cobra.Command {
 		Use:     "write <user> <relation> <object>",
 		Aliases: []string{"add"},
 		Short:   "Write a relationship tuple",
-		Example: "  ofga tuple write user:anne viewer document:roadmap",
+		Example: "  ofga tuples write user:anne viewer document:roadmap",
 		Args:    cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key, err := fga.ParseTuple(args[0], args[1], args[2])
@@ -76,7 +75,7 @@ func (c *Command) deleteCmd() *cobra.Command {
 		Use:     "delete <user> <relation> <object>",
 		Aliases: []string{"rm"},
 		Short:   "Delete a relationship tuple",
-		Example: "  ofga tuple delete user:anne viewer document:roadmap",
+		Example: "  ofga tuples delete user:anne viewer document:roadmap",
 		Args:    cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key, err := fga.ParseTuple(args[0], args[1], args[2])

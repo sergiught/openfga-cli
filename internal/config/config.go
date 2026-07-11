@@ -250,11 +250,9 @@ func (c *Config) Use(name string) error {
 // Overrides carries flag-supplied values that take precedence over everything.
 // An empty string means "not set".
 type Overrides struct {
-	Profile  string
-	APIURL   string
-	StoreID  string
-	ModelID  string
-	APIToken string
+	Profile string
+	StoreID string
+	ModelID string
 }
 
 // Resolve merges, in increasing order of precedence: profile values, OPENFGA_*
@@ -295,18 +293,13 @@ func (c *Config) Resolve(o Overrides) (Resolved, error) {
 		r.Auth = Auth{Method: AuthAPIToken, Token: v}
 	}
 
-	// Flag overrides (highest precedence).
-	if o.APIURL != "" {
-		r.APIURL = o.APIURL
-	}
+	// Flag overrides (highest precedence). API URL and auth come from the
+	// active profile (and OPENFGA_* env vars); switch profiles to change them.
 	if o.StoreID != "" {
 		r.StoreID = o.StoreID
 	}
 	if o.ModelID != "" {
 		r.ModelID = o.ModelID
-	}
-	if o.APIToken != "" {
-		r.Auth = Auth{Method: AuthAPIToken, Token: o.APIToken}
 	}
 
 	if r.APIURL == "" {
