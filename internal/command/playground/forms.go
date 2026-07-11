@@ -19,8 +19,6 @@ func queryLabels(mode string) (labels [3]string, placeholders [3]string) {
 	}
 }
 
-// buildQueryForm builds a 3-input query form for the given mode. Read values
-// in order via Form.Values(): [a, b, c].
 // buildQueryForm builds the query form. The ABAC context + contextual-tuples
 // fields are hidden behind a toggle so the common query stays three fields;
 // flipping the toggle reveals them (see advanceQueryForm's rebuild).
@@ -31,12 +29,12 @@ func buildQueryForm(mode string, w int, showContext bool) *field.Form {
 		field.New(labels[0], ph[0]),
 		field.New(labels[1], ph[1]),
 		field.New(labels[2], ph[2]),
-		field.NewToggle("Context + contextual tuples", "on", "off", showContext),
+		field.NewToggle("Context + Contextual Tuples", "on", "off", showContext),
 	}
 	if showContext {
 		fields = append(fields,
 			field.New("Context (JSON)", `{"current_time":"2023-01-01T00:00:00Z"}`),
-			field.New("Contextual tuples", "user:anne member team:eng; user:bob viewer doc:1"),
+			field.New("Contextual Tuples", "user:anne member team:eng; user:bob viewer doc:1"),
 		)
 	}
 	f := field.NewForm(fields...)
@@ -67,7 +65,6 @@ func buildWriteTupleForm(w int) *field.Form {
 }
 
 // buildWriteAssertionForm builds the add/edit-assertion form.
-// Values() = [user, relation, object, expect("true"|"false")].
 // Values() = [user, relation, object, expect, contextual_tuples, context_json].
 func buildWriteAssertionForm(w int) *field.Form {
 	f := field.NewForm(
@@ -75,7 +72,7 @@ func buildWriteAssertionForm(w int) *field.Form {
 		field.New("Relation", "reader"),
 		field.New("Object", "repo:openfga/openfga"),
 		field.NewToggle("Expect", "Allowed", "Denied", true),
-		field.New("Contextual tuples", "user:anne member team:eng; user:bob viewer doc:1"),
+		field.New("Contextual Tuples", "user:anne member team:eng; user:bob viewer doc:1"),
 		field.New("Context (JSON)", `{"current_time":"2023-01-01T00:00:00Z"}`),
 	)
 	f.SetWidth(w)

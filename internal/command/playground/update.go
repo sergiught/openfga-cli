@@ -289,10 +289,10 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resTree = nil
 		if msg.err != nil {
 			m.connLost = isConnErr(msg.err)
-			// The panel body shows the full error; keep the footer status clear
-			// of it and surface the detail once, transiently, as a toast.
+			// The panel body shows the full error persistently (until the next
+			// query); no transient toast, so every query error looks the same.
 			m.status = "query failed"
-			return m, m.toasts.Push(toast.Error, "query: "+errStr(msg.err))
+			return m, nil
 		}
 		m.connLost = false
 		m.status = "query complete"
@@ -1045,11 +1045,11 @@ func (m Model) advanceQueryForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// typed immediately (esc drops to the panel for r / history / resolution).
 		m.rebuildQueryForm()
 		if cerr != nil {
-			m.status = cerr.Error()
-			return m, m.toasts.Push(toast.Error, cerr.Error())
+			m.setQueryError(cerr.Error())
+			return m, nil
 		}
 		if a == "" || b == "" || c == "" {
-			m.status = "user, relation and object are required"
+			m.setQueryError("user, relation and object are required")
 			return m, nil
 		}
 		m.loading = true

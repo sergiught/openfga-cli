@@ -506,6 +506,19 @@ func (m *Model) cycleQueryMode(dir int) {
 	m.hasResult = false
 }
 
+// setQueryError shows msg as the persistent query error in the panel body
+// (red), cleared only by the next query. Every query error — an API failure,
+// bad context / contextual tuples, or missing fields — is surfaced this way
+// (not as a transient toast) so error presentation is consistent.
+func (m *Model) setQueryError(msg string) {
+	m.result = queryResultMsg{err: errors.New(msg)}
+	m.hasResult = true
+	m.loading = false
+	m.showRes = false
+	m.resTree = nil
+	m.status = "query failed"
+}
+
 // enterQueryEdit focuses the query form so the first field captures typing,
 // guarding on a selected store. It returns the field's cursor-blink command
 // (nil when there is no store yet).
