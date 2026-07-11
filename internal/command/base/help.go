@@ -2,6 +2,7 @@ package base
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 
 	lipgloss "charm.land/lipgloss/v2"
@@ -11,20 +12,10 @@ import (
 	"github.com/sergiught/openfga-cli/internal/style"
 )
 
-// shellLine renders a runnable command as a raised terminal block with a `$`
-// prompt, signalling it is meant to be run in a shell.
-func shellLine(s string) string {
-	return lipgloss.NewStyle().
-		Foreground(style.Fg).
-		Background(style.BgRaised).
-		Padding(0, 1).
-		Render("$ " + s)
-}
-
-// helpFunc renders styled --help output in the active theme: chip section
-// headers, indented content, dimmed example comments, and two-column command
-// and flag lists. It is set on the root command, so cobra applies it across the
-// whole command tree.
+// helpFunc renders styled --help output in the active theme: bold section
+// headings, a raised terminal block behind the usage/examples commands, and
+// two-column command and flag lists. It is set on the root command, so cobra
+// applies it across the whole command tree.
 func (c *Command) helpFunc(cmd *cobra.Command, _ []string) {
 	var b strings.Builder
 
@@ -42,29 +33,34 @@ func (c *Command) helpFunc(cmd *cobra.Command, _ []string) {
 		b.WriteString("\n" + cmd.Long + "\n")
 	}
 
-	b.WriteString(helpSection("Usage"))
-	b.WriteString("    " + shellLine(cmd.UseLine()) + "\n")
+	// Usage + examples render as raised shell blocks that share one width.
+	usage := []blockLine{{cmd.UseLine(), style.Fg}}
 	if cmd.HasAvailableSubCommands() {
-		b.WriteString("    " + shellLine(cmd.CommandPath()+" [command]") + "\n")
+		usage = append(usage, blockLine{cmd.CommandPath() + " [command]", style.Fg})
+	}
+	examples := exampleLines(cmd.Example)
+	width := blockWidth(append(append([]blockLine{}, usage...), examples...))
+
+	b.WriteString(sectionHead("Usage"))
+	b.WriteString(shellBlock(usage, width))
+
+	if len(examples) > 0 {
+		b.WriteString(sectionHead("Examples"))
+		b.WriteString(shellBlock(examples, width))
 	}
 
-	if ex := strings.TrimRight(cmd.Example, "\n"); ex != "" {
-		b.WriteString(helpSection("Examples"))
-		b.WriteString(styleExamples(ex) + "\n")
-	}
-
 	if cmd.HasAvailableSubCommands() {
-		b.WriteString(helpSection("Commands"))
+		b.WriteString(sectionHead("Commands"))
 		b.WriteString(commandList(cmd))
 	}
 
 	if f := cmd.LocalFlags(); f.HasAvailableFlags() {
-		b.WriteString(helpSection("Flags"))
+		b.WriteString(sectionHead("Flags"))
 		b.WriteString(flagList(f))
 	}
 	if cmd.HasParent() {
 		if inh := cmd.InheritedFlags(); inh.HasAvailableFlags() {
-			b.WriteString(helpSection("Global Flags"))
+			b.WriteString(sectionHead("Global Flags"))
 			b.WriteString(flagList(inh))
 		}
 	}
@@ -77,10 +73,60 @@ func (c *Command) helpFunc(cmd *cobra.Command, _ []string) {
 	fmt.Fprint(cmd.OutOrStdout(), b.String())
 }
 
-// helpSection renders a chip section header, e.g. " USAGE ", with a blank line
-// on either side.
-func helpSection(title string) string {
-	return "\n  " + style.Chip(strings.ToUpper(title), style.Primary, style.BgHighlight) + "\n\n"
+// blockLine is one line inside a shell block: its text and foreground color.
+type blockLine struct {
+	text string
+	fg   color.Color
+}
+
+// exampleLines splits an Example string into block lines: `#` comments are
+// dimmed, commands take the normal foreground, blanks stay blank.
+func exampleLines(example string) []blockLine {
+	ex := strings.TrimRight(example, "\n")
+	if ex == "" {
+		return nil
+	}
+	var lines []blockLine
+	for _, l := range strings.Split(ex, "\n") {
+		switch t := strings.TrimSpace(l); {
+		case t == "":
+			lines = append(lines, blockLine{"", style.Fg})
+		case strings.HasPrefix(t, "#"):
+			lines = append(lines, blockLine{t, style.Faintc})
+		default:
+			lines = append(lines, blockLine{t, style.Fg})
+		}
+	}
+	return lines
+}
+
+func blockWidth(lines []blockLine) int {
+	w := 0
+	for _, l := range lines {
+		if lw := lipgloss.Width(l.text); lw > w {
+			w = lw
+		}
+	}
+	return w + 4 // 2 spaces of horizontal padding each side
+}
+
+// shellBlock renders lines as a uniform-width raised terminal block (a subtle
+// background with a blank padded row above and below), indented under its
+// section heading.
+func shellBlock(lines []blockLine, width int) string {
+	base := lipgloss.NewStyle().Background(style.BgHighlight)
+	blank := base.Width(width).Render("")
+	out := []string{"  " + blank}
+	for _, l := range lines {
+		out = append(out, "  "+base.Foreground(l.fg).Width(width).Padding(0, 2).Render(l.text))
+	}
+	out = append(out, "  "+blank)
+	return strings.Join(out, "\n") + "\n"
+}
+
+// sectionHead renders a bold, uppercase section heading.
+func sectionHead(title string) string {
+	return "\n  " + lipgloss.NewStyle().Bold(true).Foreground(style.Primary).Render(strings.ToUpper(title)) + "\n\n"
 }
 
 // indentText left-pads every non-blank line by n spaces.
@@ -90,22 +136,6 @@ func indentText(s string, n int) string {
 	for i, l := range lines {
 		if strings.TrimSpace(l) != "" {
 			lines[i] = pad + l
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
-// styleExamples indents example lines and dims their `#` comments.
-func styleExamples(s string) string {
-	lines := strings.Split(s, "\n")
-	for i, l := range lines {
-		switch t := strings.TrimSpace(l); {
-		case t == "":
-			lines[i] = ""
-		case strings.HasPrefix(t, "#"):
-			lines[i] = "    " + style.Faint.Render(t)
-		default:
-			lines[i] = "    " + shellLine(t)
 		}
 	}
 	return strings.Join(lines, "\n")
@@ -125,10 +155,11 @@ func commandList(cmd *cobra.Command) string {
 			width = len(sub.Name())
 		}
 	}
+	name := lipgloss.NewStyle().Bold(true).Foreground(style.Secondary)
 	var b strings.Builder
 	for _, sub := range subs {
 		gap := strings.Repeat(" ", width-len(sub.Name())+3)
-		b.WriteString("    " + style.Key.Render(sub.Name()) + gap + style.Subtitle.Render(sub.Short) + "\n")
+		b.WriteString("    " + name.Render(sub.Name()) + gap + style.Subtitle.Render(sub.Short) + "\n")
 	}
 	return b.String()
 }
@@ -156,10 +187,11 @@ func flagList(fs *pflag.FlagSet) string {
 		}
 		rows = append(rows, row{left, f.Usage})
 	})
+	name := lipgloss.NewStyle().Foreground(style.Accent)
 	var b strings.Builder
 	for _, r := range rows {
 		gap := strings.Repeat(" ", width-len(r.left)+3)
-		b.WriteString("    " + style.Key.Render(r.left) + gap + style.Subtitle.Render(r.help) + "\n")
+		b.WriteString("    " + name.Render(r.left) + gap + style.Subtitle.Render(r.help) + "\n")
 	}
 	return b.String()
 }
