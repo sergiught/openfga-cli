@@ -298,6 +298,8 @@ func TestAssertionAddFlow(t *testing.T) {
 	}
 	m, _ = m.Update(key("tab")) // Expect toggle (starts Allowed)
 	m, _ = m.Update(key(" "))   // flip to Denied
+	m, _ = m.Update(key("tab")) // -> Contextual tuples (leave empty)
+	m, _ = m.Update(key("tab")) // -> Context JSON (leave empty)
 	m, cmd := m.Update(key("enter"))
 	if mod := m.(Model); mod.formKind != formNone {
 		t.Fatal("submitting the form should close it")
@@ -576,7 +578,7 @@ func TestCheckCmdRecordsLatencyAndVals(t *testing.T) {
 	defer srv.Close()
 
 	cl, _ := openfga.NewClient(srv.URL)
-	cmd := checkCmd(context.Background(), cl, "store-1", "model-1", "user:anne", "viewer", "document:roadmap")
+	cmd := checkCmd(context.Background(), cl, "store-1", "model-1", "user:anne", "viewer", "document:roadmap", queryCtx{})
 	msg, ok := cmd().(queryResultMsg)
 	if !ok {
 		t.Fatal("checkCmd should return a queryResultMsg")
@@ -1311,6 +1313,8 @@ func TestAssertionAddFormErrorShowsDialog(t *testing.T) {
 		m = pump(t, m, key(string(r)))
 	}
 	m = pump(t, m, key("enter")) // -> toggle field
+	m = pump(t, m, key("enter")) // -> contextual tuples (empty)
+	m = pump(t, m, key("enter")) // -> context JSON (empty)
 	m = pump(t, m, key("enter")) // submit -> write -> 400
 
 	mod := m.(Model)

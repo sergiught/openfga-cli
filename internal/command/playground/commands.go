@@ -397,11 +397,13 @@ func expandCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, user, 
 	}
 }
 
-func checkCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, user, relation, object string) tea.Cmd {
+func checkCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, user, relation, object string, qc queryCtx) tea.Cmd {
 	start := time.Now()
 	return func() tea.Msg {
 		res, _, err := cl.Relationships.Check(ctx, &openfga.CheckRequest{
-			TupleKey: openfga.CheckRequestTupleKey{User: user, Relation: relation, Object: object},
+			TupleKey:         openfga.CheckRequestTupleKey{User: user, Relation: relation, Object: object},
+			ContextualTuples: contextualTupleKeys(qc.contextual),
+			Context:          qc.context,
 		}, openfga.WithStore(storeID), openfga.WithAuthorizationModel(modelID))
 		ms := time.Since(start).Milliseconds()
 		if err != nil {
@@ -415,11 +417,13 @@ func checkCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, user, r
 	}
 }
 
-func listObjectsCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, typ, relation, user string) tea.Cmd {
+func listObjectsCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, typ, relation, user string, qc queryCtx) tea.Cmd {
 	start := time.Now()
 	return func() tea.Msg {
 		res, _, err := cl.Relationships.ListObjects(ctx, &openfga.ListObjectsRequest{
 			Type: typ, Relation: relation, User: user,
+			ContextualTuples: contextualTupleKeys(qc.contextual),
+			Context:          qc.context,
 		}, openfga.WithStore(storeID), openfga.WithAuthorizationModel(modelID))
 		ms := time.Since(start).Milliseconds()
 		if err != nil {
@@ -434,13 +438,15 @@ func listObjectsCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, t
 	}
 }
 
-func listUsersCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, object, relation, userType string) tea.Cmd {
+func listUsersCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, object, relation, userType string, qc queryCtx) tea.Cmd {
 	start := time.Now()
 	return func() tea.Msg {
 		res, _, err := cl.Relationships.ListUsers(ctx, &openfga.ListUsersRequest{
-			Object:      openfga.FGAObjectRelation{Object: object},
-			Relation:    relation,
-			UserFilters: []openfga.UserTypeFilter{{Type: userType}},
+			Object:           openfga.FGAObjectRelation{Object: object},
+			Relation:         relation,
+			UserFilters:      []openfga.UserTypeFilter{{Type: userType}},
+			ContextualTuples: contextualTupleKeys(qc.contextual),
+			Context:          qc.context,
 		}, openfga.WithStore(storeID), openfga.WithAuthorizationModel(modelID))
 		ms := time.Since(start).Milliseconds()
 		if err != nil {

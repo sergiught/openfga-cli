@@ -39,25 +39,45 @@ func buildCreateStoreForm(w int) *field.Form {
 	return f
 }
 
-// buildWriteTupleForm builds the add-tuple form. Values() = [user, relation, object].
+// buildWriteTupleForm builds the add-tuple form. The condition fields are
+// optional (for `[user with …]` relations).
+// Values() = [user, relation, object, condition, condition_context].
 func buildWriteTupleForm(w int) *field.Form {
 	f := field.NewForm(
 		field.New("User", "user:anne"),
 		field.New("Relation", "viewer"),
 		field.New("Object", "document:roadmap"),
+		field.New("Condition", "optional"),
+		field.New("Condition context (JSON)", `{"grant_duration":"10m"}`),
 	)
 	f.SetWidth(w)
 	return f
 }
 
+// buildQueryContextForm builds the query context / contextual-tuples form,
+// pre-filled with the user's current raw values. Values() = [context_json,
+// contextual_tuples].
+func buildQueryContextForm(w int, contextJSON, contextual string) *field.Form {
+	f := field.NewForm(
+		field.New("Context (JSON)", `{"current_time":"2023-01-01T00:00:00Z"}`),
+		field.New("Contextual tuples", "user:anne member team:eng; …"),
+	)
+	f.SetWidth(w)
+	f.SetValues([]string{contextJSON, contextual})
+	return f
+}
+
 // buildWriteAssertionForm builds the add/edit-assertion form.
 // Values() = [user, relation, object, expect("true"|"false")].
+// Values() = [user, relation, object, expect, contextual_tuples, context_json].
 func buildWriteAssertionForm(w int) *field.Form {
 	f := field.NewForm(
 		field.New("User", "user:anne"),
 		field.New("Relation", "reader"),
 		field.New("Object", "repo:openfga/openfga"),
 		field.NewToggle("Expect", "Allowed", "Denied", true),
+		field.New("Contextual tuples", "user:anne member team:eng; …"),
+		field.New("Context (JSON)", `{"current_time":"…"}`),
 	)
 	f.SetWidth(w)
 	return f

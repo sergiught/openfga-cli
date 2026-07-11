@@ -98,6 +98,8 @@ func (m Model) dialogContent() (string, string) {
 		return "Add Profile", m.form.View() + "\n" + style.Faint.Render("tab/↑↓ move · ←→ auth method · enter save · esc cancel")
 	case m.formKind == formEditProfile:
 		return "Edit Profile", m.form.View() + "\n" + style.Faint.Render("tab/↑↓ move · ←→ auth method · enter save · esc cancel")
+	case m.formKind == formQueryContext:
+		return "Query Context", m.form.View() + "\n" + style.Faint.Render("condition context (JSON) + `;`-separated contextual tuples · enter save · esc cancel")
 	case m.section == secModel && m.modelPicking:
 		return "Switch model", m.modelsList.View() + "\n" + style.Faint.Render("↑↓ choose · enter load · esc cancel")
 	}
@@ -419,6 +421,16 @@ func (m Model) queryBody() string {
 	}
 	var b strings.Builder
 	b.WriteString(strings.Join(segs, " "))
+	if q := m.qctx(); q.set() {
+		var parts []string
+		if len(q.context) > 0 {
+			parts = append(parts, "context "+m.qContextRaw)
+		}
+		if n := len(q.contextual); n > 0 {
+			parts = append(parts, plural(n, "contextual tuple"))
+		}
+		b.WriteString("  " + style.Chip("+ "+strings.Join(parts, " · "), style.Secondary, style.BgHighlight))
+	}
 	b.WriteString("\n\n" + m.qform.View())
 
 	w, _ := m.contentSize()
@@ -604,7 +616,7 @@ func (m Model) statusKeys() []string {
 	case secChanges:
 		return []string{"↑↓", "/", "r", "esc"}
 	case secQuery:
-		return []string{"i", "tab mode", "↵", "r", "esc"}
+		return []string{"i", "tab mode", "↵", "c ctx", "r", "esc"}
 	case secAssertions:
 		return []string{"↑↓", "↵", "a", "e", "d", "t", "esc"}
 	}

@@ -50,6 +50,7 @@ const (
 	formWriteAssertion
 	formAddProfile
 	formEditProfile
+	formQueryContext
 )
 
 var queryModes = []string{"check", "list-objects", "list-users"}
@@ -155,8 +156,14 @@ type Model struct {
 	assertErr      string // API error from the last write, shown as a modal
 
 	// query
-	qmode     int
-	qform     *field.Form
+	qmode int
+	qform *field.Form
+	// optional ABAC context + contextual tuples applied to queries; the *Raw
+	// fields keep the user's text for re-editing.
+	qContext       map[string]any
+	qContextual    []openfga.TupleKey
+	qContextRaw    string
+	qContextualRaw string
 	editing   bool // a form (query or takeover) is capturing keys
 	hasResult bool
 	result    queryResultMsg
@@ -504,6 +511,9 @@ func (m *Model) cycleQueryMode(dir int) {
 	m.rebuildQueryForm()
 	m.hasResult = false
 }
+
+// qctx bundles the query's optional ABAC context and contextual tuples.
+func (m Model) qctx() queryCtx { return queryCtx{context: m.qContext, contextual: m.qContextual} }
 
 // enterQueryEdit focuses the query form so the first field captures typing,
 // guarding on a selected store. It returns the field's cursor-blink command
