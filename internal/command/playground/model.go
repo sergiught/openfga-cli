@@ -155,8 +155,9 @@ type Model struct {
 	assertErr      string // API error from the last write, shown as a modal
 
 	// query
-	qmode int
-	qform *field.Form
+	qmode        int
+	qform        *field.Form
+	qShowContext bool // reveal the Context (JSON) + contextual-tuples fields
 	editing   bool // a form (query or takeover) is capturing keys
 	hasResult bool
 	result    queryResultMsg
@@ -490,7 +491,7 @@ func (m *Model) rebuildQueryForm() {
 	if w < 1 {
 		w = 1
 	}
-	m.qform = buildQueryForm(queryModes[m.qmode], w)
+	m.qform = buildQueryForm(queryModes[m.qmode], w, m.qShowContext)
 	m.qform.SetHighlight(style.FieldHighlight())
 	m.qform.Init()
 }

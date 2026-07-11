@@ -21,15 +21,25 @@ func queryLabels(mode string) (labels [3]string, placeholders [3]string) {
 
 // buildQueryForm builds a 3-input query form for the given mode. Read values
 // in order via Form.Values(): [a, b, c].
-func buildQueryForm(mode string, w int) *field.Form {
+// buildQueryForm builds the query form. The ABAC context + contextual-tuples
+// fields are hidden behind a toggle so the common query stays three fields;
+// flipping the toggle reveals them (see advanceQueryForm's rebuild).
+// Values() = [a, b, c, show_context, context_json?, contextual?].
+func buildQueryForm(mode string, w int, showContext bool) *field.Form {
 	labels, ph := queryLabels(mode)
-	f := field.NewForm(
+	fields := []*field.Field{
 		field.New(labels[0], ph[0]),
 		field.New(labels[1], ph[1]),
 		field.New(labels[2], ph[2]),
-		field.New("Context (JSON)", "optional ABAC context"),
-		field.New("Contextual tuples", "optional: user rel obj; …"),
-	)
+		field.NewToggle("Context + contextual tuples", "on", "off", showContext),
+	}
+	if showContext {
+		fields = append(fields,
+			field.New("Context (JSON)", "optional ABAC context"),
+			field.New("Contextual tuples", "optional: user rel obj; …"),
+		)
+	}
+	f := field.NewForm(fields...)
 	f.SetWidth(w)
 	return f
 }

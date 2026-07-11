@@ -1021,13 +1021,28 @@ func (m Model) handleQueryForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // query once the form completes.
 func (m Model) advanceQueryForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmd := m.qform.Update(msg)
+	// The context toggle (field 3) reveals/hides the extra fields; rebuild the
+	// form when it flips, preserving the three main fields and staying on it.
+	if !m.qform.Completed() {
+		if show := m.qform.Values()[3] == "true"; show != m.qShowContext {
+			m.qShowContext = show
+			vals := m.qform.Values()
+			m.rebuildQueryForm()
+			m.qform.SetValues(vals[:3])
+			return m, m.qform.FocusIndex(3)
+		}
+	}
 	if m.qform.Completed() {
 		m.editing = false
 		vals := m.qform.Values()
 		a := strings.TrimSpace(vals[0])
 		b := strings.TrimSpace(vals[1])
 		c := strings.TrimSpace(vals[2])
-		qctx, cerr := parseQueryCtx(vals[3], vals[4])
+		var qctx queryCtx
+		var cerr error
+		if m.qShowContext && len(vals) >= 6 {
+			qctx, cerr = parseQueryCtx(vals[4], vals[5])
+		}
 		m.rebuildQueryForm()
 		if cerr != nil {
 			m.status = cerr.Error()

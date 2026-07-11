@@ -466,8 +466,7 @@ func TestQueryFormEnterNavigationRunsCheck(t *testing.T) {
 	for _, r := range "document:roadmap" {
 		m = pump(t, m, key(string(r)))
 	}
-	m = pump(t, m, key("enter")) // -> Context (JSON), optional
-	m = pump(t, m, key("enter")) // -> Contextual tuples, optional
+	m = pump(t, m, key("enter")) // -> context toggle (off, last field)
 	m = pump(t, m, key("enter")) // submit from the last field
 
 	mod := m.(Model)
@@ -658,8 +657,7 @@ func TestDigitKeyRerunsHistoryEntry(t *testing.T) {
 	for _, r := range "document:roadmap" {
 		m = pump(t, m, key(string(r)))
 	}
-	m = pump(t, m, key("enter")) // -> Context (JSON), optional
-	m = pump(t, m, key("enter")) // -> Contextual tuples, optional
+	m = pump(t, m, key("enter")) // -> context toggle (off, last field)
 	m = pump(t, m, key("enter")) // first run
 
 	mod := m.(Model)
