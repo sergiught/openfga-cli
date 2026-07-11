@@ -125,6 +125,9 @@ type Model struct {
 
 	stores     []openfga.Store
 	storesList *uilist.List
+	// confirmStore* holds the store awaiting a delete-confirmation modal.
+	confirmStoreID   string
+	confirmStoreName string
 
 	tuples     []openfga.Tuple
 	tuplesList *uilist.List

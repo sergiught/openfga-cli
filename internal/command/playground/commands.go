@@ -88,6 +88,11 @@ type storeCreatedMsg struct {
 	err   error
 }
 
+type storeDeletedMsg struct {
+	id  string
+	err error
+}
+
 type modelAppliedMsg struct {
 	modelID string
 	err     error
@@ -309,6 +314,15 @@ func createStoreCmd(ctx context.Context, cl *openfga.Client, name string) tea.Cm
 			return storeCreatedMsg{err: err}
 		}
 		return storeCreatedMsg{store: *st}
+	}
+}
+
+func deleteStoreCmd(ctx context.Context, cl *openfga.Client, id string) tea.Cmd {
+	return func() tea.Msg {
+		if _, err := cl.Stores.Delete(ctx, id); err != nil {
+			return storeDeletedMsg{id: id, err: err}
+		}
+		return storeDeletedMsg{id: id}
 	}
 }
 

@@ -1441,6 +1441,35 @@ func TestProfilesTabAddClientCredentials(t *testing.T) {
 	}
 }
 
+// TestStoreDeleteConfirmFlow verifies deleting a store requires confirmation:
+// `d` opens a modal, esc cancels, and enter issues the delete.
+func TestStoreDeleteConfirmFlow(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(key("2"))     // Stores tab
+	m, _ = m.Update(key("enter")) // descend into the panel
+	m, _ = m.Update(key("d"))     // request delete of the selected store
+	if m.(Model).confirmStoreID == "" {
+		t.Fatal("d should open the delete-confirmation modal")
+	}
+	if _, body := m.(Model).dialogContent(); !strings.Contains(stripANSIView(body), "Delete store") {
+		t.Fatalf("modal should confirm the store deletion; got:\n%s", stripANSIView(body))
+	}
+	// esc cancels without deleting.
+	m, _ = m.Update(key("esc"))
+	if m.(Model).confirmStoreID != "" {
+		t.Fatal("esc should cancel the confirmation")
+	}
+	// d then enter confirms and issues the delete.
+	m, _ = m.Update(key("d"))
+	m, cmd := m.Update(key("enter"))
+	if m.(Model).confirmStoreID != "" {
+		t.Fatal("confirming should close the modal")
+	}
+	if !m.(Model).loading || cmd == nil {
+		t.Fatal("confirming should issue the delete (loading + command)")
+	}
+}
+
 // TestHistNotation verifies the Recent strip renders queries in
 // object#relation@user shorthand (check fields are user/relation/object).
 func TestHistNotation(t *testing.T) {

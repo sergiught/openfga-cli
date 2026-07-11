@@ -268,6 +268,25 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = "created store " + msg.store.Name
 		return m, tea.Batch(m.toasts.Push(toast.Success, m.status), m.selectStore(msg.store), loadStoresCmd(m.ctx, m.client))
 
+	case storeDeletedMsg:
+		m.loading = false
+		if msg.err != nil {
+			return m, m.toastErr("delete store", msg.err)
+		}
+		m.connLost = false
+		m.status = "store deleted"
+		// If the active store was deleted, clear it (a reload then auto-selects
+		// the first remaining store, or leaves the playground store-less).
+		if msg.id == m.storeID {
+			m.storeID, m.storeName, m.modelID = "", "", ""
+			m.modelIsLatest = false
+			m.graph = fga.Graph{}
+			m.models, m.tuples, m.changes, m.assertions, m.assertResults = nil, nil, nil, nil, nil
+			m.history, m.hasResult = nil, false
+			m.persistStore()
+		}
+		return m, tea.Batch(m.toasts.Push(toast.Success, m.status), loadStoresCmd(m.ctx, m.client))
+
 	case tupleWrittenMsg:
 		if msg.err != nil {
 			return m, m.toastErr("tuple", msg.err)
@@ -378,6 +397,21 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "esc", "enter":
 			m.assertErr = ""
+		}
+		return m, nil
+	}
+
+	// The store delete-confirmation modal captures input until answered.
+	if m.confirmStoreID != "" {
+		switch msg.String() {
+		case "enter", "y":
+			id := m.confirmStoreID
+			m.confirmStoreID, m.confirmStoreName = "", ""
+			m.loading = true
+			m.status = "deleting store…"
+			return m, deleteStoreCmd(m.ctx, m.client, id)
+		case "esc", "n":
+			m.confirmStoreID, m.confirmStoreName = "", ""
 		}
 		return m, nil
 	}
@@ -616,6 +650,12 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			}
 		case "n":
 			return m.enterForm(formCreateStore)
+		case "d":
+			if it, ok := m.storesList.Selected(); ok && it.Index < len(m.stores) {
+				s := m.stores[it.Index]
+				m.confirmStoreID, m.confirmStoreName = s.ID, s.Name
+			}
+			return m, nil
 		case "r":
 			m.loading = true
 			return m, loadStoresCmd(m.ctx, m.client)

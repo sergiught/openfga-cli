@@ -59,8 +59,8 @@ func (m Model) viewString() string {
 	m.sh.SetStatus(st)
 
 	if title, body := m.dialogContent(); body != "" {
-		if m.assertErr != "" {
-			m.sh.SetDialog(title, body, style.Red) // error modal: red title + border
+		if m.assertErr != "" || m.confirmStoreID != "" {
+			m.sh.SetDialog(title, body, style.Red) // error / destructive: red title + border
 		} else {
 			m.sh.SetDialog(title, body)
 		}
@@ -82,6 +82,11 @@ func (m Model) dialogContent() (string, string) {
 		w, _ := m.sh.DialogSize()
 		return "Error", style.Failure.Width(w).Render(m.assertErr) +
 			"\n\n" + style.Faint.Render("enter or esc to dismiss")
+	case m.confirmStoreID != "":
+		body := style.Value.Render("Delete store ") + style.Bold.Render(m.confirmStoreName) + style.Value.Render("?") +
+			"\n\n" + style.Failure.Render(style.IconCross+" This permanently deletes the store and all its data.") +
+			"\n\n" + style.Faint.Render("enter / y confirm · esc / n cancel")
+		return "Delete Store", body
 	case m.paletteOpen:
 		return "Command palette", m.paletteList.View() + "\n" + style.Faint.Render("↑↓ choose · enter go · esc close")
 	case m.formKind == formCreateStore:
@@ -608,7 +613,7 @@ func (m Model) statusKeys() []string {
 	case secProfiles:
 		return []string{"↑↓", "↵ switch", "n add", "e edit", "d delete", "esc"}
 	case secStores:
-		return []string{"↑↓", "/ filter", "↵ select", "n new", "r reload", "esc"}
+		return []string{"↑↓", "/ filter", "↵ select", "n new", "d delete", "r reload", "esc"}
 	case secModel:
 		return []string{"↑↓/hjkl pan", "e edit DSL", "m switch", "r reload", "esc"}
 	case secTuples:
