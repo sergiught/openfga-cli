@@ -53,7 +53,18 @@ func MarkGranted(root *ResNode, user string, r GrantResolver) bool {
 	}
 	switch root.Op {
 	case ResLeaf:
-		root.Granted = leafGrants(root, user, r)
+		if len(root.Children) > 0 {
+			// An expanded computed-userset / tuple-to-userset leaf (see
+			// ExpandTree): it grants when any reference it expands into grants.
+			root.Granted = false
+			for _, c := range root.Children {
+				if MarkGranted(c, user, r) {
+					root.Granted = true
+				}
+			}
+		} else {
+			root.Granted = leafGrants(root, user, r)
+		}
 	case ResUnion:
 		root.Granted = false
 		for _, c := range root.Children {
@@ -96,6 +107,87 @@ func GrantedPath(n *ResNode) *ResNode {
 		}
 	}
 	return &c
+}
+
+// Expander resolves an object#relation to its (single-level) Expand subtree,
+// or nil when it can't be expanded (API error, or no such resolution).
+type Expander func(object, relation string) *ResNode
+
+// ExpandTree recursively expands computed-userset and tuple-to-userset leaves
+// in place, attaching each reference's own resolution subtree so nested
+// branches appear instead of dead-end leaves — e.g. a `viewer` node that
+// resolves through `owner` gains `owner`'s subtree (and, in turn, its users)
+// as a child.
+//
+// OpenFGA's Expand API resolves only one level, so this issues a fresh expand
+// per referenced relation via the `expand` callback; `tupleset` lists the
+// objects a tuple-to-userset points at. rootRef ("object#relation" of root)
+// seeds cycle detection. maxDepth bounds recursion depth and maxNodes bounds
+// the total number of expansions (i.e. extra API calls), so a deep or cyclic
+// model can't fan out unbounded. Call this before MarkGranted.
+func ExpandTree(root *ResNode, rootRef string, expand Expander, tupleset func(object, relation string) []string, maxDepth, maxNodes int) {
+	if root == nil || expand == nil {
+		return
+	}
+	budget := maxNodes
+	expandNode(root, expand, tupleset, maxDepth, map[string]bool{rootRef: true}, &budget)
+}
+
+func expandNode(n *ResNode, expand Expander, tupleset func(string, string) []string, depth int, path map[string]bool, budget *int) {
+	if n == nil {
+		return
+	}
+	// Descend into existing structural children (union / intersection / difference).
+	for _, c := range n.Children {
+		expandNode(c, expand, tupleset, depth, path, budget)
+	}
+	// Only an unexpanded leaf gets expanded, and only while depth/budget remain.
+	if n.Op != ResLeaf || len(n.Children) > 0 || depth <= 0 {
+		return
+	}
+	switch {
+	case n.Computed != "":
+		attachExpansion(n, n.Computed, expand, tupleset, depth, path, budget)
+	case n.TTUFrom != "" && len(n.TTUTo) > 0 && tupleset != nil:
+		tObj, tRel, ok := splitUserset(n.TTUFrom)
+		if !ok {
+			return
+		}
+		for _, x := range tupleset(tObj, tRel) {
+			for _, cu := range n.TTUTo {
+				rel := cu
+				if _, r2, ok := splitUserset(cu); ok {
+					rel = r2
+				}
+				attachExpansion(n, x+"#"+rel, expand, tupleset, depth, path, budget)
+			}
+		}
+	}
+}
+
+// attachExpansion expands the object#relation `ref` and, on success, appends its
+// (recursively expanded) subtree as a child of `parent`. It is a no-op on a
+// cycle (ref already on the ancestry path) or an exhausted budget.
+func attachExpansion(parent *ResNode, ref string, expand Expander, tupleset func(string, string) []string, depth int, path map[string]bool, budget *int) {
+	if *budget <= 0 || path[ref] {
+		return
+	}
+	obj, rel, ok := splitUserset(ref)
+	if !ok {
+		return
+	}
+	*budget--
+	sub := expand(obj, rel)
+	if sub == nil {
+		return
+	}
+	next := make(map[string]bool, len(path)+1)
+	for k := range path {
+		next[k] = true
+	}
+	next[ref] = true
+	expandNode(sub, expand, tupleset, depth-1, next, budget)
+	parent.Children = append(parent.Children, sub)
 }
 
 func leafGrants(n *ResNode, user string, r GrantResolver) bool {

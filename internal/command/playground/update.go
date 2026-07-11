@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/sergiught/go-openfga/openfga"
 
+	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/list"
@@ -27,17 +28,6 @@ type entranceTickMsg struct{}
 func entranceTick() tea.Cmd {
 	return tea.Tick(time.Millisecond*33, func(time.Time) tea.Msg {
 		return entranceTickMsg{}
-	})
-}
-
-// pulseTickMsg drives the sidebar's breathing connection dot. It re-arms
-// itself only while a store is selected; the initial tick is kicked off once
-// (from Init or selectStore, whichever first sees a non-empty storeID).
-type pulseTickMsg struct{}
-
-func pulseTick() tea.Cmd {
-	return tea.Tick(time.Millisecond*500, func(time.Time) tea.Msg {
-		return pulseTickMsg{}
 	})
 }
 
@@ -107,9 +97,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case storesLoadedMsg:
 		m.loading = false
 		if msg.err != nil {
-			m.connLost = isConnErr(msg.err)
-			m.status = errStr(msg.err) + staleSuffix(m.connLost)
-			return m, m.toasts.Push(toast.Error, m.status)
+			return m, m.toastErr("", msg.err)
 		}
 		m.connLost = false
 		m.stores = msg.stores
@@ -120,24 +108,32 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.populateStores()
 		m.status = plural(len(msg.stores), "store")
+		// First run with nothing selected yet: adopt the first store (and persist
+		// it) so the playground opens on a live store and the config records it.
+		if m.storeID == "" && len(m.stores) > 0 {
+			return m, m.selectStore(m.stores[0])
+		}
 		return m, nil
 
 	case modelLoadedMsg:
 		if msg.err != nil {
-			m.connLost = isConnErr(msg.err)
-			m.status = "model: " + errStr(msg.err) + staleSuffix(m.connLost)
+			cmd := m.toastErr("model", msg.err)
 			if !m.connLost {
 				m.graph = fga.Graph{}
 				m.graphVP.SetContent(style.Faint.Render("no model: " + errStr(msg.err)))
 			}
-			return m, m.toasts.Push(toast.Error, m.status)
+			return m, cmd
 		}
 		m.connLost = false
 		m.modelID = msg.modelID
+		// ReadLatest flags it directly; a picked model is latest only if it is
+		// the newest in the (already loaded) models list.
+		m.modelIsLatest = msg.latest || (len(m.models) > 0 && msg.modelID == m.models[0].ID)
 		m.graph = msg.graph
 		m.modelDSL = msg.dsl
 		m.graphVP.SetContent(m.graph.RenderDiagram())
 		m.resetGraphScroll()
+		m.persistModel()
 		m.status = "model " + short(msg.modelID) + " · " + m.graph.Summary()
 		return m, nil
 
@@ -155,9 +151,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case modelsListedMsg:
 		if msg.err != nil {
-			m.connLost = isConnErr(msg.err)
-			m.status = "models: " + errStr(msg.err) + staleSuffix(m.connLost)
-			return m, m.toasts.Push(toast.Error, m.status)
+			return m, m.toastErr("models", msg.err)
 		}
 		m.connLost = false
 		m.models = msg.models
@@ -166,9 +160,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tuplesLoadedMsg:
 		if msg.err != nil {
-			m.connLost = isConnErr(msg.err)
-			m.status = "tuples: " + errStr(msg.err) + staleSuffix(m.connLost)
-			return m, m.toasts.Push(toast.Error, m.status)
+			return m, m.toastErr("tuples", msg.err)
 		}
 		m.connLost = false
 		m.tuples = msg.tuples
@@ -178,9 +170,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case changesLoadedMsg:
 		m.loading = false
 		if msg.err != nil {
-			m.connLost = isConnErr(msg.err)
-			m.status = "changes: " + errStr(msg.err) + staleSuffix(m.connLost)
-			return m, m.toasts.Push(toast.Error, m.status)
+			return m, m.toastErr("changes", msg.err)
 		}
 		m.connLost = false
 		m.changes = msg.changes
@@ -192,12 +182,11 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.assertModelID = msg.modelID
 		if msg.err != nil {
-			m.connLost = isConnErr(msg.err)
-			m.status = "assertions: " + errStr(msg.err) + staleSuffix(m.connLost)
+			cmd := m.toastErr("assertions", msg.err)
 			if !m.connLost {
 				m.assertions = nil
 			}
-			return m, m.toasts.Push(toast.Error, m.status)
+			return m, cmd
 		}
 		m.connLost = false
 		m.assertions = msg.assertions
@@ -217,9 +206,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case assertTestMsg:
 		m.loading = false
 		if msg.err != nil {
-			m.connLost = isConnErr(msg.err)
-			m.status = "assertion test: " + errStr(msg.err)
-			return m, m.toasts.Push(toast.Error, m.status)
+			return m, m.toastErr("assertion test", msg.err)
 		}
 		m.connLost = false
 		m.assertResults = msg.results
@@ -231,9 +218,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case assertOneMsg:
 		if msg.err != nil {
-			m.connLost = isConnErr(msg.err)
-			m.status = "assertion: " + errStr(msg.err)
-			return m, m.toasts.Push(toast.Error, m.status)
+			return m, m.toastErr("assertion", msg.err)
 		}
 		m.connLost = false
 		if len(m.assertResults) != len(m.assertions) {
@@ -249,9 +234,12 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case assertionsWrittenMsg:
 		if msg.err != nil {
+			// Surface the API error as a centered modal (dismissed with
+			// enter/esc), not in the footer.
 			m.connLost = isConnErr(msg.err)
-			m.status = "assertions: " + errStr(msg.err)
-			return m, m.toasts.Push(toast.Error, m.status)
+			m.status = ""
+			m.assertErr = errStr(msg.err)
+			return m, nil
 		}
 		m.connLost = false
 		m.status = "assertions saved"
@@ -262,9 +250,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case resolutionMsg:
 		m.loading = false
 		if msg.err != nil {
-			m.connLost = isConnErr(msg.err)
-			m.status = "resolution: " + errStr(msg.err)
-			return m, m.toasts.Push(toast.Error, m.status)
+			return m, m.toastErr("resolution", msg.err)
 		}
 		m.connLost = false
 		m.resTree = msg.root
@@ -276,9 +262,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case storeCreatedMsg:
 		if msg.err != nil {
-			m.connLost = isConnErr(msg.err)
-			m.status = "create store: " + errStr(msg.err)
-			return m, m.toasts.Push(toast.Error, m.status)
+			return m, m.toastErr("create store", msg.err)
 		}
 		m.connLost = false
 		m.status = "created store " + msg.store.Name
@@ -286,9 +270,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tupleWrittenMsg:
 		if msg.err != nil {
-			m.connLost = isConnErr(msg.err)
-			m.status = "tuple: " + errStr(msg.err)
-			return m, m.toasts.Push(toast.Error, m.status)
+			return m, m.toastErr("tuple", msg.err)
 		}
 		m.connLost = false
 		verb := "wrote"
@@ -307,14 +289,19 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resTree = nil
 		if msg.err != nil {
 			m.connLost = isConnErr(msg.err)
-			m.status = "query: " + errStr(msg.err)
-			return m, m.toasts.Push(toast.Error, m.status)
+			// The panel body shows the full error; keep the footer status clear
+			// of it and surface the detail once, transiently, as a toast.
+			m.status = "query failed"
+			return m, m.toasts.Push(toast.Error, "query: "+errStr(msg.err))
 		}
 		m.connLost = false
 		m.status = "query complete"
 		cmds := []tea.Cmd{m.toasts.Push(toast.Success, m.status)}
+		// Record every query — check, list-objects and list-users — so all of
+		// them are rerunnable from the Recent strip.
+		m.pushHistory(histEntry{mode: msg.mode, vals: msg.vals, ok: msg.ok, ms: msg.ms})
+		// Only a check carries an allow/deny verdict, so only it flashes.
 		if msg.badge {
-			m.pushHistory(histEntry{mode: msg.mode, vals: msg.vals, ok: msg.ok, ms: msg.ms})
 			m.flash = true
 			cmds = append(cmds, flashTick())
 		}
@@ -337,13 +324,6 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, entranceTick()
-
-	case pulseTickMsg:
-		m.pulse += 0.6
-		if m.storeID != "" {
-			return m, pulseTick()
-		}
-		return m, nil
 
 	case driftTickMsg:
 		m.drift += 0.02
@@ -379,7 +359,28 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// toastErr surfaces a failed API call as a transient toast (and flags a
+// possible connection loss), deliberately keeping the raw error out of the
+// footer status line.
+func (m *Model) toastErr(label string, err error) tea.Cmd {
+	m.connLost = isConnErr(err)
+	m.status = ""
+	detail := errStr(err)
+	if label != "" {
+		detail = label + ": " + detail
+	}
+	return m.toasts.Push(toast.Error, detail)
+}
+
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// A blocking error dialog swallows input; esc or enter dismisses it.
+	if m.assertErr != "" {
+		switch msg.String() {
+		case "esc", "enter":
+			m.assertErr = ""
+		}
+		return m, nil
+	}
 	if m.paletteOpen {
 		switch msg.String() {
 		case "esc", "ctrl+k":
@@ -476,7 +477,7 @@ func (m Model) handleSidebarKey(key string) (tea.Model, tea.Cmd) {
 		return m.gotoSection((m.section + 1) % n)
 	case "up", "shift+tab", "left":
 		return m.gotoSection((m.section + n - 1) % n)
-	case "1", "2", "3", "4", "5", "6":
+	case "1", "2", "3", "4", "5", "6", "7":
 		return m.gotoSection(section(key[0] - '1'))
 	case "enter":
 		m.focus = shell.FocusPanel
@@ -526,9 +527,21 @@ func (m Model) onEnterSection() (tea.Model, tea.Cmd) {
 			return m, loadChangesCmd(m.ctx, m.client, m.storeID)
 		}
 	case secAssertions:
-		if m.storeID != "" && m.assertions == nil {
+		// Assertions are stored per authorization model, so reload them when the
+		// tab is first opened or the selected model has changed since they were
+		// loaded — otherwise the tab would keep running the first model's set
+		// against a now-different selection. (Skip the model check when no model
+		// is resolved yet, to avoid reloading on every entry.)
+		if m.storeID != "" && (m.assertions == nil || (m.modelID != "" && m.assertModelID != m.modelID)) {
 			m.loading = true
 			return m, loadAssertionsCmd(m.ctx, m.client, m.storeID, m.modelID)
+		}
+	case secQuery:
+		// Descending into the panel starts in the first field, ready to type
+		// (same as arriving via tab). Browsing tabs in the sidebar keeps
+		// FocusSidebar, so it must not begin editing.
+		if m.focus == shell.FocusPanel {
+			return m, m.enterQueryEdit()
 		}
 	}
 	return m, nil
@@ -537,6 +550,8 @@ func (m Model) onEnterSection() (tea.Model, tea.Cmd) {
 // activeList returns the list backing the current section, or nil.
 func (m *Model) activeList() *list.List {
 	switch m.section {
+	case secProfiles:
+		return m.profilesList
 	case secStores:
 		return m.storesList
 	case secModel:
@@ -555,6 +570,44 @@ func (m *Model) activeList() *list.List {
 
 func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch m.section {
+	case secProfiles:
+		switch key {
+		case "enter":
+			if it, ok := m.profilesList.Selected(); ok {
+				return m, m.switchProfile(it.ID)
+			}
+		case "n":
+			return m.enterForm(formAddProfile)
+		case "e":
+			if it, ok := m.profilesList.Selected(); ok {
+				p, _ := m.app.Config.Get(it.ID)
+				auth := p.ResolvedAuth()
+				m.profileEditName = it.ID
+				m.profileAuthMethod = auth.Method
+				if m.profileAuthMethod == "" {
+					m.profileAuthMethod = config.AuthNone
+				}
+				nm, cmd := m.enterForm(formEditProfile)
+				mm := nm.(Model)
+				mm.form.SetValues(profileFormValues(false, p.APIURL, auth))
+				return mm, cmd
+			}
+			return m, nil
+		case "d":
+			if it, ok := m.profilesList.Selected(); ok {
+				if err := m.app.Config.Remove(it.ID); err != nil {
+					return m, m.toastErr("profile", err)
+				}
+				m.saveConfig()
+				m.populateProfiles()
+				m.status = "removed profile " + it.ID
+				return m, m.toasts.Push(toast.Success, m.status)
+			}
+			return m, nil
+		}
+		cmd := m.profilesList.Update(msg)
+		return m, cmd
+
 	case secStores:
 		switch key {
 		case "enter":
@@ -627,7 +680,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			if it, ok := m.tuplesList.Selected(); ok && it.Index < len(m.tuples) {
 				k := m.tuples[it.Index].Key
 				m.status = "deleting " + fga.FormatTuple(k) + "…"
-				return m, writeTupleCmd(m.ctx, m.client, m.storeID, k, true)
+				return m, writeTupleCmd(m.ctx, m.client, m.storeID, m.modelID, k, true)
 			}
 		case "r":
 			if m.storeID != "" {
@@ -671,21 +724,22 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 		}
 		switch key {
 		case "i", "enter":
-			if m.storeID == "" {
-				m.status = "select a store first"
-				return m, nil
-			}
-			m.editing = true
-			return m, m.qform.Init()
+			return m, m.enterQueryEdit()
+		case "tab":
+			// Switch to the next mode and land in its first field, ready to type.
+			m.cycleQueryMode(1)
+			return m, m.enterQueryEdit()
+		case "shift+tab":
+			m.cycleQueryMode(-1)
+			return m, m.enterQueryEdit()
 		case "m":
-			m.qmode = (m.qmode + 1) % len(queryModes)
-			m.rebuildQueryForm()
-			m.hasResult = false
+			// Browse modes without entering the form.
+			m.cycleQueryMode(1)
 		case "r":
 			// Show the Check resolution tree for the last check.
 			if m.hasResult && m.result.badge {
 				m.loading = true
-				return m, expandCmd(m.ctx, m.client, m.storeID,
+				return m, expandCmd(m.ctx, m.client, m.storeID, m.modelID,
 					m.result.vals[0], m.result.vals[1], m.result.vals[2])
 			}
 			m.status = "run a check first (r shows its resolution)"
@@ -738,7 +792,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 				m.status = "resolving assertion…"
 				return m, tea.Batch(
 					runOneAssertionCmd(m.ctx, m.client, m.storeID, m.assertModelID, it.Index, a),
-					expandCmd(m.ctx, m.client, m.storeID, u, rel, obj),
+					expandCmd(m.ctx, m.client, m.storeID, m.assertModelID, u, rel, obj),
 				)
 			}
 			return m, nil
@@ -775,10 +829,55 @@ func (m Model) enterForm(kind formKind) (tea.Model, tea.Cmd) {
 		m.form = buildWriteTupleForm(dw)
 	case formWriteAssertion:
 		m.form = buildWriteAssertionForm(dw)
+	case formAddProfile:
+		m.profileAuthMethod = config.AuthNone
+		m.form = buildProfileForm(true, m.profileAuthMethod, dw)
+	case formEditProfile:
+		// m.profileAuthMethod is set by the caller from the profile being edited.
+		m.form = buildProfileForm(false, m.profileAuthMethod, dw)
 	}
 	// Emphasize the active field with the theme highlight; others stay plain.
 	m.form.SetHighlight(style.FieldHighlight())
 	return m, m.form.Init()
+}
+
+// profileMethodIndex is the form-field index of the auth-method selector:
+// after name+api_url when adding, after api_url when editing.
+func (m Model) profileMethodIndex() int {
+	if m.formKind == formAddProfile {
+		return 2
+	}
+	return 1
+}
+
+// profileFormMethod reads the auth method currently selected in the profile form.
+func (m Model) profileFormMethod() string {
+	vals := m.form.Values()
+	if i := m.profileMethodIndex(); i < len(vals) {
+		return vals[i]
+	}
+	return ""
+}
+
+// rebuildProfileForm rebuilds the profile form for the newly-selected auth
+// method, preserving name/api_url/method and keeping focus on the selector.
+func (m *Model) rebuildProfileForm() tea.Cmd {
+	add := m.formKind == formAddProfile
+	vals := m.form.Values()
+	method := m.profileFormMethod()
+	dw, _ := m.sh.DialogSize()
+	m.form = buildProfileForm(add, method, dw)
+	m.form.SetHighlight(style.FieldHighlight())
+	var pre []string
+	idx := 0
+	if add {
+		pre = append(pre, vals[0])
+		idx = 1
+	}
+	pre = append(pre, vals[idx], method)
+	m.form.SetValues(pre)
+	m.profileAuthMethod = method
+	return m.form.FocusIndex(m.profileMethodIndex())
 }
 
 func (m Model) handleTakeoverForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -793,6 +892,13 @@ func (m Model) handleTakeoverForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // the resulting action once the form completes.
 func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmd := m.form.Update(msg)
+	// The profile form shows fields for the selected auth method; when the
+	// method selector changes, rebuild the form for the new method.
+	if (m.formKind == formAddProfile || m.formKind == formEditProfile) && !m.form.Completed() {
+		if method := m.profileFormMethod(); method != m.profileAuthMethod {
+			return m, m.rebuildProfileForm()
+		}
+	}
 	if m.form.Completed() {
 		vals := m.form.Values()
 		kind := m.formKind
@@ -813,11 +919,12 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.status = "writing " + fga.FormatTuple(key) + "…"
-			return m, writeTupleCmd(m.ctx, m.client, m.storeID, key, false)
+			return m, writeTupleCmd(m.ctx, m.client, m.storeID, m.modelID, key, false)
 		case formWriteAssertion:
 			key, err := fga.ParseTuple(vals[0], vals[1], vals[2])
 			if err != nil {
-				m.status = err.Error()
+				// Surface any failure adding an assertion in the modal, not the footer.
+				m.assertErr = err.Error()
 				return m, nil
 			}
 			a := openfga.Assertion{
@@ -832,15 +939,62 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.status = "writing assertions…"
 			return m, writeAssertionsCmd(m.ctx, m.client, m.storeID, m.assertModelID, list)
+		case formAddProfile:
+			name, p := profileFromForm(true, vals)
+			if name == "" {
+				m.status = "profile name required"
+				return m, nil
+			}
+			if _, exists := m.app.Config.Get(name); exists {
+				m.status = "profile " + name + " already exists"
+				return m, nil
+			}
+			m.app.Config.Set(name, p)
+			m.saveConfig()
+			m.populateProfiles()
+			m.status = "created profile " + name
+			return m, m.toasts.Push(toast.Success, m.status)
+		case formEditProfile:
+			name := m.profileEditName
+			existing, ok := m.app.Config.Get(name)
+			if !ok {
+				m.status = "profile " + name + " no longer exists"
+				return m, nil
+			}
+			_, p := profileFromForm(false, vals)
+			// Keep the auto-managed store/model; replace connection + auth, and
+			// migrate any legacy top-level token into the auth block.
+			existing.APIURL, existing.Auth, existing.APIToken = p.APIURL, p.Auth, ""
+			m.app.Config.Set(name, existing)
+			m.saveConfig()
+			m.populateProfiles()
+			// Editing the active profile changes the live connection — reconnect.
+			if name == m.app.Config.Active {
+				return m, m.reloadActive("updated profile " + name)
+			}
+			m.status = "updated profile " + name
+			return m, m.toasts.Push(toast.Success, m.status)
 		}
 	}
 	return m, cmd
 }
 
 func (m Model) handleQueryForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if msg.String() == "esc" {
+	switch msg.String() {
+	case "esc":
+		// One esc leaves the panel entirely: stop editing and hand focus back to
+		// the tab selection, rather than parking in a non-editing panel layer.
 		m.editing = false
+		m.focus = shell.FocusSidebar
 		return m, nil
+	case "tab":
+		// tab keeps shifting modes even mid-edit, landing in the new mode's
+		// first field. Field navigation stays on the arrows and enter.
+		m.cycleQueryMode(1)
+		return m, m.qform.Init()
+	case "shift+tab":
+		m.cycleQueryMode(-1)
+		return m, m.qform.Init()
 	}
 	return m.advanceQueryForm(msg)
 }
@@ -864,11 +1018,11 @@ func (m Model) advanceQueryForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = "running " + queryModes[m.qmode] + "…"
 		switch queryModes[m.qmode] {
 		case "check":
-			return m, checkCmd(m.ctx, m.client, m.storeID, a, b, c)
+			return m, checkCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c)
 		case "list-objects":
-			return m, listObjectsCmd(m.ctx, m.client, m.storeID, a, b, c)
+			return m, listObjectsCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c)
 		case "list-users":
-			return m, listUsersCmd(m.ctx, m.client, m.storeID, a, b, c)
+			return m, listUsersCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c)
 		}
 	}
 	return m, cmd
@@ -888,23 +1042,13 @@ func (m Model) rerunHistory(idx int) (tea.Model, tea.Cmd) {
 	m.status = "running " + queryModes[m.qmode] + "…"
 	switch queryModes[m.qmode] {
 	case "check":
-		return m, checkCmd(m.ctx, m.client, m.storeID, a, b, c)
+		return m, checkCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c)
 	case "list-objects":
-		return m, listObjectsCmd(m.ctx, m.client, m.storeID, a, b, c)
+		return m, listObjectsCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c)
 	case "list-users":
-		return m, listUsersCmd(m.ctx, m.client, m.storeID, a, b, c)
+		return m, listUsersCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c)
 	}
 	return m, nil
-}
-
-// staleSuffix returns a styled " stale" marker to append to a status line
-// when a data load failed because the connection dropped and cached data is
-// being kept on screen, or "" when nothing needs marking.
-func staleSuffix(connLost bool) string {
-	if !connLost {
-		return ""
-	}
-	return "  " + style.Warn.Render("stale")
 }
 
 func plural(n int, noun string) string {

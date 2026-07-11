@@ -24,6 +24,7 @@ type modelLoadedMsg struct {
 	modelID string
 	graph   fga.Graph
 	dsl     string
+	latest  bool // loaded via ReadLatest (i.e. the store's newest model)
 	err     error
 }
 
@@ -145,7 +146,7 @@ func loadModelCmd(ctx context.Context, cl *openfga.Client, storeID string) tea.C
 		if err != nil {
 			return modelLoadedMsg{err: err}
 		}
-		return modelLoadedMsg{modelID: m.ID, graph: fga.ParseModel(m), dsl: modelToDSL(m)}
+		return modelLoadedMsg{modelID: m.ID, graph: fga.ParseModel(m), dsl: modelToDSL(m), latest: true}
 	}
 }
 
@@ -155,7 +156,14 @@ func loadModelByIDCmd(ctx context.Context, cl *openfga.Client, storeID, modelID 
 		if err != nil {
 			return modelLoadedMsg{err: err}
 		}
-		return modelLoadedMsg{modelID: m.ID, graph: fga.ParseModel(m), dsl: modelToDSL(m)}
+		// Learn whether this model is the store's newest so the footer's
+		// "(latest)" tag is correct even before the full model list is loaded
+		// (e.g. when restoring a persisted model on startup).
+		latest := false
+		if newest, _, lerr := cl.AuthorizationModels.ReadLatest(ctx, openfga.WithStore(storeID)); lerr == nil {
+			latest = newest.ID == m.ID
+		}
+		return modelLoadedMsg{modelID: m.ID, graph: fga.ParseModel(m), dsl: modelToDSL(m), latest: latest}
 	}
 }
 
@@ -304,7 +312,7 @@ func createStoreCmd(ctx context.Context, cl *openfga.Client, name string) tea.Cm
 	}
 }
 
-func writeTupleCmd(ctx context.Context, cl *openfga.Client, storeID string, key openfga.TupleKey, del bool) tea.Cmd {
+func writeTupleCmd(ctx context.Context, cl *openfga.Client, storeID, modelID string, key openfga.TupleKey, del bool) tea.Cmd {
 	return func() tea.Msg {
 		var req *openfga.WriteRequest
 		if del {
@@ -312,7 +320,7 @@ func writeTupleCmd(ctx context.Context, cl *openfga.Client, storeID string, key 
 		} else {
 			req = &openfga.WriteRequest{Writes: &openfga.WriteRequestTuples{TupleKeys: []openfga.TupleKey{key}}}
 		}
-		if _, err := cl.Tuples.Write(ctx, req, openfga.WithStore(storeID)); err != nil {
+		if _, err := cl.Tuples.Write(ctx, req, openfga.WithStore(storeID), openfga.WithAuthorizationModel(modelID)); err != nil {
 			return tupleWrittenMsg{err: err, deleted: del}
 		}
 		return tupleWrittenMsg{label: fga.FormatTuple(key), deleted: del}
@@ -322,53 +330,79 @@ func writeTupleCmd(ctx context.Context, cl *openfga.Client, storeID string, key 
 // expandCmd fetches the Expand (userset) tree for object#relation, parses it,
 // and marks the branch that grants `user` (resolving computed usersets with
 // live Checks) so the tree can highlight the resolution path.
-func expandCmd(ctx context.Context, cl *openfga.Client, storeID, user, relation, object string) tea.Cmd {
+// Recursive resolution safety bounds: how deep ExpandTree recurses and how many
+// extra Expand calls it may make in total, so a deep or cyclic model can't fan
+// the tree (and the API traffic) out without limit.
+const (
+	resolveMaxDepth = 8
+	resolveMaxNodes = 64
+)
+
+func expandCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, user, relation, object string) tea.Cmd {
 	return func() tea.Msg {
-		res, _, err := cl.Relationships.Expand(ctx, &openfga.ExpandRequest{
-			TupleKey: openfga.CheckRequestTupleKey{Relation: relation, Object: object},
-		}, openfga.WithStore(storeID))
-		if err != nil {
-			return resolutionMsg{err: err}
+		// tupleset lists the objects related to `object` via `relation` — the
+		// "user" side of matching tuples — used both to expand tuple-to-userset
+		// branches and to resolve them in MarkGranted.
+		tupleset := func(object, relation string) []string {
+			var xs []string
+			req := &openfga.ReadRequest{
+				TupleKey: &openfga.ReadRequestTupleKey{Object: object, Relation: relation},
+				PageSize: 100,
+			}
+			for tp, terr := range cl.Tuples.ReadAll(ctx, req, openfga.WithStore(storeID)) {
+				if terr != nil {
+					break
+				}
+				xs = append(xs, tp.Key.User)
+				if len(xs) >= 100 {
+					break
+				}
+			}
+			return xs
 		}
-		root, ok := fga.ParseResolution(res.Tree)
-		if !ok {
+		// expand fetches one level of resolution for object#relation, so
+		// ExpandTree can splice nested branches in place of dead-end leaves.
+		expand := func(obj, rel string) *fga.ResNode {
+			er, _, eerr := cl.Relationships.Expand(ctx, &openfga.ExpandRequest{
+				TupleKey: openfga.CheckRequestTupleKey{Relation: rel, Object: obj},
+			}, openfga.WithStore(storeID), openfga.WithAuthorizationModel(modelID))
+			if eerr != nil {
+				return nil
+			}
+			sub, ok := fga.ParseResolution(er.Tree)
+			if !ok {
+				return nil
+			}
+			return sub
+		}
+
+		root := expand(object, relation)
+		if root == nil {
 			return resolutionMsg{err: errors.New("empty resolution tree")}
 		}
+		// Recursively resolve computed-userset and tuple-to-userset leaves so the
+		// tree shows nested branches, not one-level dead ends.
+		fga.ExpandTree(root, object+"#"+relation, expand, tupleset, resolveMaxDepth, resolveMaxNodes)
+
 		fga.MarkGranted(root, user, fga.GrantResolver{
 			Check: func(u, rel, obj string) bool {
 				cr, _, cerr := cl.Relationships.Check(ctx, &openfga.CheckRequest{
 					TupleKey: openfga.CheckRequestTupleKey{User: u, Relation: rel, Object: obj},
-				}, openfga.WithStore(storeID))
+				}, openfga.WithStore(storeID), openfga.WithAuthorizationModel(modelID))
 				return cerr == nil && cr.Allowed
 			},
-			Tupleset: func(object, relation string) []string {
-				var xs []string
-				req := &openfga.ReadRequest{
-					TupleKey: &openfga.ReadRequestTupleKey{Object: object, Relation: relation},
-					PageSize: 100,
-				}
-				for tp, terr := range cl.Tuples.ReadAll(ctx, req, openfga.WithStore(storeID)) {
-					if terr != nil {
-						break
-					}
-					xs = append(xs, tp.Key.User)
-					if len(xs) >= 100 {
-						break
-					}
-				}
-				return xs
-			},
+			Tupleset: tupleset,
 		})
 		return resolutionMsg{root: root}
 	}
 }
 
-func checkCmd(ctx context.Context, cl *openfga.Client, storeID, user, relation, object string) tea.Cmd {
+func checkCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, user, relation, object string) tea.Cmd {
 	start := time.Now()
 	return func() tea.Msg {
 		res, _, err := cl.Relationships.Check(ctx, &openfga.CheckRequest{
 			TupleKey: openfga.CheckRequestTupleKey{User: user, Relation: relation, Object: object},
-		}, openfga.WithStore(storeID))
+		}, openfga.WithStore(storeID), openfga.WithAuthorizationModel(modelID))
 		ms := time.Since(start).Milliseconds()
 		if err != nil {
 			return queryResultMsg{err: err, ms: ms}
@@ -381,12 +415,12 @@ func checkCmd(ctx context.Context, cl *openfga.Client, storeID, user, relation, 
 	}
 }
 
-func listObjectsCmd(ctx context.Context, cl *openfga.Client, storeID, typ, relation, user string) tea.Cmd {
+func listObjectsCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, typ, relation, user string) tea.Cmd {
 	start := time.Now()
 	return func() tea.Msg {
 		res, _, err := cl.Relationships.ListObjects(ctx, &openfga.ListObjectsRequest{
 			Type: typ, Relation: relation, User: user,
-		}, openfga.WithStore(storeID))
+		}, openfga.WithStore(storeID), openfga.WithAuthorizationModel(modelID))
 		ms := time.Since(start).Milliseconds()
 		if err != nil {
 			return queryResultMsg{err: err, ms: ms}
@@ -400,14 +434,14 @@ func listObjectsCmd(ctx context.Context, cl *openfga.Client, storeID, typ, relat
 	}
 }
 
-func listUsersCmd(ctx context.Context, cl *openfga.Client, storeID, object, relation, userType string) tea.Cmd {
+func listUsersCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, object, relation, userType string) tea.Cmd {
 	start := time.Now()
 	return func() tea.Msg {
 		res, _, err := cl.Relationships.ListUsers(ctx, &openfga.ListUsersRequest{
 			Object:      openfga.FGAObjectRelation{Object: object},
 			Relation:    relation,
 			UserFilters: []openfga.UserTypeFilter{{Type: userType}},
-		}, openfga.WithStore(storeID))
+		}, openfga.WithStore(storeID), openfga.WithAuthorizationModel(modelID))
 		ms := time.Since(start).Milliseconds()
 		if err != nil {
 			return queryResultMsg{err: err, ms: ms}

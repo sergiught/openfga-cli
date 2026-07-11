@@ -1,7 +1,6 @@
 package playground
 
 import (
-	"math"
 	"strconv"
 	"strings"
 
@@ -9,6 +8,7 @@ import (
 	lipgloss "charm.land/lipgloss/v2"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/icons"
@@ -36,7 +36,20 @@ func (m Model) viewString() string {
 	m.sh.SetSidebar(m.sidebarContext(), m.sidebarNav(), m.sidebarFooter())
 	m.sh.SetBrand("", m.version)
 	m.sh.SetMain(sectionNames[m.section], m.sectionBody())
-	st := shell.Status{Store: m.storeName, Model: short(m.modelID), Left: m.status, Keys: m.statusKeys()}
+	st := shell.Status{Left: m.sectionStatus(), Keys: m.statusKeys()}
+	// The active profile leads the footer as the connection identity.
+	st.Profile = "Profile: " + m.app.Config.Active
+	// Show the selected store's name and the full (untruncated) model id, tagged
+	// "(latest)" when it is the store's newest model.
+	if name := m.currentStoreName(); name != "" {
+		st.Store = "Store: " + name
+	}
+	if m.modelID != "" {
+		st.Model = "Model ID: " + m.modelID
+		if m.modelIsLatest {
+			st.Model += " (latest)"
+		}
+	}
 	if m.section == secQuery {
 		st.Mode = strings.ToUpper(queryModes[m.qmode])
 	}
@@ -46,7 +59,11 @@ func (m Model) viewString() string {
 	m.sh.SetStatus(st)
 
 	if title, body := m.dialogContent(); body != "" {
-		m.sh.SetDialog(title, body)
+		if m.assertErr != "" {
+			m.sh.SetDialog(title, body, style.Red) // error modal: red title + border
+		} else {
+			m.sh.SetDialog(title, body)
+		}
 	} else {
 		m.sh.SetDialog("", "")
 	}
@@ -61,6 +78,10 @@ func (m Model) viewString() string {
 // ("", "") when no dialog is open. The shell draws the box.
 func (m Model) dialogContent() (string, string) {
 	switch {
+	case m.assertErr != "":
+		w, _ := m.sh.DialogSize()
+		return "Error", style.Failure.Width(w).Render(m.assertErr) +
+			"\n\n" + style.Faint.Render("enter or esc to dismiss")
 	case m.paletteOpen:
 		return "Command palette", m.paletteList.View() + "\n" + style.Faint.Render("↑↓ choose · enter go · esc close")
 	case m.formKind == formCreateStore:
@@ -73,30 +94,33 @@ func (m Model) dialogContent() (string, string) {
 			title = "Edit Assertion"
 		}
 		return title, m.form.View() + "\n" + style.Faint.Render("tab move · space toggle · enter save · esc cancel")
+	case m.formKind == formAddProfile:
+		return "Add Profile", m.form.View() + "\n" + style.Faint.Render("tab/↑↓ move · ←→ auth method · enter save · esc cancel")
+	case m.formKind == formEditProfile:
+		return "Edit Profile", m.form.View() + "\n" + style.Faint.Render("tab/↑↓ move · ←→ auth method · enter save · esc cancel")
 	case m.section == secModel && m.modelPicking:
 		return "Switch model", m.modelsList.View() + "\n" + style.Faint.Render("↑↓ choose · enter load · esc cancel")
 	}
 	return "", ""
 }
 
+// sidebarContext shows the connection status above the nav. The active store
+// and model already appear in the bottom status bar, so they aren't repeated
+// here.
 func (m Model) sidebarContext() []string {
 	if m.storeID == "" {
-		return []string{style.Faint.Render("no store selected")}
+		return []string{style.Dot(style.DotOffline) + " " + style.Faint.Render("disconnected")}
 	}
-	name := m.storeName
-	if name == "" {
-		name = short(m.storeID)
+	if m.connLost {
+		return []string{style.Dot(style.DotError) + " " + style.Failure.Render("connection lost")}
 	}
-	lines := []string{lipgloss.NewStyle().Foreground(style.Accent).Render(style.IconStore) + " " + style.Value.Render(name)}
-	if m.modelID != "" {
-		lines = append(lines, style.Faint.Render(style.IconModel+" "+short(m.modelID)))
-	}
-	return lines
+	dot := lipgloss.NewStyle().Foreground(style.Green).Render(style.IconDot)
+	return []string{dot + " " + style.Faint.Render("connected")}
 }
 
 func (m Model) sidebarNav() []shell.NavItem {
 	ic := icons.I()
-	sectionIcons := []string{ic.Store, ic.Model, ic.Tuple, ic.Change, ic.Query, ic.Assert}
+	sectionIcons := []string{ic.Profile, ic.Store, ic.Model, ic.Tuple, ic.Change, ic.Query, ic.Assert}
 	items := make([]shell.NavItem, len(sectionNames))
 	for i, name := range sectionNames {
 		it := shell.NavItem{Label: name, Icon: sectionIcons[i], Active: section(i) == m.section}
@@ -115,21 +139,17 @@ func (m Model) sidebarNav() []shell.NavItem {
 	return items
 }
 
-func (m Model) sidebarFooter() string {
-	if m.storeID == "" {
-		return style.Dot(style.DotOffline) + " " + style.Faint.Render("disconnected")
-	}
-	if m.connLost {
-		return style.Dot(style.DotError) + " " + style.Failure.Render("connection lost")
-	}
-	k := 0.5 + 0.5*math.Sin(m.pulse)
-	dot := lipgloss.NewStyle().Foreground(style.Blend(style.Green, style.Faintc, k)).Render(style.IconDot)
-	return dot + " " + style.Faint.Render("connected")
-}
+// sidebarFooter is intentionally empty: the connection status now sits above
+// the nav (sidebarContext) and store/model live in the bottom status bar.
+func (m Model) sidebarFooter() string { return "" }
 
 func (m Model) sectionBody() string {
 	var body string
 	switch m.section {
+	case secProfiles:
+		w, h := m.contentSize()
+		pt, pb := m.profilePreview()
+		body = masterDetail(m.profilesList.View(), pt, pb, w, h)
 	case secStores:
 		if len(m.stores) == 0 {
 			body = style.Faint.Render("No stores yet — press n to create one")
@@ -220,6 +240,87 @@ func keyValueCard(pairs [][2]string) string {
 	return strings.Join(lines, "\n")
 }
 
+// profilePreview renders the selected profile's title and details for the
+// profiles master-detail split, or ("", "") when nothing is selected. Store and
+// model are tagged auto (they are managed for you); the token is masked.
+func (m Model) profilePreview() (string, string) {
+	it, ok := m.profilesList.Selected()
+	if !ok {
+		return "", ""
+	}
+	p, ok := m.app.Config.Get(it.ID)
+	if !ok {
+		return "", ""
+	}
+	title := it.ID
+	if it.ID == m.app.Config.Active {
+		title += "  · active"
+	}
+	rows := [][2]string{
+		{"API URL", p.APIURL},
+		{"Store", autoField(p.StoreID)},
+		{"Model", autoField(p.ModelID)},
+	}
+	rows = append(rows, authPreviewRows(p.ResolvedAuth())...)
+	return title, keyValueCard(rows)
+}
+
+// authPreviewRows renders a profile's auth for the master-detail preview, with
+// secrets masked.
+func authPreviewRows(a config.Auth) [][2]string {
+	method := a.Method
+	if method == "" {
+		method = config.AuthNone
+	}
+	rows := [][2]string{{"Auth", method}}
+	switch a.Method {
+	case config.AuthAPIToken:
+		rows = append(rows, [2]string{"Token", maskToken(a.Token)})
+	case config.AuthClientCredentials:
+		rows = append(rows,
+			[2]string{"Client ID", orDash(a.ClientID)},
+			[2]string{"Secret", maskToken(a.ClientSecret)},
+			[2]string{"Token URL", orDash(a.TokenURL)},
+		)
+	case config.AuthPrivateKeyJWT:
+		rows = append(rows,
+			[2]string{"Client ID", orDash(a.ClientID)},
+			[2]string{"Key file", orDash(a.KeyFile)},
+			[2]string{"Signing", orDash(a.SigningMethod)},
+		)
+	}
+	return rows
+}
+
+// orDash renders a value or an em dash when empty.
+func orDash(s string) string {
+	if s == "" {
+		return "—"
+	}
+	return s
+}
+
+// autoField renders an auto-managed profile value (store/model id): the value
+// tagged "auto", or a dash when unset.
+func autoField(s string) string {
+	if s == "" {
+		return "— (auto)"
+	}
+	return s + " (auto)"
+}
+
+// maskToken renders an API token with only its first and last few characters,
+// or a dash when unset.
+func maskToken(tok string) string {
+	if tok == "" {
+		return "—"
+	}
+	if len(tok) <= 8 {
+		return "••••"
+	}
+	return tok[:3] + "…" + tok[len(tok)-3:]
+}
+
 // storePreview renders the selected store's title and details for the
 // stores master-detail split, or ("", "") when nothing is selected.
 func (m Model) storePreview() (string, string) {
@@ -303,17 +404,21 @@ func (m Model) queryBody() string {
 		return head + "\n" + style.SectionHeader("", w) + "\n" + m.resVP.View()
 	}
 
-	// Header: mode chip + key hints. The huh fields already carry their own
-	// focus accents, so no extra box is drawn around them (the main panel frames
-	// the whole section).
-	chip := lipgloss.NewStyle().Background(style.BgRaised).Foreground(style.Secondary).
-		Bold(true).Padding(0, 1).Render(queryModes[m.qmode])
-	hint := "m mode · i edit · enter run"
-	if m.hasResult && m.result.badge {
-		hint += " · r resolution"
+	// Mode selector: every query mode is shown as a segmented strip with the
+	// active one filled and the rest faint; `m` cycles between them (the keys
+	// live in the status bar, not here). The fields carry their own focus
+	// accents, so no extra box is drawn around them — the main panel frames the
+	// whole section.
+	segs := make([]string, len(queryModes))
+	for i, name := range queryModes {
+		if i == m.qmode {
+			segs[i] = style.Chip(name, style.Secondary, style.BgRaised)
+			continue
+		}
+		segs[i] = lipgloss.NewStyle().Padding(0, 1).Foreground(style.Faintc).Render(name)
 	}
 	var b strings.Builder
-	b.WriteString(chip + "  " + style.Faint.Render(hint))
+	b.WriteString(strings.Join(segs, " "))
 	b.WriteString("\n\n" + m.qform.View())
 
 	w, _ := m.contentSize()
@@ -321,7 +426,14 @@ func (m Model) queryBody() string {
 	case m.loading:
 		b.WriteString("\n\n" + m.spinner.View() + " running…")
 	case m.hasResult && m.result.err != nil:
-		b.WriteString("\n\n" + style.Failure.Render("error: ") + style.Faint.Render(m.result.err.Error()))
+		// Wrap a long error so it stays fully readable instead of running off
+		// the right edge. On a wide section it sits in the left half; once the
+		// section is too narrow for that to be legible, it wraps full width.
+		ew := w
+		if w >= 135 {
+			ew = w / 2
+		}
+		b.WriteString("\n\n" + style.Failure.Width(ew).Render("error: "+m.result.err.Error()))
 	case m.hasResult:
 		tint := style.Faintc
 		if r := m.result; m.flash && r.badge {
@@ -331,12 +443,10 @@ func (m Model) queryBody() string {
 			}
 		}
 		b.WriteString("\n\n" + style.SectionHeaderTinted("Result", w, tint) + "\n" + m.renderResult())
-	case len(m.history) == 0:
-		b.WriteString("\n\n" + style.Keycap("i") + " edit  " + style.Keycap("↵") + " run")
 	}
 
 	if len(m.history) > 0 {
-		b.WriteString("\n\n" + style.SectionHeader("Recent", w) + "\n" + m.historyStrip())
+		b.WriteString("\n\n" + style.SectionHeader("Recent", w) + "\n" + m.historyStrip(w))
 	}
 
 	// Chip + form + result + history can add up to more rows than short
@@ -382,20 +492,48 @@ func (m Model) renderResult() string {
 // historyStrip renders up to 5 numbered chips for recent query results,
 // newest first: a colored check/cross plus the first field value. Returns ""
 // when there is no history yet.
-func (m Model) historyStrip() string {
+func (m Model) historyStrip(maxW int) string {
 	if len(m.history) == 0 {
 		return ""
 	}
-	chips := make([]string, len(m.history))
+	var chips []string
+	used := 0
 	for i, h := range m.history {
-		ic, c := icons.I().Cross, style.Red
-		if h.ok {
-			ic, c = icons.I().Check, style.Green
+		// Checks carry an allow/deny verdict (green ✓ / red ✗); list-objects and
+		// list-users have no verdict, so they get a neutral marker.
+		ic, c := icons.I().Dot, style.Muted
+		if h.mode == "check" {
+			ic, c = icons.I().Cross, style.Red
+			if h.ok {
+				ic, c = icons.I().Check, style.Green
+			}
 		}
 		label := itoa(i+1) + " " + lipgloss.NewStyle().Foreground(c).Background(style.BgHighlight).Render(ic)
-		chips[i] = style.Chip(label+" "+h.vals[0], style.Muted, style.BgHighlight)
+		chip := style.Chip(label+" "+histNotation(h), style.Muted, style.BgHighlight)
+		// Keep only the (newest-first) chips that fit on the one-line strip;
+		// otherwise the panel's fitLines hard-truncates it with a stray ellipsis.
+		sep := 0
+		if len(chips) > 0 {
+			sep = 1
+		}
+		if maxW > 0 && used+sep+lipgloss.Width(chip) > maxW {
+			break
+		}
+		used += sep + lipgloss.Width(chip)
+		chips = append(chips, chip)
 	}
 	return strings.Join(chips, " ")
+}
+
+// histNotation renders a recorded query as object#relation@user shorthand. Only
+// check queries are recorded (see pushHistory), whose fields are ordered
+// [user, relation, object]; the list-mode ordering (object/type first) is
+// handled too so the label stays correct if that ever changes.
+func histNotation(h histEntry) string {
+	if h.mode == "check" {
+		return h.vals[2] + "#" + h.vals[1] + "@" + h.vals[0]
+	}
+	return h.vals[0] + "#" + h.vals[1] + "@" + h.vals[2]
 }
 
 func (m Model) assertionsBody() string {
@@ -436,6 +574,8 @@ func (m Model) assertionsBody() string {
 func (m Model) statusKeys() []string {
 	// Sub-editors that capture every key advertise only their own bindings.
 	switch {
+	case m.assertErr != "":
+		return []string{"↵", "esc"}
 	case m.formKind != formNone:
 		return []string{"↵", "esc"}
 	case m.section == secModel && m.editorOpen:
@@ -443,16 +583,18 @@ func (m Model) statusKeys() []string {
 	case m.section == secModel && m.modelPicking:
 		return []string{"↑↓", "↵", "esc"}
 	case m.section == secQuery && m.editing:
-		return []string{"tab", "↵", "esc"}
+		return []string{"tab mode", "↑↓", "↵", "esc"}
 	case m.section == secQuery && m.showRes:
 		return []string{"↑↓←→", "p", "r", "esc"}
 	}
 	// Sidebar (tab selection) focus: browse tabs, enter to descend.
 	if m.focus == shell.FocusSidebar {
-		return []string{"↑↓", "tab", "↵ open", "1-6", "ctrl+k", "q"}
+		return []string{"↑↓", "tab", "↵ open", "1-7", "ctrl+k", "q"}
 	}
 	// Panel focus: section-specific keys, esc back to the tabs.
 	switch m.section {
+	case secProfiles:
+		return []string{"↑↓", "↵ switch", "n", "e", "d", "esc"}
 	case secStores:
 		return []string{"↑↓", "/", "↵", "n", "r", "esc"}
 	case secModel:
@@ -462,11 +604,29 @@ func (m Model) statusKeys() []string {
 	case secChanges:
 		return []string{"↑↓", "/", "r", "esc"}
 	case secQuery:
-		return []string{"i", "m", "↵", "r", "esc"}
+		return []string{"i", "tab mode", "↵", "r", "esc"}
 	case secAssertions:
 		return []string{"↑↓", "↵", "a", "e", "d", "t", "esc"}
 	}
 	return nil
+}
+
+// sectionStatus is the footer's left-hand message: a count of the current
+// section's items. Profiles, Model and Tuple Queries have nothing to count and
+// show no message. Transient feedback (errors, successes) rides on toasts, and
+// the spinner marks in-flight loads.
+func (m Model) sectionStatus() string {
+	switch m.section {
+	case secStores:
+		return plural(len(m.stores), "store")
+	case secTuples:
+		return plural(len(m.tuples), "tuple")
+	case secChanges:
+		return plural(len(m.changes), "change")
+	case secAssertions:
+		return plural(len(m.assertions), "assertion")
+	}
+	return ""
 }
 
 func itoa(n int) string { return strconv.Itoa(n) }

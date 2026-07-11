@@ -29,7 +29,8 @@ const modelTemplate = "model\n  schema 1.1\n\ntype user\n\ntype document\n  rela
 type section int
 
 const (
-	secStores section = iota
+	secProfiles section = iota
+	secStores
 	secModel
 	secTuples
 	secChanges
@@ -37,7 +38,7 @@ const (
 	secAssertions
 )
 
-var sectionNames = []string{"Stores", "Model", "Tuples", "Changes", "Query", "Assertions"}
+var sectionNames = []string{"Profiles", "Stores", "Model", "Tuples", "Changes", "Tuple Queries", "Assertions"}
 
 // formKind identifies a full-panel form takeover.
 type formKind int
@@ -47,6 +48,8 @@ const (
 	formCreateStore
 	formWriteTuple
 	formWriteAssertion
+	formAddProfile
+	formEditProfile
 )
 
 var queryModes = []string{"check", "list-objects", "list-users"}
@@ -93,9 +96,10 @@ type Model struct {
 
 	fading bool // true while rendering incoming section as a ghost frame
 
-	storeID   string
-	storeName string
-	modelID   string
+	storeID       string
+	storeName     string
+	modelID       string
+	modelIsLatest bool // current model is the store's newest
 
 	section section
 	focus   shell.Focus // FocusSidebar (tab selection) or FocusPanel (right pane)
@@ -108,13 +112,17 @@ type Model struct {
 
 	toasts toast.Model
 
-	// breathing status dot: pulse advances every 500ms while a store is
-	// selected; connLost flips the footer to a solid "connection lost" dot
-	// when the last command failed with a network-level error.
-	pulse    float64
+	// connLost flips the footer to a solid "connection lost" dot when the last
+	// command failed with a network-level error.
 	connLost bool
 
 	// data + lists
+	// profiles are backed by config (no async load); profileEditName holds the
+	// profile being edited while the edit form is open.
+	profilesList      *uilist.List
+	profileEditName   string
+	profileAuthMethod string // auth method the open add/edit-profile form is built for
+
 	stores     []openfga.Store
 	storesList *uilist.List
 
@@ -144,6 +152,7 @@ type Model struct {
 	assertResults  []assertResult
 	assertSummary  string
 	assertModelID  string
+	assertErr      string // API error from the last write, shown as a modal
 
 	// query
 	qmode     int
@@ -175,7 +184,7 @@ type Model struct {
 	modelDSL   string // DSL of the currently-loaded model, for edit pre-fill
 }
 
-func newModel(ctx context.Context, a *app.App, cl *openfga.Client, storeID string) Model {
+func newModel(ctx context.Context, a *app.App, cl *openfga.Client, storeID, modelID string) Model {
 	sp := spinner.New(spinner.WithSpinner(spinner.Dot), spinner.WithStyle(lipgloss.NewStyle().Foreground(style.Primary)))
 
 	// A lightly-damped spring gives scrolling momentum without overshoot.
@@ -204,9 +213,11 @@ func newModel(ctx context.Context, a *app.App, cl *openfga.Client, storeID strin
 		section:        secStores,
 		version:        a.Version,
 		storeID:        storeID,
+		modelID:        modelID,
 		graphSpring:    graphSpring,
 		loading:        true,
 		status:         "loading stores…",
+		profilesList:   uilist.New(),
 		storesList:     uilist.New(),
 		tuplesList:     uilist.New(),
 		modelsList:     uilist.New(),
@@ -218,6 +229,7 @@ func newModel(ctx context.Context, a *app.App, cl *openfga.Client, storeID strin
 	}
 	m.qmode = 0
 	m.populatePalette()
+	m.populateProfiles()
 	if storeID == "" {
 		m.status = "no store selected — pick one in Stores"
 	}
@@ -235,13 +247,23 @@ func (m Model) Init() tea.Cmd {
 	}
 	if m.storeID != "" {
 		cmds = append(cmds,
-			loadModelCmd(m.ctx, m.client, m.storeID),
+			m.startModelCmd(),
 			loadTuplesCmd(m.ctx, m.client, m.storeID),
-			pulseTick(), // the breathing dot loop starts here; selectStore starts
-			// it instead when the store is chosen after launch with none preset.
+			loadChangesCmd(m.ctx, m.client, m.storeID),
 		)
 	}
 	return tea.Batch(cmds...)
+}
+
+// startModelCmd loads the model to show on startup (or after a profile switch):
+// the specific persisted model when one is configured, otherwise the store's
+// latest. Loading the persisted model keeps a deliberately-chosen older model
+// selected across restarts instead of snapping back to latest.
+func (m Model) startModelCmd() tea.Cmd {
+	if m.modelID != "" {
+		return loadModelByIDCmd(m.ctx, m.client, m.storeID, m.modelID)
+	}
+	return loadModelCmd(m.ctx, m.client, m.storeID)
 }
 
 // Run launches the playground.
@@ -254,10 +276,15 @@ func Run(ctx context.Context, a *app.App) error {
 	if err != nil {
 		return err
 	}
-	m := newModel(ctx, a, cl, r.StoreID)
-	if r.StoreID != "" {
-		m.storeName = r.StoreID
+	// On first run, materialize a starter config.toml (default profile, default
+	// API URL, no store/model yet) so the file exists to be updated as the user
+	// picks a store and model in the TUI.
+	if !a.Config.Existed() {
+		if err := a.SaveConfig(); err != nil {
+			a.Logger.Debug("failed to write initial config", "error", err)
+		}
 	}
+	m := newModel(ctx, a, cl, r.StoreID, r.ModelID)
 	icons.Apply(icons.Parse(a.Config.IconsMode()))
 	p := tea.NewProgram(m)
 	_, err = p.Run()
@@ -270,6 +297,7 @@ func (m *Model) resize() {
 	m.sh.SetSize(m.width, m.height)
 	w, h := m.sh.MainSize()
 	lw := splitListWidth(w)
+	m.profilesList.SetSize(lw, h)
 	m.storesList.SetSize(lw, h)
 	m.tuplesList.SetSize(lw, h)
 	m.changesList.SetSize(lw, h)
@@ -327,18 +355,34 @@ func (m *Model) refreshResVP() {
 	if m.resTree == nil {
 		return
 	}
+	// vals carry the query the resolution ran for: [user, relation, object].
+	user, relation, object := m.result.vals[0], m.result.vals[1], m.result.vals[2]
 	if m.resPathOnly {
 		if p := fga.GrantedPath(m.resTree); p != nil {
-			m.resVP.SetContent(fga.RenderResolution(p))
+			m.resVP.SetContent(fga.RenderResolution(p, user, object, relation))
 		} else {
 			m.resVP.SetContent(style.Faint.Render("no granting path — this relation doesn't resolve to the user"))
 		}
 		return
 	}
-	m.resVP.SetContent(fga.RenderResolution(m.resTree))
+	m.resVP.SetContent(fga.RenderResolution(m.resTree, user, object, relation))
 }
 
 // --- list population ---
+
+func (m *Model) populateProfiles() {
+	names := m.app.Config.ProfileNames()
+	items := make([]uilist.Item, len(names))
+	for i, name := range names {
+		p, _ := m.app.Config.Get(name)
+		desc := p.APIURL
+		if name == m.app.Config.Active {
+			desc = "active · " + desc
+		}
+		items[i] = uilist.Item{TitleText: name, DescText: desc, Filter: name, ID: name, Index: i}
+	}
+	m.profilesList.SetItems(items)
+}
 
 func (m *Model) populateStores() {
 	items := make([]uilist.Item, len(m.stores))
@@ -451,6 +495,28 @@ func (m *Model) rebuildQueryForm() {
 	m.qform.Init()
 }
 
+// cycleQueryMode advances the active query mode by dir (+1 next, -1 previous),
+// wrapping around, and rebuilds the form for the new mode. Centralizing the
+// wrap keeps the backward direction from underflowing.
+func (m *Model) cycleQueryMode(dir int) {
+	n := len(queryModes)
+	m.qmode = (m.qmode + dir + n) % n
+	m.rebuildQueryForm()
+	m.hasResult = false
+}
+
+// enterQueryEdit focuses the query form so the first field captures typing,
+// guarding on a selected store. It returns the field's cursor-blink command
+// (nil when there is no store yet).
+func (m *Model) enterQueryEdit() tea.Cmd {
+	if m.storeID == "" {
+		m.status = "select a store first"
+		return nil
+	}
+	m.editing = true
+	return m.qform.Init()
+}
+
 // pushHistory records a query result at the front of the history, newest
 // first, capped at 5 entries.
 func (m *Model) pushHistory(h histEntry) {
@@ -463,11 +529,12 @@ func (m *Model) pushHistory(h histEntry) {
 // --- store selection ---
 
 func (m *Model) selectStore(s openfga.Store) tea.Cmd {
-	firstStore := m.storeID == "" // pulse loop isn't running yet in this case
 	m.storeID = s.ID
 	m.storeName = s.Name
 	m.modelID = ""
+	m.modelIsLatest = false
 	m.graph = fga.Graph{}
+	m.models = nil // the previous store's models must not linger in the picker
 	m.tuples = nil
 	m.changes = nil
 	m.assertions = nil
@@ -476,15 +543,142 @@ func (m *Model) selectStore(s openfga.Store) tea.Cmd {
 	m.hasResult = false
 	m.result = queryResultMsg{}
 	m.rebuildQueryForm()
+	m.persistStore()
 	m.status = "loaded store " + s.Name
-	cmds := []tea.Cmd{
+	return tea.Batch(
 		loadModelCmd(m.ctx, m.client, m.storeID),
 		loadTuplesCmd(m.ctx, m.client, m.storeID),
+		loadChangesCmd(m.ctx, m.client, m.storeID),
+	)
+}
+
+// persistStore records the selected store on the active profile and saves,
+// clearing the profile's model id (a new store invalidates the old model; the
+// model that loads next re-records it). No-op when the profile already reflects
+// this store with no model, so an ordinary launch doesn't rewrite the file.
+func (m *Model) persistStore() {
+	active := m.app.Config.Active
+	p, ok := m.app.Config.Get(active)
+	if !ok {
+		return
 	}
-	if firstStore {
-		cmds = append(cmds, pulseTick())
+	if p.StoreID == m.storeID && p.ModelID == "" {
+		return
+	}
+	p.StoreID = m.storeID
+	p.ModelID = ""
+	m.app.Config.Set(active, p)
+	m.saveConfig()
+}
+
+// persistModel records the loaded model id on the active profile and saves.
+// No-op when unchanged, so reloading an already-recorded model on launch
+// doesn't rewrite the file.
+func (m *Model) persistModel() {
+	active := m.app.Config.Active
+	p, ok := m.app.Config.Get(active)
+	if !ok {
+		return
+	}
+	if p.ModelID == m.modelID {
+		return
+	}
+	p.ModelID = m.modelID
+	m.app.Config.Set(active, p)
+	m.saveConfig()
+}
+
+// saveConfig persists the config, recording a non-fatal failure in the status
+// line rather than interrupting the session. It skips the write when the config
+// has no resolved on-disk location, so it never guesses a path.
+func (m *Model) saveConfig() {
+	if m.app.Config.Path() == "" {
+		return
+	}
+	if err := m.app.SaveConfig(); err != nil {
+		m.status = "could not save config: " + err.Error()
+	}
+}
+
+// switchProfile makes name the active profile and reconnects to it.
+func (m *Model) switchProfile(name string) tea.Cmd {
+	if name == m.app.Config.Active {
+		m.status = "already on profile " + name
+		return nil
+	}
+	if err := m.app.Config.Use(name); err != nil {
+		return m.toastErr("profile", err)
+	}
+	m.saveConfig()
+	return m.reloadActive("switched to profile " + name)
+}
+
+// reloadActive repoints the client at the active profile's resolved connection,
+// resets all loaded data, and reloads the stores (plus the profile's store and
+// model, when set). It is used both when switching profiles and when the active
+// profile's connection details are edited. On a client-build failure it keeps
+// the previous client and surfaces a toast, so a broken profile can be fixed.
+func (m *Model) reloadActive(status string) tea.Cmd {
+	r, err := m.app.Resolve()
+	if err != nil {
+		return m.toastErr("profile", err)
+	}
+	cl, err := m.app.Client()
+	if err != nil {
+		m.populateProfiles()
+		return m.toastErr("profile", err)
+	}
+	m.client = cl
+
+	// Reset every per-connection field, then adopt the profile's store/model.
+	m.storeID = r.StoreID
+	m.storeName = ""
+	m.modelID = r.ModelID
+	m.modelIsLatest = false
+	m.stores = nil
+	m.graph = fga.Graph{}
+	m.models = nil
+	m.tuples = nil
+	m.changes = nil
+	m.assertions = nil
+	m.assertResults = nil
+	m.assertSummary = ""
+	m.history = nil
+	m.hasResult = false
+	m.result = queryResultMsg{}
+	m.showRes = false
+	m.resTree = nil
+	m.connLost = false
+	m.rebuildQueryForm()
+	m.populateProfiles()
+	m.populateStores()
+	m.loading = true
+	m.status = status
+
+	cmds := []tea.Cmd{loadStoresCmd(m.ctx, m.client)}
+	if m.storeID != "" {
+		cmds = append(cmds,
+			m.startModelCmd(),
+			loadTuplesCmd(m.ctx, m.client, m.storeID),
+			loadChangesCmd(m.ctx, m.client, m.storeID),
+		)
 	}
 	return tea.Batch(cmds...)
+}
+
+// currentStoreName resolves the active store's display name, preferring the
+// cached name (set on selection) and otherwise looking it up in the loaded
+// stores list — so the footer labels the store as soon as the list arrives.
+func (m Model) currentStoreName() string {
+	if m.storeName != "" {
+		return m.storeName
+	}
+	for _, s := range m.stores {
+		if s.ID == m.storeID {
+			return s.Name
+		}
+	}
+	return ""
 }
 
 func boolWord(b bool) string {
