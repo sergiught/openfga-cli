@@ -587,38 +587,38 @@ func (m Model) statusKeys() []string {
 	// Sub-editors that capture every key advertise only their own bindings.
 	switch {
 	case m.assertErr != "":
-		return []string{"↵", "esc"}
+		return []string{"↵ dismiss", "esc"}
 	case m.formKind != formNone:
-		return []string{"↵", "esc"}
+		return []string{"↵ save", "esc cancel"}
 	case m.section == secModel && m.editorOpen:
-		return []string{"ctrl+s", "esc"}
+		return []string{"ctrl+s apply", "esc cancel"}
 	case m.section == secModel && m.modelPicking:
-		return []string{"↑↓", "↵", "esc"}
+		return []string{"↑↓ browse", "↵ select", "esc"}
 	case m.section == secQuery && m.editing:
-		return []string{"tab mode", "↑↓", "↵", "esc"}
+		return []string{"↑↓ field", "tab mode", "↵ run", "esc"}
 	case m.section == secQuery && m.showRes:
-		return []string{"↑↓←→", "p", "r", "esc"}
+		return []string{"↑↓←→ scroll", "p ACL path", "r close", "esc"}
 	}
 	// Sidebar (tab selection) focus: browse tabs, enter to descend.
 	if m.focus == shell.FocusSidebar {
-		return []string{"↑↓", "tab", "↵ open", "1-7", "ctrl+k", "q"}
+		return []string{"↑↓/tab", "↵ open", "1-7 jump", "ctrl+k palette", "q quit"}
 	}
 	// Panel focus: section-specific keys, esc back to the tabs.
 	switch m.section {
 	case secProfiles:
-		return []string{"↑↓", "↵ switch", "n", "e", "d", "esc"}
+		return []string{"↑↓", "↵ switch", "n add", "e edit", "d delete", "esc"}
 	case secStores:
-		return []string{"↑↓", "/", "↵", "n", "r", "esc"}
+		return []string{"↑↓", "/ filter", "↵ select", "n new", "r reload", "esc"}
 	case secModel:
-		return []string{"↑↓ pan", "hjkl", "e", "m", "r", "esc"}
+		return []string{"↑↓/hjkl pan", "e edit DSL", "m switch", "r reload", "esc"}
 	case secTuples:
-		return []string{"↑↓", "/", "a", "d", "r", "esc"}
+		return []string{"↑↓", "/ filter", "a add", "d delete", "r reload", "esc"}
 	case secChanges:
-		return []string{"↑↓", "/", "r", "esc"}
+		return []string{"↑↓", "/ filter", "r reload", "esc"}
 	case secQuery:
-		return []string{"i", "tab mode", "↵", "r", "esc"}
+		return []string{"i/↵ edit", "tab mode", "1-5 rerun", "r resolve", "esc"}
 	case secAssertions:
-		return []string{"↑↓", "↵", "a", "e", "d", "t", "esc"}
+		return []string{"↑↓", "↵ run", "a add", "e edit", "d delete", "t run all", "esc"}
 	}
 	return nil
 }

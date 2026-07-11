@@ -1343,6 +1343,8 @@ func TestAssertionAddFormErrorShowsDialog(t *testing.T) {
 // (not id) and tags the model "(latest)" only when it is the store's newest.
 func TestFooterStoreNameAndLatestTag(t *testing.T) {
 	var m tea.Model = newTestModel()
+	// Wide enough for the chips to sit alongside the (verbose) key hints.
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 140, Height: 32})
 	// A ReadLatest load is tagged latest.
 	m, _ = m.Update(modelLoadedMsg{modelID: "01HXNEW", graph: sampleGraph(), latest: true})
 	out := ansi.Strip(m.(Model).viewString())
@@ -1373,7 +1375,7 @@ func TestFooterStoreNameFromLoadedList(t *testing.T) {
 	a := app.New(log.New(io.Discard), config.New(), "test")
 	mdl := newModel(context.Background(), a, cl, "cfg-store", "")
 	var m tea.Model = mdl
-	m, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 28})
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 140, Height: 28})
 	m, _ = m.Update(storesLoadedMsg{stores: []openfga.Store{
 		{ID: "other", Name: "staging"},
 		{ID: "cfg-store", Name: "production"},
