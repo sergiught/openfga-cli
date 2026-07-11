@@ -735,9 +735,6 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 		case "m":
 			// Browse modes without entering the form.
 			m.cycleQueryMode(1)
-		case "c":
-			// Edit the ABAC context + contextual tuples applied to queries.
-			return m.enterForm(formQueryContext)
 		case "r":
 			// Show the Check resolution tree for the last check.
 			if m.hasResult && m.result.badge {
@@ -838,8 +835,6 @@ func (m Model) enterForm(kind formKind) (tea.Model, tea.Cmd) {
 	case formEditProfile:
 		// m.profileAuthMethod is set by the caller from the profile being edited.
 		m.form = buildProfileForm(false, m.profileAuthMethod, dw)
-	case formQueryContext:
-		m.form = buildQueryContextForm(dw, m.qContextRaw, m.qContextualRaw)
 	}
 	// Emphasize the active field with the theme highlight; others stay plain.
 	m.form.SetHighlight(style.FieldHighlight())
@@ -997,24 +992,6 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.status = "updated profile " + name
 			return m, m.toasts.Push(toast.Success, m.status)
-		case formQueryContext:
-			// Keep the raw text (even on error) so re-editing shows what was typed.
-			m.qContextRaw, m.qContextualRaw = strings.TrimSpace(vals[0]), strings.TrimSpace(vals[1])
-			ctxMap, err := parseContextJSON(m.qContextRaw)
-			if err != nil {
-				return m, m.toastErr("context", err)
-			}
-			tuples, err := parseContextualTuples(m.qContextualRaw)
-			if err != nil {
-				return m, m.toastErr("contextual tuples", err)
-			}
-			m.qContext, m.qContextual = ctxMap, tuples
-			if m.qctx().set() {
-				m.status = "query context set"
-			} else {
-				m.status = "query context cleared"
-			}
-			return m, m.toasts.Push(toast.Success, m.status)
 		}
 	}
 	return m, cmd
@@ -1050,20 +1027,25 @@ func (m Model) advanceQueryForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a := strings.TrimSpace(vals[0])
 		b := strings.TrimSpace(vals[1])
 		c := strings.TrimSpace(vals[2])
+		qctx, cerr := parseQueryCtx(vals[3], vals[4])
 		m.rebuildQueryForm()
+		if cerr != nil {
+			m.status = cerr.Error()
+			return m, m.toasts.Push(toast.Error, cerr.Error())
+		}
 		if a == "" || b == "" || c == "" {
-			m.status = "all three fields are required"
+			m.status = "user, relation and object are required"
 			return m, nil
 		}
 		m.loading = true
 		m.status = "running " + queryModes[m.qmode] + "…"
 		switch queryModes[m.qmode] {
 		case "check":
-			return m, checkCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, m.qctx())
+			return m, checkCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx)
 		case "list-objects":
-			return m, listObjectsCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, m.qctx())
+			return m, listObjectsCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx)
 		case "list-users":
-			return m, listUsersCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, m.qctx())
+			return m, listUsersCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx)
 		}
 	}
 	return m, cmd
@@ -1083,11 +1065,11 @@ func (m Model) rerunHistory(idx int) (tea.Model, tea.Cmd) {
 	m.status = "running " + queryModes[m.qmode] + "…"
 	switch queryModes[m.qmode] {
 	case "check":
-		return m, checkCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, m.qctx())
+		return m, checkCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, queryCtx{})
 	case "list-objects":
-		return m, listObjectsCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, m.qctx())
+		return m, listObjectsCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, queryCtx{})
 	case "list-users":
-		return m, listUsersCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, m.qctx())
+		return m, listUsersCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, queryCtx{})
 	}
 	return m, nil
 }

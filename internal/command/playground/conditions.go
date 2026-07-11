@@ -60,8 +60,19 @@ type queryCtx struct {
 	contextual []openfga.TupleKey
 }
 
-// set reports whether the query carries any context or contextual tuples.
-func (q queryCtx) set() bool { return len(q.context) > 0 || len(q.contextual) > 0 }
+// parseQueryCtx parses the query form's optional context (JSON) and contextual
+// tuples fields into a queryCtx.
+func parseQueryCtx(contextJSON, contextual string) (queryCtx, error) {
+	cm, err := parseContextJSON(contextJSON)
+	if err != nil {
+		return queryCtx{}, err
+	}
+	ct, err := parseContextualTuples(contextual)
+	if err != nil {
+		return queryCtx{}, err
+	}
+	return queryCtx{context: cm, contextual: ct}, nil
+}
 
 // contextualTupleKeys wraps contextual tuples for a request, or nil when empty.
 func contextualTupleKeys(tuples []openfga.TupleKey) *openfga.ContextualTupleKeys {

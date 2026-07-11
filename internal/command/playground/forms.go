@@ -27,6 +27,8 @@ func buildQueryForm(mode string, w int) *field.Form {
 		field.New(labels[0], ph[0]),
 		field.New(labels[1], ph[1]),
 		field.New(labels[2], ph[2]),
+		field.New("Context (JSON)", "optional ABAC context"),
+		field.New("Contextual tuples", "optional: user rel obj; …"),
 	)
 	f.SetWidth(w)
 	return f
@@ -51,19 +53,6 @@ func buildWriteTupleForm(w int) *field.Form {
 		field.New("Condition context (JSON)", `{"grant_duration":"10m"}`),
 	)
 	f.SetWidth(w)
-	return f
-}
-
-// buildQueryContextForm builds the query context / contextual-tuples form,
-// pre-filled with the user's current raw values. Values() = [context_json,
-// contextual_tuples].
-func buildQueryContextForm(w int, contextJSON, contextual string) *field.Form {
-	f := field.NewForm(
-		field.New("Context (JSON)", `{"current_time":"2023-01-01T00:00:00Z"}`),
-		field.New("Contextual tuples", "user:anne member team:eng; …"),
-	)
-	f.SetWidth(w)
-	f.SetValues([]string{contextJSON, contextual})
 	return f
 }
 
