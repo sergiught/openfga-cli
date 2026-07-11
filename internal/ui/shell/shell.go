@@ -379,8 +379,10 @@ func (s *Shell) renderSidebar(height int) string {
 		b.WriteString(line + "\n")
 		b.WriteString(s.brandLine(inner, frameStyle) + "\n\n")
 	}
+	// The context lines carry the same 1-col horizontal padding as the nav rows
+	// so their icon (e.g. the connection dot) aligns with the tab icons.
 	for _, line := range s.context {
-		b.WriteString(line + "\n")
+		b.WriteString(lipgloss.NewStyle().Padding(0, 1).Render(line) + "\n")
 	}
 	b.WriteString("\n")
 	for _, n := range s.nav {
