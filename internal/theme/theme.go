@@ -83,27 +83,6 @@ var registry = map[string]Theme{
 		GradStartHex: "#00FAFF",
 		GradEndHex:   "#8BFF95",
 	},
-	// taskpilot mirrors the task-pilot-cli palette: adaptive indigo active
-	// borders, green selection, gray passive borders, magenta accents, and a
-	// high-contrast adaptive mono foreground. It is the default.
-	"taskpilot": {
-		Name:      "taskpilot",
-		Primary:   col("#7571F9"), // indigo
-		Secondary: col("#02BF87"), // green
-		Accent:    col("#7571F9"), // indigo
-		Keyword:   col("#EE6FF8"), // magenta
-		FgBase:    col("#DDDDDD"),
-		FgSubtle:  col("#777777"),
-		FgFaint:   col("#4D4D4D"),
-		BgBase:    lipgloss.NoColor{},
-		BgRaised:  col("#2A2A2A"),
-		Separator: col("#777777"),
-		Success:   col("#02BF87"),
-		Warning:   col("#FFB454"),
-		Error:     col("#FE5A62"),
-		Info:      col("#7571F9"),
-		OnAccent:  col("#FFFFFF"),
-	},
 	"charm": {
 		Name:      "charm",
 		Primary:   col("#8B5CF6"),
