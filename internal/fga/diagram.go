@@ -67,10 +67,9 @@ type nodeBox struct {
 }
 
 const (
-	hgap        = 10 // horizontal space between columns
-	vgap        = 3  // vertical space between stacked boxes (edge lanes)
-	margin      = 3  // free border around the whole canvas for detours
-	maxRowWidth = 30
+	hgap   = 10 // horizontal space between columns
+	vgap   = 3  // vertical space between stacked boxes (edge lanes)
+	margin = 3  // free border around the whole canvas for detours
 )
 
 func (g Graph) buildBoxes() []*nodeBox {
@@ -84,14 +83,13 @@ func (g Graph) buildBoxes() []*nodeBox {
 		for _, r := range t.Relations {
 			b.rows = append(b.rows, relationRow(r))
 		}
+		// Cards fit their widest relation row; the pannable viewport absorbs the
+		// extra width so nothing is truncated.
 		b.innerW = len(b.title)
 		for _, row := range b.rows {
 			if len(row) > b.innerW {
 				b.innerW = len(row)
 			}
-		}
-		if b.innerW > maxRowWidth {
-			b.innerW = maxRowWidth
 		}
 		b.w = b.innerW + 4 // borders + one space of padding each side
 		b.h = 3            // top border + title + bottom border
@@ -120,10 +118,6 @@ func relationRow(r Relation) []scell {
 			cells = append(cells, scell{r: '⇡', fg: style.Amber})
 			cells = append(cells, styledRunes(e.Label, style.Fg)...)
 		}
-	}
-	if len(cells) > maxRowWidth {
-		cells = cells[:maxRowWidth-1]
-		cells = append(cells, scell{r: '…', fg: style.Faintc})
 	}
 	return cells
 }
@@ -466,15 +460,18 @@ func drawPorts(c *canvas, boxes []*nodeBox, edges []DiagramEdge) {
 func routeEdges(c *canvas, boxes []*nodeBox, edges []DiagramEdge) {
 	blocked := obstacleGrid(c, boxes)
 	used := map[[2]int]bool{}
+	usedBy := map[[2]int]string{} // cell -> destination type occupying it
 	byType := indexBoxes(boxes)
 
-	// Stable order so port assignment is deterministic.
+	// Stable order so port assignment is deterministic. Grouping by target
+	// (To) first lets edges that converge on the same node bundle onto a shared
+	// trunk instead of fanning into parallel lanes.
 	sorted := append([]DiagramEdge(nil), edges...)
 	sort.SliceStable(sorted, func(i, j int) bool {
-		if sorted[i].From != sorted[j].From {
-			return sorted[i].From < sorted[j].From
+		if sorted[i].To != sorted[j].To {
+			return sorted[i].To < sorted[j].To
 		}
-		return sorted[i].To < sorted[j].To
+		return sorted[i].From < sorted[j].From
 	})
 
 	for _, e := range sorted {
@@ -486,11 +483,11 @@ func routeEdges(c *canvas, boxes []*nodeBox, edges []DiagramEdge) {
 		ty := portRow(dst, e, edges, false)
 		start := [2]int{src.x + src.w, sy} // gutter cell right of source
 		goal := [2]int{dst.x - 1, ty}      // gutter cell left of target
-		path := routeAStar(c, blocked, used, start, goal)
+		path := routeAStar(c, blocked, used, usedBy, dst.typ, start, goal)
 		if path == nil {
 			continue
 		}
-		paintPath(c, path, used, edgeColor(e.Kind))
+		paintPath(c, path, used, usedBy, dst.typ, edgeColor(e.Kind))
 	}
 }
 
@@ -540,7 +537,13 @@ func portRow(b *nodeBox, e DiagramEdge, edges []DiagramEdge, outgoing bool) int 
 			break
 		}
 	}
+	// Attach ports to the relation rows only. Rows span [b.y+3, b.y+b.h-2]
+	// (skipping the top border, title, and its separator); a relation-less box
+	// such as `user` has none, so its single title row (b.y+1) is the target.
 	lo, hi := b.y+1, b.y+b.h-2
+	if len(b.rows) > 0 {
+		lo = b.y + 3
+	}
 	if hi < lo {
 		hi = lo
 	}
@@ -597,7 +600,7 @@ const (
 // routeAStar finds an orthogonal path from start to goal avoiding blocked cells,
 // preferring straight runs (turn penalty) and avoiding already-drawn edge cells
 // (reuse penalty) so parallel edges fan out into separate channels.
-func routeAStar(c *canvas, blocked [][]bool, used map[[2]int]bool, start, goal [2]int) [][2]int {
+func routeAStar(c *canvas, blocked [][]bool, used map[[2]int]bool, usedBy map[[2]int]string, dstType string, start, goal [2]int) [][2]int {
 	if oob(c, start[0], start[1]) || oob(c, goal[0], goal[1]) {
 		return nil
 	}
@@ -637,12 +640,21 @@ func routeAStar(c *canvas, blocked [][]bool, used map[[2]int]bool, start, goal [
 			if oob(c, nx, ny) || blocked[ny][nx] {
 				continue
 			}
-			ng := cur.g + stepCost
+			step := stepCost
+			if used[[2]int{nx, ny}] {
+				if usedBy[[2]int{nx, ny}] == dstType {
+					// A sibling edge heading to the same node already passes
+					// here; travelling along its trunk is free so the paths
+					// merge onto one shared "last vertical line" instead of
+					// running parallel lanes. (Kept non-negative for A*.)
+					step = 0
+				} else {
+					step += reusePenalty
+				}
+			}
+			ng := cur.g + step
 			if d != cur.dir {
 				ng += turnPenalty
-			}
-			if used[[2]int{nx, ny}] {
-				ng += reusePenalty
 			}
 			nk := key{nx, ny, d}
 			if g, ok := best[nk]; !ok || ng < g {
@@ -669,8 +681,10 @@ func routeAStar(c *canvas, blocked [][]bool, used map[[2]int]bool, start, goal [
 }
 
 // paintPath stamps a routed path with rounded corners, crossing glyphs, and a
-// terminal arrowhead.
-func paintPath(c *canvas, path [][2]int, used map[[2]int]bool, col color.Color) {
+// terminal arrowhead. Where the path rides a trunk already laid by a sibling
+// edge (same destination), it unions the two glyphs into a proper T-junction so
+// the bundle reads as one line branching, not a stack of parallel lanes.
+func paintPath(c *canvas, path [][2]int, used map[[2]int]bool, usedBy map[[2]int]string, dstType string, col color.Color) {
 	dirOf := func(a, b [2]int) int {
 		switch {
 		case b[0] > a[0]:
@@ -684,7 +698,7 @@ func paintPath(c *canvas, path [][2]int, used map[[2]int]bool, col color.Color) 
 		}
 	}
 	for i, p := range path {
-		used[[2]int{p[0], p[1]}] = true
+		cell := [2]int{p[0], p[1]}
 		var r rune
 		switch {
 		case i == len(path)-1:
@@ -698,12 +712,98 @@ func paintPath(c *canvas, path [][2]int, used map[[2]int]bool, col color.Color) 
 			out := dirOf(p, path[i+1])
 			r = glyphFor(in, out)
 		}
-		// Merge a straight crossing into a junction.
-		if cur := c.at(p[0], p[1]); (cur == '│' && r == '─') || (cur == '─' && r == '│') {
+		cur := c.at(p[0], p[1])
+		switch {
+		case used[cell] && usedBy[cell] == dstType:
+			// Bundle onto a sibling's trunk: merge the arms into a junction.
+			r = mergeGlyph(cur, r)
+		case (cur == '│' && r == '─') || (cur == '─' && r == '│'):
+			// Unrelated edges crossing: mark with a simple crossing.
 			r = '┼'
 		}
+		used[cell] = true
+		usedBy[cell] = dstType
 		c.set(p[0], p[1], scell{r: r, fg: col})
 	}
+}
+
+// Line-glyph arms, used to union overlapping edge segments into junctions.
+const (
+	armN = 1 << iota
+	armS
+	armE
+	armW
+)
+
+func armsOf(r rune) (int, bool) {
+	switch r {
+	case '─':
+		return armE | armW, true
+	case '│':
+		return armN | armS, true
+	case '╭':
+		return armS | armE, true
+	case '╮':
+		return armS | armW, true
+	case '╰':
+		return armN | armE, true
+	case '╯':
+		return armN | armW, true
+	case '├':
+		return armN | armS | armE, true
+	case '┤':
+		return armN | armS | armW, true
+	case '┬':
+		return armS | armE | armW, true
+	case '┴':
+		return armN | armE | armW, true
+	case '┼':
+		return armN | armS | armE | armW, true
+	}
+	return 0, false
+}
+
+func glyphOfArms(a int) rune {
+	switch a {
+	case armE | armW:
+		return '─'
+	case armN | armS:
+		return '│'
+	case armS | armE:
+		return '╭'
+	case armS | armW:
+		return '╮'
+	case armN | armE:
+		return '╰'
+	case armN | armW:
+		return '╯'
+	case armN | armS | armE:
+		return '├'
+	case armN | armS | armW:
+		return '┤'
+	case armS | armE | armW:
+		return '┬'
+	case armN | armE | armW:
+		return '┴'
+	case armN | armS | armE | armW:
+		return '┼'
+	}
+	return 0
+}
+
+// mergeGlyph unions the arms of two line glyphs into a single junction, falling
+// back to the incoming glyph when either side is not a plain line (e.g. an
+// arrowhead terminal keeps its shape).
+func mergeGlyph(cur, next rune) rune {
+	ca, ok1 := armsOf(cur)
+	na, ok2 := armsOf(next)
+	if !ok1 || !ok2 {
+		return next
+	}
+	if g := glyphOfArms(ca | na); g != 0 {
+		return g
+	}
+	return next
 }
 
 func lineFor(dir int) rune {
