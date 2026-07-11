@@ -4,11 +4,22 @@ import (
 	"fmt"
 	"strings"
 
+	lipgloss "charm.land/lipgloss/v2"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
 	"github.com/sergiught/openfga-cli/internal/style"
 )
+
+// shellLine renders a runnable command as a raised terminal block with a `$`
+// prompt, signalling it is meant to be run in a shell.
+func shellLine(s string) string {
+	return lipgloss.NewStyle().
+		Foreground(style.Fg).
+		Background(style.BgRaised).
+		Padding(0, 1).
+		Render("$ " + s)
+}
 
 // helpFunc renders styled --help output in the active theme: chip section
 // headers, indented content, dimmed example comments, and two-column command
@@ -32,9 +43,9 @@ func (c *Command) helpFunc(cmd *cobra.Command, _ []string) {
 	}
 
 	b.WriteString(helpSection("Usage"))
-	b.WriteString(indentText(cmd.UseLine(), 4) + "\n")
+	b.WriteString("    " + shellLine(cmd.UseLine()) + "\n")
 	if cmd.HasAvailableSubCommands() {
-		b.WriteString(indentText(cmd.CommandPath()+" [command]", 4) + "\n")
+		b.WriteString("    " + shellLine(cmd.CommandPath()+" [command]") + "\n")
 	}
 
 	if ex := strings.TrimRight(cmd.Example, "\n"); ex != "" {
@@ -94,7 +105,7 @@ func styleExamples(s string) string {
 		case strings.HasPrefix(t, "#"):
 			lines[i] = "    " + style.Faint.Render(t)
 		default:
-			lines[i] = "    " + style.Value.Render(t)
+			lines[i] = "    " + shellLine(t)
 		}
 	}
 	return strings.Join(lines, "\n")
