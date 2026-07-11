@@ -30,7 +30,7 @@ func (c *Command) helpFunc(cmd *cobra.Command, _ []string) {
 			b.WriteString("\n" + indentText(long, 2) + "\n")
 		}
 	} else {
-		b.WriteString("\n" + cmd.Long + "\n")
+		b.WriteString("\n" + indentText(cmd.Long, 2) + "\n")
 	}
 
 	// Usage + examples render as raised shell blocks that share one width.
