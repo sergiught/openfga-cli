@@ -20,9 +20,11 @@ type fieldKind int
 const (
 	kindText fieldKind = iota
 	kindToggle
+	kindSelect
 )
 
-// Field is one labeled input: a text entry or a two-choice toggle.
+// Field is one labeled input: a text entry, a two-choice toggle, or a
+// cycle-through select.
 type Field struct {
 	kind     fieldKind
 	label    string
@@ -30,6 +32,8 @@ type Field struct {
 	on       bool            // kindToggle value
 	onLabel  string          // kindToggle labels for the two choices
 	offLabel string
+	options  []string // kindSelect choices
+	sel      int      // kindSelect index
 	validate func(string) error
 	err      string
 }
@@ -57,6 +61,15 @@ func NewToggle(label, onLabel, offLabel string, on bool) *Field {
 	return &Field{kind: kindToggle, label: label, onLabel: onLabel, offLabel: offLabel, on: on}
 }
 
+// NewSelect returns a field that cycles through options with ←→ or space; its
+// value is the selected option string.
+func NewSelect(label string, options []string, initial int) *Field {
+	if initial < 0 || initial >= len(options) {
+		initial = 0
+	}
+	return &Field{kind: kindSelect, label: label, options: options, sel: initial}
+}
+
 // WithValidate attaches a validation function, run on submit.
 func (f *Field) WithValidate(fn func(string) error) *Field {
 	f.validate = fn
@@ -66,7 +79,7 @@ func (f *Field) WithValidate(fn func(string) error) *Field {
 // --- per-field behavior, dispatched on kind ---
 
 func (f *Field) focus() tea.Cmd {
-	if f.kind == kindToggle {
+	if f.kind != kindText {
 		return nil
 	}
 	return f.in.Focus()
@@ -79,11 +92,22 @@ func (f *Field) blur() {
 }
 
 func (f *Field) update(msg tea.Msg) tea.Cmd {
-	if f.kind == kindToggle {
+	switch f.kind {
+	case kindToggle:
 		if k, ok := msg.(tea.KeyPressMsg); ok {
 			switch k.String() {
 			case " ", "space", "left", "right":
 				f.on = !f.on
+			}
+		}
+		return nil
+	case kindSelect:
+		if k, ok := msg.(tea.KeyPressMsg); ok && len(f.options) > 0 {
+			switch k.String() {
+			case "right", " ", "space":
+				f.sel = (f.sel + 1) % len(f.options)
+			case "left":
+				f.sel = (f.sel - 1 + len(f.options)) % len(f.options)
 			}
 		}
 		return nil
@@ -94,15 +118,30 @@ func (f *Field) update(msg tea.Msg) tea.Cmd {
 }
 
 func (f *Field) value() string {
-	if f.kind == kindToggle {
+	switch f.kind {
+	case kindToggle:
 		return strconv.FormatBool(f.on)
+	case kindSelect:
+		if len(f.options) == 0 {
+			return ""
+		}
+		return f.options[f.sel]
 	}
 	return f.in.Value()
 }
 
 func (f *Field) setValue(s string) {
-	if f.kind == kindToggle {
+	switch f.kind {
+	case kindToggle:
 		f.on = s == "true" || s == "allowed" || s == "Allowed" || s == "t"
+		return
+	case kindSelect:
+		for i, o := range f.options {
+			if o == s {
+				f.sel = i
+				return
+			}
+		}
 		return
 	}
 	f.in.SetValue(s)
@@ -123,6 +162,18 @@ func (f *Field) inputView(focused bool, hl color.Color) string {
 	base := lipgloss.NewStyle()
 	if hl != nil && focused {
 		base = base.Background(hl)
+	}
+	if f.kind == kindSelect {
+		cur := ""
+		if len(f.options) > 0 {
+			cur = f.options[f.sel]
+		}
+		c := style.Fg
+		if focused {
+			c = style.Primary
+		}
+		capSt := base.Foreground(style.Faintc)
+		return capSt.Render("‹ ") + base.Bold(true).Foreground(c).Render(cur) + capSt.Render(" ›")
 	}
 	choice := func(sel bool, label string) string {
 		mark, st := "○", base.Foreground(style.Faintc)
@@ -219,6 +270,23 @@ func (f *Form) moveFocus(d int) tea.Cmd {
 	f.fields[f.focus].blur()
 	f.focus = (f.focus + d + len(f.fields)) % len(f.fields)
 	return f.fields[f.focus].focus()
+}
+
+// FocusIndex focuses the field at index i (clamped), blurring the current one.
+// Used to keep the cursor on a control across a form rebuild.
+func (f *Form) FocusIndex(i int) tea.Cmd {
+	if len(f.fields) == 0 {
+		return nil
+	}
+	if i < 0 {
+		i = 0
+	}
+	if i >= len(f.fields) {
+		i = len(f.fields) - 1
+	}
+	f.fields[f.focus].blur()
+	f.focus = i
+	return f.fields[i].focus()
 }
 
 func (f *Form) submit() {

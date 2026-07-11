@@ -46,6 +46,7 @@ type NavItem struct {
 
 // Status describes the segmented bottom bar.
 type Status struct {
+	Profile string   // filled identity chip, shown first (empty = none)
 	Mode    string   // filled keyword chip, e.g. "CHECK" (empty = none)
 	Store   string   // raised chip (empty = none)
 	Model   string   // raised chip (empty = none)
@@ -72,6 +73,7 @@ type Shell struct {
 	status Status
 
 	dialogTitle, dialogBody string
+	dialogAccent            color.Color // border + title tint (defaults to Primary)
 	toast                   string
 
 	drift         float64
@@ -154,7 +156,12 @@ func (s *Shell) SetStatus(st Status) { s.status = st }
 
 // SetDialog sets (or clears, when both title and body are empty) the centered
 // modal dialog.
-func (s *Shell) SetDialog(title, body string) { s.dialogTitle, s.dialogBody = title, body }
+func (s *Shell) SetDialog(title, body string, accent ...color.Color) {
+	s.dialogTitle, s.dialogBody, s.dialogAccent = title, body, style.Primary
+	if len(accent) > 0 && accent[0] != nil {
+		s.dialogAccent = accent[0]
+	}
+}
 
 // SetToast sets (or clears, when empty) the bottom-right toast slot.
 func (s *Shell) SetToast(view string) { s.toast = view }
@@ -261,9 +268,13 @@ func (s *Shell) renderDialog() string {
 	if dw > s.width-4 {
 		dw = s.width - 4
 	}
-	title := lipgloss.NewStyle().Bold(true).Foreground(style.Primary).Render(s.dialogTitle)
+	accent := s.dialogAccent
+	if accent == nil {
+		accent = style.Primary
+	}
+	title := lipgloss.NewStyle().Bold(true).Foreground(accent).Render(s.dialogTitle)
 	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).BorderForeground(style.Primary).
+		Border(lipgloss.RoundedBorder()).BorderForeground(accent).
 		Width(dw).Padding(0, 2).
 		Render(title + "\n\n" + s.dialogBody)
 }
@@ -468,6 +479,9 @@ func capChip(text string, fg, bg color.Color) string {
 
 func (s *Shell) renderStatus() string {
 	var segs []string
+	if s.status.Profile != "" {
+		segs = append(segs, capChip(s.status.Profile, style.OnAccent, style.Primary))
+	}
 	if s.status.Mode != "" {
 		segs = append(segs, capChip(s.status.Mode, style.OnAccent, style.Violet))
 	}
