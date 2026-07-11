@@ -98,7 +98,7 @@ func (m Model) dialogContent() (string, string) {
 		if m.assertEditIdx >= 0 {
 			title = "Edit Assertion"
 		}
-		return title, m.form.View() + "\n" + style.Faint.Render("tab move · space toggle · enter save · esc cancel")
+		return title, m.form.View() + "\n\n" + style.Faint.Render("tab move · space toggle · enter save · esc cancel")
 	case m.formKind == formAddProfile:
 		return "Add Profile", m.form.View() + "\n" + style.Faint.Render("tab/↑↓ move · ←→ auth method · enter save · esc cancel")
 	case m.formKind == formEditProfile:
