@@ -125,6 +125,14 @@ func (m Model) sidebarNav() []shell.NavItem {
 	for i, name := range sectionNames {
 		it := shell.NavItem{Label: name, Icon: sectionIcons[i], Active: section(i) == m.section}
 		switch section(i) {
+		case secProfiles:
+			if n := len(m.app.Config.Profiles); n > 0 {
+				it.Badge = itoa(n)
+			}
+		case secStores:
+			if len(m.stores) > 0 {
+				it.Badge = itoa(len(m.stores))
+			}
 		case secTuples:
 			if len(m.tuples) > 0 {
 				it.Badge = itoa(len(m.tuples))
@@ -132,6 +140,10 @@ func (m Model) sidebarNav() []shell.NavItem {
 		case secChanges:
 			if len(m.changes) > 0 {
 				it.Badge = itoa(len(m.changes))
+			}
+		case secAssertions:
+			if len(m.assertions) > 0 {
+				it.Badge = itoa(len(m.assertions))
 			}
 		}
 		items[i] = it
