@@ -39,10 +39,20 @@ func New(a *app.App) *Command {
 		Use:   "ofga",
 		Short: "A modern CLI & TUI for OpenFGA",
 		Long:  banner(a.Version),
-		Example: `  ofga                       launch the interactive TUI
-  ofga stores list           list stores
-  ofga query check user:anne viewer document:roadmap
-  ofga model graph           visualize the latest model`,
+		Example: `# Launch the interactive TUI
+ofga
+
+# List stores
+ofga stores list
+
+# Run a check against the active store
+ofga query check user:anne viewer document:roadmap
+
+# Explore the latest model as a graph
+ofga model graph
+
+# Send a raw API request using the active profile's auth
+ofga api GET /stores`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       a.Version,
@@ -66,6 +76,8 @@ func New(a *app.App) *Command {
 	c.errW = colorprofile.NewWriter(os.Stderr, os.Environ())
 	c.cmd.SetOut(c.outW)
 	c.cmd.SetErr(c.errW)
+	// Styled help across the whole command tree (cobra reuses the root's func).
+	c.cmd.SetHelpFunc(c.helpFunc)
 	// cobra's `--help` flag short-circuits before PersistentPreRunE runs, so
 	// applyEnvironment's NO_COLOR handling below never fires for `--help`.
 	// Force the fully-stripping profile from the env var here too, so

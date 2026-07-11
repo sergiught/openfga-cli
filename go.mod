@@ -19,6 +19,7 @@ require (
 	github.com/openfga/language/pkg/go v0.2.1
 	github.com/sergiught/go-openfga v0.0.0
 	github.com/spf13/cobra v1.9.1
+	github.com/spf13/pflag v1.0.9
 )
 
 require (
@@ -47,7 +48,6 @@ require (
 	github.com/openfga/api/proto v0.0.0-20260319214821-f153694bfc20 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sahilm/fuzzy v0.1.3 // indirect
-	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/exp v0.0.0-20260312153236-7ab1446f8b90 // indirect
 	golang.org/x/net v0.52.0 // indirect
