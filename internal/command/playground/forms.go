@@ -31,9 +31,19 @@ func buildQueryForm(mode string, w int, showContext bool) *field.Form {
 		field.New(labels[2], ph[2]),
 		field.NewToggle("Context + Contextual Tuples", "on", "off", showContext),
 	}
+	// The user/object fields sit at different positions per mode.
+	switch mode {
+	case "check":
+		fields[0].WithValidate(vUser)
+		fields[2].WithValidate(vObject)
+	case "list-objects":
+		fields[2].WithValidate(vUser)
+	case "list-users":
+		fields[0].WithValidate(vObject)
+	}
 	if showContext {
 		fields = append(fields,
-			field.New("Context (JSON)", `{"current_time":"2023-01-01T00:00:00Z"}`),
+			field.New("Context (JSON)", `{"current_time":"2023-01-01T00:00:00Z"}`).WithValidate(vJSON),
 			field.New("Contextual Tuples", "user:anne member team:eng; user:bob viewer doc:1"),
 		)
 	}
@@ -54,11 +64,11 @@ func buildCreateStoreForm(w int) *field.Form {
 // Values() = [user, relation, object, condition, condition_context].
 func buildWriteTupleForm(w int) *field.Form {
 	f := field.NewForm(
-		field.New("User", "user:anne"),
+		field.New("User", "user:anne").WithValidate(vUser),
 		field.New("Relation", "viewer"),
-		field.New("Object", "document:roadmap"),
+		field.New("Object", "document:roadmap").WithValidate(vObject),
 		field.New("Condition", "non_expired_grant"),
-		field.New("Condition context (JSON)", `{"grant_duration":"10m"}`),
+		field.New("Condition context (JSON)", `{"grant_duration":"10m"}`).WithValidate(vJSON),
 	)
 	f.SetWidth(w)
 	return f
@@ -68,12 +78,12 @@ func buildWriteTupleForm(w int) *field.Form {
 // Values() = [user, relation, object, expect, contextual_tuples, context_json].
 func buildWriteAssertionForm(w int) *field.Form {
 	f := field.NewForm(
-		field.New("User", "user:anne"),
+		field.New("User", "user:anne").WithValidate(vUser),
 		field.New("Relation", "reader"),
-		field.New("Object", "repo:openfga/openfga"),
+		field.New("Object", "repo:openfga/openfga").WithValidate(vObject),
 		field.NewToggle("Expect", "Allowed", "Denied", true),
 		field.New("Contextual Tuples", "user:anne member team:eng; user:bob viewer doc:1"),
-		field.New("Context (JSON)", `{"current_time":"2023-01-01T00:00:00Z"}`),
+		field.New("Context (JSON)", `{"current_time":"2023-01-01T00:00:00Z"}`).WithValidate(vJSON),
 	)
 	f.SetWidth(w)
 	return f
@@ -107,7 +117,7 @@ func buildProfileForm(add bool, method string, w int) *field.Form {
 		fields = append(fields, field.New("Profile name", "staging"))
 	}
 	fields = append(fields,
-		field.New("API URL", config.DefaultAPIURL),
+		field.New("API URL", config.DefaultAPIURL).WithValidate(vURL),
 		field.NewSelect("Auth method", authMethods, authMethodIndex(method)),
 	)
 	switch method {
@@ -117,13 +127,13 @@ func buildProfileForm(add bool, method string, w int) *field.Form {
 		fields = append(fields,
 			field.New("Client ID", "client id"),
 			field.New("Client secret", "client secret"),
-			field.New("Token URL", "https://issuer/oauth/token"),
+			field.New("Token URL", "https://issuer/oauth/token").WithValidate(vURL),
 			field.New("Audience", "https://api.us1.fga.dev/"),
 		)
 	case config.AuthPrivateKeyJWT:
 		fields = append(fields,
 			field.New("Client ID", "client id"),
-			field.New("Token URL", "https://issuer/oauth/token"),
+			field.New("Token URL", "https://issuer/oauth/token").WithValidate(vURL),
 			field.New("Audience (assertion)", "https://issuer/"),
 			field.New("API audience", "https://api.us1.fga.dev/"),
 			field.New("Key file", "/path/to/key.pem"),

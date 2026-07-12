@@ -79,6 +79,7 @@ func (f *Field) WithValidate(fn func(string) error) *Field {
 // --- per-field behavior, dispatched on kind ---
 
 func (f *Field) focus() tea.Cmd {
+	f.err = "" // clear any inline error while the user edits; re-checked on blur
 	if f.kind != kindText {
 		return nil
 	}
@@ -88,6 +89,14 @@ func (f *Field) focus() tea.Cmd {
 func (f *Field) blur() {
 	if f.kind == kindText {
 		f.in.Blur()
+	}
+	// Validate on tab-off so a bad value is flagged inline before submit.
+	if f.validate != nil {
+		if err := f.validate(f.value()); err != nil {
+			f.err = err.Error()
+		} else {
+			f.err = ""
+		}
 	}
 }
 
