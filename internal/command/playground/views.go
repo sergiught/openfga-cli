@@ -21,6 +21,10 @@ func (m Model) View() tea.View {
 	v := tea.NewView(m.viewString())
 	v.AltScreen = true
 	v.BackgroundColor = style.BgBase
+	// Enable wheel events so the scrollable panes (model graph, resolution tree)
+	// respond to the mouse. Note: this captures the mouse, so native terminal
+	// text selection then needs Shift held.
+	v.MouseMode = tea.MouseModeCellMotion
 	return v
 }
 

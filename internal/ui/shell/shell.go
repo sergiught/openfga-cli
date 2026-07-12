@@ -79,6 +79,28 @@ type Shell struct {
 	drift         float64
 	entranceFrac  float64
 	entranceGhost bool
+
+	// navTop is the screen row (0-indexed, in the full frame) of the first nav
+	// item, recorded during renderSidebar for mouse hit-testing.
+	navTop int
+}
+
+// NavHit returns the nav index at screen cell (x, y), or -1 if the click didn't
+// land on a nav item (sidebar collapsed, click in the panel, or off the list).
+func (s *Shell) NavHit(x, y int) int {
+	if s.Collapsed() || x >= s.sidebarOccupied() {
+		return -1
+	}
+	idx := y - s.navTop
+	if idx < 0 || idx >= len(s.nav) {
+		return -1
+	}
+	return idx
+}
+
+// InSidebar reports whether screen column x falls in the sidebar (vs the panel).
+func (s *Shell) InSidebar(x int) bool {
+	return !s.Collapsed() && x < s.sidebarOccupied()
 }
 
 // New returns an empty shell.
@@ -385,6 +407,10 @@ func (s *Shell) renderSidebar(height int) string {
 		b.WriteString(lipgloss.NewStyle().Padding(0, 1).Render(line) + "\n")
 	}
 	b.WriteString("\n")
+	// Record the row where the nav list starts, for mouse hit-testing. The
+	// sidebar is the first element in the frame, so this row is also the
+	// absolute screen row.
+	s.navTop = strings.Count(b.String(), "\n")
 	for _, n := range s.nav {
 		b.WriteString(s.renderNav(n) + "\n")
 	}

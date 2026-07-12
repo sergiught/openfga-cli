@@ -83,6 +83,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.MouseWheelMsg:
+		return m.handleWheel(msg)
+	case tea.MouseClickMsg:
+		return m.handleClick(msg)
 	case tea.WindowSizeMsg:
 		// bubbletea sends the initial size report at startup, before Init()
 		// runs — that message also flips m.ready (which gates all
@@ -403,6 +407,50 @@ func (m *Model) toastErr(label string, err error) tea.Cmd {
 		detail = label + ": " + detail
 	}
 	return m.toasts.Push(toast.Error, detail)
+}
+
+// handleWheel routes mouse-wheel scrolling to the active scrollable pane: the
+// model graph and the resolution tree. Other panes (short lists) ignore it.
+func (m Model) handleWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
+	// Don't scroll under a modal/overlay or while editing text.
+	if m.helpOpen || m.formErr != "" || m.confirm != nil || m.paletteOpen || m.editorOpen || m.editing {
+		return m, nil
+	}
+	up := msg.Button == tea.MouseWheelUp
+	switch {
+	case m.section == secModel:
+		if up {
+			return m.scrollGraph(-graphLineStep)
+		}
+		return m.scrollGraph(graphLineStep)
+	case m.section == secQuery && m.showRes:
+		var cmd tea.Cmd
+		m.resVP, cmd = m.resVP.Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
+// handleClick routes a left mouse click: onto a sidebar nav item to jump to
+// that section, or onto a pane to focus it (sidebar vs panel by column).
+func (m Model) handleClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	if msg.Button != tea.MouseLeft {
+		return m, nil
+	}
+	// Ignore clicks while an overlay/form owns input.
+	if m.helpOpen || m.formErr != "" || m.confirm != nil || m.paletteOpen || m.editorOpen || m.editing {
+		return m, nil
+	}
+	if idx := m.sh.NavHit(msg.X, msg.Y); idx >= 0 {
+		m.focus = shell.FocusSidebar
+		return m.gotoSection(section(idx))
+	}
+	if m.sh.InSidebar(msg.X) {
+		m.focus = shell.FocusSidebar
+	} else {
+		m.focus = shell.FocusPanel
+	}
+	return m, nil
 }
 
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
