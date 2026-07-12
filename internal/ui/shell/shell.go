@@ -455,7 +455,13 @@ func (s *Shell) renderMain(height int) string {
 	innerW := mainTotal - 2 // 1-col margin each side
 	header := style.SectionHeader(s.mainTitle, innerW)
 	if s.focus == FocusPanel {
-		header = style.SectionHeaderFocused(s.mainTitle, innerW)
+		title := s.mainTitle
+		// Under the mono theme the Primary focus tint collapses to no color, so
+		// add a caret marker to keep the focused panel distinguishable.
+		if style.Active.Name == "mono" {
+			title = "▸ " + title
+		}
+		header = style.SectionHeaderFocused(title, innerW)
 	}
 	body := fitLines(s.mainBody, innerW)
 	if s.entranceGhost {
