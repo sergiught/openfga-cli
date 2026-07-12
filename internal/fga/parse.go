@@ -21,8 +21,17 @@ func ParseTuple(user, relation, object string) (openfga.TupleKey, error) {
 	if user == "" || relation == "" || object == "" {
 		return openfga.TupleKey{}, fmt.Errorf("tuple requires user, relation and object (got user=%q relation=%q object=%q)", user, relation, object)
 	}
-	if !strings.Contains(object, ":") {
+	// user is "type:id", a wildcard "type:*", or a userset "type:id#relation".
+	if !strings.Contains(user, ":") {
+		return openfga.TupleKey{}, fmt.Errorf("user %q must be in the form type:id (e.g. user:anne, or a userset like team:eng#member) — did you swap the arguments? order is <user> <relation> <object>", user)
+	}
+	// object is a concrete "type:id" (no wildcard, no userset).
+	typ, id := SplitObject(object)
+	if typ == "" || id == "" {
 		return openfga.TupleKey{}, fmt.Errorf("object %q must be in the form type:id (e.g. document:roadmap)", object)
+	}
+	if id == "*" || strings.Contains(object, "#") {
+		return openfga.TupleKey{}, fmt.Errorf("object %q must be a concrete type:id, not a wildcard or userset", object)
 	}
 	return openfga.TupleKey{User: user, Relation: relation, Object: object}, nil
 }

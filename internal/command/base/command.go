@@ -54,7 +54,10 @@ ofga model graph
 
 # Send a raw API request using the active profile's auth
 ofga api GET /stores`,
-		SilenceUsage:  true,
+		// SilenceUsage starts false so cobra prints usage for flag/arg errors
+		// (which occur before PersistentPreRunE); PersistentPreRunE then flips it
+		// on so a later runtime/API error doesn't dump usage. SilenceErrors is on
+		// because main formats and prints the error itself.
 		SilenceErrors: true,
 		Version:       cli.Version,
 		// No Args validator: cobra's default lets a bare `ofga` launch the TUI
@@ -71,6 +74,9 @@ ofga api GET /stores`,
 		},
 		// Resolve color + theme + output mode before any command renders.
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			// Past flag/arg validation now: silence usage so a runtime error
+			// (network, API, etc.) prints just the message, not the whole usage.
+			cmd.SilenceUsage = true
 			c.applyEnvironment()
 			return nil
 		},

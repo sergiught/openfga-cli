@@ -291,7 +291,9 @@ func Run(ctx context.Context, cli *cli.CLI) error {
 	}
 	m := newModel(ctx, cli, cl, r.StoreID, r.ModelID)
 	icons.Apply(icons.Parse(cli.Config.IconsMode()))
-	p := tea.NewProgram(m)
+	// Bind the program to the interrupt-aware context so Ctrl-C / SIGINT tears
+	// the TUI down cleanly and cancels any in-flight requests it started.
+	p := tea.NewProgram(m, tea.WithContext(ctx))
 	_, err = p.Run()
 	return err
 }

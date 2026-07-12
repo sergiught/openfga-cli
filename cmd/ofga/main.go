@@ -42,6 +42,9 @@ func main() {
 	if err := root.Command().ExecuteContext(ctx); err != nil {
 		logger.Debugf("command failed: %+v", err)
 		output.Errorf(root.ErrWriter(), "%s", clierr.Friendly(err))
+		if logger.GetLevel() > log.DebugLevel {
+			output.Hintf(root.ErrWriter(), "run with -v for more detail")
+		}
 		os.Exit(clierr.Code(err))
 	}
 }

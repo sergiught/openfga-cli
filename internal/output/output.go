@@ -159,6 +159,13 @@ func Errorf(w io.Writer, format string, a ...any) {
 	fmt.Fprintf(w, "%s %s\n", dot, fmt.Sprintf(format, a...))
 }
 
+// Hintf writes a faint, indented follow-up line (e.g. a "try this next" hint
+// after an error). Rendered on stderr by callers; not suppressed by --quiet so
+// remediation guidance always shows.
+func Hintf(w io.Writer, format string, a ...any) {
+	fmt.Fprintf(w, "  %s\n", style.Faint.Render(fmt.Sprintf(format, a...)))
+}
+
 // Title prints a bold violet title line.
 func Title(w io.Writer, s string) {
 	fmt.Fprintln(w, style.Title.Render(s))
