@@ -35,12 +35,12 @@ func sampleGraph() fga.Graph {
 			{Type: "user"},
 			{
 				Type: "document",
-				Relations: map[string]any{
-					"owner":  map[string]any{"this": map[string]any{}},
-					"viewer": map[string]any{"computedUserset": map[string]any{"relation": "owner"}},
+				Relations: map[string]openfga.Userset{
+					"owner":  openfga.This(),
+					"viewer": openfga.ComputedUserset("owner"),
 				},
-				Metadata: map[string]any{"relations": map[string]any{
-					"owner": map[string]any{"directly_related_user_types": []any{map[string]any{"type": "user"}}},
+				Metadata: &openfga.Metadata{Relations: map[string]openfga.RelationMetadata{
+					"owner": {DirectlyRelatedUserTypes: []openfga.RelationReference{openfga.DirectType("user")}},
 				}},
 			},
 		},

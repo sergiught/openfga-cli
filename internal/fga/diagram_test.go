@@ -9,32 +9,26 @@ import (
 )
 
 func githubModel() *openfga.AuthorizationModel {
-	direct := func(types ...string) map[string]any {
-		var list []any
-		for _, t := range types {
-			list = append(list, map[string]any{"type": t})
+	direct := func(types ...string) openfga.RelationMetadata {
+		refs := make([]openfga.RelationReference, len(types))
+		for i, t := range types {
+			refs[i] = openfga.DirectType(t)
 		}
-		return map[string]any{"directly_related_user_types": list}
+		return openfga.RelationMetadata{DirectlyRelatedUserTypes: refs}
 	}
 	return &openfga.AuthorizationModel{
 		SchemaVersion: "1.1",
 		TypeDefinitions: []openfga.TypeDefinition{
 			{Type: "user"},
-			{Type: "organization", Relations: map[string]any{
-				"member": map[string]any{"this": map[string]any{}},
-			}, Metadata: map[string]any{"relations": map[string]any{
+			{Type: "organization", Relations: map[string]openfga.Userset{
+				"member": openfga.This(),
+			}, Metadata: &openfga.Metadata{Relations: map[string]openfga.RelationMetadata{
 				"member": direct("user"),
 			}}},
-			{Type: "repo", Relations: map[string]any{
-				"owner": map[string]any{"this": map[string]any{}},
-				"admin": map[string]any{"union": map[string]any{"child": []any{
-					map[string]any{"this": map[string]any{}},
-					map[string]any{"tupleToUserset": map[string]any{
-						"tupleset":        map[string]any{"relation": "owner"},
-						"computedUserset": map[string]any{"relation": "member"},
-					}},
-				}}},
-			}, Metadata: map[string]any{"relations": map[string]any{
+			{Type: "repo", Relations: map[string]openfga.Userset{
+				"owner": openfga.This(),
+				"admin": openfga.Union(openfga.This(), openfga.TupleTo("owner", "member")),
+			}, Metadata: &openfga.Metadata{Relations: map[string]openfga.RelationMetadata{
 				"owner": direct("organization"),
 				"admin": direct("user"),
 			}}},

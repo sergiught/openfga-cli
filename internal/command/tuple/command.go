@@ -61,7 +61,7 @@ func (c *Command) writeCmd() *cobra.Command {
 				return err
 			}
 			req := &openfga.WriteRequest{Writes: &openfga.WriteRequestTuples{TupleKeys: []openfga.TupleKey{key}}}
-			if _, err := cl.Tuples.Write(cmd.Context(), req); err != nil {
+			if err := cl.Tuples.Write(cmd.Context(), req); err != nil {
 				return err
 			}
 			output.Successf(cmd.OutOrStdout(), "wrote %s", style.Bold.Render(fga.FormatTuple(key)))
@@ -87,7 +87,7 @@ func (c *Command) deleteCmd() *cobra.Command {
 				return err
 			}
 			req := &openfga.WriteRequest{Deletes: &openfga.WriteRequestTuples{TupleKeys: []openfga.TupleKey{key}}}
-			if _, err := cl.Tuples.Write(cmd.Context(), req); err != nil {
+			if err := cl.Tuples.Write(cmd.Context(), req); err != nil {
 				return err
 			}
 			output.Successf(cmd.OutOrStdout(), "deleted %s", style.Bold.Render(fga.FormatTuple(key)))

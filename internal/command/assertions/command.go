@@ -48,7 +48,7 @@ func (c *Command) resolveModelID(cmd *cobra.Command, cl *openfga.Client, storeID
 	if explicit != "" {
 		return explicit, nil
 	}
-	m, _, err := cl.AuthorizationModels.ReadLatest(cmd.Context(), openfga.WithStore(storeID))
+	m, err := cl.AuthorizationModels.ReadLatest(cmd.Context(), openfga.WithStore(storeID))
 	if err != nil {
 		return "", fmt.Errorf("resolve latest model: %w", err)
 	}
@@ -73,7 +73,7 @@ func (c *Command) readCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			res, _, err := cl.Assertions.Read(cmd.Context(), modelID, openfga.WithStore(r.StoreID))
+			res, err := cl.Assertions.Read(cmd.Context(), modelID, openfga.WithStore(r.StoreID))
 			if err != nil {
 				return err
 			}
@@ -129,7 +129,7 @@ func (c *Command) writeCmd() *cobra.Command {
 				return err
 			}
 			req := &openfga.WriteAssertionsRequest{Assertions: assertionsList}
-			if _, err := cl.Assertions.Write(cmd.Context(), id, req, openfga.WithStore(r.StoreID)); err != nil {
+			if err := cl.Assertions.Write(cmd.Context(), id, req, openfga.WithStore(r.StoreID)); err != nil {
 				return err
 			}
 			output.Successf(cmd.OutOrStdout(), "wrote %d assertion(s) to model %s", len(assertionsList), id)
@@ -160,7 +160,7 @@ func (c *Command) testCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			res, _, err := cl.Assertions.Read(cmd.Context(), modelID, openfga.WithStore(r.StoreID))
+			res, err := cl.Assertions.Read(cmd.Context(), modelID, openfga.WithStore(r.StoreID))
 			if err != nil {
 				return err
 			}
@@ -187,7 +187,7 @@ func (c *Command) testCmd() *cobra.Command {
 					ContextualTuples: ctxTuples,
 					Context:          a.Context,
 				}
-				cr, _, err := cl.Relationships.Check(cmd.Context(), chk,
+				cr, err := cl.Relationships.Check(cmd.Context(), chk,
 					openfga.WithStore(r.StoreID), openfga.WithAuthorizationModel(modelID))
 				if err != nil {
 					return fmt.Errorf("check %s: %w", fga.FormatTuple(toTupleKey(a.TupleKey)), err)

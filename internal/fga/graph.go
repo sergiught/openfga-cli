@@ -51,7 +51,7 @@ type Graph struct {
 }
 
 // ParseModel converts an authorization model into a Graph by interpreting the
-// untyped relation rewrite rules and the directly-related-user-types metadata.
+// relation rewrite rules and the directly-related-user-types metadata.
 func ParseModel(m *openfga.AuthorizationModel) Graph {
 	g := Graph{SchemaVersion: m.SchemaVersion}
 	seen := map[string]bool{}
@@ -130,36 +130,24 @@ func splitTTU(label string) (target, via string, ok bool) {
 	return parts[0], parts[1], true
 }
 
-// directTypesByRelation extracts metadata.relations[rel].directly_related_user_types.
-func directTypesByRelation(metadata map[string]any) map[string][]string {
+// directTypesByRelation extracts each relation's directly-related user types from
+// the type definition's metadata.
+func directTypesByRelation(metadata *openfga.Metadata) map[string][]string {
 	out := map[string][]string{}
-	relations, ok := mapField(metadata, "relations")
-	if !ok {
+	if metadata == nil {
 		return out
 	}
-	for rel, raw := range relations {
-		relMeta, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-		list, ok := relMeta["directly_related_user_types"].([]any)
-		if !ok {
-			continue
-		}
-		for _, item := range list {
-			obj, ok := item.(map[string]any)
-			if !ok {
+	for rel, relMeta := range metadata.Relations {
+		for _, ref := range relMeta.DirectlyRelatedUserTypes {
+			if ref.Type == "" {
 				continue
 			}
-			t, _ := obj["type"].(string)
-			if t == "" {
-				continue
-			}
-			label := t
-			if r, ok := obj["relation"].(string); ok && r != "" {
-				label = t + "#" + r
-			} else if _, ok := obj["wildcard"]; ok {
-				label = t + ":*"
+			label := ref.Type
+			switch {
+			case ref.Relation != "":
+				label = ref.Type + "#" + ref.Relation
+			case ref.Wildcard != nil:
+				label = ref.Type + ":*"
 			}
 			out[rel] = append(out[rel], label)
 		}
@@ -170,62 +158,36 @@ func directTypesByRelation(metadata map[string]any) map[string][]string {
 // rewriteEdges interprets a userset rewrite rule into computed/ttu edges,
 // recursing through union/intersection/difference. Direct ("this") nodes are
 // ignored here because they are already represented via metadata.
-func rewriteEdges(rule any) []RelationEdge {
-	m, ok := rule.(map[string]any)
-	if !ok {
-		return nil
-	}
+func rewriteEdges(rule openfga.Userset) []RelationEdge {
 	var edges []RelationEdge
 
-	if _, ok := m["this"]; ok {
-		// direct assignment; covered by metadata
+	// rule.This is direct assignment; covered by metadata, ignored here.
+	if cu := rule.ComputedUserset; cu != nil && cu.Relation != "" {
+		edges = append(edges, RelationEdge{Kind: "computed", Label: cu.Relation})
 	}
-	if cu, ok := mapField(m, "computedUserset"); ok {
-		if r, _ := cu["relation"].(string); r != "" {
-			edges = append(edges, RelationEdge{Kind: "computed", Label: r})
-		}
-	}
-	if ttu, ok := mapField(m, "tupleToUserset"); ok {
-		var via, target string
-		if ts, ok := mapField(ttu, "tupleset"); ok {
-			via, _ = ts["relation"].(string)
-		}
-		if cu, ok := mapField(ttu, "computedUserset"); ok {
-			target, _ = cu["relation"].(string)
-		}
+	if ttu := rule.TupleToUserset; ttu != nil {
+		via := ttu.Tupleset.Relation
+		target := ttu.ComputedUserset.Relation
 		if target != "" {
 			edges = append(edges, RelationEdge{Kind: "ttu", Label: fmt.Sprintf("%s from %s", target, via)})
 		}
 	}
-	for _, op := range []string{"union", "intersection"} {
-		if node, ok := mapField(m, op); ok {
-			if children, ok := node["child"].([]any); ok {
-				for _, child := range children {
-					edges = append(edges, rewriteEdges(child)...)
-				}
-			}
+	for _, set := range []*openfga.Usersets{rule.Union, rule.Intersection} {
+		if set == nil {
+			continue
+		}
+		for _, child := range set.Child {
+			edges = append(edges, rewriteEdges(child)...)
 		}
 	}
-	if diff, ok := mapField(m, "difference"); ok {
-		if base, ok := diff["base"]; ok {
-			edges = append(edges, rewriteEdges(base)...)
-		}
-		if sub, ok := diff["subtract"]; ok {
-			for _, e := range rewriteEdges(sub) {
-				e.Label = "not " + e.Label
-				edges = append(edges, e)
-			}
+	if diff := rule.Difference; diff != nil {
+		edges = append(edges, rewriteEdges(diff.Base)...)
+		for _, e := range rewriteEdges(diff.Subtract) {
+			e.Label = "not " + e.Label
+			edges = append(edges, e)
 		}
 	}
 	return edges
-}
-
-func mapField(m map[string]any, key string) (map[string]any, bool) {
-	if m == nil {
-		return nil, false
-	}
-	v, ok := m[key].(map[string]any)
-	return v, ok
 }
 
 // edgeGlyph returns a colored glyph and legend hint for an edge kind.

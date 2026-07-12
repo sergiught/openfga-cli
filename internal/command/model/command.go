@@ -81,7 +81,7 @@ func (c *Command) writeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			res, _, err := cl.AuthorizationModels.Write(cmd.Context(), &req)
+			res, err := cl.AuthorizationModels.Write(cmd.Context(), &req)
 			if err != nil {
 				return err
 			}
@@ -146,7 +146,7 @@ func (c *Command) getCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			m, _, err := cl.AuthorizationModels.Get(cmd.Context(), args[0])
+			m, err := cl.AuthorizationModels.Get(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
@@ -165,7 +165,7 @@ func (c *Command) latestCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			m, _, err := cl.AuthorizationModels.ReadLatest(cmd.Context())
+			m, err := cl.AuthorizationModels.ReadLatest(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -195,9 +195,9 @@ func (c *Command) graphCmd() *cobra.Command {
 			}
 			var m *openfga.AuthorizationModel
 			if len(args) == 1 {
-				m, _, err = cl.AuthorizationModels.Get(cmd.Context(), args[0])
+				m, err = cl.AuthorizationModels.Get(cmd.Context(), args[0])
 			} else {
-				m, _, err = cl.AuthorizationModels.ReadLatest(cmd.Context())
+				m, err = cl.AuthorizationModels.ReadLatest(cmd.Context())
 			}
 			if err != nil {
 				return err

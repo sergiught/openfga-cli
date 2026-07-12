@@ -107,7 +107,7 @@ func (c *Command) checkCmd() *cobra.Command {
 				Context:          cx,
 				ContextualTuples: ct,
 			}
-			res, _, err := cl.Relationships.Check(cmd.Context(), req)
+			res, err := cl.Relationships.Check(cmd.Context(), req)
 			if err != nil {
 				return err
 			}
@@ -154,7 +154,7 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 				})
 				labels = append(labels, fmt.Sprintf("%s %s %s", strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), strings.TrimSpace(parts[2])))
 			}
-			res, _, err := cl.Relationships.BatchCheck(cmd.Context(), &openfga.BatchCheckRequest{Checks: items})
+			res, err := cl.Relationships.BatchCheck(cmd.Context(), &openfga.BatchCheckRequest{Checks: items})
 			if err != nil {
 				return err
 			}
@@ -184,7 +184,7 @@ func (c *Command) expandCmd() *cobra.Command {
 				return err
 			}
 			req := &openfga.ExpandRequest{TupleKey: openfga.CheckRequestTupleKey{Relation: args[0], Object: args[1]}}
-			res, _, err := cl.Relationships.Expand(cmd.Context(), req)
+			res, err := cl.Relationships.Expand(cmd.Context(), req)
 			if err != nil {
 				return err
 			}
@@ -211,7 +211,7 @@ func (c *Command) listObjectsCmd() *cobra.Command {
 				return err
 			}
 			req := &openfga.ListObjectsRequest{Type: args[0], Relation: args[1], User: args[2], Context: cx}
-			res, _, err := cl.Relationships.ListObjects(cmd.Context(), req)
+			res, err := cl.Relationships.ListObjects(cmd.Context(), req)
 			if err != nil {
 				return err
 			}
@@ -261,7 +261,7 @@ func (c *Command) listUsersCmd() *cobra.Command {
 				Relation:    args[1],
 				UserFilters: filters,
 			}
-			res, _, err := cl.Relationships.ListUsers(cmd.Context(), req)
+			res, err := cl.Relationships.ListUsers(cmd.Context(), req)
 			if err != nil {
 				return err
 			}
@@ -282,26 +282,18 @@ func (c *Command) listUsersCmd() *cobra.Command {
 	return cmd
 }
 
-// formatUser renders one entry of a ListUsers response, which is an untyped
-// object describing a user, userset, or wildcard.
-func formatUser(u map[string]any) string {
-	if obj, ok := u["object"].(map[string]any); ok {
-		t, _ := obj["type"].(string)
-		id, _ := obj["id"].(string)
-		return fmt.Sprintf("%s:%s", t, id)
+// formatUser renders one entry of a ListUsers response, describing a concrete
+// object, a userset, or a type-bound wildcard.
+func formatUser(u openfga.User) string {
+	switch {
+	case u.Object != nil:
+		return fmt.Sprintf("%s:%s", u.Object.Type, u.Object.ID)
+	case u.Userset != nil:
+		return fmt.Sprintf("%s:%s#%s", u.Userset.Type, u.Userset.ID, u.Userset.Relation)
+	case u.Wildcard != nil:
+		return u.Wildcard.Type + ":*"
+	default:
+		b, _ := json.Marshal(u)
+		return string(b)
 	}
-	if us, ok := u["userset"].(map[string]any); ok {
-		if obj, ok := us["object"].(map[string]any); ok {
-			t, _ := obj["type"].(string)
-			id, _ := obj["id"].(string)
-			rel, _ := us["relation"].(string)
-			return fmt.Sprintf("%s:%s#%s", t, id, rel)
-		}
-	}
-	if w, ok := u["wildcard"].(map[string]any); ok {
-		t, _ := w["type"].(string)
-		return t + ":*"
-	}
-	b, _ := json.Marshal(u)
-	return string(b)
 }

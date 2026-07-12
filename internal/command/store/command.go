@@ -54,7 +54,7 @@ func (c *Command) createCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			st, _, err := cl.Stores.Create(cmd.Context(), &openfga.CreateStoreRequest{Name: args[0]})
+			st, err := cl.Stores.Create(cmd.Context(), &openfga.CreateStoreRequest{Name: args[0]})
 			if err != nil {
 				return err
 			}
@@ -137,7 +137,7 @@ func (c *Command) getCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			st, _, err := cl.Stores.Get(cmd.Context(), args[0])
+			st, err := cl.Stores.Get(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
@@ -170,7 +170,7 @@ func (c *Command) deleteCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if _, err := cl.Stores.Delete(cmd.Context(), args[0]); err != nil {
+			if err := cl.Stores.Delete(cmd.Context(), args[0]); err != nil {
 				return err
 			}
 			output.Successf(cmd.OutOrStdout(), "deleted store %s", style.Bold.Render(args[0]))

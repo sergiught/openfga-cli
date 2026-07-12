@@ -147,7 +147,7 @@ func modelToDSL(m *openfga.AuthorizationModel) string {
 
 func loadModelCmd(ctx context.Context, cl *openfga.Client, storeID string) tea.Cmd {
 	return func() tea.Msg {
-		m, _, err := cl.AuthorizationModels.ReadLatest(ctx, openfga.WithStore(storeID))
+		m, err := cl.AuthorizationModels.ReadLatest(ctx, openfga.WithStore(storeID))
 		if err != nil {
 			return modelLoadedMsg{err: err}
 		}
@@ -157,7 +157,7 @@ func loadModelCmd(ctx context.Context, cl *openfga.Client, storeID string) tea.C
 
 func loadModelByIDCmd(ctx context.Context, cl *openfga.Client, storeID, modelID string) tea.Cmd {
 	return func() tea.Msg {
-		m, _, err := cl.AuthorizationModels.Get(ctx, modelID, openfga.WithStore(storeID))
+		m, err := cl.AuthorizationModels.Get(ctx, modelID, openfga.WithStore(storeID))
 		if err != nil {
 			return modelLoadedMsg{err: err}
 		}
@@ -165,7 +165,7 @@ func loadModelByIDCmd(ctx context.Context, cl *openfga.Client, storeID, modelID 
 		// "(latest)" tag is correct even before the full model list is loaded
 		// (e.g. when restoring a persisted model on startup).
 		latest := false
-		if newest, _, lerr := cl.AuthorizationModels.ReadLatest(ctx, openfga.WithStore(storeID)); lerr == nil {
+		if newest, lerr := cl.AuthorizationModels.ReadLatest(ctx, openfga.WithStore(storeID)); lerr == nil {
 			latest = newest.ID == m.ID
 		}
 		return modelLoadedMsg{modelID: m.ID, graph: fga.ParseModel(m), dsl: modelToDSL(m), latest: latest}
@@ -224,13 +224,13 @@ func loadAssertionsCmd(ctx context.Context, cl *openfga.Client, storeID, modelID
 	return func() tea.Msg {
 		id := modelID
 		if id == "" {
-			m, _, err := cl.AuthorizationModels.ReadLatest(ctx, openfga.WithStore(storeID))
+			m, err := cl.AuthorizationModels.ReadLatest(ctx, openfga.WithStore(storeID))
 			if err != nil {
 				return assertionsLoadedMsg{err: err}
 			}
 			id = m.ID
 		}
-		res, _, err := cl.Assertions.Read(ctx, id, openfga.WithStore(storeID))
+		res, err := cl.Assertions.Read(ctx, id, openfga.WithStore(storeID))
 		if err != nil {
 			return assertionsLoadedMsg{modelID: id, err: err}
 		}
@@ -245,7 +245,7 @@ func checkAssertion(ctx context.Context, cl *openfga.Client, storeID, modelID st
 	if len(a.ContextualTuples) > 0 {
 		ct = &openfga.ContextualTupleKeys{TupleKeys: a.ContextualTuples}
 	}
-	cr, _, err := cl.Relationships.Check(ctx, &openfga.CheckRequest{
+	cr, err := cl.Relationships.Check(ctx, &openfga.CheckRequest{
 		TupleKey: a.TupleKey, ContextualTuples: ct, Context: a.Context,
 	}, openfga.WithStore(storeID), openfga.WithAuthorizationModel(modelID))
 	if err != nil {
@@ -293,14 +293,14 @@ func writeAssertionsCmd(ctx context.Context, cl *openfga.Client, storeID, modelI
 	return func() tea.Msg {
 		id := modelID
 		if id == "" {
-			m, _, err := cl.AuthorizationModels.ReadLatest(ctx, openfga.WithStore(storeID))
+			m, err := cl.AuthorizationModels.ReadLatest(ctx, openfga.WithStore(storeID))
 			if err != nil {
 				return assertionsWrittenMsg{err: err}
 			}
 			id = m.ID
 		}
 		req := &openfga.WriteAssertionsRequest{Assertions: assertions}
-		if _, err := cl.Assertions.Write(ctx, id, req, openfga.WithStore(storeID)); err != nil {
+		if err := cl.Assertions.Write(ctx, id, req, openfga.WithStore(storeID)); err != nil {
 			return assertionsWrittenMsg{modelID: id, err: err}
 		}
 		return assertionsWrittenMsg{modelID: id}
@@ -309,7 +309,7 @@ func writeAssertionsCmd(ctx context.Context, cl *openfga.Client, storeID, modelI
 
 func createStoreCmd(ctx context.Context, cl *openfga.Client, name string) tea.Cmd {
 	return func() tea.Msg {
-		st, _, err := cl.Stores.Create(ctx, &openfga.CreateStoreRequest{Name: name})
+		st, err := cl.Stores.Create(ctx, &openfga.CreateStoreRequest{Name: name})
 		if err != nil {
 			return storeCreatedMsg{err: err}
 		}
@@ -319,7 +319,7 @@ func createStoreCmd(ctx context.Context, cl *openfga.Client, name string) tea.Cm
 
 func deleteStoreCmd(ctx context.Context, cl *openfga.Client, id string) tea.Cmd {
 	return func() tea.Msg {
-		if _, err := cl.Stores.Delete(ctx, id); err != nil {
+		if err := cl.Stores.Delete(ctx, id); err != nil {
 			return storeDeletedMsg{id: id, err: err}
 		}
 		return storeDeletedMsg{id: id}
@@ -334,7 +334,7 @@ func writeTupleCmd(ctx context.Context, cl *openfga.Client, storeID, modelID str
 		} else {
 			req = &openfga.WriteRequest{Writes: &openfga.WriteRequestTuples{TupleKeys: []openfga.TupleKey{key}}}
 		}
-		if _, err := cl.Tuples.Write(ctx, req, openfga.WithStore(storeID), openfga.WithAuthorizationModel(modelID)); err != nil {
+		if err := cl.Tuples.Write(ctx, req, openfga.WithStore(storeID), openfga.WithAuthorizationModel(modelID)); err != nil {
 			return tupleWrittenMsg{err: err, deleted: del}
 		}
 		return tupleWrittenMsg{label: fga.FormatTuple(key), deleted: del}
@@ -377,7 +377,7 @@ func expandCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, user, 
 		// expand fetches one level of resolution for object#relation, so
 		// ExpandTree can splice nested branches in place of dead-end leaves.
 		expand := func(obj, rel string) *fga.ResNode {
-			er, _, eerr := cl.Relationships.Expand(ctx, &openfga.ExpandRequest{
+			er, eerr := cl.Relationships.Expand(ctx, &openfga.ExpandRequest{
 				TupleKey: openfga.CheckRequestTupleKey{Relation: rel, Object: obj},
 			}, openfga.WithStore(storeID), openfga.WithAuthorizationModel(modelID))
 			if eerr != nil {
@@ -400,7 +400,7 @@ func expandCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, user, 
 
 		fga.MarkGranted(root, user, fga.GrantResolver{
 			Check: func(u, rel, obj string) bool {
-				cr, _, cerr := cl.Relationships.Check(ctx, &openfga.CheckRequest{
+				cr, cerr := cl.Relationships.Check(ctx, &openfga.CheckRequest{
 					TupleKey: openfga.CheckRequestTupleKey{User: u, Relation: rel, Object: obj},
 				}, openfga.WithStore(storeID), openfga.WithAuthorizationModel(modelID))
 				return cerr == nil && cr.Allowed
@@ -414,7 +414,7 @@ func expandCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, user, 
 func checkCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, user, relation, object string, qc queryCtx) tea.Cmd {
 	start := time.Now()
 	return func() tea.Msg {
-		res, _, err := cl.Relationships.Check(ctx, &openfga.CheckRequest{
+		res, err := cl.Relationships.Check(ctx, &openfga.CheckRequest{
 			TupleKey:         openfga.CheckRequestTupleKey{User: user, Relation: relation, Object: object},
 			ContextualTuples: contextualTupleKeys(qc.contextual),
 			Context:          qc.context,
@@ -434,7 +434,7 @@ func checkCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, user, r
 func listObjectsCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, typ, relation, user string, qc queryCtx) tea.Cmd {
 	start := time.Now()
 	return func() tea.Msg {
-		res, _, err := cl.Relationships.ListObjects(ctx, &openfga.ListObjectsRequest{
+		res, err := cl.Relationships.ListObjects(ctx, &openfga.ListObjectsRequest{
 			Type: typ, Relation: relation, User: user,
 			ContextualTuples: contextualTupleKeys(qc.contextual),
 			Context:          qc.context,
@@ -455,7 +455,7 @@ func listObjectsCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, t
 func listUsersCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, object, relation, userType string, qc queryCtx) tea.Cmd {
 	start := time.Now()
 	return func() tea.Msg {
-		res, _, err := cl.Relationships.ListUsers(ctx, &openfga.ListUsersRequest{
+		res, err := cl.Relationships.ListUsers(ctx, &openfga.ListUsersRequest{
 			Object:           openfga.FGAObjectRelation{Object: object},
 			Relation:         relation,
 			UserFilters:      []openfga.UserTypeFilter{{Type: userType}},
@@ -489,7 +489,7 @@ func applyModelCmd(ctx context.Context, cl *openfga.Client, storeID, dsl string)
 		if err := json.Unmarshal([]byte(jsonStr), &req); err != nil {
 			return modelAppliedMsg{err: err}
 		}
-		res, _, err := cl.AuthorizationModels.Write(ctx, &req, openfga.WithStore(storeID))
+		res, err := cl.AuthorizationModels.Write(ctx, &req, openfga.WithStore(storeID))
 		if err != nil {
 			return modelAppliedMsg{err: err}
 		}
@@ -497,23 +497,15 @@ func applyModelCmd(ctx context.Context, cl *openfga.Client, storeID, dsl string)
 	}
 }
 
-func formatUserEntry(u map[string]any) string {
-	if obj, ok := u["object"].(map[string]any); ok {
-		t, _ := obj["type"].(string)
-		id, _ := obj["id"].(string)
-		return t + ":" + id
+func formatUserEntry(u openfga.User) string {
+	switch {
+	case u.Object != nil:
+		return u.Object.Type + ":" + u.Object.ID
+	case u.Userset != nil:
+		return u.Userset.Type + ":" + u.Userset.ID + "#" + u.Userset.Relation
+	case u.Wildcard != nil:
+		return u.Wildcard.Type + ":*"
+	default:
+		return "?"
 	}
-	if us, ok := u["userset"].(map[string]any); ok {
-		if obj, ok := us["object"].(map[string]any); ok {
-			t, _ := obj["type"].(string)
-			id, _ := obj["id"].(string)
-			rel, _ := us["relation"].(string)
-			return t + ":" + id + "#" + rel
-		}
-	}
-	if w, ok := u["wildcard"].(map[string]any); ok {
-		t, _ := w["type"].(string)
-		return t + ":*"
-	}
-	return "?"
 }

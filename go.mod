@@ -2,8 +2,6 @@ module github.com/sergiught/openfga-cli
 
 go 1.26.3
 
-replace github.com/sergiught/go-openfga => ../go-openfga
-
 require (
 	charm.land/bubbles/v2 v2.1.1
 	charm.land/bubbletea/v2 v2.0.8
@@ -13,11 +11,11 @@ require (
 	github.com/charmbracelet/harmonica v0.2.0
 	github.com/charmbracelet/log v0.4.0
 	github.com/charmbracelet/x/ansi v0.11.7
-	github.com/golang-jwt/jwt/v5 v5.2.1
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/lucasb-eyer/go-colorful v1.4.0
 	github.com/muesli/go-app-paths v0.2.2
 	github.com/openfga/language/pkg/go v0.2.1
-	github.com/sergiught/go-openfga v0.0.0
+	github.com/sergiught/go-openfga v0.110.0
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/pflag v1.0.9
 )
@@ -51,7 +49,7 @@ require (
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/exp v0.0.0-20260312153236-7ab1446f8b90 // indirect
 	golang.org/x/net v0.52.0 // indirect
-	golang.org/x/oauth2 v0.35.0 // indirect
+	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/sys v0.46.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
