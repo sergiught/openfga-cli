@@ -4,13 +4,29 @@ package client
 import (
 	"crypto"
 	"fmt"
+	"net/http"
 	"os"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/config"
 )
+
+// responseHeaderTimeout bounds how long the client waits for a server to start
+// responding after the request is sent, so a server that accepts the connection
+// but never replies fails fast instead of hanging indefinitely.
+const responseHeaderTimeout = 30 * time.Second
+
+// baseTransport returns the network-level transport placed beneath the SDK's
+// auth/retry chain. It clones the standard transport (keeping proxy, dial, and
+// TLS defaults) and adds a response-header timeout.
+func baseTransport() http.RoundTripper {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.ResponseHeaderTimeout = responseHeaderTimeout
+	return t
+}
 
 // New builds an *openfga.Client from a resolved configuration. The store and
 // authorization-model IDs are registered as client defaults so per-call
@@ -23,6 +39,7 @@ func New(r config.Resolved) (*openfga.Client, error) {
 	opts := []openfga.Option{
 		openfga.WithUserAgent("ofga-cli"),
 		openfga.WithDefaultConsistency(openfga.ConsistencyHigherConsistency),
+		openfga.WithBaseTransport(baseTransport()),
 	}
 	if r.StoreID != "" {
 		opts = append(opts, openfga.WithStoreID(r.StoreID))

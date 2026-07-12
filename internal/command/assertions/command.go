@@ -12,6 +12,7 @@ import (
 
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/cli"
+	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/style"
@@ -222,7 +223,9 @@ func (c *Command) testCmd() *cobra.Command {
 				return nil
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), style.Failure.Render(style.IconCross+" "+summary))
-			return fmt.Errorf("%d assertion(s) failed", len(results)-passed)
+			// A dedicated exit code lets CI tell "assertions ran and failed"
+			// apart from the tool erroring for another reason.
+			return clierr.WithCode(clierr.CodeTestFailed, fmt.Errorf("%d assertion(s) failed", len(results)-passed))
 		},
 	}
 }
