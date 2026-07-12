@@ -64,3 +64,22 @@ func readLine(cmd *cobra.Command) string {
 	line, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
 	return strings.ToLower(strings.TrimSpace(line))
 }
+
+// Ask prompts on a TTY for a line of text, showing def as the default. It
+// returns def when the user presses enter on an empty line, or immediately (no
+// prompt) when stdin is not a terminal — so non-interactive runs use defaults.
+func Ask(cmd *cobra.Command, question, def string) string {
+	if !interactive(cmd) {
+		return def
+	}
+	if def != "" {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s [%s]: ", question, def)
+	} else {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s: ", question)
+	}
+	line, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+	if v := strings.TrimSpace(line); v != "" {
+		return v
+	}
+	return def
+}

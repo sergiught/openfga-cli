@@ -313,14 +313,28 @@ func (c *Command) setCmd() *cobra.Command {
 
 func (c *Command) addCmd() *cobra.Command {
 	var (
-		apiURL, storeID, modelID, token, tokenFile string
-		tokenStdin, activate                       bool
+		apiURL, storeID, modelID        string
+		token, tokenFile                string
+		tokenStdin, activate            bool
+		authMethod                      string
+		clientID, clientSecret          string
+		clientSecretFile                string
+		clientSecretStdin               bool
+		tokenURL, audience, apiAudience string
+		scopes                          []string
+		keyFile, signingMethod, keyID   string
 	)
 	cmd := &cobra.Command{
 		Use:   "add <profile>",
 		Short: "Create a new profile",
+		Long: "Create a named connection profile. The auth method defaults to a bearer\n" +
+			"token when --token* is given, otherwise none. For OAuth flows pass\n" +
+			"--auth-method client_credentials or private_key_jwt with their fields.",
 		Example: `  ofga profiles add dev --api-url http://localhost:8080 --use
-  ofga profiles add prod --api-url https://fga.example.com --token-stdin < token.txt`,
+  ofga profiles add prod --api-url https://fga.example.com --token-stdin < token.txt
+  ofga profiles add ci --auth-method client_credentials \
+    --client-id abc --client-secret-stdin --token-url https://issuer/oauth/token \
+    --audience https://api.fga.example.com`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
@@ -331,15 +345,39 @@ func (c *Command) addCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			secret, err := readSecret(cmd.InOrStdin(), clientSecret, clientSecretFile, clientSecretStdin)
+			if err != nil {
+				return err
+			}
 			if apiURL == "" {
 				apiURL = config.DefaultAPIURL
 			}
-			c.cli.Config.Set(name, config.Profile{
-				APIURL:   apiURL,
-				StoreID:  storeID,
-				ModelID:  modelID,
-				APIToken: token,
-			})
+
+			method := authMethod
+			if method == "" {
+				if token != "" {
+					method = config.AuthAPIToken
+				} else {
+					method = config.AuthNone
+				}
+			}
+			p := config.Profile{APIURL: apiURL, StoreID: storeID, ModelID: modelID}
+			switch method {
+			case config.AuthNone:
+			case config.AuthAPIToken:
+				p.Auth = config.Auth{Method: config.AuthAPIToken, Token: token}
+			case config.AuthClientCredentials:
+				p.Auth = config.Auth{Method: method, ClientID: clientID, ClientSecret: secret,
+					TokenURL: tokenURL, Audience: audience, Scopes: scopes}
+			case config.AuthPrivateKeyJWT:
+				p.Auth = config.Auth{Method: method, ClientID: clientID, TokenURL: tokenURL,
+					Audience: audience, APIAudience: apiAudience, KeyFile: keyFile,
+					SigningMethod: signingMethod, KeyID: keyID}
+			default:
+				return fmt.Errorf("invalid auth_method %q (use none, api_token, client_credentials or private_key_jwt)", method)
+			}
+
+			c.cli.Config.Set(name, p)
 			if activate {
 				_ = c.cli.Config.Use(name)
 			}
@@ -359,9 +397,22 @@ func (c *Command) addCmd() *cobra.Command {
 	// global persistent --store/--model overrides on this command.
 	f.StringVar(&storeID, "store-id", "", "store ID to save in the profile")
 	f.StringVar(&modelID, "model-id", "", "authorization model ID to save in the profile")
+	f.StringVar(&authMethod, "auth-method", "", "none | api_token | client_credentials | private_key_jwt")
 	f.StringVar(&token, "token", "", "API bearer token (prefer --token-file/--token-stdin)")
 	f.StringVar(&tokenFile, "token-file", "", "read the API token from a file")
 	f.BoolVar(&tokenStdin, "token-stdin", false, "read the API token from stdin")
+	// OAuth (client_credentials / private_key_jwt).
+	f.StringVar(&clientID, "client-id", "", "OAuth client ID")
+	f.StringVar(&clientSecret, "client-secret", "", "OAuth client secret (prefer --client-secret-file/-stdin)")
+	f.StringVar(&clientSecretFile, "client-secret-file", "", "read the client secret from a file")
+	f.BoolVar(&clientSecretStdin, "client-secret-stdin", false, "read the client secret from stdin")
+	f.StringVar(&tokenURL, "token-url", "", "OAuth token endpoint URL")
+	f.StringVar(&audience, "audience", "", "OAuth audience")
+	f.StringSliceVar(&scopes, "scopes", nil, "OAuth scopes (comma-separated)")
+	f.StringVar(&apiAudience, "api-audience", "", "API audience (private_key_jwt)")
+	f.StringVar(&keyFile, "key-file", "", "PEM signing key path (private_key_jwt)")
+	f.StringVar(&signingMethod, "signing-method", "", "JWT signing method, e.g. RS256 (private_key_jwt)")
+	f.StringVar(&keyID, "key-id", "", "signing key ID (private_key_jwt)")
 	f.BoolVar(&activate, "use", false, "switch to this profile after creating it")
 	return cmd
 }

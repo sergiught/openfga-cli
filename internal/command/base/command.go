@@ -186,6 +186,7 @@ func (c *Command) RegisterSubCommands() {
 		assertions.New(c.cli).Command(),
 		api.New(c.cli).Command(),
 		configcmd.New(c.cli).Command(),
+		configcmd.NewInit(c.cli),
 	)
 }
 

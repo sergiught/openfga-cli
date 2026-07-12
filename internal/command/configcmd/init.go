@@ -1,0 +1,87 @@
+package configcmd
+
+import (
+	"fmt"
+	"io"
+	"strings"
+
+	"github.com/spf13/cobra"
+
+	"github.com/sergiught/openfga-cli/internal/cli"
+	"github.com/sergiught/openfga-cli/internal/config"
+	"github.com/sergiught/openfga-cli/internal/output"
+	"github.com/sergiught/openfga-cli/internal/prompt"
+	"github.com/sergiught/openfga-cli/internal/style"
+)
+
+// NewInit builds the top-level `ofga init` onboarding command. On a terminal it
+// prompts for missing values; non-interactively it uses flags and defaults, so
+// it is safe to run in CI.
+func NewInit(c *cli.CLI) *cobra.Command {
+	var (
+		apiURL, storeID, token string
+		tokenStdin, force      bool
+	)
+	cmd := &cobra.Command{
+		Use:   "init [profile]",
+		Short: "Set up a connection profile (guided)",
+		Long: "Create or update a connection profile and make it active. On a terminal " +
+			"it prompts for any values not given as flags; non-interactively it uses the " +
+			"flags and defaults, so it is safe in CI.",
+		Example: `  ofga init
+  ofga init prod --api-url https://fga.example.com --token-stdin < token.txt`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := "default"
+			if len(args) == 1 {
+				name = args[0]
+			}
+			// Only guard against overwrite when the profile came from a real
+			// on-disk config, not the default synthesized on first run.
+			if _, exists := c.Config.Get(name); exists && c.Config.Existed() && !force {
+				if err := prompt.Confirm(cmd,
+					fmt.Sprintf("profile %q already exists — overwrite it?", name), false); err != nil {
+					return err
+				}
+			}
+
+			if token == "" && tokenStdin {
+				b, err := io.ReadAll(cmd.InOrStdin())
+				if err != nil {
+					return fmt.Errorf("read token from stdin: %w", err)
+				}
+				token = strings.TrimSpace(string(b))
+			}
+			if apiURL == "" {
+				apiURL = prompt.Ask(cmd, "OpenFGA API URL", config.DefaultAPIURL)
+			}
+			if token == "" && !tokenStdin {
+				token = prompt.Ask(cmd, "API token (leave blank for none)", "")
+			}
+			if storeID == "" {
+				storeID = prompt.Ask(cmd, "Store ID (optional)", "")
+			}
+
+			p := config.Profile{APIURL: apiURL, StoreID: storeID}
+			if token != "" {
+				p.Auth = config.Auth{Method: config.AuthAPIToken, Token: token}
+			}
+			c.Config.Set(name, p)
+			_ = c.Config.Use(name)
+			if err := c.SaveConfig(); err != nil {
+				return err
+			}
+
+			output.Successf(cmd.OutOrStdout(), "configured profile %s (now active)", style.Bold.Render(name))
+			output.Infof(cmd.OutOrStdout(), "next: run `ofga stores list` to check the connection")
+			return nil
+		},
+	}
+	f := cmd.Flags()
+	f.StringVar(&apiURL, "api-url", "", "API URL (default "+config.DefaultAPIURL+")")
+	f.StringVar(&storeID, "store", "", "store ID to save in the profile")
+	f.StringVar(&token, "token", "", "API token (prefer --token-stdin)")
+	f.BoolVar(&tokenStdin, "token-stdin", false, "read the API token from stdin")
+	f.BoolVar(&force, "force", false, "overwrite an existing profile without prompting")
+	return cmd
+}
