@@ -20,7 +20,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sergiught/go-openfga/openfga"
-	"github.com/sergiught/openfga-cli/internal/app"
+	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
@@ -85,7 +85,7 @@ func key(s string) tea.KeyPressMsg {
 
 func newTestModel() tea.Model {
 	cl, _ := openfga.NewClient("http://localhost:8080")
-	a := app.New(log.New(io.Discard), config.New(), "test")
+	a := cli.New(log.New(io.Discard), config.New(), "test")
 	mdl := newModel(context.Background(), a, cl, "store-1", "")
 	var m tea.Model = mdl
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
@@ -447,7 +447,7 @@ func TestQueryFormEnterNavigationRunsCheck(t *testing.T) {
 	defer srv.Close()
 
 	cl, _ := openfga.NewClient(srv.URL)
-	a := app.New(log.New(io.Discard), config.New(), "test")
+	a := cli.New(log.New(io.Discard), config.New(), "test")
 	mdl := newModel(context.Background(), a, cl, "store-1", "")
 	var m tea.Model = mdl
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
@@ -491,7 +491,7 @@ func TestQueryFormEnterNavigationRunsCheck(t *testing.T) {
 // captured without pressing i — and that tab keeps switching modes mid-edit.
 func TestQueryTabEntersEditOnFirstField(t *testing.T) {
 	cl, _ := openfga.NewClient("http://localhost:8080")
-	a := app.New(log.New(io.Discard), config.New(), "test")
+	a := cli.New(log.New(io.Discard), config.New(), "test")
 	mdl := newModel(context.Background(), a, cl, "store-1", "")
 	var m tea.Model = mdl
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 96, Height: 26})
@@ -642,7 +642,7 @@ func TestDigitKeyRerunsHistoryEntry(t *testing.T) {
 	defer srv.Close()
 
 	cl, _ := openfga.NewClient(srv.URL)
-	a := app.New(log.New(io.Discard), config.New(), "test")
+	a := cli.New(log.New(io.Discard), config.New(), "test")
 	mdl := newModel(context.Background(), a, cl, "store-1", "")
 	var m tea.Model = mdl
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
@@ -752,7 +752,7 @@ func TestEntranceSettlesAndTickerStops(t *testing.T) {
 	// the entrance to settled — so this constructs via newModel directly to
 	// observe the pre-resize boot state.
 	cl, _ := openfga.NewClient("http://localhost:8080")
-	a := app.New(log.New(io.Discard), config.New(), "test")
+	a := cli.New(log.New(io.Discard), config.New(), "test")
 	m := newModel(context.Background(), a, cl, "store-1", "")
 	if !m.entering {
 		t.Fatal("model must boot in the entering state")
@@ -782,7 +782,7 @@ func TestEntranceSettlesAndTickerStops(t *testing.T) {
 // a later, mid-flight resize should snap it.
 func TestBootSizeStartsEntranceThenResizeSnaps(t *testing.T) {
 	cl, _ := openfga.NewClient("http://localhost:8080")
-	a := app.New(log.New(io.Discard), config.New(), "test")
+	a := cli.New(log.New(io.Discard), config.New(), "test")
 	m := newModel(context.Background(), a, cl, "store-1", "")
 	var cur tea.Model = m
 
@@ -1300,7 +1300,7 @@ func TestAssertionAddFormErrorShowsDialog(t *testing.T) {
 	defer srv.Close()
 
 	cl, _ := openfga.NewClient(srv.URL)
-	a := app.New(log.New(io.Discard), config.New(), "test")
+	a := cli.New(log.New(io.Discard), config.New(), "test")
 	mdl := newModel(context.Background(), a, cl, "store-1", "")
 	var m tea.Model = mdl
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
@@ -1372,7 +1372,7 @@ func TestFooterStoreNameAndLatestTag(t *testing.T) {
 // where no selection cached the name yet).
 func TestFooterStoreNameFromLoadedList(t *testing.T) {
 	cl, _ := openfga.NewClient("http://localhost:8080")
-	a := app.New(log.New(io.Discard), config.New(), "test")
+	a := cli.New(log.New(io.Discard), config.New(), "test")
 	mdl := newModel(context.Background(), a, cl, "cfg-store", "")
 	var m tea.Model = mdl
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 140, Height: 28})
@@ -1391,7 +1391,7 @@ func TestFooterStoreNameFromLoadedList(t *testing.T) {
 // is persisted.
 func TestProfilesTabAddClientCredentials(t *testing.T) {
 	cfg, _ := loadIsolatedConfig(t)
-	a := app.New(log.New(io.Discard), cfg, "test")
+	a := cli.New(log.New(io.Discard), cfg, "test")
 	cl, _ := openfga.NewClient("http://localhost:8080")
 	mdl := newModel(context.Background(), a, cl, "", "")
 	var m tea.Model = mdl
@@ -1408,10 +1408,10 @@ func TestProfilesTabAddClientCredentials(t *testing.T) {
 	typeIn("prod")
 	m, _ = m.Update(key("tab")) // -> api_url
 	typeIn("https://api.fga")
-	m, _ = m.Update(key("tab"))    // -> auth method
-	m, _ = m.Update(key("right"))  // none -> api_token (rebuild)
-	m, _ = m.Update(key("right"))  // -> client_credentials (rebuild; focus stays on selector)
-	m, _ = m.Update(key("tab"))    // -> Client ID
+	m, _ = m.Update(key("tab"))   // -> auth method
+	m, _ = m.Update(key("right")) // none -> api_token (rebuild)
+	m, _ = m.Update(key("right")) // -> client_credentials (rebuild; focus stays on selector)
+	m, _ = m.Update(key("tab"))   // -> Client ID
 	typeIn("cid")
 	m, _ = m.Update(key("tab")) // -> Client secret
 	typeIn("sekret")
@@ -1551,7 +1551,7 @@ func loadIsolatedConfig(t *testing.T) (*config.Config, func() config.Profile) {
 // clearing the stale model id — all reflected in the on-disk config.
 func TestAutoSelectPersistsStoreAndModel(t *testing.T) {
 	cfg, reload := loadIsolatedConfig(t)
-	a := app.New(log.New(io.Discard), cfg, "test")
+	a := cli.New(log.New(io.Discard), cfg, "test")
 	cl, _ := openfga.NewClient("http://localhost:8080")
 
 	mdl := newModel(context.Background(), a, cl, "", "") // nothing selected yet
@@ -1588,7 +1588,7 @@ func TestAutoSelectPersistsStoreAndModel(t *testing.T) {
 // active_profile.
 func TestProfilesTabAddAndSwitch(t *testing.T) {
 	cfg, _ := loadIsolatedConfig(t)
-	a := app.New(log.New(io.Discard), cfg, "test")
+	a := cli.New(log.New(io.Discard), cfg, "test")
 	cl, _ := openfga.NewClient("http://localhost:8080")
 
 	mdl := newModel(context.Background(), a, cl, "", "")

@@ -614,7 +614,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			return m.enterForm(formAddProfile)
 		case "e":
 			if it, ok := m.profilesList.Selected(); ok {
-				p, _ := m.app.Config.Get(it.ID)
+				p, _ := m.cli.Config.Get(it.ID)
 				auth := p.ResolvedAuth()
 				m.profileEditName = it.ID
 				m.profileAuthMethod = auth.Method
@@ -629,7 +629,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			return m, nil
 		case "d":
 			if it, ok := m.profilesList.Selected(); ok {
-				if err := m.app.Config.Remove(it.ID); err != nil {
+				if err := m.cli.Config.Remove(it.ID); err != nil {
 					return m, m.toastErr("profile", err)
 				}
 				m.saveConfig()
@@ -1003,18 +1003,18 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "profile name required"
 				return m, nil
 			}
-			if _, exists := m.app.Config.Get(name); exists {
+			if _, exists := m.cli.Config.Get(name); exists {
 				m.status = "profile " + name + " already exists"
 				return m, nil
 			}
-			m.app.Config.Set(name, p)
+			m.cli.Config.Set(name, p)
 			m.saveConfig()
 			m.populateProfiles()
 			m.status = "created profile " + name
 			return m, m.toasts.Push(toast.Success, m.status)
 		case formEditProfile:
 			name := m.profileEditName
-			existing, ok := m.app.Config.Get(name)
+			existing, ok := m.cli.Config.Get(name)
 			if !ok {
 				m.status = "profile " + name + " no longer exists"
 				return m, nil
@@ -1023,11 +1023,11 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Keep the auto-managed store/model; replace connection + auth, and
 			// migrate any legacy top-level token into the auth block.
 			existing.APIURL, existing.Auth, existing.APIToken = p.APIURL, p.Auth, ""
-			m.app.Config.Set(name, existing)
+			m.cli.Config.Set(name, existing)
 			m.saveConfig()
 			m.populateProfiles()
 			// Editing the active profile changes the live connection — reconnect.
-			if name == m.app.Config.Active {
+			if name == m.cli.Config.Active {
 				return m, m.reloadActive("updated profile " + name)
 			}
 			m.status = "updated profile " + name

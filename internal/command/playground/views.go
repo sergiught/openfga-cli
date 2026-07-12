@@ -38,7 +38,7 @@ func (m Model) viewString() string {
 	m.sh.SetMain(sectionNames[m.section], m.sectionBody())
 	st := shell.Status{Left: m.sectionStatus(), Keys: m.statusKeys()}
 	// The active profile leads the footer as the connection identity.
-	st.Profile = "Profile: " + m.app.Config.Active
+	st.Profile = "Profile: " + m.cli.Config.Active
 	// Show the selected store's name and the full (untruncated) model id, tagged
 	// "(latest)" when it is the store's newest model.
 	if name := m.currentStoreName(); name != "" {
@@ -131,7 +131,7 @@ func (m Model) sidebarNav() []shell.NavItem {
 		it := shell.NavItem{Label: name, Icon: sectionIcons[i], Active: section(i) == m.section}
 		switch section(i) {
 		case secProfiles:
-			if n := len(m.app.Config.Profiles); n > 0 {
+			if n := len(m.cli.Config.Profiles); n > 0 {
 				it.Badge = itoa(n)
 			}
 		case secStores:
@@ -265,12 +265,12 @@ func (m Model) profilePreview() (string, string) {
 	if !ok {
 		return "", ""
 	}
-	p, ok := m.app.Config.Get(it.ID)
+	p, ok := m.cli.Config.Get(it.ID)
 	if !ok {
 		return "", ""
 	}
 	title := it.ID
-	if it.ID == m.app.Config.Active {
+	if it.ID == m.cli.Config.Active {
 		title += "  · active"
 	}
 	rows := [][2]string{

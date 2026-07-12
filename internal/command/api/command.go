@@ -12,18 +12,18 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sergiught/openfga-cli/internal/app"
+	"github.com/sergiught/openfga-cli/internal/cli"
 )
 
 // Command is the `api` command.
 type Command struct {
-	app *app.App
+	cli *cli.CLI
 	cmd *cobra.Command
 }
 
 // New builds the api command.
-func New(a *app.App) *Command {
-	c := &Command{app: a}
+func New(cli *cli.CLI) *Command {
+	c := &Command{cli: cli}
 	c.cmd = &cobra.Command{
 		Use:   "api <method> <path> [body]",
 		Short: "Send a raw request to the OpenFGA API (uses the active profile's auth)",
@@ -53,7 +53,7 @@ func (c *Command) run(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	cl, err := c.app.Client()
+	cl, err := c.cli.Client()
 	if err != nil {
 		return err
 	}
@@ -106,7 +106,7 @@ func (c *Command) write(w io.Writer, data []byte) error {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil
 	}
-	if !c.app.JSON {
+	if !c.cli.JSON {
 		var buf bytes.Buffer
 		if json.Indent(&buf, data, "", "  ") == nil {
 			data = buf.Bytes()

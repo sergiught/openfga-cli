@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/go-openfga/openfga"
-	"github.com/sergiught/openfga-cli/internal/app"
+	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/style"
@@ -19,13 +19,13 @@ import (
 
 // Command is the `assertions` command group.
 type Command struct {
-	app *app.App
+	cli *cli.CLI
 	cmd *cobra.Command
 }
 
 // New builds the assertions command group.
-func New(a *app.App) *Command {
-	c := &Command{app: a}
+func New(cli *cli.CLI) *Command {
+	c := &Command{cli: cli}
 	c.cmd = &cobra.Command{
 		Use:     "assertions",
 		Aliases: []string{"assert"},
@@ -61,7 +61,7 @@ func (c *Command) readCmd() *cobra.Command {
 		Short: "Read the assertions for a model (default: latest)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl, r, err := c.app.ClientWithStore()
+			cl, r, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
 			}
@@ -77,7 +77,7 @@ func (c *Command) readCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if c.app.JSON {
+			if c.cli.JSON {
 				return output.JSON(cmd.OutOrStdout(), res)
 			}
 			if len(res.Assertions) == 0 {
@@ -120,7 +120,7 @@ func (c *Command) writeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cl, r, err := c.app.ClientWithStore()
+			cl, r, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
 			}
@@ -148,7 +148,7 @@ func (c *Command) testCmd() *cobra.Command {
 		Long:  "Read the stored assertions for a model and verify each one with a live Check, comparing the result to the expectation.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl, r, err := c.app.ClientWithStore()
+			cl, r, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
 			}
@@ -202,7 +202,7 @@ func (c *Command) testCmd() *cobra.Command {
 				})
 			}
 
-			if c.app.JSON {
+			if c.cli.JSON {
 				return output.JSON(cmd.OutOrStdout(), map[string]any{
 					"model_id": modelID, "passed": passed, "total": len(results), "results": results,
 				})

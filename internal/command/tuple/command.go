@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/go-openfga/openfga"
-	"github.com/sergiught/openfga-cli/internal/app"
+	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/style"
@@ -16,13 +16,13 @@ import (
 
 // Command is the `tuple` command group.
 type Command struct {
-	app *app.App
+	cli *cli.CLI
 	cmd *cobra.Command
 }
 
 // New builds the tuple command group.
-func New(a *app.App) *Command {
-	c := &Command{app: a}
+func New(cli *cli.CLI) *Command {
+	c := &Command{cli: cli}
 	c.cmd = &cobra.Command{
 		Use:   "tuples",
 		Short: "Write, delete and read relationship tuples",
@@ -56,7 +56,7 @@ func (c *Command) writeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cl, _, err := c.app.ClientWithStore()
+			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
 			}
@@ -82,7 +82,7 @@ func (c *Command) deleteCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cl, _, err := c.app.ClientWithStore()
+			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
 			}
@@ -107,7 +107,7 @@ func (c *Command) readCmd() *cobra.Command {
 		Long:  "Read tuples from the store. Use --user, --relation and --object to filter; all are optional.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cl, _, err := c.app.ClientWithStore()
+			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
 			}
@@ -122,7 +122,7 @@ func (c *Command) readCmd() *cobra.Command {
 				}
 				tuples = append(tuples, t)
 			}
-			if c.app.JSON {
+			if c.cli.JSON {
 				return output.JSON(cmd.OutOrStdout(), tuples)
 			}
 			if len(tuples) == 0 {
@@ -162,7 +162,7 @@ func (c *Command) changesCmd() *cobra.Command {
 		Short: "Show the tuple changelog (writes and deletes)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cl, _, err := c.app.ClientWithStore()
+			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
 			}
@@ -177,7 +177,7 @@ func (c *Command) changesCmd() *cobra.Command {
 					break
 				}
 			}
-			if c.app.JSON {
+			if c.cli.JSON {
 				return output.JSON(cmd.OutOrStdout(), changes)
 			}
 			if len(changes) == 0 {

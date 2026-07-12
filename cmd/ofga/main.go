@@ -9,7 +9,7 @@ import (
 
 	"github.com/charmbracelet/log"
 
-	"github.com/sergiught/openfga-cli/internal/app"
+	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/command/base"
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/output"
@@ -35,9 +35,9 @@ func main() {
 	}
 	icons.Apply(icons.Parse(cfg.IconsMode()))
 
-	a := app.New(logger, cfg, version)
+	c := cli.New(logger, cfg, version)
 
-	root := base.New(a)
+	root := base.New(c)
 	if err := root.Command().ExecuteContext(ctx); err != nil {
 		logger.Debugf("command failed: %+v", err)
 		output.Errorf(root.ErrWriter(), "%s", err.Error())

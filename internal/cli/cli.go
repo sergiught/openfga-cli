@@ -1,7 +1,7 @@
-// Package app holds the shared dependencies threaded through every command:
+// Package cli holds the shared dependencies threaded through every command:
 // the logger, the loaded config, and the global flag overrides. It is the
 // single place commands go to obtain a ready-to-use OpenFGA client.
-package app
+package cli
 
 import (
 	"errors"
@@ -13,8 +13,8 @@ import (
 	"github.com/sergiught/openfga-cli/internal/config"
 )
 
-// App is the dependency container shared across commands.
-type App struct {
+// CLI is the dependency container shared across commands.
+type CLI struct {
 	Logger    *log.Logger
 	Config    *config.Config
 	Overrides config.Overrides // populated from persistent flags before Execute
@@ -34,19 +34,19 @@ type App struct {
 	Version string
 }
 
-// New builds an App with the given logger, config and version.
-func New(logger *log.Logger, cfg *config.Config, version string) *App {
-	return &App{Logger: logger, Config: cfg, Version: version}
+// New builds a CLI with the given logger, config and version.
+func New(logger *log.Logger, cfg *config.Config, version string) *CLI {
+	return &CLI{Logger: logger, Config: cfg, Version: version}
 }
 
 // Resolve merges profile, env and flag overrides into a usable configuration.
-func (a *App) Resolve() (config.Resolved, error) {
-	return a.Config.Resolve(a.Overrides)
+func (cli *CLI) Resolve() (config.Resolved, error) {
+	return cli.Config.Resolve(cli.Overrides)
 }
 
 // Client returns a configured OpenFGA client for the resolved configuration.
-func (a *App) Client() (*openfga.Client, error) {
-	r, err := a.Resolve()
+func (cli *CLI) Client() (*openfga.Client, error) {
+	r, err := cli.Resolve()
 	if err != nil {
 		return nil, err
 	}
@@ -55,8 +55,8 @@ func (a *App) Client() (*openfga.Client, error) {
 
 // ClientWithStore returns a client and guarantees a store ID is configured,
 // returning a friendly error otherwise. Most commands need a store.
-func (a *App) ClientWithStore() (*openfga.Client, config.Resolved, error) {
-	r, err := a.Resolve()
+func (cli *CLI) ClientWithStore() (*openfga.Client, config.Resolved, error) {
+	r, err := cli.Resolve()
 	if err != nil {
 		return nil, config.Resolved{}, err
 	}
@@ -71,10 +71,10 @@ func (a *App) ClientWithStore() (*openfga.Client, config.Resolved, error) {
 }
 
 // SaveConfig persists the config and logs the location at debug level.
-func (a *App) SaveConfig() error {
-	if err := a.Config.Save(); err != nil {
+func (cli *CLI) SaveConfig() error {
+	if err := cli.Config.Save(); err != nil {
 		return fmt.Errorf("save config: %w", err)
 	}
-	a.Logger.Debug("config saved", "path", a.Config.Path())
+	cli.Logger.Debug("config saved", "path", cli.Config.Path())
 	return nil
 }

@@ -14,7 +14,7 @@ import (
 	"github.com/charmbracelet/harmonica"
 
 	"github.com/sergiught/go-openfga/openfga"
-	"github.com/sergiught/openfga-cli/internal/app"
+	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/field"
@@ -76,7 +76,7 @@ type histEntry struct {
 
 // Model is the task-pilot-style playground model.
 type Model struct {
-	app    *app.App
+	cli    *cli.CLI
 	client *openfga.Client
 	ctx    context.Context
 
@@ -161,11 +161,11 @@ type Model struct {
 	qmode        int
 	qform        *field.Form
 	qShowContext bool // reveal the Context (JSON) + contextual-tuples fields
-	editing   bool // a form (query or takeover) is capturing keys
-	hasResult bool
-	result    queryResultMsg
-	history   []histEntry // rerunnable results, newest first, capped at 5
-	flash     bool        // true for one frame right after a badge result lands
+	editing      bool // a form (query or takeover) is capturing keys
+	hasResult    bool
+	result       queryResultMsg
+	history      []histEntry // rerunnable results, newest first, capped at 5
+	flash        bool        // true for one frame right after a badge result lands
 
 	// check resolution tree (Expand), shown over the query result
 	resVP       viewport.Model
@@ -188,7 +188,7 @@ type Model struct {
 	modelDSL   string // DSL of the currently-loaded model, for edit pre-fill
 }
 
-func newModel(ctx context.Context, a *app.App, cl *openfga.Client, storeID, modelID string) Model {
+func newModel(ctx context.Context, cli *cli.CLI, cl *openfga.Client, storeID, modelID string) Model {
 	sp := spinner.New(spinner.WithSpinner(spinner.Dot), spinner.WithStyle(lipgloss.NewStyle().Foreground(style.Primary)))
 
 	// A lightly-damped spring gives scrolling momentum without overshoot.
@@ -206,7 +206,7 @@ func newModel(ctx context.Context, a *app.App, cl *openfga.Client, storeID, mode
 	ta.ShowLineNumbers = true
 
 	m := Model{
-		app:            a,
+		cli:            cli,
 		client:         cl,
 		ctx:            ctx,
 		spinner:        sp,
@@ -215,7 +215,7 @@ func newModel(ctx context.Context, a *app.App, cl *openfga.Client, storeID, mode
 		entranceFrac:   entranceFrac,
 		entranceSpring: entranceSpring,
 		section:        secStores,
-		version:        a.Version,
+		version:        cli.Version,
 		storeID:        storeID,
 		modelID:        modelID,
 		graphSpring:    graphSpring,
@@ -272,25 +272,25 @@ func (m Model) startModelCmd() tea.Cmd {
 }
 
 // Run launches the playground.
-func Run(ctx context.Context, a *app.App) error {
-	r, err := a.Resolve()
+func Run(ctx context.Context, cli *cli.CLI) error {
+	r, err := cli.Resolve()
 	if err != nil {
 		return err
 	}
-	cl, err := a.Client()
+	cl, err := cli.Client()
 	if err != nil {
 		return err
 	}
 	// On first run, materialize a starter config.toml (default profile, default
 	// API URL, no store/model yet) so the file exists to be updated as the user
 	// picks a store and model in the TUI.
-	if !a.Config.Existed() {
-		if err := a.SaveConfig(); err != nil {
-			a.Logger.Debug("failed to write initial config", "error", err)
+	if !cli.Config.Existed() {
+		if err := cli.SaveConfig(); err != nil {
+			cli.Logger.Debug("failed to write initial config", "error", err)
 		}
 	}
-	m := newModel(ctx, a, cl, r.StoreID, r.ModelID)
-	icons.Apply(icons.Parse(a.Config.IconsMode()))
+	m := newModel(ctx, cli, cl, r.StoreID, r.ModelID)
+	icons.Apply(icons.Parse(cli.Config.IconsMode()))
 	p := tea.NewProgram(m)
 	_, err = p.Run()
 	return err
@@ -376,12 +376,12 @@ func (m *Model) refreshResVP() {
 // --- list population ---
 
 func (m *Model) populateProfiles() {
-	names := m.app.Config.ProfileNames()
+	names := m.cli.Config.ProfileNames()
 	items := make([]uilist.Item, len(names))
 	for i, name := range names {
-		p, _ := m.app.Config.Get(name)
+		p, _ := m.cli.Config.Get(name)
 		desc := p.APIURL
-		if name == m.app.Config.Active {
+		if name == m.cli.Config.Active {
 			desc = "active · " + desc
 		}
 		items[i] = uilist.Item{TitleText: name, DescText: desc, Filter: name, ID: name, Index: i}
@@ -576,8 +576,8 @@ func (m *Model) selectStore(s openfga.Store) tea.Cmd {
 // model that loads next re-records it). No-op when the profile already reflects
 // this store with no model, so an ordinary launch doesn't rewrite the file.
 func (m *Model) persistStore() {
-	active := m.app.Config.Active
-	p, ok := m.app.Config.Get(active)
+	active := m.cli.Config.Active
+	p, ok := m.cli.Config.Get(active)
 	if !ok {
 		return
 	}
@@ -586,7 +586,7 @@ func (m *Model) persistStore() {
 	}
 	p.StoreID = m.storeID
 	p.ModelID = ""
-	m.app.Config.Set(active, p)
+	m.cli.Config.Set(active, p)
 	m.saveConfig()
 }
 
@@ -594,8 +594,8 @@ func (m *Model) persistStore() {
 // No-op when unchanged, so reloading an already-recorded model on launch
 // doesn't rewrite the file.
 func (m *Model) persistModel() {
-	active := m.app.Config.Active
-	p, ok := m.app.Config.Get(active)
+	active := m.cli.Config.Active
+	p, ok := m.cli.Config.Get(active)
 	if !ok {
 		return
 	}
@@ -603,7 +603,7 @@ func (m *Model) persistModel() {
 		return
 	}
 	p.ModelID = m.modelID
-	m.app.Config.Set(active, p)
+	m.cli.Config.Set(active, p)
 	m.saveConfig()
 }
 
@@ -611,21 +611,21 @@ func (m *Model) persistModel() {
 // line rather than interrupting the session. It skips the write when the config
 // has no resolved on-disk location, so it never guesses a path.
 func (m *Model) saveConfig() {
-	if m.app.Config.Path() == "" {
+	if m.cli.Config.Path() == "" {
 		return
 	}
-	if err := m.app.SaveConfig(); err != nil {
+	if err := m.cli.SaveConfig(); err != nil {
 		m.status = "could not save config: " + err.Error()
 	}
 }
 
 // switchProfile makes name the active profile and reconnects to it.
 func (m *Model) switchProfile(name string) tea.Cmd {
-	if name == m.app.Config.Active {
+	if name == m.cli.Config.Active {
 		m.status = "already on profile " + name
 		return nil
 	}
-	if err := m.app.Config.Use(name); err != nil {
+	if err := m.cli.Config.Use(name); err != nil {
 		return m.toastErr("profile", err)
 	}
 	m.saveConfig()
@@ -638,11 +638,11 @@ func (m *Model) switchProfile(name string) tea.Cmd {
 // profile's connection details are edited. On a client-build failure it keeps
 // the previous client and surfaces a toast, so a broken profile can be fixed.
 func (m *Model) reloadActive(status string) tea.Cmd {
-	r, err := m.app.Resolve()
+	r, err := m.cli.Resolve()
 	if err != nil {
 		return m.toastErr("profile", err)
 	}
-	cl, err := m.app.Client()
+	cl, err := m.cli.Client()
 	if err != nil {
 		m.populateProfiles()
 		return m.toastErr("profile", err)

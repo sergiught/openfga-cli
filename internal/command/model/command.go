@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/go-openfga/openfga"
-	"github.com/sergiught/openfga-cli/internal/app"
+	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/style"
@@ -19,13 +19,13 @@ import (
 
 // Command is the `model` command group.
 type Command struct {
-	app *app.App
+	cli *cli.CLI
 	cmd *cobra.Command
 }
 
 // New builds the model command group.
-func New(a *app.App) *Command {
-	c := &Command{app: a}
+func New(cli *cli.CLI) *Command {
+	c := &Command{cli: cli}
 	c.cmd = &cobra.Command{
 		Use:     "model",
 		Aliases: []string{"models"},
@@ -77,7 +77,7 @@ func (c *Command) writeCmd() *cobra.Command {
 			if req.SchemaVersion == "" {
 				req.SchemaVersion = "1.1"
 			}
-			cl, _, err := c.app.ClientWithStore()
+			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
 			}
@@ -85,7 +85,7 @@ func (c *Command) writeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if c.app.JSON {
+			if c.cli.JSON {
 				return output.JSON(cmd.OutOrStdout(), res)
 			}
 			output.Successf(cmd.OutOrStdout(), "wrote authorization model")
@@ -104,7 +104,7 @@ func (c *Command) listCmd() *cobra.Command {
 		Short:   "List authorization models in the store",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cl, _, err := c.app.ClientWithStore()
+			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
 			}
@@ -115,7 +115,7 @@ func (c *Command) listCmd() *cobra.Command {
 				}
 				models = append(models, m)
 			}
-			if c.app.JSON {
+			if c.cli.JSON {
 				return output.JSON(cmd.OutOrStdout(), models)
 			}
 			if len(models) == 0 {
@@ -142,7 +142,7 @@ func (c *Command) getCmd() *cobra.Command {
 		Short: "Show an authorization model as JSON",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl, _, err := c.app.ClientWithStore()
+			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
 			}
@@ -161,7 +161,7 @@ func (c *Command) latestCmd() *cobra.Command {
 		Short: "Show the most recent authorization model",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cl, _, err := c.app.ClientWithStore()
+			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
 			}
@@ -169,7 +169,7 @@ func (c *Command) latestCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if c.app.JSON {
+			if c.cli.JSON {
 				return output.JSON(cmd.OutOrStdout(), m)
 			}
 			output.KeyValues(cmd.OutOrStdout(), [][2]string{
@@ -189,7 +189,7 @@ func (c *Command) graphCmd() *cobra.Command {
 		Long:  "Render an authorization model as a colored tree showing, for each type and relation, the directly-assignable types, implied relations, and inherited (tuple-to-userset) paths. With no argument, the latest model is used.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl, _, err := c.app.ClientWithStore()
+			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
 			}
@@ -203,7 +203,7 @@ func (c *Command) graphCmd() *cobra.Command {
 				return err
 			}
 			g := fga.ParseModel(m)
-			if c.app.JSON {
+			if c.cli.JSON {
 				return output.JSON(cmd.OutOrStdout(), g)
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), style.Title.Render("Authorization Model "+m.ID))

@@ -9,7 +9,7 @@ import (
 	"github.com/charmbracelet/colorprofile"
 	"github.com/spf13/cobra"
 
-	"github.com/sergiught/openfga-cli/internal/app"
+	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/command/api"
 	"github.com/sergiught/openfga-cli/internal/command/assertions"
 	"github.com/sergiught/openfga-cli/internal/command/model"
@@ -25,20 +25,20 @@ import (
 
 // Command is the root command.
 type Command struct {
-	app  *app.App
+	cli  *cli.CLI
 	cmd  *cobra.Command
 	outW *colorprofile.Writer
 	errW *colorprofile.Writer
 }
 
 // New constructs the root command and wires persistent flags + sub-commands.
-func New(a *app.App) *Command {
-	c := &Command{app: a}
+func New(cli *cli.CLI) *Command {
+	c := &Command{cli: cli}
 
 	c.cmd = &cobra.Command{
 		Use:   "ofga",
 		Short: "A modern CLI & TUI for OpenFGA",
-		Long:  banner(a.Version),
+		Long:  banner(cli.Version),
 		Example: `# Launch the interactive TUI
 ofga
 
@@ -55,11 +55,11 @@ ofga model graph
 ofga api GET /stores`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		Version:       a.Version,
+		Version:       cli.Version,
 		Args:          cobra.NoArgs,
 		// Bare `ofga` launches the TUI (clig.dev: lead with the primary value).
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return playground.Run(cmd.Context(), a)
+			return playground.Run(cmd.Context(), cli)
 		},
 		// Resolve color + theme + output mode before any command renders.
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
@@ -88,14 +88,14 @@ ofga api GET /stores`,
 	}
 
 	pf := c.cmd.PersistentFlags()
-	pf.StringVarP(&a.Overrides.Profile, "profile", "p", "", "configuration profile to use")
-	pf.StringVar(&a.Overrides.StoreID, "store", "", "store ID (overrides profile/env)")
-	pf.StringVar(&a.Overrides.ModelID, "model", "", "authorization model ID (overrides profile/env)")
-	pf.BoolVar(&a.JSON, "json", false, "output machine-readable JSON")
-	pf.BoolVar(&a.Plain, "plain", false, "output unstyled, tab-separated rows (grep/awk friendly)")
-	pf.BoolVarP(&a.Quiet, "quiet", "q", false, "suppress incidental output")
-	pf.BoolVar(&a.NoColor, "no-color", false, "disable colored output")
-	pf.StringVar(&a.ThemeName, "theme", "", "color theme ("+themeList()+")")
+	pf.StringVarP(&cli.Overrides.Profile, "profile", "p", "", "configuration profile to use")
+	pf.StringVar(&cli.Overrides.StoreID, "store", "", "store ID (overrides profile/env)")
+	pf.StringVar(&cli.Overrides.ModelID, "model", "", "authorization model ID (overrides profile/env)")
+	pf.BoolVar(&cli.JSON, "json", false, "output machine-readable JSON")
+	pf.BoolVar(&cli.Plain, "plain", false, "output unstyled, tab-separated rows (grep/awk friendly)")
+	pf.BoolVarP(&cli.Quiet, "quiet", "q", false, "suppress incidental output")
+	pf.BoolVar(&cli.NoColor, "no-color", false, "disable colored output")
+	pf.StringVar(&cli.ThemeName, "theme", "", "color theme ("+themeList()+")")
 	pf.BoolP("verbose", "v", false, "enable debug logging")
 
 	c.RegisterSubCommands()
@@ -105,7 +105,7 @@ ofga api GET /stores`,
 // applyEnvironment resolves the color profile, theme, and output toggles from
 // flags, environment (NO_COLOR, FORCE_COLOR, TERM=dumb) and config.
 func (c *Command) applyEnvironment() {
-	a := c.app
+	a := c.cli
 	output.Quiet = a.Quiet
 	output.Plain = a.Plain
 
@@ -144,13 +144,13 @@ func (c *Command) ErrWriter() *colorprofile.Writer { return c.errW }
 // RegisterSubCommands adds all top-level commands.
 func (c *Command) RegisterSubCommands() {
 	c.cmd.AddCommand(
-		profiles.New(c.app).Command(),
-		store.New(c.app).Command(),
-		model.New(c.app).Command(),
-		tuple.New(c.app).Command(),
-		query.New(c.app).Command(),
-		assertions.New(c.app).Command(),
-		api.New(c.app).Command(),
+		profiles.New(c.cli).Command(),
+		store.New(c.cli).Command(),
+		model.New(c.cli).Command(),
+		tuple.New(c.cli).Command(),
+		query.New(c.cli).Command(),
+		assertions.New(c.cli).Command(),
+		api.New(c.cli).Command(),
 	)
 }
 

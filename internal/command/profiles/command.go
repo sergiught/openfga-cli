@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sergiught/openfga-cli/internal/app"
+	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/style"
@@ -17,13 +17,13 @@ import (
 
 // Command is the `context` command group.
 type Command struct {
-	app *app.App
+	cli *cli.CLI
 	cmd *cobra.Command
 }
 
 // New builds the context command group.
-func New(a *app.App) *Command {
-	c := &Command{app: a}
+func New(cli *cli.CLI) *Command {
+	c := &Command{cli: cli}
 	c.cmd = &cobra.Command{
 		Use:   "profiles",
 		Short: "Manage connection profiles",
@@ -58,13 +58,13 @@ func (c *Command) themeCmd() *cobra.Command {
 		Args:      cobra.MaximumNArgs(1),
 		ValidArgs: theme.Names(),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg := c.app.Config
+			cfg := c.cli.Config
 			current := cfg.Theme
 			if current == "" {
 				current = theme.Default().Name
 			}
 			if len(args) == 0 {
-				if c.app.JSON {
+				if c.cli.JSON {
 					return output.JSON(cmd.OutOrStdout(), map[string]any{"current": current, "available": theme.Names()})
 				}
 				for _, n := range theme.Names() {
@@ -81,7 +81,7 @@ func (c *Command) themeCmd() *cobra.Command {
 				return fmt.Errorf("unknown theme %q (available: %s)", name, strings.Join(theme.Names(), ", "))
 			}
 			cfg.Theme = name
-			if err := c.app.SaveConfig(); err != nil {
+			if err := c.cli.SaveConfig(); err != nil {
 				return err
 			}
 			output.Successf(cmd.OutOrStdout(), "theme set to %s", style.Bold.Render(name))
@@ -97,8 +97,8 @@ func (c *Command) listCmd() *cobra.Command {
 		Short:   "List all profiles",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg := c.app.Config
-			if c.app.JSON {
+			cfg := c.cli.Config
+			if c.cli.JSON {
 				return output.JSON(cmd.OutOrStdout(), map[string]any{
 					"active":   cfg.Active,
 					"profiles": cfg.Profiles,
@@ -126,10 +126,10 @@ func (c *Command) currentCmd() *cobra.Command {
 		Short: "Show the active profile name",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if c.app.JSON {
-				return output.JSON(cmd.OutOrStdout(), map[string]string{"active": c.app.Config.Active})
+			if c.cli.JSON {
+				return output.JSON(cmd.OutOrStdout(), map[string]string{"active": c.cli.Config.Active})
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), c.app.Config.Active)
+			fmt.Fprintln(cmd.OutOrStdout(), c.cli.Config.Active)
 			return nil
 		},
 	}
@@ -143,11 +143,11 @@ func (c *Command) showCmd() *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 1 {
-				p, ok := c.app.Config.Get(args[0])
+				p, ok := c.cli.Config.Get(args[0])
 				if !ok {
 					return fmt.Errorf("%w: %q", config.ErrNoProfile, args[0])
 				}
-				if c.app.JSON {
+				if c.cli.JSON {
 					return output.JSON(cmd.OutOrStdout(), p)
 				}
 				rows := [][2]string{
@@ -159,11 +159,11 @@ func (c *Command) showCmd() *cobra.Command {
 				output.KeyValues(cmd.OutOrStdout(), append(rows, authRows(p.ResolvedAuth())...))
 				return nil
 			}
-			r, err := c.app.Resolve()
+			r, err := c.cli.Resolve()
 			if err != nil {
 				return err
 			}
-			if c.app.JSON {
+			if c.cli.JSON {
 				return output.JSON(cmd.OutOrStdout(), map[string]string{
 					"profile":   r.Profile,
 					"api_url":   r.APIURL,
@@ -191,10 +191,10 @@ func (c *Command) useCmd() *cobra.Command {
 		Short: "Switch the active profile",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := c.app.Config.Use(args[0]); err != nil {
+			if err := c.cli.Config.Use(args[0]); err != nil {
 				return err
 			}
-			if err := c.app.SaveConfig(); err != nil {
+			if err := c.cli.SaveConfig(); err != nil {
 				return err
 			}
 			output.Successf(cmd.OutOrStdout(), "switched to profile %s", style.Bold.Render(args[0]))
@@ -214,11 +214,11 @@ func (c *Command) setCmd() *cobra.Command {
 			"signing_method, key_id, scopes (space-separated).",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			name := c.app.Config.Active
-			if c.app.Overrides.Profile != "" {
-				name = c.app.Overrides.Profile
+			name := c.cli.Config.Active
+			if c.cli.Overrides.Profile != "" {
+				name = c.cli.Overrides.Profile
 			}
-			p, ok := c.app.Config.Get(name)
+			p, ok := c.cli.Config.Get(name)
 			if !ok {
 				return fmt.Errorf("%w: %q", config.ErrNoProfile, name)
 			}
@@ -255,8 +255,8 @@ func (c *Command) setCmd() *cobra.Command {
 			default:
 				return fmt.Errorf("unknown key %q (see `ofga profiles set --help`)", args[0])
 			}
-			c.app.Config.Set(name, p)
-			if err := c.app.SaveConfig(); err != nil {
+			c.cli.Config.Set(name, p)
+			if err := c.cli.SaveConfig(); err != nil {
 				return err
 			}
 			output.Successf(cmd.OutOrStdout(), "set %s on profile %s", style.Key.Render(key), style.Bold.Render(name))
@@ -276,22 +276,22 @@ func (c *Command) addCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
-			if _, exists := c.app.Config.Get(name); exists {
+			if _, exists := c.cli.Config.Get(name); exists {
 				return fmt.Errorf("profile %q already exists", name)
 			}
 			if apiURL == "" {
 				apiURL = config.DefaultAPIURL
 			}
-			c.app.Config.Set(name, config.Profile{
+			c.cli.Config.Set(name, config.Profile{
 				APIURL:   apiURL,
 				StoreID:  storeID,
 				ModelID:  modelID,
 				APIToken: token,
 			})
 			if activate {
-				_ = c.app.Config.Use(name)
+				_ = c.cli.Config.Use(name)
 			}
-			if err := c.app.SaveConfig(); err != nil {
+			if err := c.cli.SaveConfig(); err != nil {
 				return err
 			}
 			output.Successf(cmd.OutOrStdout(), "created profile %s", style.Bold.Render(name))
@@ -317,10 +317,10 @@ func (c *Command) removeCmd() *cobra.Command {
 		Short:   "Delete a profile",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := c.app.Config.Remove(args[0]); err != nil {
+			if err := c.cli.Config.Remove(args[0]); err != nil {
 				return err
 			}
-			if err := c.app.SaveConfig(); err != nil {
+			if err := c.cli.SaveConfig(); err != nil {
 				return err
 			}
 			output.Successf(cmd.OutOrStdout(), "removed profile %s", style.Bold.Render(args[0]))

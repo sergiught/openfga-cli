@@ -8,20 +8,20 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/go-openfga/openfga"
-	"github.com/sergiught/openfga-cli/internal/app"
+	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/style"
 )
 
 // Command is the `store` command group.
 type Command struct {
-	app *app.App
+	cli *cli.CLI
 	cmd *cobra.Command
 }
 
 // New builds the store command group.
-func New(a *app.App) *Command {
-	c := &Command{app: a}
+func New(cli *cli.CLI) *Command {
+	c := &Command{cli: cli}
 	c.cmd = &cobra.Command{
 		Use:   "stores",
 		Short: "Create, list, inspect and delete stores",
@@ -50,7 +50,7 @@ func (c *Command) createCmd() *cobra.Command {
 		Short: "Create a new store",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl, err := c.app.Client()
+			cl, err := c.cli.Client()
 			if err != nil {
 				return err
 			}
@@ -59,19 +59,19 @@ func (c *Command) createCmd() *cobra.Command {
 				return err
 			}
 			if use {
-				name := c.app.Config.Active
-				if c.app.Overrides.Profile != "" {
-					name = c.app.Overrides.Profile
+				name := c.cli.Config.Active
+				if c.cli.Overrides.Profile != "" {
+					name = c.cli.Overrides.Profile
 				}
-				if p, ok := c.app.Config.Get(name); ok {
+				if p, ok := c.cli.Config.Get(name); ok {
 					p.StoreID = st.ID
-					c.app.Config.Set(name, p)
-					if err := c.app.SaveConfig(); err != nil {
+					c.cli.Config.Set(name, p)
+					if err := c.cli.SaveConfig(); err != nil {
 						return err
 					}
 				}
 			}
-			if c.app.JSON {
+			if c.cli.JSON {
 				return output.JSON(cmd.OutOrStdout(), st)
 			}
 			output.Successf(cmd.OutOrStdout(), "created store %s", style.Bold.Render(st.Name))
@@ -97,7 +97,7 @@ func (c *Command) listCmd() *cobra.Command {
 		Short:   "List all stores",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cl, err := c.app.Client()
+			cl, err := c.cli.Client()
 			if err != nil {
 				return err
 			}
@@ -108,7 +108,7 @@ func (c *Command) listCmd() *cobra.Command {
 				}
 				stores = append(stores, st)
 			}
-			if c.app.JSON {
+			if c.cli.JSON {
 				return output.JSON(cmd.OutOrStdout(), stores)
 			}
 			if len(stores) == 0 {
@@ -133,7 +133,7 @@ func (c *Command) getCmd() *cobra.Command {
 		Short: "Show details of a store",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl, err := c.app.Client()
+			cl, err := c.cli.Client()
 			if err != nil {
 				return err
 			}
@@ -141,7 +141,7 @@ func (c *Command) getCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if c.app.JSON {
+			if c.cli.JSON {
 				return output.JSON(cmd.OutOrStdout(), st)
 			}
 			output.KeyValues(cmd.OutOrStdout(), [][2]string{
@@ -166,7 +166,7 @@ func (c *Command) deleteCmd() *cobra.Command {
 			if !yes {
 				return fmt.Errorf("refusing to delete store %s without --yes (this cannot be undone)", args[0])
 			}
-			cl, err := c.app.Client()
+			cl, err := c.cli.Client()
 			if err != nil {
 				return err
 			}

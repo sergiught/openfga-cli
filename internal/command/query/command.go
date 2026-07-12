@@ -10,20 +10,20 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/go-openfga/openfga"
-	"github.com/sergiught/openfga-cli/internal/app"
+	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/style"
 )
 
 // Command is the `query` command group.
 type Command struct {
-	app *app.App
+	cli *cli.CLI
 	cmd *cobra.Command
 }
 
 // New builds the query command group.
-func New(a *app.App) *Command {
-	c := &Command{app: a}
+func New(cli *cli.CLI) *Command {
+	c := &Command{cli: cli}
 	c.cmd = &cobra.Command{
 		Use:     "query",
 		Aliases: []string{"q"},
@@ -90,7 +90,7 @@ func (c *Command) checkCmd() *cobra.Command {
 		Example: "  ofga query check user:anne viewer document:roadmap",
 		Args:    cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl, _, err := c.app.ClientWithStore()
+			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
 			}
@@ -111,7 +111,7 @@ func (c *Command) checkCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if c.app.JSON {
+			if c.cli.JSON {
 				return output.JSON(cmd.OutOrStdout(), res)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "%s  %s\n",
@@ -136,7 +136,7 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 			if len(checks) == 0 {
 				return fmt.Errorf("provide at least one --check user,relation,object")
 			}
-			cl, _, err := c.app.ClientWithStore()
+			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
 			}
@@ -158,7 +158,7 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if c.app.JSON {
+			if c.cli.JSON {
 				return output.JSON(cmd.OutOrStdout(), res)
 			}
 			for i, item := range items {
@@ -179,7 +179,7 @@ func (c *Command) expandCmd() *cobra.Command {
 		Example: "  ofga query expand viewer document:roadmap",
 		Args:    cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl, _, err := c.app.ClientWithStore()
+			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
 			}
@@ -202,7 +202,7 @@ func (c *Command) listObjectsCmd() *cobra.Command {
 		Example: "  ofga query list-objects document viewer user:anne",
 		Args:    cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl, _, err := c.app.ClientWithStore()
+			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
 			}
@@ -215,7 +215,7 @@ func (c *Command) listObjectsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if c.app.JSON {
+			if c.cli.JSON {
 				return output.JSON(cmd.OutOrStdout(), res.Objects)
 			}
 			if len(res.Objects) == 0 {
@@ -244,7 +244,7 @@ func (c *Command) listUsersCmd() *cobra.Command {
 			if len(userTypes) == 0 {
 				return fmt.Errorf("at least one --type filter is required (e.g. --type user)")
 			}
-			cl, _, err := c.app.ClientWithStore()
+			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
 			}
@@ -265,7 +265,7 @@ func (c *Command) listUsersCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if c.app.JSON {
+			if c.cli.JSON {
 				return output.JSON(cmd.OutOrStdout(), res.Users)
 			}
 			if len(res.Users) == 0 {
