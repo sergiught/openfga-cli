@@ -119,7 +119,11 @@ type Model struct {
 
 	spinner spinner.Model
 	loading bool
-	status  string
+	// spinnerRunning tracks whether the spinner tick loop is active, so it can
+	// be stopped when idle and restarted on the next load instead of ticking
+	// forever.
+	spinnerRunning bool
+	status         string
 
 	toasts toast.Model
 
@@ -235,6 +239,7 @@ func newModel(ctx context.Context, cli *cli.CLI, cl *openfga.Client, storeID, mo
 		modelID:        modelID,
 		graphSpring:    graphSpring,
 		loading:        true,
+		spinnerRunning: true, // Init starts the tick loop for the initial load
 		status:         "loading stores…",
 		profilesList:   uilist.New(),
 		storesList:     uilist.New(),

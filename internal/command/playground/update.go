@@ -68,8 +68,17 @@ func flashTick() tea.Cmd {
 // handles the message), then dispatches as before.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	toastCmd := m.toasts.Update(msg)
+	wasLoading := m.loading
 	nm, cmd := m.dispatch(msg)
-	return nm, tea.Batch(toastCmd, cmd)
+	m2 := nm.(Model)
+	// The spinner only animates while loading. Restart its tick loop once when a
+	// load begins; the loop stops itself when loading ends (see spinner.TickMsg),
+	// so the UI isn't redrawn forever by a hidden spinner.
+	if m2.loading && !wasLoading && !m2.spinnerRunning {
+		m2.spinnerRunning = true
+		cmd = tea.Batch(cmd, m2.spinner.Tick)
+	}
+	return m2, tea.Batch(toastCmd, cmd)
 }
 
 func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -90,6 +99,11 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case spinner.TickMsg:
+		if !m.loading {
+			// Nothing to animate — let the tick loop end so the UI can idle.
+			m.spinnerRunning = false
+			return m, nil
+		}
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
