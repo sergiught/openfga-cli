@@ -349,9 +349,13 @@ func TestAssertionDeleteWrites(t *testing.T) {
 	m := newTestModel()
 	m, _ = m.Update(key("7"))
 	m, _ = m.Update(key("enter"))
-	_, cmd := m.Update(key("d")) // delete the selected assertion
+	m, _ = m.Update(key("d")) // request delete: opens the confirmation modal
+	if m.(Model).confirm == nil {
+		t.Fatal("d should open the delete-confirmation modal")
+	}
+	_, cmd := m.Update(key("enter")) // confirm: triggers the write
 	if cmd == nil {
-		t.Fatal("d should trigger a write with the assertion removed")
+		t.Fatal("confirming should trigger a write with the assertion removed")
 	}
 }
 
@@ -1448,7 +1452,7 @@ func TestStoreDeleteConfirmFlow(t *testing.T) {
 	m, _ = m.Update(key("2"))     // Stores tab
 	m, _ = m.Update(key("enter")) // descend into the panel
 	m, _ = m.Update(key("d"))     // request delete of the selected store
-	if m.(Model).confirmStoreID == "" {
+	if m.(Model).confirm == nil {
 		t.Fatal("d should open the delete-confirmation modal")
 	}
 	if _, body := m.(Model).dialogContent(); !strings.Contains(stripANSIView(body), "Delete store") {
@@ -1456,13 +1460,13 @@ func TestStoreDeleteConfirmFlow(t *testing.T) {
 	}
 	// esc cancels without deleting.
 	m, _ = m.Update(key("esc"))
-	if m.(Model).confirmStoreID != "" {
+	if m.(Model).confirm != nil {
 		t.Fatal("esc should cancel the confirmation")
 	}
 	// d then enter confirms and issues the delete.
 	m, _ = m.Update(key("d"))
 	m, cmd := m.Update(key("enter"))
-	if m.(Model).confirmStoreID != "" {
+	if m.(Model).confirm != nil {
 		t.Fatal("confirming should close the modal")
 	}
 	if !m.(Model).loading || cmd == nil {

@@ -74,6 +74,17 @@ type histEntry struct {
 	ms   int64
 }
 
+// confirmAction is a destructive action awaiting confirmation in a modal. The
+// question reads "<action> <subject>?", with subject highlighted so it's clear
+// exactly what is affected; detail is an optional faint note below it. run
+// performs the action when confirmed and may mutate the model and return a cmd.
+type confirmAction struct {
+	action  string
+	subject string
+	detail  string
+	run     func(m *Model) tea.Cmd
+}
+
 // Model is the task-pilot-style playground model.
 type Model struct {
 	cli    *cli.CLI
@@ -125,9 +136,10 @@ type Model struct {
 
 	stores     []openfga.Store
 	storesList *uilist.List
-	// confirmStore* holds the store awaiting a delete-confirmation modal.
-	confirmStoreID   string
-	confirmStoreName string
+	// confirm holds the destructive action awaiting a confirmation modal, or nil
+	// when no modal is open. It is shared by every delete (store, tuple,
+	// assertion, profile) so they all confirm the same way.
+	confirm *confirmAction
 
 	tuples     []openfga.Tuple
 	tuplesList *uilist.List

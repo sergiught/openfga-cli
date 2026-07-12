@@ -408,17 +408,16 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// The store delete-confirmation modal captures input until answered.
-	if m.confirmStoreID != "" {
+	// The delete-confirmation modal captures input until answered. Every
+	// destructive action (store, tuple, assertion, profile) routes through here.
+	if m.confirm != nil {
 		switch msg.String() {
 		case "enter", "y":
-			id := m.confirmStoreID
-			m.confirmStoreID, m.confirmStoreName = "", ""
-			m.loading = true
-			m.status = "deleting store…"
-			return m, deleteStoreCmd(m.ctx, m.client, id)
+			run := m.confirm.run
+			m.confirm = nil
+			return m, run(&m)
 		case "esc", "n":
-			m.confirmStoreID, m.confirmStoreName = "", ""
+			m.confirm = nil
 		}
 		return m, nil
 	}
@@ -635,13 +634,21 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			return m, nil
 		case "d":
 			if it, ok := m.profilesList.Selected(); ok {
-				if err := m.cli.Config.Remove(it.ID); err != nil {
-					return m, m.toastErr("profile", err)
+				id := it.ID
+				m.confirm = &confirmAction{
+					action:  "Remove profile",
+					subject: id,
+					detail:  "This deletes its saved credentials.",
+					run: func(m *Model) tea.Cmd {
+						if err := m.cli.Config.Remove(id); err != nil {
+							return m.toastErr("profile", err)
+						}
+						m.saveConfig()
+						m.populateProfiles()
+						m.status = "removed profile " + id
+						return m.toasts.Push(toast.Success, m.status)
+					},
 				}
-				m.saveConfig()
-				m.populateProfiles()
-				m.status = "removed profile " + it.ID
-				return m, m.toasts.Push(toast.Success, m.status)
 			}
 			return m, nil
 		}
@@ -659,7 +666,16 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 		case "d":
 			if it, ok := m.storesList.Selected(); ok && it.Index < len(m.stores) {
 				s := m.stores[it.Index]
-				m.confirmStoreID, m.confirmStoreName = s.ID, s.Name
+				m.confirm = &confirmAction{
+					action:  "Delete store",
+					subject: s.Name,
+					detail:  "This permanently deletes the store and all its models, tuples and assertions.",
+					run: func(m *Model) tea.Cmd {
+						m.loading = true
+						m.status = "deleting store…"
+						return deleteStoreCmd(m.ctx, m.client, s.ID)
+					},
+				}
 			}
 			return m, nil
 		case "r":
@@ -725,9 +741,16 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 		case "d":
 			if it, ok := m.tuplesList.Selected(); ok && it.Index < len(m.tuples) {
 				k := m.tuples[it.Index].Key
-				m.status = "deleting " + fga.FormatTuple(k) + "…"
-				return m, writeTupleCmd(m.ctx, m.client, m.storeID, m.modelID, k, true)
+				m.confirm = &confirmAction{
+					action:  "Delete tuple",
+					subject: fga.FormatTuple(k),
+					run: func(m *Model) tea.Cmd {
+						m.status = "deleting " + fga.FormatTuple(k) + "…"
+						return writeTupleCmd(m.ctx, m.client, m.storeID, m.modelID, k, true)
+					},
+				}
 			}
+			return m, nil
 		case "r":
 			if m.storeID != "" {
 				return m, loadTuplesCmd(m.ctx, m.client, m.storeID)
@@ -819,10 +842,24 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			return m, nil
 		case "d":
 			if it, ok := m.assertionsList.Selected(); ok && it.Index < len(m.assertions) {
-				list := append([]openfga.Assertion{}, m.assertions...)
-				list = append(list[:it.Index], list[it.Index+1:]...)
-				m.status = "deleting assertion…"
-				return m, writeAssertionsCmd(m.ctx, m.client, m.storeID, m.assertModelID, list)
+				idx := it.Index
+				a := m.assertions[idx]
+				exp := "expect allow"
+				if !a.Expectation {
+					exp = "expect deny"
+				}
+				label := a.TupleKey.User + " " + a.TupleKey.Relation + " " + a.TupleKey.Object
+				m.confirm = &confirmAction{
+					action:  "Delete assertion",
+					subject: label,
+					detail:  exp,
+					run: func(m *Model) tea.Cmd {
+						list := append([]openfga.Assertion{}, m.assertions...)
+						list = append(list[:idx], list[idx+1:]...)
+						m.status = "deleting assertion…"
+						return writeAssertionsCmd(m.ctx, m.client, m.storeID, m.assertModelID, list)
+					},
+				}
 			}
 			return m, nil
 		case "enter":
