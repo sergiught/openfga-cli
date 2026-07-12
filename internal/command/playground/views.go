@@ -223,7 +223,11 @@ func (m Model) sectionBody() string {
 		body = masterDetail(m.profilesList.View(), pt, pb, w, h)
 	case secStores:
 		if len(m.stores) == 0 {
-			body = style.Faint.Render("No stores yet — press n to create one")
+			if m.loading {
+				body = m.spinner.View() + " loading stores…"
+			} else {
+				body = style.Faint.Render("No stores yet — press n to create one")
+			}
 		} else {
 			w, h := m.contentSize()
 			pt, pb := m.storePreview()
@@ -240,17 +244,23 @@ func (m Model) sectionBody() string {
 			body = m.graphVP.View()
 		}
 	case secTuples:
-		if len(m.tuples) == 0 {
+		switch {
+		case m.loading && m.storeID != "" && len(m.tuples) == 0:
+			body = m.spinner.View() + " loading tuples…"
+		case len(m.tuples) == 0:
 			body = style.Faint.Render(tupleHint(m.storeID))
-		} else {
+		default:
 			w, h := m.contentSize()
 			pt, pb := m.tuplePreview()
 			body = masterDetail(m.tuplesList.View(), pt, pb, w, h)
 		}
 	case secChanges:
-		if len(m.changes) == 0 {
+		switch {
+		case m.loading && m.storeID != "" && len(m.changes) == 0:
+			body = m.spinner.View() + " loading changes…"
+		case len(m.changes) == 0:
 			body = style.Faint.Render(changeHint(m.storeID))
-		} else {
+		default:
 			w, h := m.contentSize()
 			pt, pb := m.changePreview()
 			body = masterDetail(m.changesList.View(), pt, pb, w, h)
