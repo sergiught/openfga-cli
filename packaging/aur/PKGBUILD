@@ -1,0 +1,25 @@
+# Maintainer: Sergiu Ghitea <28300158+sergiught@users.noreply.github.com>
+#
+# Reference PKGBUILD for the `ofga-bin` AUR package. On each release goreleaser
+# regenerates this with the correct pkgver and checksums and pushes it; this
+# copy is for a manual first bootstrap. Replace the SKIP checksums with real
+# ones via `updpkgsums` before submitting.
+
+pkgname=ofga-bin
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="A modern CLI & TUI for OpenFGA"
+arch=('x86_64' 'aarch64')
+url="https://github.com/sergiught/openfga-cli"
+license=('MIT')
+provides=('ofga')
+conflicts=('ofga')
+source_x86_64=("$pkgname-$pkgver-x86_64.tar.gz::$url/releases/download/v$pkgver/ofga_Linux_x86_64.tar.gz")
+source_aarch64=("$pkgname-$pkgver-aarch64.tar.gz::$url/releases/download/v$pkgver/ofga_Linux_arm64.tar.gz")
+sha256sums_x86_64=('SKIP')
+sha256sums_aarch64=('SKIP')
+
+package() {
+	install -Dm755 "ofga" "$pkgdir/usr/bin/ofga"
+	install -Dm644 "LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

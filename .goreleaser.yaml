@@ -50,7 +50,7 @@ nfpms:
     package_name: ofga
     vendor: Sergiu Ghitea
     homepage: https://github.com/sergiught/openfga-cli
-    maintainer: Sergiu Ghitea <noreply@users.noreply.github.com>
+    maintainer: Sergiu Ghitea <28300158+sergiught@users.noreply.github.com>
     description: A modern CLI & TUI for OpenFGA.
     license: MIT
     formats: [deb, rpm, apk]
@@ -79,7 +79,7 @@ aurs:
     homepage: https://github.com/sergiught/openfga-cli
     description: A modern CLI & TUI for OpenFGA.
     maintainers:
-      - 'Sergiu Ghitea <noreply@users.noreply.github.com>'
+      - 'Sergiu Ghitea <28300158+sergiught@users.noreply.github.com>'
     license: MIT
     private_key: '{{ envOrDefault "AUR_KEY" "" }}'
     skip_upload: '{{ if eq (envOrDefault "AUR_KEY" "") "" }}true{{ else }}false{{ end }}'
