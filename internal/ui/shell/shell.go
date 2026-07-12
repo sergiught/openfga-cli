@@ -83,6 +83,29 @@ type Shell struct {
 	// navTop is the screen row (0-indexed, in the full frame) of the first nav
 	// item, recorded during renderSidebar for mouse hit-testing.
 	navTop int
+	// statusRow and keySpans are the footer's row and per-key column spans,
+	// recorded during renderStatus for mouse hit-testing.
+	statusRow int
+	keySpans  []keySpan
+}
+
+type keySpan struct {
+	start, end int
+	hint       string
+}
+
+// KeyHit returns the footer key-hint text at screen cell (x, y), or "" if the
+// click didn't land on a footer keycap.
+func (s *Shell) KeyHit(x, y int) string {
+	if y != s.statusRow {
+		return ""
+	}
+	for _, sp := range s.keySpans {
+		if x >= sp.start && x < sp.end {
+			return sp.hint
+		}
+	}
+	return ""
 }
 
 // NavHit returns the nav index at screen cell (x, y), or -1 if the click didn't
@@ -101,6 +124,27 @@ func (s *Shell) NavHit(x, y int) int {
 // InSidebar reports whether screen column x falls in the sidebar (vs the panel).
 func (s *Shell) InSidebar(x int) bool {
 	return !s.Collapsed() && x < s.sidebarOccupied()
+}
+
+// MainBodyOrigin returns the screen cell (x, y) of the top-left of the main
+// pane's body — below the section header and its blank rule line — for mouse
+// hit-testing. The main pane has a 1-col left padding and renders as
+// "header\n\nbody", so the body starts at row 2.
+func (s *Shell) MainBodyOrigin() (int, int) {
+	return s.sidebarOccupied() + 1, 2
+}
+
+// InDialog reports whether screen cell (x, y) is inside the currently-open
+// dialog box. It mirrors the centering used when the dialog layer is drawn.
+func (s *Shell) InDialog(x, y int) bool {
+	if s.dialogTitle == "" && s.dialogBody == "" {
+		return false
+	}
+	dlg := s.renderDialog()
+	dw, dh := lipgloss.Width(dlg), lipgloss.Height(dlg)
+	dx := (s.width - dw) / 2
+	dy := (s.height - dh) / 2
+	return x >= dx && x < dx+dw && y >= dy && y < dy+dh
 }
 
 // New returns an empty shell.
@@ -539,6 +583,17 @@ func (s *Shell) renderStatus() string {
 	}
 	right := strings.Join(keys, " ")
 	rw := lipgloss.Width(right)
+
+	// Record each keycap's column span (right-aligned block) and the footer row
+	// for mouse hit-testing.
+	s.statusRow = s.bodyHeight()
+	s.keySpans = s.keySpans[:0]
+	kx := s.width - rw
+	for i, k := range s.status.Keys {
+		w := lipgloss.Width(keys[i])
+		s.keySpans = append(s.keySpans, keySpan{start: kx, end: kx + w, hint: k})
+		kx += w + 1 // + separator space
+	}
 	// Truncate the (possibly long) status text so the bar fits one line and never
 	// wraps; keep the right-side key hints visible.
 	maxLeft := s.width - rw - 1

@@ -114,6 +114,32 @@ func (l *List) Selected() (Item, bool) {
 // SettingFilter reports whether the user is currently typing a filter.
 func (l *List) SettingFilter() bool { return l.Model.SettingFilter() }
 
+// IndexAt maps a 0-based visible row (from the top of the rendered list) to the
+// absolute item index, or -1 if the row is past the last visible item. It
+// accounts for the delegate's item height + spacing and the current page.
+func (l *List) IndexAt(row int) int {
+	if row < 0 {
+		return -1
+	}
+	stride := l.delegate.Height() + l.delegate.Spacing()
+	if stride < 1 {
+		stride = 1
+	}
+	itemInPage := row / stride
+	p := l.Model.Paginator
+	if p.PerPage > 0 && itemInPage >= p.PerPage {
+		return -1
+	}
+	abs := p.Page*p.PerPage + itemInPage
+	if abs < 0 || abs >= len(l.Model.Items()) {
+		return -1
+	}
+	return abs
+}
+
+// SelectIndex highlights the item at the given absolute index.
+func (l *List) SelectIndex(i int) { l.Model.Select(i) }
+
 // View renders the list.
 func (l *List) View() string { return l.Model.View() }
 

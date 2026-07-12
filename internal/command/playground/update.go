@@ -428,22 +428,75 @@ func (m Model) handleWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 		m.resVP, cmd = m.resVP.Update(msg)
 		return m, cmd
 	}
+	// List sections: move the selection, which pages the list at its boundaries.
+	if lst, _ := m.sectionList(); lst != nil {
+		dir := "down"
+		if up {
+			dir = "up"
+		}
+		return m, lst.Update(keyMsg(dir))
+	}
 	return m, nil
 }
 
-// handleClick routes a left mouse click: onto a sidebar nav item to jump to
-// that section, or onto a pane to focus it (sidebar vs panel by column).
+// handleClick routes a left mouse click: dismiss an info overlay, jump to a
+// clicked nav item, invoke a clicked footer keycap, or focus a pane.
 func (m Model) handleClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if msg.Button != tea.MouseLeft {
 		return m, nil
 	}
-	// Ignore clicks while an overlay/form owns input.
-	if m.helpOpen || m.formErr != "" || m.confirm != nil || m.paletteOpen || m.editorOpen || m.editing {
+	// A dialog is open: clicking outside it behaves like esc (dismiss/cancel);
+	// a click inside is consumed since dialogs are driven by their own keys.
+	if _, body := m.dialogContent(); body != "" {
+		if !m.sh.InDialog(msg.X, msg.Y) {
+			return m.handleKey(keyMsg("esc"))
+		}
+		return m, nil
+	}
+	// Click a query mode chip to switch modes (works even while the form is
+	// focused, since the mode strip sits above it).
+	if m.section == secQuery && !m.showRes && m.storeID != "" {
+		bx, by := m.sh.MainBodyOrigin()
+		if msg.Y == by {
+			x := bx
+			for i, name := range queryModes {
+				w := len(name) + 2 // Padding(0, 1)
+				if msg.X >= x && msg.X < x+w {
+					m.qmode = i
+					m.rebuildQueryForm()
+					m.hasResult = false
+					return m, nil
+				}
+				x += w + 1
+			}
+		}
+	}
+	// Inline query editing (not a dialog) ignores other stray clicks.
+	if m.editing {
 		return m, nil
 	}
 	if idx := m.sh.NavHit(msg.X, msg.Y); idx >= 0 {
 		m.focus = shell.FocusSidebar
 		return m.gotoSection(section(idx))
+	}
+	// A footer keycap acts as a button: synthesize its key press.
+	if hint := m.sh.KeyHit(msg.X, msg.Y); hint != "" {
+		if tok := footerKeyToken(hint); tok != "" {
+			return m.handleKey(keyMsg(tok))
+		}
+		return m, nil
+	}
+	// Click a list row to select it.
+	if lst, off := m.sectionList(); lst != nil {
+		bx, by := m.sh.MainBodyOrigin()
+		w, h := m.contentSize()
+		if msg.X >= bx && msg.X < bx+w && msg.Y >= by+off && msg.Y < by+h {
+			if idx := lst.IndexAt(msg.Y - by - off); idx >= 0 {
+				lst.SelectIndex(idx)
+				m.focus = shell.FocusPanel
+				return m, nil
+			}
+		}
 	}
 	if m.sh.InSidebar(msg.X) {
 		m.focus = shell.FocusSidebar
@@ -451,6 +504,77 @@ func (m Model) handleClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		m.focus = shell.FocusPanel
 	}
 	return m, nil
+}
+
+// sectionList returns the current section's primary list (or nil) and the number
+// of body rows rendered above it, for mouse row hit-testing.
+func (m Model) sectionList() (*list.List, int) {
+	switch m.section {
+	case secProfiles:
+		return m.profilesList, 0
+	case secStores:
+		return m.storesList, 0
+	case secTuples:
+		return m.tuplesList, 0
+	case secChanges:
+		return m.changesList, 0
+	case secAssertions:
+		off := 0
+		if m.assertHasResults() {
+			off = 1
+		}
+		return m.assertionsList, off
+	}
+	return nil, 0
+}
+
+// footerKeyToken extracts the single actionable key from a footer hint like
+// "n new" or "↵ run", or "" when the hint isn't a single clickable key
+// (e.g. "↑↓ move", "hjkl pan").
+func footerKeyToken(hint string) string {
+	fields := strings.Fields(hint)
+	if len(fields) == 0 {
+		return ""
+	}
+	switch fields[0] {
+	case "esc":
+		return "esc"
+	case "tab":
+		return "tab"
+	case "ctrl+s":
+		return "ctrl+s"
+	case "↵":
+		return "enter"
+	case "?":
+		return "?"
+	}
+	if r := []rune(fields[0]); len(r) == 1 {
+		c := r[0]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+			return string(c)
+		}
+	}
+	return ""
+}
+
+// keyMsg builds a KeyPressMsg for a token so a click can re-enter handleKey.
+func keyMsg(s string) tea.KeyPressMsg {
+	switch s {
+	case "tab":
+		return tea.KeyPressMsg{Code: tea.KeyTab}
+	case "enter":
+		return tea.KeyPressMsg{Code: tea.KeyEnter}
+	case "esc":
+		return tea.KeyPressMsg{Code: tea.KeyEsc}
+	case "up":
+		return tea.KeyPressMsg{Code: tea.KeyUp}
+	case "down":
+		return tea.KeyPressMsg{Code: tea.KeyDown}
+	case "ctrl+s":
+		return tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl}
+	default:
+		return tea.KeyPressMsg{Code: []rune(s)[0], Text: s}
+	}
 }
 
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
