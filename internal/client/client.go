@@ -22,6 +22,7 @@ func New(r config.Resolved) (*openfga.Client, error) {
 
 	opts := []openfga.Option{
 		openfga.WithUserAgent("ofga-cli"),
+		openfga.WithDefaultConsistency(openfga.ConsistencyHigherConsistency),
 	}
 	if r.StoreID != "" {
 		opts = append(opts, openfga.WithStoreID(r.StoreID))
