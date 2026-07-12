@@ -39,7 +39,7 @@ func (m Model) viewString() string {
 	}
 	m.sh.SetSidebar(m.sidebarContext(), m.sidebarNav(), m.sidebarFooter())
 	m.sh.SetBrand("", m.version)
-	m.sh.SetMain(sectionNames[m.section], m.sectionBody())
+	m.sh.SetMain(m.mainTitle(), m.sectionBody())
 	// Always advertise the help overlay so every binding is discoverable.
 	st := shell.Status{Left: m.sectionStatus(), Keys: append(m.statusKeys(), "? help")}
 	// The active profile leads the footer as the connection identity.
@@ -125,6 +125,22 @@ func (m Model) helpBody() string {
 	return style.Faint.Render("GLOBAL") + "\n" + render(global) +
 		"\n\n" + style.Faint.Render(strings.ToUpper(sectionNames[m.section])) + "\n" + render(section) +
 		"\n\n" + style.Faint.Render("? or esc to close")
+}
+
+// mainTitle is the panel header: the section name, with a "▸ sub-mode"
+// breadcrumb appended when a layered sub-mode (DSL editor, model picker,
+// resolution tree) is active, so it's clear where you are.
+func (m Model) mainTitle() string {
+	base := sectionNames[m.section]
+	switch {
+	case m.section == secModel && m.editorOpen:
+		return base + " ▸ Edit DSL"
+	case m.section == secModel && m.modelPicking:
+		return base + " ▸ Switch model"
+	case m.section == secQuery && m.showRes:
+		return base + " ▸ Resolution"
+	}
+	return base
 }
 
 func (m Model) dialogContent() (string, string) {

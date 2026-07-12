@@ -131,7 +131,11 @@ func (s *Shell) InSidebar(x int) bool {
 // hit-testing. The main pane has a 1-col left padding and renders as
 // "header\n\nbody", so the body starts at row 2.
 func (s *Shell) MainBodyOrigin() (int, int) {
-	return s.sidebarOccupied() + 1, 2
+	y := 2
+	if s.Collapsed() {
+		y = 3 // the collapsed tab strip adds one row above the header
+	}
+	return s.sidebarOccupied() + 1, y
 }
 
 // InDialog reports whether screen cell (x, y) is inside the currently-open
@@ -537,10 +541,30 @@ func (s *Shell) renderMain(height int) string {
 	if s.entranceGhost {
 		body = lipgloss.NewStyle().Foreground(style.Faintc).Render(ansi.Strip(body))
 	}
+	content := header + "\n\n" + body
+	// When the sidebar is hidden, prepend a compact tab strip so the section
+	// context (and the other sections) stay visible.
+	if s.Collapsed() {
+		content = s.navStrip(innerW) + "\n" + content
+	}
 	return lipgloss.NewStyle().
 		Width(mainTotal).Height(height).
 		Padding(0, 1).
-		Render(header + "\n\n" + body)
+		Render(content)
+}
+
+// navStrip renders a one-line horizontal tab strip for the collapsed layout:
+// the active section as a labeled pill, the rest as dim icons.
+func (s *Shell) navStrip(width int) string {
+	segs := make([]string, 0, len(s.nav))
+	for _, n := range s.nav {
+		if n.Active {
+			segs = append(segs, style.GradientPillPhase(strings.TrimSpace(n.Icon+" "+n.Label), s.drift))
+		} else {
+			segs = append(segs, lipgloss.NewStyle().Foreground(style.Muted).Render(n.Icon))
+		}
+	}
+	return ansi.Truncate(strings.Join(segs, " "), width, "…")
 }
 
 // capChip wraps a filled chip with powerline end caps when the active icon
