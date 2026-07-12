@@ -111,10 +111,10 @@ func ttuLabel(n *ResNode) string {
 // --- layout ---
 
 const (
-	dbBoxH     = 3 // rows per box: top border, label, bottom border
-	dbSiblings = 3 // horizontal gap between sibling subtrees
-	dbBusEdge  = 1 // connector rows below a node that fans out to several children
-	dbLineEdge = 2 // connector rows on a plain single-child edge
+	dbBoxH      = 3 // rows per box: top border, label, bottom border
+	dbSiblings  = 3 // horizontal gap between sibling subtrees
+	dbBusEdge   = 1 // connector rows below a node that fans out to several children
+	dbLineEdge  = 2 // connector rows on a plain single-child edge
 	dbLabelEdge = 4 // connector rows on a labeled single-child edge (arrow, label, line)
 )
 

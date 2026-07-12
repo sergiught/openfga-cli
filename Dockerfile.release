@@ -1,0 +1,11 @@
+# Minimal runtime image built by goreleaser (the binary is prebuilt and copied
+# from the build context, so there is no Go toolchain step here).
+FROM alpine:3.20
+
+RUN apk add --no-cache ca-certificates && adduser -D -u 10001 ofga
+
+COPY ofga /usr/bin/ofga
+COPY LICENSE /usr/share/licenses/ofga/LICENSE
+
+USER ofga
+ENTRYPOINT ["/usr/bin/ofga"]

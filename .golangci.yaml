@@ -1,0 +1,29 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - govet
+    - ineffassign
+    - misspell
+    - unconvert
+    - unused
+    - staticcheck
+  exclusions:
+    rules:
+      # Test files use explicit interface types and throwaway assignments that
+      # staticcheck flags; keep it focused on production code.
+      - path: _test\.go
+        linters:
+          - staticcheck
+
+formatters:
+  enable:
+    - gofmt
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

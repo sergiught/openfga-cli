@@ -1,0 +1,155 @@
+# https://goreleaser.com/customization/
+version: 2
+
+project_name: ofga
+
+before:
+  hooks:
+    - go mod tidy
+    - go mod download
+
+builds:
+  - id: ofga
+    main: ./cmd/ofga
+    binary: ofga
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/sergiught/openfga-cli/internal/version.Version={{ .Version }}
+      - -X github.com/sergiught/openfga-cli/internal/version.Commit={{ .ShortCommit }}
+      - -X github.com/sergiught/openfga-cli/internal/version.Date={{ .Date }}
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+
+# No version in the archive name so `latest/download/ofga_<OS>_<ARCH>.tar.gz`
+# resolves for the newest release (see the README install one-liner).
+archives:
+  - id: default
+    format: tar.gz
+    name_template: >-
+      ofga_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "arm64" }}arm64
+      {{- else }}{{ .Arch }}{{ end }}
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+# Linux packages.
+nfpms:
+  - id: packages
+    package_name: ofga
+    vendor: Sergiu Ghitea
+    homepage: https://github.com/sergiught/openfga-cli
+    maintainer: Sergiu Ghitea <noreply@users.noreply.github.com>
+    description: A modern CLI & TUI for OpenFGA.
+    license: MIT
+    formats: [deb, rpm, apk]
+    bindir: /usr/bin
+
+# Homebrew tap. Skipped unless HOMEBREW_TAP_GITHUB_TOKEN is set, so the first
+# release works before the tap is wired up.
+brews:
+  - name: ofga
+    repository:
+      owner: sergiught
+      name: homebrew-tap
+      token: '{{ envOrDefault "HOMEBREW_TAP_GITHUB_TOKEN" "" }}'
+    skip_upload: '{{ if eq (envOrDefault "HOMEBREW_TAP_GITHUB_TOKEN" "") "" }}true{{ else }}false{{ end }}'
+    homepage: https://github.com/sergiught/openfga-cli
+    description: A modern CLI & TUI for OpenFGA.
+    license: MIT
+    directory: Formula
+    test: |
+      system "#{bin}/ofga version"
+
+# Arch User Repository (ofga-bin). Skipped unless AUR_KEY (SSH private key) is
+# set. Requires the AUR package repo to exist and the key registered on aur.
+aurs:
+  - name: ofga-bin
+    homepage: https://github.com/sergiught/openfga-cli
+    description: A modern CLI & TUI for OpenFGA.
+    maintainers:
+      - 'Sergiu Ghitea <noreply@users.noreply.github.com>'
+    license: MIT
+    private_key: '{{ envOrDefault "AUR_KEY" "" }}'
+    skip_upload: '{{ if eq (envOrDefault "AUR_KEY" "") "" }}true{{ else }}false{{ end }}'
+    git_url: 'ssh://aur@aur.archlinux.org/ofga-bin.git'
+    provides: [ofga]
+    conflicts: [ofga]
+    package: |-
+      install -Dm755 "./ofga" "${pkgdir}/usr/bin/ofga"
+      install -Dm644 "./LICENSE" "${pkgdir}/usr/share/licenses/ofga-bin/LICENSE"
+
+# GHCR container images (multi-arch). Pushed with GITHUB_TOKEN.
+dockers:
+  - id: ghcr-amd64
+    use: buildx
+    goos: linux
+    goarch: amd64
+    dockerfile: Dockerfile.release
+    image_templates:
+      - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-amd64'
+    build_flag_templates:
+      - '--platform=linux/amd64'
+      - '--label=org.opencontainers.image.title={{ .ProjectName }}'
+      - '--label=org.opencontainers.image.description=A modern CLI & TUI for OpenFGA.'
+      - '--label=org.opencontainers.image.url=https://github.com/sergiught/openfga-cli'
+      - '--label=org.opencontainers.image.source=https://github.com/sergiught/openfga-cli'
+      - '--label=org.opencontainers.image.version={{ .Version }}'
+      - '--label=org.opencontainers.image.revision={{ .FullCommit }}'
+      - '--label=org.opencontainers.image.created={{ .Date }}'
+      - '--label=org.opencontainers.image.licenses=MIT'
+    extra_files:
+      - LICENSE
+  - id: ghcr-arm64
+    use: buildx
+    goos: linux
+    goarch: arm64
+    dockerfile: Dockerfile.release
+    image_templates:
+      - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-arm64'
+    build_flag_templates:
+      - '--platform=linux/arm64'
+      - '--label=org.opencontainers.image.title={{ .ProjectName }}'
+      - '--label=org.opencontainers.image.description=A modern CLI & TUI for OpenFGA.'
+      - '--label=org.opencontainers.image.url=https://github.com/sergiught/openfga-cli'
+      - '--label=org.opencontainers.image.source=https://github.com/sergiught/openfga-cli'
+      - '--label=org.opencontainers.image.version={{ .Version }}'
+      - '--label=org.opencontainers.image.revision={{ .FullCommit }}'
+      - '--label=org.opencontainers.image.created={{ .Date }}'
+      - '--label=org.opencontainers.image.licenses=MIT'
+    extra_files:
+      - LICENSE
+
+docker_manifests:
+  - name_template: 'ghcr.io/sergiught/openfga-cli:{{ .Version }}'
+    image_templates:
+      - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-amd64'
+      - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-arm64'
+  - name_template: 'ghcr.io/sergiught/openfga-cli:latest'
+    image_templates:
+      - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-amd64'
+      - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-arm64'
+
+snapshot:
+  version_template: '{{ incpatch .Version }}-next'
+
+# release-please owns the tag, the CHANGELOG, and the GitHub release body.
+# goreleaser only appends the built artifacts to that existing release.
+release:
+  github:
+    owner: sergiught
+    name: openfga-cli
+  mode: append
+  draft: false
+  prerelease: auto
