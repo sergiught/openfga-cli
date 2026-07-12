@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 README
+    url: https://github.com/sergiught/openfga-cli/blob/main/README.md
+    about: Quick start, installation, commands, configuration, and the TUI.
+  - name: 💬 Discussions
+    url: https://github.com/sergiught/openfga-cli/discussions
+    about: Ask a question, share a use case, or float an idea before opening a formal issue.
+  - name: 🔐 OpenFGA docs
+    url: https://openfga.dev/docs
+    about: Questions about OpenFGA concepts (models, tuples, checks) rather than this CLI.

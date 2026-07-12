@@ -1,0 +1,56 @@
+name: 🐛 Bug report
+description: A command errors, misbehaves, or the TUI does something unexpected.
+labels: ["bug"]
+body:
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I read the [README](https://github.com/sergiught/openfga-cli/blob/main/README.md) and checked `ofga <command> --help`.
+          required: true
+        - label: I searched [existing issues](https://github.com/sergiught/openfga-cli/issues) and found no duplicate.
+          required: true
+        - label: I am on the latest release (or latest `main`).
+          required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you run, what did you expect, and what happened instead?
+      placeholder: |
+        $ ofga query check user:anne viewer document:roadmap
+        got: ...
+        expected: ...
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The exact commands. Re-run with `-v` for debug output.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `ofga version`.
+      placeholder: ofga v0.1.0 (commit abc1234, built ...)
+    validations:
+      required: true
+  - type: input
+    id: server
+    attributes:
+      label: OpenFGA server
+      description: Which server/version are you pointing at (e.g. openfga/openfga:v1.x, Okta FGA)?
+    validations:
+      required: false
+  - type: input
+    id: os
+    attributes:
+      label: OS / terminal
+      description: e.g. macOS 15 / ghostty, Arch / kitty (relevant for TUI issues).
+    validations:
+      required: false

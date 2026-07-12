@@ -4,3 +4,5 @@
 docs/superpowers/
 graphify-out/
 dist/
+bin/
+coverage.out

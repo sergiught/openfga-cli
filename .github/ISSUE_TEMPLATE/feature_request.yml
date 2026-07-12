@@ -1,0 +1,34 @@
+name: ✨ Feature request
+description: Suggest a new command, flag, or TUI capability.
+labels: ["enhancement"]
+body:
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched [existing issues](https://github.com/sergiught/openfga-cli/issues) and found no duplicate.
+          required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's the problem?
+      description: What are you trying to do that ofga doesn't make easy today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: The command/flag/TUI behavior you'd like. A sketch of the invocation helps.
+      placeholder: |
+        ofga model transform --file model.fga --to json
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you use now, or other approaches you weighed.
+    validations:
+      required: false
