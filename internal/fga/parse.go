@@ -3,6 +3,7 @@
 package fga
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -38,6 +39,26 @@ func ParseTuple(user, relation, object string) (openfga.TupleKey, error) {
 
 // FormatTuple renders a tuple key as "user relation object" with optional
 // condition suffix.
+// Triple resolves a user/relation/object triple from positional args and the
+// --user/--relation/--object flags (a set flag wins over the positional at that
+// index). It errors if any part is missing.
+func Triple(args []string, userFlag, relationFlag, objectFlag string) (user, relation, object string, err error) {
+	pick := func(flag string, i int) string {
+		if flag != "" {
+			return flag
+		}
+		if i < len(args) {
+			return args[i]
+		}
+		return ""
+	}
+	user, relation, object = pick(userFlag, 0), pick(relationFlag, 1), pick(objectFlag, 2)
+	if user == "" || relation == "" || object == "" {
+		return "", "", "", errors.New("provide <user> <relation> <object> (as arguments or via --user/--relation/--object)")
+	}
+	return user, relation, object, nil
+}
+
 func FormatTuple(k openfga.TupleKey) string {
 	s := fmt.Sprintf("%s %s %s", k.User, k.Relation, k.Object)
 	if k.Condition != nil && k.Condition.Name != "" {

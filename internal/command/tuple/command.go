@@ -47,15 +47,23 @@ func (c *Command) RegisterSubCommands() {
 }
 
 func (c *Command) writeCmd() *cobra.Command {
-	var dryRun bool
+	var (
+		dryRun            bool
+		fUser, fRel, fObj string
+	)
 	cmd := &cobra.Command{
-		Use:     "write <user> <relation> <object>",
+		Use:     "write [user] [relation] [object]",
 		Aliases: []string{"add"},
 		Short:   "Write a relationship tuple",
-		Example: "  ofga tuples write user:anne viewer document:roadmap",
-		Args:    cobra.ExactArgs(3),
+		Example: `  ofga tuples write user:anne viewer document:roadmap
+  ofga tuples write --user user:anne --relation viewer --object document:roadmap`,
+		Args: cobra.MaximumNArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			key, err := fga.ParseTuple(args[0], args[1], args[2])
+			user, relation, object, err := fga.Triple(args, fUser, fRel, fObj)
+			if err != nil {
+				return err
+			}
+			key, err := fga.ParseTuple(user, relation, object)
 			if err != nil {
 				return err
 			}
@@ -76,22 +84,31 @@ func (c *Command) writeCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show the tuple that would be written without writing it")
+	cmd.Flags().StringVar(&fUser, "user", "", "user (alternative to the positional arg)")
+	cmd.Flags().StringVar(&fRel, "relation", "", "relation (alternative to the positional arg)")
+	cmd.Flags().StringVar(&fObj, "object", "", "object (alternative to the positional arg)")
 	return cmd
 }
 
 func (c *Command) deleteCmd() *cobra.Command {
 	var (
-		force  bool
-		dryRun bool
+		force             bool
+		dryRun            bool
+		fUser, fRel, fObj string
 	)
 	cmd := &cobra.Command{
-		Use:     "delete <user> <relation> <object>",
+		Use:     "delete [user] [relation] [object]",
 		Aliases: []string{"rm"},
 		Short:   "Delete a relationship tuple",
-		Example: "  ofga tuples delete user:anne viewer document:roadmap",
-		Args:    cobra.ExactArgs(3),
+		Example: `  ofga tuples delete user:anne viewer document:roadmap
+  ofga tuples delete --user user:anne --relation viewer --object document:roadmap`,
+		Args: cobra.MaximumNArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			key, err := fga.ParseTuple(args[0], args[1], args[2])
+			user, relation, object, err := fga.Triple(args, fUser, fRel, fObj)
+			if err != nil {
+				return err
+			}
+			key, err := fga.ParseTuple(user, relation, object)
 			if err != nil {
 				return err
 			}
@@ -117,6 +134,9 @@ func (c *Command) deleteCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "skip the confirmation prompt")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show the tuple that would be deleted without deleting it")
+	cmd.Flags().StringVar(&fUser, "user", "", "user (alternative to the positional arg)")
+	cmd.Flags().StringVar(&fRel, "relation", "", "relation (alternative to the positional arg)")
+	cmd.Flags().StringVar(&fObj, "object", "", "object (alternative to the positional arg)")
 	return cmd
 }
 
@@ -128,8 +148,10 @@ func (c *Command) readCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "read",
 		Short: "Read relationship tuples (optionally filtered)",
-		Long:  "Read tuples from the store. Use --user, --relation and --object to filter; all are optional.",
-		Args:  cobra.NoArgs,
+		Example: `  ofga tuples read
+  ofga tuples read --object document:roadmap`,
+		Long: "Read tuples from the store. Use --user, --relation and --object to filter; all are optional.",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
@@ -184,7 +206,9 @@ func (c *Command) changesCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "changes",
 		Short: "Show the tuple changelog (writes and deletes)",
-		Args:  cobra.NoArgs,
+		Example: `  ofga tuples changes
+  ofga tuples changes --type document`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {

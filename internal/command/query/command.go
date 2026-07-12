@@ -11,6 +11,7 @@ import (
 
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/cli"
+	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/style"
 )
@@ -81,15 +82,21 @@ func parseContextualTuples(vals []string) (*openfga.ContextualTupleKeys, error) 
 
 func (c *Command) checkCmd() *cobra.Command {
 	var (
-		contextJSON string
-		ctxTuples   []string
+		contextJSON       string
+		ctxTuples         []string
+		fUser, fRel, fObj string
 	)
 	cmd := &cobra.Command{
-		Use:     "check <user> <relation> <object>",
-		Short:   "Check whether a user has a relation on an object",
-		Example: "  ofga query check user:anne viewer document:roadmap",
-		Args:    cobra.ExactArgs(3),
+		Use:   "check [user] [relation] [object]",
+		Short: "Check whether a user has a relation on an object",
+		Example: `  ofga query check user:anne viewer document:roadmap
+  ofga query check --user user:anne --relation viewer --object document:roadmap`,
+		Args: cobra.MaximumNArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			user, relation, object, err := fga.Triple(args, fUser, fRel, fObj)
+			if err != nil {
+				return err
+			}
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
@@ -103,7 +110,7 @@ func (c *Command) checkCmd() *cobra.Command {
 				return err
 			}
 			req := &openfga.CheckRequest{
-				TupleKey:         openfga.CheckRequestTupleKey{User: args[0], Relation: args[1], Object: args[2]},
+				TupleKey:         openfga.CheckRequestTupleKey{User: user, Relation: relation, Object: object},
 				Context:          cx,
 				ContextualTuples: ct,
 			}
@@ -120,11 +127,14 @@ func (c *Command) checkCmd() *cobra.Command {
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "%s  %s\n",
 				style.Allowed(res.Allowed),
-				style.Faint.Render(fmt.Sprintf("%s %s %s", args[0], args[1], args[2])))
+				style.Faint.Render(fmt.Sprintf("%s %s %s", user, relation, object)))
 			return nil
 		},
 	}
 	f := cmd.Flags()
+	f.StringVar(&fUser, "user", "", "user (alternative to the positional arg)")
+	f.StringVar(&fRel, "relation", "", "relation (alternative to the positional arg)")
+	f.StringVar(&fObj, "object", "", "object (alternative to the positional arg)")
 	f.StringVar(&contextJSON, "context", "", "JSON object of condition context")
 	f.StringArrayVar(&ctxTuples, "contextual-tuple", nil, "contextual tuple as user,relation,object (repeatable)")
 	return cmd
@@ -133,9 +143,10 @@ func (c *Command) checkCmd() *cobra.Command {
 func (c *Command) batchCheckCmd() *cobra.Command {
 	var checks []string
 	cmd := &cobra.Command{
-		Use:   "batch-check --check user,relation,object [...]",
-		Short: "Run several checks in one request",
-		Args:  cobra.NoArgs,
+		Use:     "batch-check --check user,relation,object [...]",
+		Short:   "Run several checks in one request",
+		Example: "  ofga query batch-check --check user:anne,viewer,doc:1 --check user:bob,editor,doc:1",
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if len(checks) == 0 {
 				return fmt.Errorf("provide at least one --check user,relation,object")

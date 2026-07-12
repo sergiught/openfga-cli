@@ -23,6 +23,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/theme"
+	"github.com/sergiught/openfga-cli/internal/version"
 )
 
 // Command is the root command.
@@ -70,6 +71,11 @@ ofga api GET /stores`,
 				// Unreachable once cobra's arg validation runs, but guards against
 				// a future Args override silently routing typos into the TUI.
 				return fmt.Errorf("unknown command %q for %q", args[0], cmd.CommandPath())
+			}
+			// The TUI needs an interactive terminal; without one (piped, CI, no
+			// TTY) print help instead of launching and hanging.
+			if !term.IsTerminal(os.Stdin.Fd()) || !term.IsTerminal(os.Stdout.Fd()) {
+				return cmd.Help()
 			}
 			return playground.Run(cmd.Context(), cli)
 		},
@@ -175,6 +181,20 @@ func (c *Command) Command() *cobra.Command { return c.cmd }
 // the same NO_COLOR/pipe-aware downsampling.
 func (c *Command) ErrWriter() *colorprofile.Writer { return c.errW }
 
+// versionCmd prints the full build info (version, commit, date).
+func versionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "version",
+		Short:   "Print version and build information",
+		Args:    cobra.NoArgs,
+		Example: "  ofga version",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			fmt.Fprintln(cmd.OutOrStdout(), "ofga "+version.String())
+			return nil
+		},
+	}
+}
+
 // RegisterSubCommands adds all top-level commands.
 func (c *Command) RegisterSubCommands() {
 	c.cmd.AddCommand(
@@ -187,6 +207,8 @@ func (c *Command) RegisterSubCommands() {
 		api.New(c.cli).Command(),
 		configcmd.New(c.cli).Command(),
 		configcmd.NewInit(c.cli),
+		configcmd.NewTheme(c.cli),
+		versionCmd(),
 	)
 }
 

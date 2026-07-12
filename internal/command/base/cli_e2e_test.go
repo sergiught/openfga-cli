@@ -123,7 +123,7 @@ func TestUsageShownOnMisuseButNotRuntime(t *testing.T) {
 	home := t.TempDir()
 
 	// arg error: usage is printed (cobra writes it to the configured out stream).
-	out, errb, code := runOfga(t, home, "", nil, "query", "check", "user:anne")
+	out, errb, code := runOfga(t, home, "", nil, "query", "check", "a", "b", "c", "d")
 	if code == 0 || !strings.Contains(out+errb, "Usage:") {
 		t.Errorf("arg error should show usage: code=%d out=%q err=%q", code, out, errb)
 	}

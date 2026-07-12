@@ -15,10 +15,8 @@ import (
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/ui/icons"
+	"github.com/sergiught/openfga-cli/internal/version"
 )
-
-// version is overridden at build time via -ldflags "-X main.version=v1.2.3".
-var version = "dev"
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -40,7 +38,7 @@ func main() {
 	}
 	icons.Apply(icons.Parse(cfg.IconsMode()))
 
-	c := cli.New(logger, cfg, version)
+	c := cli.New(logger, cfg, version.Version)
 
 	root := base.New(c)
 	if err := root.Command().ExecuteContext(ctx); err != nil {

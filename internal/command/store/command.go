@@ -74,9 +74,10 @@ func (c *Command) createCmd() *cobra.Command {
 		dryRun bool
 	)
 	cmd := &cobra.Command{
-		Use:   "create <name>",
-		Short: "Create a new store",
-		Args:  cobra.ExactArgs(1),
+		Use:     "create <name>",
+		Short:   "Create a new store",
+		Example: "  ofga stores create my-store --use",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if dryRun {
 				output.Infof(cmd.OutOrStdout(), "would create store %s", style.Bold.Render(args[0]))
@@ -128,6 +129,7 @@ func (c *Command) listCmd() *cobra.Command {
 		Use:     "list",
 		Aliases: []string{"ls"},
 		Short:   "List all stores",
+		Example: "  ofga stores list",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cl, err := c.cli.Client()
@@ -165,6 +167,7 @@ func (c *Command) getCmd() *cobra.Command {
 		Use:               "get <store-id>",
 		ValidArgsFunction: c.completeIDs,
 		Short:             "Show details of a store",
+		Example:           "  ofga stores get 01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		Args:              cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl, err := c.cli.Client()
@@ -200,6 +203,7 @@ func (c *Command) deleteCmd() *cobra.Command {
 		Aliases:           []string{"rm"},
 		ValidArgsFunction: c.completeIDs,
 		Short:             "Delete a store",
+		Example:           "  ofga stores delete 01ARZ3NDEKTSV4RRFFQ69G5FAV --force",
 		Args:              cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if dryRun {

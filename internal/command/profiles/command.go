@@ -16,7 +16,6 @@ import (
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/prompt"
 	"github.com/sergiught/openfga-cli/internal/style"
-	"github.com/sergiught/openfga-cli/internal/theme"
 )
 
 // Command is the `context` command group.
@@ -59,48 +58,7 @@ func (c *Command) RegisterSubCommands() {
 		c.setCmd(),
 		c.addCmd(),
 		c.removeCmd(),
-		c.themeCmd(),
 	)
-}
-
-func (c *Command) themeCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:       "theme [name]",
-		Short:     "Show or set the color theme",
-		Long:      "With no argument, lists available themes and marks the current one. With a name, sets and saves the global theme.",
-		Args:      cobra.MaximumNArgs(1),
-		ValidArgs: theme.Names(),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg := c.cli.Config
-			current := cfg.Theme
-			if current == "" {
-				current = theme.Default().Name
-			}
-			if len(args) == 0 {
-				if c.cli.JSON {
-					return output.JSON(cmd.OutOrStdout(), map[string]any{"current": current, "available": theme.Names()})
-				}
-				for _, n := range theme.Names() {
-					marker := "  "
-					if n == current {
-						marker = style.Success.Render(style.IconDot) + " "
-					}
-					fmt.Fprintf(cmd.OutOrStdout(), "%s%s\n", marker, style.Value.Render(n))
-				}
-				return nil
-			}
-			name := args[0]
-			if !style.SetTheme(name) {
-				return fmt.Errorf("unknown theme %q (available: %s)", name, strings.Join(theme.Names(), ", "))
-			}
-			cfg.Theme = name
-			if err := c.cli.SaveConfig(); err != nil {
-				return err
-			}
-			output.Successf(cmd.OutOrStdout(), "theme set to %s", style.Bold.Render(name))
-			return nil
-		},
-	}
 }
 
 func (c *Command) listCmd() *cobra.Command {
@@ -108,6 +66,7 @@ func (c *Command) listCmd() *cobra.Command {
 		Use:     "list",
 		Aliases: []string{"ls"},
 		Short:   "List all profiles",
+		Example: "  ofga profiles list",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg := c.cli.Config
@@ -135,9 +94,10 @@ func (c *Command) listCmd() *cobra.Command {
 
 func (c *Command) currentCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "current",
-		Short: "Show the active profile name",
-		Args:  cobra.NoArgs,
+		Use:     "current",
+		Short:   "Show the active profile name",
+		Example: "  ofga profiles current",
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if c.cli.JSON {
 				return output.JSON(cmd.OutOrStdout(), map[string]string{"active": c.cli.Config.Active})
@@ -153,8 +113,10 @@ func (c *Command) showCmd() *cobra.Command {
 		Use:               "show [profile]",
 		ValidArgsFunction: c.completeNames,
 		Short:             "Show a profile's resolved values (token masked)",
-		Long:              "Show the values of a profile. With no argument, shows the fully resolved active configuration after applying env and flag overrides.",
-		Args:              cobra.MaximumNArgs(1),
+		Example: `  ofga profiles show
+  ofga profiles show prod`,
+		Long: "Show the values of a profile. With no argument, shows the fully resolved active configuration after applying env and flag overrides.",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 1 {
 				p, ok := c.cli.Config.Get(args[0])
@@ -206,6 +168,7 @@ func (c *Command) useCmd() *cobra.Command {
 		Use:               "use <profile>",
 		ValidArgsFunction: c.completeNames,
 		Short:             "Switch the active profile",
+		Example:           "  ofga profiles use prod",
 		Args:              cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := c.cli.Config.Use(args[0]); err != nil {
@@ -424,6 +387,7 @@ func (c *Command) removeCmd() *cobra.Command {
 		Aliases:           []string{"rm", "delete"},
 		ValidArgsFunction: c.completeNames,
 		Short:             "Delete a profile",
+		Example:           "  ofga profiles remove old --force",
 		Args:              cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if _, ok := c.cli.Config.Get(args[0]); !ok {

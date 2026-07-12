@@ -80,8 +80,10 @@ func (c *Command) writeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "write --file <model.json>",
 		Short: "Write a new authorization model from a JSON file",
-		Long:  "Write a new authorization model. The file must be the model JSON with schema_version and type_definitions (the format produced by `fga model transform` or the OpenFGA API).",
-		Args:  cobra.NoArgs,
+		Example: `  ofga model write --file model.json
+  cat model.json | ofga model write --file -`,
+		Long: "Write a new authorization model. The file must be the model JSON with schema_version and type_definitions (the format produced by `fga model transform` or the OpenFGA API).",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if file == "" {
 				return fmt.Errorf("--file is required (use '-' to read the model JSON from stdin)")
@@ -134,6 +136,7 @@ func (c *Command) listCmd() *cobra.Command {
 		Use:     "list",
 		Aliases: []string{"ls"},
 		Short:   "List authorization models in the store",
+		Example: "  ofga model list",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cl, _, err := c.cli.ClientWithStore()
@@ -173,6 +176,7 @@ func (c *Command) getCmd() *cobra.Command {
 		Use:               "get <model-id>",
 		ValidArgsFunction: c.completeModelIDs,
 		Short:             "Show an authorization model as JSON",
+		Example:           "  ofga model get 01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		Args:              cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl, _, err := c.cli.ClientWithStore()
@@ -190,9 +194,10 @@ func (c *Command) getCmd() *cobra.Command {
 
 func (c *Command) latestCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "latest",
-		Short: "Show the most recent authorization model",
-		Args:  cobra.NoArgs,
+		Use:     "latest",
+		Short:   "Show the most recent authorization model",
+		Example: "  ofga model latest",
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
@@ -217,10 +222,11 @@ func (c *Command) latestCmd() *cobra.Command {
 
 func (c *Command) graphCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "graph [model-id]",
-		Short: "Render the model as a colored relation graph",
-		Long:  "Render an authorization model as a colored tree showing, for each type and relation, the directly-assignable types, implied relations, and inherited (tuple-to-userset) paths. With no argument, the latest model is used.",
-		Args:  cobra.MaximumNArgs(1),
+		Use:     "graph [model-id]",
+		Short:   "Render the model as a colored relation graph",
+		Example: "  ofga model graph",
+		Long:    "Render an authorization model as a colored tree showing, for each type and relation, the directly-assignable types, implied relations, and inherited (tuple-to-userset) paths. With no argument, the latest model is used.",
+		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
