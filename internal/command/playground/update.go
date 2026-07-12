@@ -399,6 +399,15 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
+	// The help overlay captures input until dismissed.
+	if m.helpOpen {
+		switch msg.String() {
+		case "?", "esc", "q", "enter":
+			m.helpOpen = false
+		}
+		return m, nil
+	}
+
 	// A blocking error dialog swallows input; esc or enter dismisses it.
 	if m.assertErr != "" {
 		switch msg.String() {
@@ -484,6 +493,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "ctrl+k":
 		m.paletteOpen = true
+		return m, nil
+	case "?":
+		m.helpOpen = true
 		return m, nil
 	}
 

@@ -193,6 +193,9 @@ type Model struct {
 	paletteOpen bool
 	paletteList *uilist.List
 
+	// helpOpen shows the ? keybinding overlay.
+	helpOpen bool
+
 	// DSL model editor
 	editorOpen bool
 	editor     textarea.Model

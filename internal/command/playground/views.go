@@ -36,7 +36,8 @@ func (m Model) viewString() string {
 	m.sh.SetSidebar(m.sidebarContext(), m.sidebarNav(), m.sidebarFooter())
 	m.sh.SetBrand("", m.version)
 	m.sh.SetMain(sectionNames[m.section], m.sectionBody())
-	st := shell.Status{Left: m.sectionStatus(), Keys: m.statusKeys()}
+	// Always advertise the help overlay so every binding is discoverable.
+	st := shell.Status{Left: m.sectionStatus(), Keys: append(m.statusKeys(), "? help")}
 	// The active profile leads the footer as the connection identity.
 	st.Profile = "Profile: " + m.cli.Config.Active
 	// Show the selected store's name and the full (untruncated) model id, tagged
@@ -76,8 +77,56 @@ func (m Model) viewString() string {
 
 // dialogContent returns the title and body for the current modal state, or
 // ("", "") when no dialog is open. The shell draws the box.
+// helpBody renders the ? overlay: global keys plus the keys for the current
+// section, formatted as an aligned two-column reference.
+func (m Model) helpBody() string {
+	global := [][2]string{
+		{"tab", "move between tabs and the panel"},
+		{"1–7", "jump to a section"},
+		{"ctrl+k", "command palette"},
+		{"?", "toggle this help"},
+		{"ctrl+c", "quit"},
+	}
+	var section [][2]string
+	switch m.section {
+	case secProfiles:
+		section = [][2]string{{"↑↓", "move"}, {"↵", "switch to profile"}, {"n", "add"}, {"e", "edit"}, {"d", "delete"}}
+	case secStores:
+		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"↵", "select store"}, {"n", "new"}, {"d", "delete"}, {"r", "reload"}}
+	case secModel:
+		section = [][2]string{{"↑↓ k/j", "scroll"}, {"←→ h/l", "pan"}, {"pgup/pgdn b/f/space", "page"}, {"g/G home/end", "top/bottom"}, {"e", "edit DSL"}, {"m", "switch model"}, {"r", "reload"}}
+	case secTuples:
+		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"a", "add"}, {"d", "delete"}, {"r", "reload"}}
+	case secChanges:
+		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"r", "reload"}}
+	case secQuery:
+		section = [][2]string{{"i / ↵", "edit query"}, {"tab", "cycle mode"}, {"1–5", "rerun recent"}, {"r", "resolve"}}
+	case secAssertions:
+		section = [][2]string{{"↑↓", "move"}, {"↵", "run"}, {"a", "add"}, {"e", "edit"}, {"d", "delete"}, {"t", "run all"}}
+	}
+	render := func(rows [][2]string) string {
+		width := 0
+		for _, r := range rows {
+			if w := lipgloss.Width(r[0]); w > width {
+				width = w
+			}
+		}
+		var b strings.Builder
+		for _, r := range rows {
+			gap := strings.Repeat(" ", width-lipgloss.Width(r[0])+2)
+			b.WriteString(style.Key.Render(r[0]) + gap + style.Subtitle.Render(r[1]) + "\n")
+		}
+		return strings.TrimRight(b.String(), "\n")
+	}
+	return style.Faint.Render("GLOBAL") + "\n" + render(global) +
+		"\n\n" + style.Faint.Render(strings.ToUpper(sectionNames[m.section])) + "\n" + render(section) +
+		"\n\n" + style.Faint.Render("? or esc to close")
+}
+
 func (m Model) dialogContent() (string, string) {
 	switch {
+	case m.helpOpen:
+		return "Keybindings", m.helpBody()
 	case m.assertErr != "":
 		w, _ := m.sh.DialogSize()
 		return "Error", style.Failure.Width(w).Render(m.assertErr) +
