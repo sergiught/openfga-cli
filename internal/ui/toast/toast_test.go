@@ -16,7 +16,7 @@ func TestToastLifecycle(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("Push must return an expiry cmd")
 	}
-	m.Update(expireMsg{id: m.id}) // exported for test via same package
+	m.Update(expireMsg{id: m.nextID}) // expire the toast we just pushed
 	if m.Active() {
 		t.Fatal("toast should expire")
 	}
