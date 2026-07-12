@@ -537,11 +537,17 @@ func (m Model) queryBody() string {
 	// Chip + form + result + history can add up to more rows than short
 	// terminals have available; renderMain doesn't cap its content height, so
 	// an over-tall body pushes the status bar off the bottom of the frame.
-	// Trim to what actually fits, clipping the bottom-most content.
+	// Trim to what actually fits, and flag that content was cut rather than
+	// dropping the bottom-most rows silently.
 	_, h := m.contentSize()
 	lines := strings.Split(b.String(), "\n")
 	if len(lines) > h {
-		lines = lines[:h]
+		if h > 1 {
+			lines = lines[:h-1]
+			lines = append(lines, style.Faint.Render("  ⋯ more — enlarge the window to see it"))
+		} else {
+			lines = lines[:h]
+		}
 	}
 	return strings.Join(lines, "\n")
 }
