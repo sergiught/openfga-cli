@@ -50,7 +50,10 @@ func (c *Command) RegisterSubCommands() {
 }
 
 func (c *Command) writeCmd() *cobra.Command {
-	var file string
+	var (
+		file   string
+		dryRun bool
+	)
 	cmd := &cobra.Command{
 		Use:   "write --file <model.json>",
 		Short: "Write a new authorization model from a JSON file",
@@ -77,6 +80,11 @@ func (c *Command) writeCmd() *cobra.Command {
 			if req.SchemaVersion == "" {
 				req.SchemaVersion = "1.1"
 			}
+			if dryRun {
+				output.Infof(cmd.OutOrStdout(), "would write authorization model (schema %s, %d type definitions)",
+					req.SchemaVersion, len(req.TypeDefinitions))
+				return nil
+			}
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
@@ -94,6 +102,7 @@ func (c *Command) writeCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&file, "file", "f", "", "path to the model JSON file")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate the file and show what would be written without writing it")
 	return cmd
 }
 

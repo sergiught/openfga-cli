@@ -11,6 +11,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/output"
+	"github.com/sergiught/openfga-cli/internal/prompt"
 	"github.com/sergiught/openfga-cli/internal/style"
 )
 
@@ -46,7 +47,8 @@ func (c *Command) RegisterSubCommands() {
 }
 
 func (c *Command) writeCmd() *cobra.Command {
-	return &cobra.Command{
+	var dryRun bool
+	cmd := &cobra.Command{
 		Use:     "write <user> <relation> <object>",
 		Aliases: []string{"add"},
 		Short:   "Write a relationship tuple",
@@ -56,6 +58,10 @@ func (c *Command) writeCmd() *cobra.Command {
 			key, err := fga.ParseTuple(args[0], args[1], args[2])
 			if err != nil {
 				return err
+			}
+			if dryRun {
+				output.Infof(cmd.OutOrStdout(), "would write %s", style.Bold.Render(fga.FormatTuple(key)))
+				return nil
 			}
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
@@ -69,10 +75,16 @@ func (c *Command) writeCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show the tuple that would be written without writing it")
+	return cmd
 }
 
 func (c *Command) deleteCmd() *cobra.Command {
-	return &cobra.Command{
+	var (
+		force  bool
+		dryRun bool
+	)
+	cmd := &cobra.Command{
 		Use:     "delete <user> <relation> <object>",
 		Aliases: []string{"rm"},
 		Short:   "Delete a relationship tuple",
@@ -81,6 +93,14 @@ func (c *Command) deleteCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key, err := fga.ParseTuple(args[0], args[1], args[2])
 			if err != nil {
+				return err
+			}
+			if dryRun {
+				output.Infof(cmd.OutOrStdout(), "would delete %s", style.Bold.Render(fga.FormatTuple(key)))
+				return nil
+			}
+			if err := prompt.Confirm(cmd,
+				fmt.Sprintf("delete tuple %s", fga.FormatTuple(key)), force); err != nil {
 				return err
 			}
 			cl, _, err := c.cli.ClientWithStore()
@@ -95,6 +115,9 @@ func (c *Command) deleteCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "skip the confirmation prompt")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show the tuple that would be deleted without deleting it")
+	return cmd
 }
 
 func (c *Command) readCmd() *cobra.Command {

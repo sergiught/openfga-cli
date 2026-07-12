@@ -100,7 +100,10 @@ func (c *Command) readCmd() *cobra.Command {
 }
 
 func (c *Command) writeCmd() *cobra.Command {
-	var file string
+	var (
+		file   string
+		dryRun bool
+	)
 	cmd := &cobra.Command{
 		Use:   "write --file <assertions.json>",
 		Short: "Replace the assertions for a model from a JSON file",
@@ -121,6 +124,10 @@ func (c *Command) writeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if dryRun {
+				output.Infof(cmd.OutOrStdout(), "would write %d assertion(s)", len(assertionsList))
+				return nil
+			}
 			cl, r, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
@@ -138,6 +145,7 @@ func (c *Command) writeCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&file, "file", "f", "", "assertions JSON file ('-' for stdin)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate the file and show what would be written without writing it")
 	return cmd
 }
 

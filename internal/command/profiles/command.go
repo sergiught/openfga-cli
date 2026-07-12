@@ -14,6 +14,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/output"
+	"github.com/sergiught/openfga-cli/internal/prompt"
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/theme"
 )
@@ -351,12 +352,20 @@ func (c *Command) addCmd() *cobra.Command {
 }
 
 func (c *Command) removeCmd() *cobra.Command {
-	return &cobra.Command{
+	var force bool
+	cmd := &cobra.Command{
 		Use:     "remove <profile>",
 		Aliases: []string{"rm", "delete"},
 		Short:   "Delete a profile",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if _, ok := c.cli.Config.Get(args[0]); !ok {
+				return fmt.Errorf("%w: %q", config.ErrNoProfile, args[0])
+			}
+			if err := prompt.Confirm(cmd,
+				fmt.Sprintf("remove profile %s and its saved credentials", args[0]), force); err != nil {
+				return err
+			}
 			if err := c.cli.Config.Remove(args[0]); err != nil {
 				return err
 			}
@@ -367,6 +376,8 @@ func (c *Command) removeCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "skip the confirmation prompt")
+	return cmd
 }
 
 func orDash(s string) string {

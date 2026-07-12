@@ -10,6 +10,7 @@ import (
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/output"
+	"github.com/sergiught/openfga-cli/internal/prompt"
 	"github.com/sergiught/openfga-cli/internal/style"
 )
 
@@ -45,12 +46,19 @@ func (c *Command) RegisterSubCommands() {
 }
 
 func (c *Command) createCmd() *cobra.Command {
-	var use bool
+	var (
+		use    bool
+		dryRun bool
+	)
 	cmd := &cobra.Command{
 		Use:   "create <name>",
 		Short: "Create a new store",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if dryRun {
+				output.Infof(cmd.OutOrStdout(), "would create store %s", style.Bold.Render(args[0]))
+				return nil
+			}
 			cl, err := c.cli.Client()
 			if err != nil {
 				return err
@@ -88,6 +96,7 @@ func (c *Command) createCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&use, "use", false, "save the new store ID to the active profile")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be created without creating it")
 	return cmd
 }
 
@@ -157,15 +166,27 @@ func (c *Command) getCmd() *cobra.Command {
 }
 
 func (c *Command) deleteCmd() *cobra.Command {
-	var yes bool
+	var (
+		force  bool
+		yes    bool
+		dryRun bool
+	)
 	cmd := &cobra.Command{
 		Use:     "delete <store-id>",
 		Aliases: []string{"rm"},
 		Short:   "Delete a store",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !yes {
-				return fmt.Errorf("refusing to delete store %s without --yes (this cannot be undone)", args[0])
+			if dryRun {
+				output.Infof(cmd.OutOrStdout(), "would delete store %s", style.Bold.Render(args[0]))
+				return nil
+			}
+			// Deleting a store destroys all of its models, tuples and
+			// assertions, so require typing the store ID (or --force).
+			if err := prompt.ConfirmName(cmd,
+				fmt.Sprintf("delete store %s and all its data — this cannot be undone", args[0]),
+				args[0], force || yes); err != nil {
+				return err
 			}
 			cl, err := c.cli.Client()
 			if err != nil {
@@ -178,6 +199,9 @@ func (c *Command) deleteCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&yes, "yes", false, "confirm deletion")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "skip the confirmation prompt")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be deleted without deleting")
+	cmd.Flags().BoolVar(&yes, "yes", false, "deprecated: use --force")
+	_ = cmd.Flags().MarkDeprecated("yes", "use --force")
 	return cmd
 }
