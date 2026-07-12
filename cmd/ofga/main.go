@@ -32,7 +32,11 @@ func main() {
 
 	cfg, err := config.Load()
 	if err != nil {
-		logger.Fatal("failed to load config", "error", err)
+		output.Errorf(os.Stderr, "%s", err.Error())
+		if path := config.DefaultPath(); path != "" {
+			output.Hintf(os.Stderr, "fix or remove %s, then try again", path)
+		}
+		os.Exit(clierr.CodeError)
 	}
 	icons.Apply(icons.Parse(cfg.IconsMode()))
 

@@ -56,6 +56,60 @@ func TestSaveWritesSecretsWithRestrictivePerms(t *testing.T) {
 	}
 }
 
+func TestResolveProfileAndOverrides(t *testing.T) {
+	cfg := &Config{
+		Active: "dev",
+		Profiles: map[string]Profile{
+			"dev":  {APIURL: "http://dev:8080", StoreID: "dev-store"},
+			"prod": {APIURL: "http://prod:8080", StoreID: "prod-store"},
+		},
+	}
+
+	t.Run("OPENFGA_PROFILE selects the profile", func(t *testing.T) {
+		t.Setenv("OPENFGA_PROFILE", "prod")
+		r, err := cfg.Resolve(Overrides{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Profile != "prod" || r.APIURL != "http://prod:8080" {
+			t.Errorf("got profile=%q url=%q, want prod", r.Profile, r.APIURL)
+		}
+	})
+
+	t.Run("flag profile beats env profile", func(t *testing.T) {
+		t.Setenv("OPENFGA_PROFILE", "prod")
+		r, err := cfg.Resolve(Overrides{Profile: "dev"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Profile != "dev" {
+			t.Errorf("flag should win: got %q", r.Profile)
+		}
+	})
+
+	t.Run("FGA_API_URL alias is honored", func(t *testing.T) {
+		t.Setenv("FGA_API_URL", "http://alias:9999")
+		r, err := cfg.Resolve(Overrides{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.APIURL != "http://alias:9999" {
+			t.Errorf("FGA_API_URL not honored: got %q", r.APIURL)
+		}
+	})
+
+	t.Run("--api-url flag beats env", func(t *testing.T) {
+		t.Setenv("OPENFGA_API_URL", "http://env:8080")
+		r, err := cfg.Resolve(Overrides{APIURL: "http://flag:8080"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.APIURL != "http://flag:8080" {
+			t.Errorf("flag api-url should win: got %q", r.APIURL)
+		}
+	})
+}
+
 func TestResolveEnvTokenRespectsAuthMethod(t *testing.T) {
 	tests := []struct {
 		name       string

@@ -13,6 +13,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/command/api"
 	"github.com/sergiught/openfga-cli/internal/command/assertions"
+	"github.com/sergiught/openfga-cli/internal/command/configcmd"
 	"github.com/sergiught/openfga-cli/internal/command/model"
 	"github.com/sergiught/openfga-cli/internal/command/playground"
 	"github.com/sergiught/openfga-cli/internal/command/profiles"
@@ -103,6 +104,7 @@ ofga api GET /stores`,
 
 	pf := c.cmd.PersistentFlags()
 	pf.StringVarP(&cli.Overrides.Profile, "profile", "p", "", "configuration profile to use")
+	pf.StringVar(&cli.Overrides.APIURL, "api-url", "", "OpenFGA API URL (overrides profile/env)")
 	pf.StringVar(&cli.Overrides.StoreID, "store", "", "store ID (overrides profile/env)")
 	pf.StringVar(&cli.Overrides.ModelID, "model", "", "authorization model ID (overrides profile/env)")
 	pf.BoolVar(&cli.JSON, "json", false, "output machine-readable JSON")
@@ -179,6 +181,7 @@ func (c *Command) RegisterSubCommands() {
 		query.New(c.cli).Command(),
 		assertions.New(c.cli).Command(),
 		api.New(c.cli).Command(),
+		configcmd.New(c.cli).Command(),
 	)
 }
 

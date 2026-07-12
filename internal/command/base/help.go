@@ -65,12 +65,44 @@ func (c *Command) helpFunc(cmd *cobra.Command, _ []string) {
 		}
 	}
 
+	if !cmd.HasParent() {
+		b.WriteString(sectionHead("Environment"))
+		b.WriteString(envList())
+	}
+
 	if cmd.HasAvailableSubCommands() {
 		hint := fmt.Sprintf("Run \"%s [command] --help\" for details on a command.", cmd.CommandPath())
 		b.WriteString("\n" + indentText(style.Faint.Render(hint), 2) + "\n")
 	}
 
 	fmt.Fprint(cmd.OutOrStdout(), b.String())
+}
+
+// envList renders the environment variables ofga honors, aligned like the flag
+// list. FGA_* aliases are accepted for compatibility with the official CLI.
+func envList() string {
+	rows := [][2]string{
+		{"OPENFGA_API_URL", "OpenFGA API URL (alias: FGA_API_URL)"},
+		{"OPENFGA_STORE_ID", "active store ID (alias: FGA_STORE_ID)"},
+		{"OPENFGA_MODEL_ID", "authorization model ID (alias: FGA_AUTHORIZATION_MODEL_ID)"},
+		{"OPENFGA_API_TOKEN", "API bearer token (alias: FGA_API_TOKEN)"},
+		{"OPENFGA_PROFILE", "profile to use (alias: FGA_PROFILE)"},
+		{"OPENFGA_ICONS", "icon mode: auto, on or off"},
+		{"NO_COLOR / FORCE_COLOR", "disable / force colored output"},
+	}
+	width := 0
+	for _, r := range rows {
+		if len(r[0]) > width {
+			width = len(r[0])
+		}
+	}
+	name := lipgloss.NewStyle().Foreground(style.Accent)
+	var b strings.Builder
+	for _, r := range rows {
+		gap := strings.Repeat(" ", width-len(r[0])+3)
+		b.WriteString("    " + name.Render(r[0]) + gap + style.Subtitle.Render(r[1]) + "\n")
+	}
+	return b.String()
 }
 
 // blockLine is one line inside a shell block: its text and foreground color.

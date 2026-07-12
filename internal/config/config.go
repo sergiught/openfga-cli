@@ -74,7 +74,12 @@ func (p Profile) ResolvedAuth() Auth {
 }
 
 // Config is the on-disk configuration document.
+// SchemaVersion is the current on-disk config format version, written on Save
+// and available to gate future migrations.
+const SchemaVersion = 1
+
 type Config struct {
+	Version  int                `toml:"version"`
 	Active   string             `toml:"active_profile"`
 	Theme    string             `toml:"theme,omitempty"`
 	Icons    string             `toml:"icons,omitempty"`
@@ -115,6 +120,16 @@ func New() *Config {
 
 // Path returns the resolved configuration file path.
 func (c *Config) Path() string { return c.path }
+
+// DefaultPath returns the resolved config file path, or "" if it can't be
+// determined. Useful before a Config is loaded (e.g. to point at a broken file).
+func DefaultPath() string {
+	p, err := resolvePath()
+	if err != nil {
+		return ""
+	}
+	return p
+}
 
 // Existed reports whether the config was read from an existing file on disk,
 // as opposed to a freshly-minted in-memory default. Callers use this to write
@@ -188,6 +203,9 @@ func (c *Config) Save() error {
 			return err
 		}
 		c.path = p
+	}
+	if c.Version == 0 {
+		c.Version = SchemaVersion
 	}
 	if err := os.MkdirAll(filepath.Dir(c.path), 0o700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
@@ -268,14 +286,30 @@ func (c *Config) Use(name string) error {
 // An empty string means "not set".
 type Overrides struct {
 	Profile string
+	APIURL  string
 	StoreID string
 	ModelID string
 }
 
+// firstEnv returns the first non-empty value among the named environment
+// variables. The OPENFGA_* names are canonical; the FGA_* names are accepted as
+// aliases for compatibility with the official CLI.
+func firstEnv(names ...string) string {
+	for _, n := range names {
+		if v := os.Getenv(n); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 // Resolve merges, in increasing order of precedence: profile values, OPENFGA_*
-// environment variables, then flag overrides.
+// (or FGA_*) environment variables, then flag overrides.
 func (c *Config) Resolve(o Overrides) (Resolved, error) {
 	name := c.Active
+	if v := firstEnv("OPENFGA_PROFILE", "FGA_PROFILE"); v != "" {
+		name = v
+	}
 	if o.Profile != "" {
 		name = o.Profile
 	}
@@ -293,30 +327,30 @@ func (c *Config) Resolve(o Overrides) (Resolved, error) {
 	}
 
 	// Environment overrides.
-	if v := os.Getenv("OPENFGA_API_URL"); v != "" {
+	if v := firstEnv("OPENFGA_API_URL", "FGA_API_URL"); v != "" {
 		r.APIURL = v
 	}
-	if v := os.Getenv("OPENFGA_STORE_ID"); v != "" {
+	if v := firstEnv("OPENFGA_STORE_ID", "FGA_STORE_ID"); v != "" {
 		r.StoreID = v
 	}
-	if v := os.Getenv("OPENFGA_MODEL_ID"); v != "" {
-		r.ModelID = v
-	}
-	if v := os.Getenv("OPENFGA_AUTHORIZATION_MODEL_ID"); v != "" {
+	if v := firstEnv("OPENFGA_MODEL_ID", "OPENFGA_AUTHORIZATION_MODEL_ID",
+		"FGA_MODEL_ID", "FGA_AUTHORIZATION_MODEL_ID"); v != "" {
 		r.ModelID = v
 	}
 	// A token from the environment overrides the profile's token, but only when
 	// the profile isn't using an OAuth flow (client_credentials/private_key_jwt).
 	// Silently swapping a configured OAuth flow for a bare token would disable
 	// the profile's real auth without any signal; switch profiles for that.
-	if v := os.Getenv("OPENFGA_API_TOKEN"); v != "" {
+	if v := firstEnv("OPENFGA_API_TOKEN", "FGA_API_TOKEN"); v != "" {
 		if r.Auth.Method == "" || r.Auth.Method == AuthNone || r.Auth.Method == AuthAPIToken {
 			r.Auth = Auth{Method: AuthAPIToken, Token: v}
 		}
 	}
 
-	// Flag overrides (highest precedence). API URL and auth come from the
-	// active profile (and OPENFGA_* env vars); switch profiles to change them.
+	// Flag overrides (highest precedence).
+	if o.APIURL != "" {
+		r.APIURL = o.APIURL
+	}
 	if o.StoreID != "" {
 		r.StoreID = o.StoreID
 	}
