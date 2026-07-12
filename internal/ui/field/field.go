@@ -261,6 +261,12 @@ func (f *Form) Update(msg tea.Msg) tea.Cmd {
 				return nil
 			}
 			return f.moveFocus(1)
+		case "ctrl+s", "ctrl+enter":
+			// Submit from any field (e.g. skip optional trailing fields). ctrl+s
+			// is the portable binding; ctrl+enter also works where the terminal
+			// can distinguish it.
+			f.submit()
+			return nil
 		}
 	}
 	return f.fields[f.focus].update(msg)

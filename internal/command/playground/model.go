@@ -171,7 +171,7 @@ type Model struct {
 	assertResults  []assertResult
 	assertSummary  string
 	assertModelID  string
-	assertErr      string // API error from the last write, shown as a modal
+	formErr        string // form-validation / write error, shown in a modal for every form
 
 	// query
 	qmode        int

@@ -252,7 +252,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// enter/esc), not in the footer.
 			m.connLost = isConnErr(msg.err)
 			m.status = ""
-			m.assertErr = errStr(msg.err)
+			m.formErr = errStr(msg.err)
 			return m, nil
 		}
 		m.connLost = false
@@ -423,10 +423,10 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// A blocking error dialog swallows input; esc or enter dismisses it.
-	if m.assertErr != "" {
+	if m.formErr != "" {
 		switch msg.String() {
 		case "esc", "enter":
-			m.assertErr = ""
+			m.formErr = ""
 		}
 		return m, nil
 	}
@@ -1016,7 +1016,7 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case formCreateStore:
 			name := strings.TrimSpace(vals[0])
 			if name == "" {
-				m.status = "store name required"
+				m.formErr = "store name required"
 				return m, nil
 			}
 			m.status = "creating store " + name + "…"
@@ -1024,12 +1024,12 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case formWriteTuple:
 			key, err := fga.ParseTuple(vals[0], vals[1], vals[2])
 			if err != nil {
-				m.status = err.Error()
+				m.formErr = err.Error()
 				return m, nil
 			}
 			cond, err := parseCondition(vals[3], vals[4])
 			if err != nil {
-				m.status = err.Error()
+				m.formErr = err.Error()
 				return m, nil
 			}
 			key.Condition = cond
@@ -1039,17 +1039,17 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			key, err := fga.ParseTuple(vals[0], vals[1], vals[2])
 			if err != nil {
 				// Surface any failure adding an assertion in the modal, not the footer.
-				m.assertErr = err.Error()
+				m.formErr = err.Error()
 				return m, nil
 			}
 			ctxTuples, err := parseContextualTuples(vals[4])
 			if err != nil {
-				m.assertErr = err.Error()
+				m.formErr = err.Error()
 				return m, nil
 			}
 			ctxMap, err := parseContextJSON(vals[5])
 			if err != nil {
-				m.assertErr = err.Error()
+				m.formErr = err.Error()
 				return m, nil
 			}
 			a := openfga.Assertion{

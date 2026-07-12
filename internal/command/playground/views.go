@@ -60,7 +60,7 @@ func (m Model) viewString() string {
 	m.sh.SetStatus(st)
 
 	if title, body := m.dialogContent(); body != "" {
-		if m.assertErr != "" || m.confirm != nil {
+		if m.formErr != "" || m.confirm != nil {
 			m.sh.SetDialog(title, body, style.Red) // error / destructive: red title + border
 		} else {
 			m.sh.SetDialog(title, body)
@@ -127,9 +127,9 @@ func (m Model) dialogContent() (string, string) {
 	switch {
 	case m.helpOpen:
 		return "Keybindings", m.helpBody()
-	case m.assertErr != "":
+	case m.formErr != "":
 		w, _ := m.sh.DialogSize()
-		return "Error", style.Failure.Width(w).Render(m.assertErr) +
+		return "Error", style.Failure.Width(w).Render(m.formErr) +
 			"\n\n" + style.Faint.Render("enter or esc to dismiss")
 	case m.confirm != nil:
 		c := m.confirm
@@ -146,17 +146,17 @@ func (m Model) dialogContent() (string, string) {
 	case m.formKind == formCreateStore:
 		return "Create Store", m.form.View() + "\n" + style.Faint.Render("enter submit · esc cancel")
 	case m.formKind == formWriteTuple:
-		return "Write Tuple", m.form.View() + "\n" + style.Faint.Render("tab move · enter next/save · esc cancel")
+		return "Write Tuple", m.form.View() + "\n" + style.Faint.Render("tab move · ctrl+s submit · esc cancel")
 	case m.formKind == formWriteAssertion:
 		title := "Add Assertion"
 		if m.assertEditIdx >= 0 {
 			title = "Edit Assertion"
 		}
-		return title, m.form.View() + "\n\n" + style.Faint.Render("tab move · space toggle · enter save · esc cancel")
+		return title, m.form.View() + "\n\n" + style.Faint.Render("tab move · space toggle · ctrl+s save · esc cancel")
 	case m.formKind == formAddProfile:
-		return "Add Profile", m.form.View() + "\n" + style.Faint.Render("tab/↑↓ move · ←→ auth method · enter save · esc cancel")
+		return "Add Profile", m.form.View() + "\n" + style.Faint.Render("tab/↑↓ move · ←→ auth method · ctrl+s save · esc cancel")
 	case m.formKind == formEditProfile:
-		return "Edit Profile", m.form.View() + "\n" + style.Faint.Render("tab/↑↓ move · ←→ auth method · enter save · esc cancel")
+		return "Edit Profile", m.form.View() + "\n" + style.Faint.Render("tab/↑↓ move · ←→ auth method · ctrl+s save · esc cancel")
 	case m.section == secModel && m.modelPicking:
 		return "Switch model", m.modelsList.View() + "\n" + style.Faint.Render("↑↓ choose · enter load · esc cancel")
 	}
@@ -655,10 +655,10 @@ func (m Model) assertionsBody() string {
 func (m Model) statusKeys() []string {
 	// Sub-editors that capture every key advertise only their own bindings.
 	switch {
-	case m.assertErr != "":
+	case m.formErr != "":
 		return []string{"↵ dismiss", "esc"}
 	case m.formKind != formNone:
-		return []string{"↵ save", "esc cancel"}
+		return []string{"ctrl+s save", "esc cancel"}
 	case m.section == secModel && m.editorOpen:
 		return []string{"ctrl+s apply", "esc cancel"}
 	case m.section == secModel && m.modelPicking:

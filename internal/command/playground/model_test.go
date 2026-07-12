@@ -1257,7 +1257,7 @@ func TestAssertionWriteErrorShowsDialog(t *testing.T) {
 
 	m, _ = m.Update(assertionsWrittenMsg{err: errors.New("boom: relation not defined")})
 	mod := m.(Model)
-	if mod.assertErr == "" {
+	if mod.formErr == "" {
 		t.Fatal("write error should populate the error modal")
 	}
 	if mod.status != "" {
@@ -1268,10 +1268,10 @@ func TestAssertionWriteErrorShowsDialog(t *testing.T) {
 		t.Fatalf("error dialog = %q / %q", title, ansi.Strip(body))
 	}
 
-	if m2, _ := m.Update(key("esc")); m2.(Model).assertErr != "" {
+	if m2, _ := m.Update(key("esc")); m2.(Model).formErr != "" {
 		t.Error("esc should dismiss the error modal")
 	}
-	if m3, _ := m.Update(key("enter")); m3.(Model).assertErr != "" {
+	if m3, _ := m.Update(key("enter")); m3.(Model).formErr != "" {
 		t.Error("enter should dismiss the error modal")
 	}
 }
@@ -1332,7 +1332,7 @@ func TestAssertionAddFormErrorShowsDialog(t *testing.T) {
 	m = pump(t, m, key("enter")) // submit -> write -> 400
 
 	mod := m.(Model)
-	if mod.assertErr == "" {
+	if mod.formErr == "" {
 		t.Fatal("a failed assertion write should populate the error modal")
 	}
 	if mod.status != "" {
