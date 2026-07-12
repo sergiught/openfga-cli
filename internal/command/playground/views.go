@@ -179,7 +179,7 @@ func (m Model) sectionBody() string {
 		if m.editorOpen {
 			body = m.editorBody()
 		} else if m.storeID == "" {
-			body = style.Faint.Render("Select a store first — press 1")
+			body = style.Faint.Render("Select a store first — press 2")
 		} else if len(m.graph.Types) == 0 {
 			body = style.Faint.Render("No authorization model in this store")
 		} else {
@@ -402,7 +402,7 @@ func (m Model) editorBody() string {
 
 func (m Model) queryBody() string {
 	if m.storeID == "" {
-		return style.Faint.Render("Select a store first — press 1")
+		return style.Faint.Render("Select a store first — press 2")
 	}
 
 	// Resolution tree takes over the panel when open.
@@ -555,7 +555,7 @@ func histNotation(h histEntry) string {
 
 func (m Model) assertionsBody() string {
 	if m.storeID == "" {
-		return style.Faint.Render("select a store first (press 1)")
+		return style.Faint.Render("select a store first (press 2)")
 	}
 	if m.loading && len(m.assertions) == 0 {
 		return m.spinner.View() + " loading…"
@@ -652,14 +652,14 @@ func itoa(n int) string { return strconv.Itoa(n) }
 
 func tupleHint(storeID string) string {
 	if storeID == "" {
-		return "Select a store first — press 1"
+		return "Select a store first — press 2"
 	}
 	return "No tuples yet — press a to add one"
 }
 
 func changeHint(storeID string) string {
 	if storeID == "" {
-		return "Select a store first — press 1"
+		return "Select a store first — press 2"
 	}
 	return "No changes recorded yet"
 }

@@ -3,7 +3,10 @@
 package profiles
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -25,9 +28,10 @@ type Command struct {
 func New(cli *cli.CLI) *Command {
 	c := &Command{cli: cli}
 	c.cmd = &cobra.Command{
-		Use:   "profiles",
-		Short: "Manage connection profiles",
-		Long:  "Manage named connection profiles. Each profile stores an API URL, optional store and authorization-model IDs, and an optional API token.",
+		Use:     "profiles",
+		Aliases: []string{"profile"},
+		Short:   "Manage connection profiles",
+		Long:    "Manage named connection profiles. Each profile stores an API URL, optional store and authorization-model IDs, and an optional API token.",
 	}
 	c.RegisterSubCommands()
 	return c
@@ -164,13 +168,15 @@ func (c *Command) showCmd() *cobra.Command {
 				return err
 			}
 			if c.cli.JSON {
-				return output.JSON(cmd.OutOrStdout(), map[string]string{
+				// Never emit the token (masked or raw) into machine output;
+				// report only whether one is configured.
+				return output.JSON(cmd.OutOrStdout(), map[string]any{
 					"profile":   r.Profile,
 					"api_url":   r.APIURL,
 					"store_id":  r.StoreID,
 					"model_id":  r.ModelID,
 					"auth":      authName(r.Auth),
-					"api_token": tokenState(r.APIToken()),
+					"has_token": r.APIToken() != "",
 				})
 			}
 			rows := [][2]string{
@@ -204,15 +210,25 @@ func (c *Command) useCmd() *cobra.Command {
 }
 
 func (c *Command) setCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "set <key> <value>",
+	var (
+		valueFile  string
+		valueStdin bool
+	)
+	cmd := &cobra.Command{
+		Use:   "set <key> [value]",
 		Short: "Set a field on a profile",
 		Long: "Set a field on the active profile (or --profile).\n\n" +
 			"Connection: api_url, store_id, model_id.\n" +
 			"Auth: auth_method (none|api_token|client_credentials|private_key_jwt), token,\n" +
 			"client_id, client_secret, token_url, audience, api_audience, key_file,\n" +
-			"signing_method, key_id, scopes (space-separated).",
-		Args: cobra.ExactArgs(2),
+			"signing_method, key_id, scopes (space-separated).\n\n" +
+			"For secrets (token, client_secret) prefer --value-file or --value-stdin so\n" +
+			"the value never appears in `ps` output or your shell history.",
+		Example: `  ofga profiles set api_url http://localhost:8080
+  ofga profiles set auth_method api_token
+  ofga profiles set token --value-stdin < token.txt
+  ofga profiles set client_secret --value-file ./secret`,
+		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := c.cli.Config.Active
 			if c.cli.Overrides.Profile != "" {
@@ -222,7 +238,17 @@ func (c *Command) setCmd() *cobra.Command {
 			if !ok {
 				return fmt.Errorf("%w: %q", config.ErrNoProfile, name)
 			}
-			key, val := strings.ToLower(args[0]), args[1]
+			var literal string
+			if len(args) == 2 {
+				literal = args[1]
+			} else if valueFile == "" && !valueStdin {
+				return errors.New("value required: pass it as an argument, or use --value-file/--value-stdin")
+			}
+			val, err := readSecret(cmd.InOrStdin(), literal, valueFile, valueStdin)
+			if err != nil {
+				return err
+			}
+			key := strings.ToLower(args[0])
 			switch key {
 			case "api_url", "url":
 				p.APIURL = val
@@ -263,21 +289,31 @@ func (c *Command) setCmd() *cobra.Command {
 			return nil
 		},
 	}
+	f := cmd.Flags()
+	f.StringVar(&valueFile, "value-file", "", "read the value from a file instead of an argument")
+	f.BoolVar(&valueStdin, "value-stdin", false, "read the value from stdin instead of an argument")
+	return cmd
 }
 
 func (c *Command) addCmd() *cobra.Command {
 	var (
-		apiURL, storeID, modelID, token string
-		activate                        bool
+		apiURL, storeID, modelID, token, tokenFile string
+		tokenStdin, activate                       bool
 	)
 	cmd := &cobra.Command{
 		Use:   "add <profile>",
 		Short: "Create a new profile",
-		Args:  cobra.ExactArgs(1),
+		Example: `  ofga profiles add dev --api-url http://localhost:8080 --use
+  ofga profiles add prod --api-url https://fga.example.com --token-stdin < token.txt`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
 			if _, exists := c.cli.Config.Get(name); exists {
 				return fmt.Errorf("profile %q already exists", name)
+			}
+			token, err := readSecret(cmd.InOrStdin(), token, tokenFile, tokenStdin)
+			if err != nil {
+				return err
 			}
 			if apiURL == "" {
 				apiURL = config.DefaultAPIURL
@@ -303,9 +339,13 @@ func (c *Command) addCmd() *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringVar(&apiURL, "api-url", "", "API URL (default "+config.DefaultAPIURL+")")
-	f.StringVar(&storeID, "store", "", "store ID")
-	f.StringVar(&modelID, "model", "", "authorization model ID")
-	f.StringVar(&token, "token", "", "API bearer token")
+	// Named --store-id/--model-id (not --store/--model) so they don't shadow the
+	// global persistent --store/--model overrides on this command.
+	f.StringVar(&storeID, "store-id", "", "store ID to save in the profile")
+	f.StringVar(&modelID, "model-id", "", "authorization model ID to save in the profile")
+	f.StringVar(&token, "token", "", "API bearer token (prefer --token-file/--token-stdin)")
+	f.StringVar(&tokenFile, "token-file", "", "read the API token from a file")
+	f.BoolVar(&tokenStdin, "token-stdin", false, "read the API token from stdin")
 	f.BoolVar(&activate, "use", false, "switch to this profile after creating it")
 	return cmd
 }
@@ -384,12 +424,44 @@ func authRows(a config.Auth) [][2]string {
 	return rows
 }
 
+// readSecret returns a value from exactly one of: a literal (an argument or
+// flag), a file, or stdin. It lets tokens and client secrets be supplied
+// without appearing as command-line arguments, where they leak into `ps` output
+// and shell history. Trailing whitespace/newlines — common in files and in
+// `echo secret | ofga …` — are trimmed.
+func readSecret(stdin io.Reader, literal, file string, fromStdin bool) (string, error) {
+	sources := 0
+	for _, set := range []bool{literal != "", file != "", fromStdin} {
+		if set {
+			sources++
+		}
+	}
+	if sources > 1 {
+		return "", errors.New("provide the value only once (as an argument, --*-file, or --*-stdin)")
+	}
+	switch {
+	case file != "":
+		b, err := os.ReadFile(file)
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(b)), nil
+	case fromStdin:
+		b, err := io.ReadAll(stdin)
+		if err != nil {
+			return "", fmt.Errorf("read secret from stdin: %w", err)
+		}
+		return strings.TrimSpace(string(b)), nil
+	default:
+		return literal, nil
+	}
+}
+
+// tokenState reports whether a secret is set without leaking any of its
+// characters — a fixed mask, never a plaintext fragment of the real value.
 func tokenState(tok string) string {
 	if tok == "" {
 		return "—"
 	}
-	if len(tok) <= 8 {
-		return "••••"
-	}
-	return tok[:3] + "…" + tok[len(tok)-3:]
+	return "••••••••"
 }

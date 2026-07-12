@@ -40,7 +40,9 @@ func New(r config.Resolved) (*openfga.Client, error) {
 
 	c, err := openfga.NewClient(r.APIURL, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("create openfga client: %w", err)
+		// The SDK's errors are already user-facing (e.g. `invalid store ID …`);
+		// don't double-wrap them with an internal-sounding prefix.
+		return nil, err
 	}
 	return c, nil
 }

@@ -23,8 +23,9 @@ type Command struct {
 func New(cli *cli.CLI) *Command {
 	c := &Command{cli: cli}
 	c.cmd = &cobra.Command{
-		Use:   "stores",
-		Short: "Create, list, inspect and delete stores",
+		Use:     "stores",
+		Aliases: []string{"store"},
+		Short:   "Create, list, inspect and delete stores",
 	}
 	c.RegisterSubCommands()
 	return c

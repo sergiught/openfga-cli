@@ -37,31 +37,31 @@ const (
 // Auth holds a profile's authentication configuration. Which fields apply
 // depends on Method; unused ones stay empty.
 type Auth struct {
-	Method string `toml:"method,omitempty"` // none | api_token | client_credentials | private_key_jwt
+	Method string `toml:"method,omitempty" json:"method,omitempty"` // none | api_token | client_credentials | private_key_jwt
 
-	Token string `toml:"token,omitempty"` // api_token
+	Token string `toml:"token,omitempty" json:"-"` // secret; never serialized to JSON output
 
 	// client_credentials and private_key_jwt share the OAuth2 grant shape.
-	ClientID     string   `toml:"client_id,omitempty"`
-	ClientSecret string   `toml:"client_secret,omitempty"` // client_credentials
-	TokenURL     string   `toml:"token_url,omitempty"`
-	Audience     string   `toml:"audience,omitempty"`
-	Scopes       []string `toml:"scopes,omitempty"`
+	ClientID     string   `toml:"client_id,omitempty" json:"client_id,omitempty"`
+	ClientSecret string   `toml:"client_secret,omitempty" json:"-"` // secret; never serialized to JSON output
+	TokenURL     string   `toml:"token_url,omitempty" json:"token_url,omitempty"`
+	Audience     string   `toml:"audience,omitempty" json:"audience,omitempty"`
+	Scopes       []string `toml:"scopes,omitempty" json:"scopes,omitempty"`
 
 	// private_key_jwt.
-	APIAudience   string `toml:"api_audience,omitempty"` // audience requested in the grant
-	KeyFile       string `toml:"key_file,omitempty"`     // path to the PEM signing key
-	SigningMethod string `toml:"signing_method,omitempty"`
-	KeyID         string `toml:"key_id,omitempty"`
+	APIAudience   string `toml:"api_audience,omitempty" json:"api_audience,omitempty"` // audience requested in the grant
+	KeyFile       string `toml:"key_file,omitempty" json:"key_file,omitempty"`         // path to the PEM signing key
+	SigningMethod string `toml:"signing_method,omitempty" json:"signing_method,omitempty"`
+	KeyID         string `toml:"key_id,omitempty" json:"key_id,omitempty"`
 }
 
 // Profile is a single named connection context.
 type Profile struct {
-	APIURL   string `toml:"api_url"`
-	StoreID  string `toml:"store_id,omitempty"`
-	ModelID  string `toml:"model_id,omitempty"`
-	APIToken string `toml:"api_token,omitempty"` // legacy pre-shared token; see resolveAuth
-	Auth     Auth   `toml:"auth,omitempty"`
+	APIURL   string `toml:"api_url" json:"api_url"`
+	StoreID  string `toml:"store_id,omitempty" json:"store_id,omitempty"`
+	ModelID  string `toml:"model_id,omitempty" json:"model_id,omitempty"`
+	APIToken string `toml:"api_token,omitempty" json:"-"` // legacy secret; never serialized to JSON output
+	Auth     Auth   `toml:"auth,omitempty" json:"auth"`
 }
 
 // ResolvedAuth returns the profile's effective auth, folding the legacy
@@ -177,7 +177,10 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-// Save writes the config to disk, creating parent directories as needed.
+// Save writes the config to disk, creating parent directories as needed. The
+// file holds API tokens and client secrets, so it is written with 0600
+// permissions (dir 0700) via a temp file + atomic rename, ensuring the secrets
+// are never world-readable even briefly and never left truncated on error.
 func (c *Config) Save() error {
 	if c.path == "" {
 		p, err := resolvePath()
@@ -186,18 +189,32 @@ func (c *Config) Save() error {
 		}
 		c.path = p
 	}
-	if err := os.MkdirAll(filepath.Dir(c.path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(c.path), 0o700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
-	f, err := os.Create(c.path)
+
+	tmp, err := os.CreateTemp(filepath.Dir(c.path), configFileName+".*.tmp")
 	if err != nil {
 		return fmt.Errorf("create config file: %w", err)
 	}
-	defer f.Close()
-	enc := toml.NewEncoder(f)
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName) // no-op after a successful rename
+
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return fmt.Errorf("secure config file: %w", err)
+	}
+	enc := toml.NewEncoder(tmp)
 	enc.Indent = "  "
 	if err := enc.Encode(c); err != nil {
+		tmp.Close()
 		return fmt.Errorf("encode config: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("write config file: %w", err)
+	}
+	if err := os.Rename(tmpName, c.path); err != nil {
+		return fmt.Errorf("write config file: %w", err)
 	}
 	return nil
 }
@@ -288,9 +305,14 @@ func (c *Config) Resolve(o Overrides) (Resolved, error) {
 	if v := os.Getenv("OPENFGA_AUTHORIZATION_MODEL_ID"); v != "" {
 		r.ModelID = v
 	}
-	// A token from the environment or a flag forces the api_token method.
+	// A token from the environment overrides the profile's token, but only when
+	// the profile isn't using an OAuth flow (client_credentials/private_key_jwt).
+	// Silently swapping a configured OAuth flow for a bare token would disable
+	// the profile's real auth without any signal; switch profiles for that.
 	if v := os.Getenv("OPENFGA_API_TOKEN"); v != "" {
-		r.Auth = Auth{Method: AuthAPIToken, Token: v}
+		if r.Auth.Method == "" || r.Auth.Method == AuthNone || r.Auth.Method == AuthAPIToken {
+			r.Auth = Auth{Method: AuthAPIToken, Token: v}
+		}
 	}
 
 	// Flag overrides (highest precedence). API URL and auth come from the

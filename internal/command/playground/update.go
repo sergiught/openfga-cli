@@ -392,6 +392,13 @@ func (m *Model) toastErr(label string, err error) tea.Cmd {
 }
 
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// Ctrl+C is the universal quit. Honor it before any overlay, form, editor,
+	// or list-filter branch below can swallow the key (in raw mode Ctrl+C
+	// arrives as a key press, not a signal), so the user is never trapped.
+	if msg.String() == "ctrl+c" {
+		return m, tea.Quit
+	}
+
 	// A blocking error dialog swallows input; esc or enter dismisses it.
 	if m.assertErr != "" {
 		switch msg.String() {
@@ -473,10 +480,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	key := msg.String()
-	// Keys that work in either focus mode.
+	// Keys that work in either focus mode. (Ctrl+C is handled at the top of
+	// handleKey so it can never be swallowed by an overlay.)
 	switch key {
-	case "ctrl+c":
-		return m, tea.Quit
 	case "ctrl+k":
 		m.paletteOpen = true
 		return m, nil

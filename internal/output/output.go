@@ -19,6 +19,10 @@ var (
 	Quiet bool
 	// Plain renders tables as tab-separated, unstyled rows (--plain).
 	Plain bool
+	// Interactive is true when stdout is a terminal. When false (piped or
+	// redirected), Table drops its box-drawing frame so the rows stay
+	// grep/awk-friendly, mirroring how color is stripped for non-TTY output.
+	Interactive bool
 )
 
 // JSON writes v as indented JSON to w.
@@ -100,9 +104,10 @@ func Table(w io.Writer, headers []string, rows [][]string) {
 		fmt.Fprintln(&buf, b.String())
 	}
 
-	if style.Active.Name == "mono" {
-		// NO_COLOR/--no-color: keep the pre-framed structure (header, rule,
-		// rows) instead of drawing a box around it.
+	if style.Active.Name == "mono" || !Interactive {
+		// NO_COLOR/--no-color, or piped/redirected stdout: keep the pre-framed
+		// structure (header, rule, rows) instead of drawing a box around it, so
+		// the box-drawing runes don't end up in grep/awk pipelines.
 		fmt.Fprint(w, buf.String())
 		return
 	}

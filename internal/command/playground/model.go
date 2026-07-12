@@ -349,7 +349,16 @@ func (m *Model) resize() {
 		m.resVP.SetWidth(w)
 		m.resVP.SetHeight(rh)
 	}
-	m.rebuildQueryForm()
+	// Preserve any in-progress query input across the rebuild: WindowSizeMsg can
+	// arrive mid-typing and async loads (assertions, etc.) also call resize().
+	// The mode/context is unchanged here, so the fields line up 1:1.
+	if m.qform != nil {
+		vals := m.qform.Values()
+		m.rebuildQueryForm()
+		m.qform.SetValues(vals)
+	} else {
+		m.rebuildQueryForm()
+	}
 }
 
 func (m *Model) contentSize() (int, int) { return m.sh.MainSize() }

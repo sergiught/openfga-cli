@@ -11,6 +11,7 @@ require (
 	github.com/charmbracelet/harmonica v0.2.0
 	github.com/charmbracelet/log v0.4.0
 	github.com/charmbracelet/x/ansi v0.11.7
+	github.com/charmbracelet/x/term v0.2.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/lucasb-eyer/go-colorful v1.4.0
 	github.com/muesli/go-app-paths v0.2.2
@@ -27,7 +28,6 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20260703014108-f5a850f9c2b7 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.15 // indirect
-	github.com/charmbracelet/x/term v0.2.2 // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect
 	github.com/charmbracelet/x/windows v0.2.2 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect

@@ -114,6 +114,10 @@ func (c *Command) checkCmd() *cobra.Command {
 			if c.cli.JSON {
 				return output.JSON(cmd.OutOrStdout(), res)
 			}
+			if output.Plain {
+				fmt.Fprintln(cmd.OutOrStdout(), allowedWord(res.Allowed))
+				return nil
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "%s  %s\n",
 				style.Allowed(res.Allowed),
 				style.Faint.Render(fmt.Sprintf("%s %s %s", args[0], args[1], args[2])))
@@ -163,7 +167,11 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 			}
 			for i, item := range items {
 				r := res.Result[item.CorrelationID]
-				fmt.Fprintf(cmd.OutOrStdout(), "%s  %s\n", style.Allowed(r.Allowed), style.Faint.Render(labels[i]))
+				if output.Plain {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\n", allowedWord(r.Allowed), labels[i])
+				} else {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s  %s\n", style.Allowed(r.Allowed), style.Faint.Render(labels[i]))
+				}
 			}
 			return nil
 		},
@@ -175,7 +183,7 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 func (c *Command) expandCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "expand <relation> <object>",
-		Short:   "Expand the userset tree that grants a relation",
+		Short:   "Expand the userset tree that grants a relation (JSON)",
 		Example: "  ofga query expand viewer document:roadmap",
 		Args:    cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -188,6 +196,8 @@ func (c *Command) expandCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// The userset tree has no meaningful flat rendering; it is always
+			// emitted as JSON, so --json/--plain are intentionally no-ops here.
 			return output.JSON(cmd.OutOrStdout(), res.Tree)
 		},
 	}
@@ -223,7 +233,11 @@ func (c *Command) listObjectsCmd() *cobra.Command {
 				return nil
 			}
 			for _, o := range res.Objects {
-				fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", style.Bullet(), o)
+				if output.Plain {
+					fmt.Fprintln(cmd.OutOrStdout(), o)
+				} else {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", style.Bullet(), o)
+				}
 			}
 			return nil
 		},
@@ -273,13 +287,24 @@ func (c *Command) listUsersCmd() *cobra.Command {
 				return nil
 			}
 			for _, u := range res.Users {
-				fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", style.Bullet(), formatUser(u))
+				if output.Plain {
+					fmt.Fprintln(cmd.OutOrStdout(), formatUser(u))
+				} else {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", style.Bullet(), formatUser(u))
+				}
 			}
 			return nil
 		},
 	}
 	cmd.Flags().StringArrayVar(&userTypes, "type", nil, "user type filter, optionally type#relation (repeatable)")
 	return cmd
+}
+
+func allowedWord(ok bool) string {
+	if ok {
+		return "allowed"
+	}
+	return "denied"
 }
 
 // formatUser renders one entry of a ListUsers response, describing a concrete

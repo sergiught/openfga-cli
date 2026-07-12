@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/openfga-cli/internal/cli"
@@ -56,9 +57,16 @@ ofga api GET /stores`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       cli.Version,
-		Args:          cobra.NoArgs,
+		// No Args validator: cobra's default lets a bare `ofga` launch the TUI
+		// while still rejecting an unknown first token with a "Did you mean…?"
+		// suggestion (cobra.NoArgs would suppress that suggestion).
 		// Bare `ofga` launches the TUI (clig.dev: lead with the primary value).
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				// Unreachable once cobra's arg validation runs, but guards against
+				// a future Args override silently routing typos into the TUI.
+				return fmt.Errorf("unknown command %q for %q", args[0], cmd.CommandPath())
+			}
 			return playground.Run(cmd.Context(), cli)
 		},
 		// Resolve color + theme + output mode before any command renders.
@@ -96,6 +104,9 @@ ofga api GET /stores`,
 	pf.BoolVarP(&cli.Quiet, "quiet", "q", false, "suppress incidental output")
 	pf.BoolVar(&cli.NoColor, "no-color", false, "disable colored output")
 	pf.StringVar(&cli.ThemeName, "theme", "", "color theme ("+themeList()+")")
+	// Registered so `--verbose`/`-v` is a known flag and appears in help; its
+	// value is read from os.Args in main.logLevel, which must set the log level
+	// before cobra parses (to cover errors during early config loading).
 	pf.BoolP("verbose", "v", false, "enable debug logging")
 
 	c.RegisterSubCommands()
@@ -108,8 +119,19 @@ func (c *Command) applyEnvironment() {
 	a := c.cli
 	output.Quiet = a.Quiet
 	output.Plain = a.Plain
+	output.Interactive = term.IsTerminal(os.Stdout.Fd())
 
-	noColor := a.NoColor || a.Plain ||
+	// --plain is an explicit machine-output mode: always unstyled and
+	// tab-separated regardless of FORCE_COLOR or a TTY, so scripts get a
+	// deterministic, escape-free stream.
+	if a.Plain {
+		style.Apply(theme.Mono())
+		c.outW.Profile = colorprofile.NoTTY
+		c.errW.Profile = colorprofile.NoTTY
+		return
+	}
+
+	noColor := a.NoColor ||
 		os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb"
 	force := os.Getenv("FORCE_COLOR") != ""
 

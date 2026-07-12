@@ -28,7 +28,7 @@ func New(cli *cli.CLI) *Command {
 	c := &Command{cli: cli}
 	c.cmd = &cobra.Command{
 		Use:     "assertions",
-		Aliases: []string{"assert"},
+		Aliases: []string{"assert", "assertion"},
 		Short:   "Read, write and run a model's assertion test-suite",
 	}
 	c.RegisterSubCommands()
@@ -99,15 +99,15 @@ func (c *Command) readCmd() *cobra.Command {
 }
 
 func (c *Command) writeCmd() *cobra.Command {
-	var (
-		modelID string
-		file    string
-	)
+	var file string
 	cmd := &cobra.Command{
-		Use:   "write --model <id> --file <assertions.json>",
+		Use:   "write --file <assertions.json>",
 		Short: "Replace the assertions for a model from a JSON file",
-		Long:  "Replace a model's assertions. The file is a JSON array of assertions or an object {\"assertions\": [...]}, each: {\"tuple_key\":{\"user\",\"relation\",\"object\"},\"expectation\":true}.",
-		Args:  cobra.NoArgs,
+		Long:  "Replace a model's assertions (the active --model, or the latest). The file is a JSON array of assertions or an object {\"assertions\": [...]}, each: {\"tuple_key\":{\"user\",\"relation\",\"object\"},\"expectation\":true}.",
+		Example: `  ofga assertions write --file assertions.json
+  ofga assertions write --model 01H… --file assertions.json
+  cat assertions.json | ofga assertions write --file -`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if file == "" {
 				return fmt.Errorf("--file is required")
@@ -124,7 +124,7 @@ func (c *Command) writeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			id, err := c.resolveModelID(cmd, cl, r.StoreID, firstNonEmpty(modelID, r.ModelID))
+			id, err := c.resolveModelID(cmd, cl, r.StoreID, r.ModelID)
 			if err != nil {
 				return err
 			}
@@ -136,7 +136,6 @@ func (c *Command) writeCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&modelID, "model", "", "authorization model ID (default: latest)")
 	cmd.Flags().StringVarP(&file, "file", "f", "", "assertions JSON file ('-' for stdin)")
 	return cmd
 }
@@ -232,15 +231,6 @@ func (c *Command) testCmd() *cobra.Command {
 
 func toTupleKey(k openfga.CheckRequestTupleKey) openfga.TupleKey {
 	return openfga.TupleKey{User: k.User, Relation: k.Relation, Object: k.Object}
-}
-
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 func readFileOrStdin(path string, cmd *cobra.Command) ([]byte, error) {

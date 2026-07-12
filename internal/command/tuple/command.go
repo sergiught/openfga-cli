@@ -24,8 +24,9 @@ type Command struct {
 func New(cli *cli.CLI) *Command {
 	c := &Command{cli: cli}
 	c.cmd = &cobra.Command{
-		Use:   "tuples",
-		Short: "Write, delete and read relationship tuples",
+		Use:     "tuples",
+		Aliases: []string{"tuple"},
+		Short:   "Write, delete and read relationship tuples",
 	}
 	c.RegisterSubCommands()
 	return c
