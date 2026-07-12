@@ -699,9 +699,9 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			return m.scrollGraph(-graphLineStep)
 		case "down", "j", "shift+down":
 			return m.scrollGraph(graphLineStep)
-		case "shift+left", "h":
+		case "shift+left", "left", "h":
 			return m.panGraph(-graphColStep)
-		case "shift+right", "l":
+		case "shift+right", "right", "l":
 			return m.panGraph(graphColStep)
 		case "pgup", "b":
 			return m.scrollGraph(-m.graphVP.Height())

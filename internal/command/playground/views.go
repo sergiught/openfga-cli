@@ -92,7 +92,7 @@ func (m Model) dialogContent() (string, string) {
 	case m.formKind == formCreateStore:
 		return "Create Store", m.form.View() + "\n" + style.Faint.Render("enter submit · esc cancel")
 	case m.formKind == formWriteTuple:
-		return "Write Tuple", m.form.View() + "\n" + style.Faint.Render("enter submit · esc cancel")
+		return "Write Tuple", m.form.View() + "\n" + style.Faint.Render("tab move · enter next/save · esc cancel")
 	case m.formKind == formWriteAssertion:
 		title := "Add Assertion"
 		if m.assertEditIdx >= 0 {
@@ -600,7 +600,7 @@ func (m Model) statusKeys() []string {
 	case m.section == secModel && m.modelPicking:
 		return []string{"↑↓ browse", "↵ select", "esc"}
 	case m.section == secQuery && m.editing:
-		return []string{"↑↓ field", "tab mode", "↵ run", "esc"}
+		return []string{"↑↓/tab field", "tab mode", "↵ next/run", "esc"}
 	case m.section == secQuery && m.showRes:
 		return []string{"↑↓←→ scroll", "p ACL path", "r close", "esc"}
 	}
