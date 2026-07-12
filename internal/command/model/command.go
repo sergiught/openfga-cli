@@ -3,10 +3,12 @@
 package model
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -37,6 +39,27 @@ func New(cli *cli.CLI) *Command {
 
 // Command returns the cobra command.
 func (c *Command) Command() *cobra.Command { return c.cmd }
+
+// completeModelIDs suggests authorization model IDs for the resolved store.
+func (c *Command) completeModelIDs(cmd *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+	if len(args) > 0 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	cl, _, err := c.cli.ClientWithStore()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Second)
+	defer cancel()
+	var out []string
+	for m, err := range cl.AuthorizationModels.All(ctx, nil) {
+		if err != nil {
+			break
+		}
+		out = append(out, m.ID)
+	}
+	return out, cobra.ShellCompDirectiveNoFileComp
+}
 
 // RegisterSubCommands wires the model sub-commands.
 func (c *Command) RegisterSubCommands() {
@@ -147,9 +170,10 @@ func (c *Command) listCmd() *cobra.Command {
 
 func (c *Command) getCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "get <model-id>",
-		Short: "Show an authorization model as JSON",
-		Args:  cobra.ExactArgs(1),
+		Use:               "get <model-id>",
+		ValidArgsFunction: c.completeModelIDs,
+		Short:             "Show an authorization model as JSON",
+		Args:              cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {

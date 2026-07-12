@@ -117,6 +117,10 @@ ofga api GET /stores`,
 	// before cobra parses (to cover errors during early config loading).
 	pf.BoolP("verbose", "v", false, "enable debug logging")
 
+	_ = c.cmd.RegisterFlagCompletionFunc("profile", c.completeProfiles)
+	_ = c.cmd.RegisterFlagCompletionFunc("store", c.completeStores)
+	_ = c.cmd.RegisterFlagCompletionFunc("model", c.completeModels)
+
 	c.RegisterSubCommands()
 	return c
 }

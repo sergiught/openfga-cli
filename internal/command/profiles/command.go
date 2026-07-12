@@ -41,6 +41,14 @@ func New(cli *cli.CLI) *Command {
 // Command returns the cobra command.
 func (c *Command) Command() *cobra.Command { return c.cmd }
 
+// completeNames suggests configured profile names for the first positional arg.
+func (c *Command) completeNames(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+	if len(args) > 0 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	return c.cli.Config.ProfileNames(), cobra.ShellCompDirectiveNoFileComp
+}
+
 // RegisterSubCommands wires the context sub-commands.
 func (c *Command) RegisterSubCommands() {
 	c.cmd.AddCommand(
@@ -142,10 +150,11 @@ func (c *Command) currentCmd() *cobra.Command {
 
 func (c *Command) showCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "show [profile]",
-		Short: "Show a profile's resolved values (token masked)",
-		Long:  "Show the values of a profile. With no argument, shows the fully resolved active configuration after applying env and flag overrides.",
-		Args:  cobra.MaximumNArgs(1),
+		Use:               "show [profile]",
+		ValidArgsFunction: c.completeNames,
+		Short:             "Show a profile's resolved values (token masked)",
+		Long:              "Show the values of a profile. With no argument, shows the fully resolved active configuration after applying env and flag overrides.",
+		Args:              cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 1 {
 				p, ok := c.cli.Config.Get(args[0])
@@ -194,9 +203,10 @@ func (c *Command) showCmd() *cobra.Command {
 
 func (c *Command) useCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "use <profile>",
-		Short: "Switch the active profile",
-		Args:  cobra.ExactArgs(1),
+		Use:               "use <profile>",
+		ValidArgsFunction: c.completeNames,
+		Short:             "Switch the active profile",
+		Args:              cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := c.cli.Config.Use(args[0]); err != nil {
 				return err
@@ -359,10 +369,11 @@ func (c *Command) addCmd() *cobra.Command {
 func (c *Command) removeCmd() *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
-		Use:     "remove <profile>",
-		Aliases: []string{"rm", "delete"},
-		Short:   "Delete a profile",
-		Args:    cobra.ExactArgs(1),
+		Use:               "remove <profile>",
+		Aliases:           []string{"rm", "delete"},
+		ValidArgsFunction: c.completeNames,
+		Short:             "Delete a profile",
+		Args:              cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if _, ok := c.cli.Config.Get(args[0]); !ok {
 				return fmt.Errorf("%w: %q", config.ErrNoProfile, args[0])

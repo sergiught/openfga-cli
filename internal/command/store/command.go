@@ -3,7 +3,9 @@
 package store
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -34,6 +36,27 @@ func New(cli *cli.CLI) *Command {
 
 // Command returns the cobra command.
 func (c *Command) Command() *cobra.Command { return c.cmd }
+
+// completeIDs suggests store IDs (with names) from the API for the first arg.
+func (c *Command) completeIDs(cmd *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+	if len(args) > 0 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	cl, err := c.cli.Client()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Second)
+	defer cancel()
+	var out []string
+	for st, err := range cl.Stores.All(ctx, nil) {
+		if err != nil {
+			break
+		}
+		out = append(out, st.ID+"\t"+st.Name)
+	}
+	return out, cobra.ShellCompDirectiveNoFileComp
+}
 
 // RegisterSubCommands wires the store sub-commands.
 func (c *Command) RegisterSubCommands() {
@@ -139,9 +162,10 @@ func (c *Command) listCmd() *cobra.Command {
 
 func (c *Command) getCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "get <store-id>",
-		Short: "Show details of a store",
-		Args:  cobra.ExactArgs(1),
+		Use:               "get <store-id>",
+		ValidArgsFunction: c.completeIDs,
+		Short:             "Show details of a store",
+		Args:              cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl, err := c.cli.Client()
 			if err != nil {
@@ -172,10 +196,11 @@ func (c *Command) deleteCmd() *cobra.Command {
 		dryRun bool
 	)
 	cmd := &cobra.Command{
-		Use:     "delete <store-id>",
-		Aliases: []string{"rm"},
-		Short:   "Delete a store",
-		Args:    cobra.ExactArgs(1),
+		Use:               "delete <store-id>",
+		Aliases:           []string{"rm"},
+		ValidArgsFunction: c.completeIDs,
+		Short:             "Delete a store",
+		Args:              cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if dryRun {
 				output.Infof(cmd.OutOrStdout(), "would delete store %s", style.Bold.Render(args[0]))
