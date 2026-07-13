@@ -16,6 +16,24 @@ import (
 // profiles). Split out of update.go to keep that file focused on the message
 // dispatch loop.
 func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// "v" toggles the compact, full-width list view for the sections that
+	// support it. It's a no-op everywhere else.
+	if key == "v" {
+		switch m.section {
+		case secTuples, secChanges, secAssertions:
+			m.compact = !m.compact
+			m.populateTuples()
+			m.populateChanges()
+			m.populateAssertions()
+			m.resize()
+			if m.compact {
+				m.status = "compact view"
+			} else {
+				m.status = "detail view"
+			}
+			return m, nil
+		}
+	}
 	switch m.section {
 	case secProfiles:
 		switch key {

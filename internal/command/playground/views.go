@@ -276,6 +276,8 @@ func (m Model) sectionBody() string {
 			body = m.spinner.View() + " loading tuples…"
 		case len(m.tuples) == 0:
 			body = style.Faint.Render(tupleHint(m.storeID))
+		case m.compact:
+			body = m.tuplesList.View()
 		default:
 			w, h := m.contentSize()
 			pt, pb := m.tuplePreview()
@@ -287,6 +289,8 @@ func (m Model) sectionBody() string {
 			body = m.spinner.View() + " loading changes…"
 		case len(m.changes) == 0:
 			body = style.Faint.Render(changeHint(m.storeID))
+		case m.compact:
+			body = m.changesList.View()
 		default:
 			w, h := m.contentSize()
 			pt, pb := m.changePreview()
@@ -710,27 +714,31 @@ func (m Model) assertionsBody() string {
 		return style.Faint.Render("no assertions yet — press a to add one")
 	}
 	w, h := m.contentSize()
-	at, ab := m.assertionPreview()
 	// Key hints live in the status bar like every other panel; here we show only
 	// the pass/fail tally above the list/detail split, and only once a run has
 	// produced one (the list is sized one line shorter to make room — see resize).
-	if !m.assertHasResults() {
-		return masterDetail(m.assertionsList.View(), at, ab, w, h)
-	}
-	pass, fail := 0, 0
-	for _, r := range m.assertResults {
-		if !r.ran {
-			continue
+	var tally string
+	if m.assertHasResults() {
+		pass, fail := 0, 0
+		for _, r := range m.assertResults {
+			if !r.ran {
+				continue
+			}
+			if r.pass {
+				pass++
+			} else {
+				fail++
+			}
 		}
-		if r.pass {
-			pass++
-		} else {
-			fail++
-		}
+		tally = style.Success.Render(style.IconCheck+" "+itoa(pass)) + "   " +
+			style.Failure.Render(style.IconCross+" "+itoa(fail)) + "\n"
+		h--
 	}
-	tally := style.Success.Render(style.IconCheck+" "+itoa(pass)) + "   " +
-		style.Failure.Render(style.IconCross+" "+itoa(fail))
-	return tally + "\n" + masterDetail(m.assertionsList.View(), at, ab, w, h-1)
+	if m.compact {
+		return tally + m.assertionsList.View()
+	}
+	at, ab := m.assertionPreview()
+	return tally + masterDetail(m.assertionsList.View(), at, ab, w, h)
 }
 
 // assertionPreview renders the selected assertion's title and detail card for
@@ -806,15 +814,24 @@ func (m Model) statusKeys() []string {
 	case secModel:
 		return []string{"↑↓/hjkl pan", "e edit DSL", "m switch", "r reload", "esc"}
 	case secTuples:
-		return []string{"↑↓", "/ filter", "a add", "d delete", "r reload", "esc"}
+		return []string{"↑↓", "/ filter", "a add", "d delete", "r reload", m.compactHint(), "esc"}
 	case secChanges:
-		return []string{"↑↓", "/ filter", "r reload", "esc"}
+		return []string{"↑↓", "/ filter", "r reload", m.compactHint(), "esc"}
 	case secQuery:
 		return []string{"i/↵ edit", "tab mode", "1-5 rerun", "r resolve", "esc"}
 	case secAssertions:
-		return []string{"↑↓", "↵ run", "a add", "e edit", "d delete", "t run all", "esc"}
+		return []string{"↑↓", "↵ run", "a add", "e edit", "d delete", "t run all", m.compactHint(), "esc"}
 	}
 	return nil
+}
+
+// compactHint labels the "v" view toggle for the status bar: it offers the
+// mode you would switch to, not the one you are in.
+func (m Model) compactHint() string {
+	if m.compact {
+		return "v detail"
+	}
+	return "v compact"
 }
 
 // sectionStatus is the footer's left-hand message: a count of the current

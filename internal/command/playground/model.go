@@ -340,8 +340,15 @@ func (m *Model) resize() {
 	lw := splitListWidth(w)
 	m.profilesList.SetSize(lw, h)
 	m.storesList.SetSize(lw, h)
-	m.tuplesList.SetSize(lw, h)
-	m.changesList.SetSize(lw, h)
+	// Tuples/Changes/Assertions collapse to a full-width bare list in compact
+	// mode (see m.compact), so they size to the full width instead of the
+	// list/detail split's list width.
+	tw := lw
+	if m.compact {
+		tw = w
+	}
+	m.tuplesList.SetSize(tw, h)
+	m.changesList.SetSize(tw, h)
 	// The assertions panel reserves one line for the pass/fail tally, but only
 	// once a run has produced one. Like the other sections it is a list/detail
 	// split, so the list is sized to the split's list width.
@@ -352,7 +359,7 @@ func (m *Model) resize() {
 	if ah < 1 {
 		ah = 1
 	}
-	m.assertionsList.SetSize(lw, ah)
+	m.assertionsList.SetSize(tw, ah)
 	// Dialog-hosted lists (palette, model switcher) must fit the modal's
 	// interior budget, not the full main pane — otherwise the dialog grows
 	// taller than the terminal and its rounded corners clip off-screen.

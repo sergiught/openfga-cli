@@ -1706,3 +1706,46 @@ func TestPopulateTuplesCompactIsSingleLine(t *testing.T) {
 		t.Fatalf("compact mode: title should combine user and relation, got %q", it.TitleText)
 	}
 }
+
+// TestCompactToggleInTuples verifies "v" flips compact mode on and off while
+// the Tuples panel has focus, re-populating the list and setting a status
+// message each time.
+func TestCompactToggleInTuples(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(key("4")) // secTuples
+	m, _ = m.Update(key("enter"))
+	if m.(Model).compact {
+		t.Fatal("compact should start false")
+	}
+
+	m, _ = m.Update(key("v"))
+	mod := m.(Model)
+	if !mod.compact {
+		t.Fatal("v should enable compact mode")
+	}
+	if mod.status == "" {
+		t.Fatal("v should set a status message")
+	}
+	render(t, m, "tuples compact")
+
+	m, _ = m.Update(key("v"))
+	mod = m.(Model)
+	if mod.compact {
+		t.Fatal("v again should disable compact mode")
+	}
+	if mod.status == "" {
+		t.Fatal("v should set a status message when reverting too")
+	}
+	render(t, m, "tuples detail")
+}
+
+// TestCompactToggleIsNoOpInStores verifies "v" does nothing outside the
+// Tuples/Changes/Assertions sections.
+func TestCompactToggleIsNoOpInStores(t *testing.T) {
+	m := newTestModel() // secStores, sidebar focus
+	m, _ = m.Update(key("enter"))
+	m, _ = m.Update(key("v"))
+	if m.(Model).compact {
+		t.Fatal("v should be a no-op outside Tuples/Changes/Assertions")
+	}
+}
