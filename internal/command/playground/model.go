@@ -27,9 +27,10 @@ import (
 
 const modelTemplate = "model\n  schema 1.1\n\ntype user\n\ntype document\n  relations\n    define owner: [user]\n    define viewer: [user] or owner\n"
 
-// editorSplitMinWidth is the content width at/above which the DSL editor shows
-// a side-by-side highlighted preview; below it, the editor uses the full width.
-const editorSplitMinWidth = 100
+// editorNoWrapWidth is the textarea's internal width. It is set far wider than
+// any DSL line so the widget never soft-wraps, keeping logical line == visual
+// row for our custom editor render.
+const editorNoWrapWidth = 10000
 
 type section int
 
@@ -210,6 +211,7 @@ type Model struct {
 	// DSL model editor
 	editorOpen    bool
 	editor        textarea.Model
+	editorTop     int // first visible logical line, managed by reflowEditorScroll
 	editorErr     string
 	editorDiags   []dsl.Diagnostic
 	lastEditorDSL string // last DSL value diagnostics were computed for
@@ -231,7 +233,9 @@ func newModel(ctx context.Context, cli *cli.CLI, cl *openfga.Client, storeID, mo
 	}
 
 	ta := textarea.New()
-	ta.ShowLineNumbers = true
+	ta.ShowLineNumbers = false // we draw our own gutter
+	ta.MaxWidth = editorNoWrapWidth
+	ta.SetWidth(editorNoWrapWidth)
 
 	m := Model{
 		cli:            cli,
@@ -367,11 +371,7 @@ func (m *Model) resize() {
 		m.graphVP.SetWidth(w)
 		m.graphVP.SetHeight(h)
 	}
-	if w >= editorSplitMinWidth {
-		m.editor.SetWidth(w/2 - 1) // leave the other half for the preview pane
-	} else {
-		m.editor.SetWidth(w)
-	}
+	m.editor.SetWidth(editorNoWrapWidth) // fixed no-wrap width; display width handled by render
 	m.editor.SetHeight(h - 2)
 	// Resolution viewport: a couple of rows below the query header/hint.
 	rh := h - 2

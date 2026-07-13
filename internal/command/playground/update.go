@@ -402,6 +402,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			m.editor, cmd = m.editor.Update(msg)
 			m.refreshEditorDiagnostics()
+			m.reflowEditorScroll()
 			return m, cmd
 		}
 		if m.formKind != formNone {
@@ -595,6 +596,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.editor, cmd = m.editor.Update(msg)
 		m.refreshEditorDiagnostics()
+		m.reflowEditorScroll()
 		return m, cmd
 	}
 
@@ -781,4 +783,24 @@ func (m *Model) refreshEditorDiagnostics() {
 	}
 	m.lastEditorDSL = v
 	m.editorDiags = dsl.Diagnostics(v)
+}
+
+// reflowEditorScroll adjusts editorTop so the cursor's logical line stays
+// within the visible window. We manage vertical scroll ourselves because the
+// textarea's ScrollYOffset is not reliable under our no-wrap config.
+func (m *Model) reflowEditorScroll() {
+	h := m.editor.Height()
+	if h < 1 {
+		h = 1
+	}
+	row := m.editor.Line()
+	switch {
+	case row < m.editorTop:
+		m.editorTop = row
+	case row >= m.editorTop+h:
+		m.editorTop = row - h + 1
+	}
+	if m.editorTop < 0 {
+		m.editorTop = 0
+	}
 }

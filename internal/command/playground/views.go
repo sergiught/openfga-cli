@@ -10,7 +10,6 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/sergiught/openfga-cli/internal/config"
-	"github.com/sergiught/openfga-cli/internal/dsl"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/icons"
@@ -499,50 +498,8 @@ func (m Model) editorBody() string {
 		footer = style.Failure.Render("error: "+m.editorErr) + "  " + help
 	}
 
-	// Split into edit + highlighted preview only when the section is wide enough.
 	w, _ := m.contentSize()
-	if w >= editorSplitMinWidth {
-		editorView := m.editor.View()
-		// Size the preview to whatever width the editor did not consume; account
-		// for the preview panel's border (2) and horizontal padding (2).
-		previewInner := w - lipgloss.Width(editorView) - 4
-		if previewInner < 10 {
-			previewInner = 10
-		}
-		body := lipgloss.JoinHorizontal(lipgloss.Top, editorView, m.editorPreview(previewInner))
-		return body + "\n" + footer
-	}
-
-	return m.editor.View() + "\n" + footer
-}
-
-// editorPreview renders the highlighted DSL windowed to the editor's visible
-// rows, with a caret marking the column of any diagnostic on a visible line.
-// Lines are clipped to innerW columns (ANSI-aware) so they never overflow the
-// preview panel; long lines are truncated rather than wrapped (see spec).
-func (m Model) editorPreview(innerW int) string {
-	lines := strings.Split(dsl.Highlight(m.editor.Value()), "\n")
-
-	diagByLine := make(map[int]dsl.Diagnostic, len(m.editorDiags))
-	for _, d := range m.editorDiags {
-		if _, seen := diagByLine[d.Line]; !seen {
-			diagByLine[d.Line] = d
-		}
-	}
-
-	clip := lipgloss.NewStyle().MaxWidth(innerW)
-	top := m.editor.ScrollYOffset()
-	height := m.editor.Height()
-
-	rows := make([]string, 0, height)
-	for i := top; i < len(lines) && len(rows) < height; i++ {
-		rows = append(rows, clip.Render(lines[i]))
-		if d, ok := diagByLine[i]; ok && len(rows) < height {
-			rows = append(rows, clip.Render(strings.Repeat(" ", d.Col)+style.Failure.Render("^")))
-		}
-	}
-
-	return style.Panel.Width(innerW).Render(strings.Join(rows, "\n"))
+	return m.editorPane(w) + "\n" + footer
 }
 
 func (m Model) queryBody() string {

@@ -5,105 +5,90 @@ import (
 	"testing"
 
 	"charm.land/bubbles/v2/textarea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/sergiught/openfga-cli/internal/dsl"
 	"github.com/sergiught/openfga-cli/internal/ui/shell"
 )
 
-// newEditorTestModel builds a Model with a usable editor and a shell sized so
-// that contentSize() (== shell.MainSize()) is deterministic. A zero-value
-// textarea.Model panics on View/SetWidth (nil viewport), and a nil shell panics
-// in contentSize, so both must be constructed. totalW < ~120 keeps MainSize
-// below editorSplitMinWidth (no split).
-func newEditorTestModel(value string, totalW int) Model {
+// newPaneModel builds a Model whose editor matches production no-wrap config,
+// with a shell sized so contentSize() is deterministic.
+func newPaneModel(value string, totalW int) Model {
 	sh := shell.New()
 	sh.SetSize(totalW, 30)
 	ta := textarea.New()
-	ta.SetValue(value)
-	ta.SetWidth(totalW)
+	ta.ShowLineNumbers = false
+	ta.MaxWidth = editorNoWrapWidth
+	ta.SetWidth(editorNoWrapWidth)
 	ta.SetHeight(10)
+	ta.Focus()
+	ta.SetValue(value)
 	return Model{sh: sh, editor: ta}
 }
 
 func TestEditorBodyShowsFooterOnError(t *testing.T) {
-	m := newEditorTestModel("model\n  schema 1.1\ntype user\n  relations\n    define x [user]\n", 80)
+	m := newPaneModel("model\n  schema 1.1\ntype user\n  relations\n    define x [user]\n", 80)
 	m.editorDiags = dsl.Diagnostics(m.editor.Value())
 	if len(m.editorDiags) == 0 {
-		t.Fatal("precondition: expected a diagnostic for the bad model")
+		t.Fatal("precondition: expected a diagnostic")
 	}
-	out := m.editorBody()
-	if !strings.Contains(out, "error line") {
-		t.Fatalf("expected footer to contain 'error line', got:\n%s", out)
+	if out := m.editorBody(); !strings.Contains(out, "error line") {
+		t.Fatalf("expected footer 'error line', got:\n%s", out)
 	}
 }
 
 func TestEditorBodyFooterShowsMoreCountForMultipleErrors(t *testing.T) {
-	m := newEditorTestModel("model\n  schema 1.1\ntype user\n", 80)
-	m.editorDiags = []dsl.Diagnostic{
-		{Line: 5, Col: 1, Msg: "a"},
-		{Line: 6, Col: 1, Msg: "b"},
-	}
+	m := newPaneModel("model\n", 80)
+	m.editorDiags = []dsl.Diagnostic{{Line: 5, Col: 1, Msg: "a"}, {Line: 6, Col: 1, Msg: "b"}}
 	out := m.editorBody()
 	if !strings.Contains(out, "(+1 more)") {
-		t.Fatalf("expected footer to contain '(+1 more)', got:\n%s", out)
+		t.Fatalf("expected '(+1 more)' in footer, got:\n%s", out)
 	}
-	if !strings.Contains(out, "error line 6") {
-		t.Fatalf("expected footer to show the primary (top-most) error 'error line 6', got:\n%s", out)
-	}
-}
-
-func TestEditorBodyNarrowHasNoPreviewSeparator(t *testing.T) {
-	m := newEditorTestModel("model\n  schema 1.1\ntype user\n", 80) // MainSize < 100 -> no split
-	out := m.editorBody()
-	// The split joins two bordered panes horizontally; narrow mode renders a
-	// single pane, so the first row must not contain two vertical border runs.
-	if strings.Count(firstLine(out), "│") > 1 {
-		t.Fatalf("narrow editor should not render a split preview, got:\n%s", out)
+	if !strings.Contains(out, "error line 6") { // Line 5 shown 1-based
+		t.Fatalf("expected 'error line 6' in footer, got:\n%s", out)
 	}
 }
 
-// splitEditorModel builds a wide model whose editor is sized the way resize()
-// sizes it in split mode (half width), so the preview pane gets realistic room.
-// The test helper sets the editor to the full width, so without this the preview
-// is starved to a few columns and clips its own content.
-func splitEditorModel(t *testing.T, value string) Model {
-	t.Helper()
-	m := newEditorTestModel(value, 160)
-	w, _ := m.contentSize()
-	if w < editorSplitMinWidth {
-		t.Fatalf("precondition: contentSize width %d < %d, split will not trigger", w, editorSplitMinWidth)
+func TestEditorPaneHighlightsAndDrawsCursor(t *testing.T) {
+	// No trailing newline: after SetValue the cursor rests on line 0 at end-of-line.
+	m := newPaneModel("type user", 80)
+	// Move to col 2 on line 0: Home, then Right twice.
+	m.editor, _ = m.editor.Update(tea.KeyPressMsg{Code: tea.KeyHome})
+	m.editor, _ = m.editor.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	m.editor, _ = m.editor.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	if m.editor.Line() != 0 {
+		t.Fatalf("precondition: expected cursor on line 0, got %d", m.editor.Line())
 	}
-	m.editor.SetWidth(w/2 - 1) // mirror resize()'s split-mode sizing
-	return m
-}
-
-func TestEditorBodyWideRendersSplitPreview(t *testing.T) {
-	m := splitEditorModel(t, "model\n  schema 1.1\ntype user\n")
-	out := m.editorBody()
-	// The split adds a rounded-border preview panel; its vertical borders (│)
-	// are absent in narrow mode, where the editor gutter uses ┃ instead. Count
-	// across the whole output (the panel's top row is corners, not verticals).
-	if got := strings.Count(out, "│"); got < 2 {
-		t.Fatalf("wide editor should render a bordered split preview (>=2 │ runs), got %d in:\n%s", got, out)
+	out := m.editorPane(80)
+	if !strings.Contains(out, "\x1b[7m") {
+		t.Fatalf("expected reverse-video cursor block, got:\n%q", out)
+	}
+	if !strings.Contains(out, "\x1b[") {
+		t.Fatalf("expected syntax coloring, got:\n%q", out)
 	}
 }
 
-func TestEditorBodyWideShowsCaretForDiagnostic(t *testing.T) {
-	m := splitEditorModel(t, "model\n  schema 1.1\ntype user\n  relations\n    define x [user]\n")
+func TestEditorPaneErrorMarkerNoRowShift(t *testing.T) {
+	m := newPaneModel("model\n  schema 1.1\ntype user\n  relations\n    define x [user]\n", 80)
 	m.editorDiags = dsl.Diagnostics(m.editor.Value())
 	if len(m.editorDiags) == 0 {
-		t.Fatal("precondition: expected a diagnostic for the bad model")
+		t.Fatal("precondition: expected a diagnostic")
 	}
-	out := m.editorBody()
-	// The preview underlines the offending column with a caret row.
-	if !strings.Contains(out, "^") {
-		t.Fatalf("expected preview to render a '^' caret for the diagnostic, got:\n%s", out)
+	out := m.editorPane(80)
+	// 5 non-empty source lines + 1 trailing empty line = 6 logical lines; the
+	// render must not insert extra rows for the error (no caret row).
+	if got := strings.Count(out, "\n") + 1; got != 6 {
+		t.Fatalf("expected 6 rows (one per logical line, no inserted caret row), got %d:\n%s", got, out)
+	}
+	if !strings.Contains(out, "▸") {
+		t.Fatalf("expected red gutter marker on the error line, got:\n%s", out)
 	}
 }
 
-func firstLine(s string) string {
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return s[:i]
+func TestEditorPaneBlurHidesCursor(t *testing.T) {
+	m := newPaneModel("type user\n", 80)
+	m.editor.Blur()
+	if strings.Contains(m.editorPane(80), "\x1b[7m") {
+		t.Fatal("expected no cursor block when editor is blurred")
 	}
-	return s
 }
