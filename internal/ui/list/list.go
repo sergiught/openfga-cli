@@ -40,12 +40,12 @@ var _ list.DefaultItem = Item{}
 type List struct {
 	Model    list.Model
 	delegate list.DefaultDelegate
+	compact  bool
 }
 
 // New creates a list with the themed delegate.
 func New() *List {
 	d := list.NewDefaultDelegate()
-	d.SetSpacing(1)
 	l := &List{delegate: d}
 	model := list.New(nil, &l.delegate, 0, 0)
 	model.SetShowHelp(false)
@@ -58,6 +58,13 @@ func New() *List {
 
 // Restyle rebuilds the delegate styling from the current theme.
 func (l *List) Restyle() {
+	if l.compact {
+		l.delegate.ShowDescription = false
+		l.delegate.SetSpacing(0)
+	} else {
+		l.delegate.ShowDescription = true
+		l.delegate.SetSpacing(1)
+	}
 	width := l.Model.Width()
 	// Selected rows carry a thick left border (1 col, outside Width in lipgloss
 	// v1), so their content width must be width-1 to keep the rendered row within
@@ -100,6 +107,14 @@ func (l *List) SetItems(items []Item) tea.Cmd {
 func (l *List) SetSize(width, height int) {
 	l.Model.SetWidth(width)
 	l.Model.SetHeight(height)
+	l.Restyle()
+}
+
+// SetCompact toggles single-line rows (title only, no inter-row spacing) and
+// restyles. Callers that want the description folded into the row build a
+// combined single-line title before SetItems; this only controls the delegate.
+func (l *List) SetCompact(b bool) {
+	l.compact = b
 	l.Restyle()
 }
 
