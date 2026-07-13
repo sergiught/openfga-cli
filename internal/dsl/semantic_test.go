@@ -38,3 +38,13 @@ func TestUndefinedTypeEmpty(t *testing.T) {
 		t.Fatalf("expected nil, got %+v", d)
 	}
 }
+
+func TestUndefinedTypeIgnoresConditionBracketExpressions(t *testing.T) {
+	// A CEL list literal inside a condition body uses the same bracket tokens as
+	// a type restriction, but its identifiers are variables, not types.
+	src := "model\n  schema 1.1\ntype user\n  relations\n    define v: [user]\n" +
+		"condition c(x: string, foo: string, bar: string) {\n  x in [foo, bar]\n}\n"
+	if d := UndefinedTypeDiagnostics(src); len(d) != 0 {
+		t.Fatalf("expected no diagnostics (foo/bar are CEL vars, not types), got %+v", d)
+	}
+}

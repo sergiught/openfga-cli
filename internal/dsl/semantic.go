@@ -31,6 +31,7 @@ func UndefinedTypeDiagnostics(dsl string) []Diagnostic {
 
 	prev := 0
 	bracketDepth := 0
+	braceDepth := 0
 
 	for _, tok := range stream.GetAllTokens() {
 		tt := tok.GetTokenType()
@@ -52,8 +53,10 @@ func UndefinedTypeDiagnostics(dsl string) []Diagnostic {
 			}
 		}
 
-		// Track type references: identifier in brackets [...] after LBRACKET or COMMA
-		if bracketDepth > 0 && (prev == parser.OpenFGALexerLBRACKET || prev == parser.OpenFGALexerCOMMA) &&
+		// Track type references: identifier in brackets [...] after LBRACKET or COMMA.
+		// Type restrictions never appear inside {...} (condition bodies), so gate on
+		// braceDepth == 0 to avoid flagging CEL list-literal identifiers as types.
+		if braceDepth == 0 && bracketDepth > 0 && (prev == parser.OpenFGALexerLBRACKET || prev == parser.OpenFGALexerCOMMA) &&
 			(tt == parser.OpenFGALexerIDENTIFIER || tt == parser.OpenFGALexerEXTENDED_IDENTIFIER) {
 			if start >= 0 && start < len(runes) {
 				text := tok.GetText()
@@ -71,6 +74,12 @@ func UndefinedTypeDiagnostics(dsl string) []Diagnostic {
 		case parser.OpenFGALexerRBRACKET, parser.OpenFGALexerRPRACKET:
 			if bracketDepth > 0 {
 				bracketDepth--
+			}
+		case parser.OpenFGALexerLBRACE:
+			braceDepth++
+		case parser.OpenFGALexerRBRACE:
+			if braceDepth > 0 {
+				braceDepth--
 			}
 		}
 
