@@ -120,6 +120,9 @@ func loadSigningKey(path, methodName string) (crypto.PrivateKey, jwt.SigningMeth
 	}
 	method := jwt.GetSigningMethod(methodName)
 	if method == nil {
+		if methodName != "" {
+			return nil, nil, fmt.Errorf("unknown signing method %q (e.g. RS256, ES256, EdDSA)", methodName)
+		}
 		method = jwt.SigningMethodRS256
 	}
 	switch method.(type) {

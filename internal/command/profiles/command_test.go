@@ -1,11 +1,53 @@
 package profiles
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	charmlog "github.com/charmbracelet/log"
+	"github.com/spf13/cobra"
+
+	"github.com/sergiught/openfga-cli/internal/cli"
+	"github.com/sergiught/openfga-cli/internal/config"
 )
+
+// setRunE returns the RunE of the `profiles set` subcommand, wired to a fresh
+// in-memory config (a default profile is active), so validation can be tested
+// without touching disk — the error paths return before SaveConfig.
+func setRunE(t *testing.T) (func(*cobra.Command, []string) error, *cli.CLI) {
+	t.Helper()
+	c := cli.New(charmlog.New(io.Discard), config.New(), "test")
+	group := New(c).Command()
+	for _, sub := range group.Commands() {
+		if sub.Name() == "set" {
+			return sub.RunE, c
+		}
+	}
+	t.Fatal("set subcommand not found")
+	return nil, nil
+}
+
+func TestProfilesSetValidation(t *testing.T) {
+	run, _ := setRunE(t)
+	cmd := &cobra.Command{}
+
+	if err := run(cmd, []string{"auth_method", "bogus"}); err == nil {
+		t.Error("invalid auth_method should be rejected")
+	}
+	if err := run(cmd, []string{"nonsense_key", "x"}); err == nil {
+		t.Error("unknown key should be rejected")
+	}
+	// A secret passed as a literal argument is refused (CFG-7).
+	if err := run(cmd, []string{"token", "sekret"}); err == nil {
+		t.Error("token as a literal argument should be refused")
+	}
+	if err := run(cmd, []string{"client_secret", "sekret"}); err == nil {
+		t.Error("client_secret as a literal argument should be refused")
+	}
+}
 
 func TestReadSecret(t *testing.T) {
 	dir := t.TempDir()
