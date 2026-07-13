@@ -120,6 +120,7 @@ type Model struct {
 
 	section section
 	focus   shell.Focus // FocusSidebar (tab selection) or FocusPanel (right pane)
+	compact bool        // Tuples/Changes/Assertions render as a dense full-width list (session-only)
 	sh      *shell.Shell
 	version string
 
@@ -449,15 +450,31 @@ func (m *Model) populateStores() {
 }
 
 func (m *Model) populateTuples() {
+	userW := 0
+	if m.compact {
+		for _, t := range m.tuples {
+			if w := lipgloss.Width(t.Key.User); w > userW {
+				userW = w
+			}
+		}
+	}
 	items := make([]uilist.Item, len(m.tuples))
 	for i, t := range m.tuples {
+		title := t.Key.User
+		desc := t.Key.Relation + " → " + t.Key.Object
+		if m.compact {
+			pad := strings.Repeat(" ", userW-lipgloss.Width(t.Key.User))
+			title = t.Key.User + pad + "  " + desc
+			desc = ""
+		}
 		items[i] = uilist.Item{
-			TitleText: t.Key.User,
-			DescText:  t.Key.Relation + " → " + t.Key.Object,
+			TitleText: title,
+			DescText:  desc,
 			Filter:    fga.FormatTuple(t.Key),
 			Index:     i,
 		}
 	}
+	m.tuplesList.SetCompact(m.compact)
 	m.tuplesList.SetItems(items)
 }
 
@@ -480,13 +497,21 @@ func (m *Model) populateChanges() {
 		if ch.Operation == "TUPLE_OPERATION_DELETE" {
 			op = "－ delete"
 		}
+		ts := ch.Timestamp.Format("2006-01-02 15:04:05")
+		title := fga.FormatTuple(ch.TupleKey)
+		desc := ts + "  " + op
+		if m.compact {
+			title = ts + "  " + op + "   " + fga.FormatTuple(ch.TupleKey)
+			desc = ""
+		}
 		items[i] = uilist.Item{
-			TitleText: fga.FormatTuple(ch.TupleKey),
-			DescText:  ch.Timestamp.Format("2006-01-02 15:04:05") + "  " + op,
+			TitleText: title,
+			DescText:  desc,
 			Filter:    fga.FormatTuple(ch.TupleKey),
 			Index:     i,
 		}
 	}
+	m.changesList.SetCompact(m.compact)
 	m.changesList.SetItems(items)
 }
 
@@ -507,8 +532,13 @@ func (m *Model) populateAssertions() {
 				desc = style.Failure.Render(style.IconCross+" FAIL") + style.Faint.Render(" · got "+boolWord(r.got))
 			}
 		}
+		if m.compact {
+			title = desc + "  " + title
+			desc = ""
+		}
 		items[i] = uilist.Item{TitleText: title, DescText: desc, Filter: title, Index: i}
 	}
+	m.assertionsList.SetCompact(m.compact)
 	m.assertionsList.SetItems(items)
 }
 

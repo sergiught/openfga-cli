@@ -1680,3 +1680,29 @@ func TestProfilesTabAddAndSwitch(t *testing.T) {
 		t.Fatalf("switching profiles must persist active_profile; got %q", c.Active)
 	}
 }
+
+func TestPopulateTuplesCompactIsSingleLine(t *testing.T) {
+	cl, _ := openfga.NewClient("http://localhost:8080")
+	a := cli.New(log.New(io.Discard), config.New(), "test")
+	m := newModel(context.Background(), a, cl, "store-1", "")
+	m.tuples = []openfga.Tuple{
+		{Key: openfga.TupleKey{User: "user:anne", Relation: "owner", Object: "document:roadmap"}},
+	}
+
+	m.compact = false
+	m.populateTuples()
+	it, _ := m.tuplesList.Selected()
+	if it.DescText == "" {
+		t.Fatal("normal mode: expected a description on the tuple row")
+	}
+
+	m.compact = true
+	m.populateTuples()
+	it, _ = m.tuplesList.Selected()
+	if it.DescText != "" {
+		t.Fatalf("compact mode: expected empty DescText, got %q", it.DescText)
+	}
+	if !strings.Contains(it.TitleText, "user:anne") || !strings.Contains(it.TitleText, "owner") {
+		t.Fatalf("compact mode: title should combine user and relation, got %q", it.TitleText)
+	}
+}
