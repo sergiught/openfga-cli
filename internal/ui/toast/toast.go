@@ -104,10 +104,16 @@ func chip(t entry) string {
 	case Error:
 		ic, c = icons.I().Cross, style.Red
 	}
-	icon := lipgloss.NewStyle().Foreground(c).Background(style.BgRaised).Render(ic)
 	body := lipgloss.NewStyle().
 		Foreground(style.Fg).Background(style.BgRaised).
 		Width(wrapWidth).Render(t.text)
+	// The separator space is part of the icon's styled segment (a bare " "
+	// between the two blocks would carry no background and read as a gap), and
+	// the icon block spans the body's full height so a wrapped error keeps the
+	// raised background down its whole left edge.
+	icon := lipgloss.NewStyle().
+		Foreground(c).Background(style.BgRaised).
+		Height(lipgloss.Height(body)).Render(ic + " ")
 	return lipgloss.NewStyle().Background(style.BgRaised).Padding(0, 1).Render(
-		lipgloss.JoinHorizontal(lipgloss.Top, icon+" ", body))
+		lipgloss.JoinHorizontal(lipgloss.Top, icon, body))
 }
