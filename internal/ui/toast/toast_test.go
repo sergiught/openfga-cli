@@ -22,6 +22,20 @@ func TestToastLifecycle(t *testing.T) {
 	}
 }
 
+func TestErrorToastExpires(t *testing.T) {
+	// Error toasts linger longer than info, but must still auto-expire — a
+	// sticky error toast would clutter the screen forever with no way to dismiss.
+	m := New()
+	cmd := m.Push(Error, "boom")
+	if cmd == nil {
+		t.Fatal("error toast must return an expiry cmd, not be sticky")
+	}
+	m.Update(expireMsg{id: m.nextID})
+	if m.Active() {
+		t.Fatal("error toast should expire")
+	}
+}
+
 func TestToastTextWidthCap(t *testing.T) {
 	m := New()
 	longMsg := "This is a very long error message that would normally overflow and break the layout if not truncated properly with ellipsis at the end to ensure it fits"
