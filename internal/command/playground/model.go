@@ -342,7 +342,8 @@ func (m *Model) resize() {
 	m.tuplesList.SetSize(lw, h)
 	m.changesList.SetSize(lw, h)
 	// The assertions panel reserves one line for the pass/fail tally, but only
-	// once a run has produced one.
+	// once a run has produced one. Like the other sections it is a list/detail
+	// split, so the list is sized to the split's list width.
 	ah := h
 	if m.assertHasResults() {
 		ah = h - 1
@@ -350,7 +351,7 @@ func (m *Model) resize() {
 	if ah < 1 {
 		ah = 1
 	}
-	m.assertionsList.SetSize(w, ah)
+	m.assertionsList.SetSize(lw, ah)
 	// Dialog-hosted lists (palette, model switcher) must fit the modal's
 	// interior budget, not the full main pane — otherwise the dialog grows
 	// taller than the terminal and its rounded corners clip off-screen.

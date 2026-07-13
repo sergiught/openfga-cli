@@ -8,6 +8,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
 
+	"github.com/sergiught/go-openfga/openfga"
+
 	"github.com/sergiught/openfga-cli/internal/dsl"
 	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
 	"github.com/sergiught/openfga-cli/internal/ui/shell"
@@ -169,5 +171,74 @@ func TestEditorBodyPaneShrinksForTallFooter(t *testing.T) {
 	if tall.editorViewportRows() >= shortRows {
 		t.Fatalf("a tall wrapped footer should reduce the editor viewport rows (short=%d tall=%d)",
 			shortRows, tall.editorViewportRows())
+	}
+}
+
+func TestTuplePreviewUsesUsersetAndConditionRows(t *testing.T) {
+	m := newPaneModel("", 100)
+	m.tuples = []openfga.Tuple{{Key: openfga.TupleKey{
+		User: "user:anne", Relation: "viewer", Object: "document:roadmap",
+		Condition: &openfga.RelationshipCondition{Name: "in_hours", Context: map[string]any{"tz": "UTC"}},
+	}}}
+	m.tuplesList = uilist.New()
+	m.tuplesList.SetSize(40, 12)
+	m.populateTuples()
+	m.tuplesList.SelectIndex(0)
+
+	_, card := m.tuplePreview()
+	for _, want := range []string{"document:roadmap#viewer@user:anne", "in_hours", `"tz":"UTC"`} {
+		if !strings.Contains(card, want) {
+			t.Fatalf("tuple preview missing %q, got:\n%s", want, card)
+		}
+	}
+	if strings.Contains(card, "user:anne viewer document:roadmap") {
+		t.Fatalf("tuple preview should not use the space-separated form, got:\n%s", card)
+	}
+}
+
+func TestTuplePreviewOmitsConditionRowsWhenAbsent(t *testing.T) {
+	m := newPaneModel("", 100)
+	m.tuples = []openfga.Tuple{{Key: openfga.TupleKey{User: "user:anne", Relation: "viewer", Object: "document:roadmap"}}}
+	m.tuplesList = uilist.New()
+	m.tuplesList.SetSize(40, 12)
+	m.populateTuples()
+	m.tuplesList.SelectIndex(0)
+
+	if _, card := m.tuplePreview(); strings.Contains(card, "Condition") {
+		t.Fatalf("unconditioned tuple should not render a Condition row, got:\n%s", card)
+	}
+}
+
+func TestAssertionPreviewShowsContextualTuplesAndContext(t *testing.T) {
+	m := newPaneModel("", 120)
+	m.assertions = []openfga.Assertion{{
+		TupleKey:    openfga.CheckRequestTupleKey{User: "user:anne", Relation: "viewer", Object: "document:roadmap"},
+		Expectation: true,
+		ContextualTuples: []openfga.TupleKey{
+			{User: "user:anne", Relation: "member", Object: "org:acme"},
+			{User: "document:roadmap", Relation: "parent", Object: "folder:plans", Condition: &openfga.RelationshipCondition{Name: "in_hours"}},
+		},
+		Context: map[string]any{"hour": float64(9)},
+	}}
+	m.assertionsList = uilist.New()
+	m.assertionsList.SetSize(40, 12)
+	m.populateAssertions()
+	m.assertionsList.SelectIndex(0)
+
+	title, card := m.assertionPreview()
+	if title != "Assertion" {
+		t.Fatalf("want title Assertion, got %q", title)
+	}
+	for _, want := range []string{
+		"document:roadmap#viewer@user:anne", // main tuple as userset
+		"allow",                             // expectation
+		"org:acme#member@user:anne",         // contextual tuple
+		"folder:plans#parent@document:roadmap [in_hours]", // conditioned contextual tuple
+		"Contextual Tuples",
+		`"hour":9`, // context JSON
+	} {
+		if !strings.Contains(card, want) {
+			t.Fatalf("assertion preview missing %q, got:\n%s", want, card)
+		}
 	}
 }

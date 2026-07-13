@@ -456,12 +456,13 @@ func (m Model) tuplePreview() (string, string) {
 		return "", ""
 	}
 	t := m.tuples[it.Index]
-	return "Tuple", keyValueCard([][2]string{
+	rows := [][2]string{
 		{"User", t.Key.User},
 		{"Relation", t.Key.Relation},
 		{"Object", t.Key.Object},
-		{"Tuple", fga.FormatTuple(t.Key)},
-	})
+		{"Tuple", fga.FormatUserset(t.Key.Object, t.Key.Relation, t.Key.User)},
+	}
+	return "Tuple", keyValueCard(append(rows, fga.ConditionRows(t.Key.Condition)...))
 }
 
 // changePreview renders the selected change's title and details for the
@@ -476,11 +477,12 @@ func (m Model) changePreview() (string, string) {
 	if c.Operation == "TUPLE_OPERATION_DELETE" {
 		op = "delete"
 	}
-	return "Change", keyValueCard([][2]string{
+	rows := [][2]string{
 		{"Operation", op},
 		{"Timestamp", c.Timestamp.Format("2006-01-02 15:04:05")},
-		{"Tuple", fga.FormatTuple(c.TupleKey)},
-	})
+		{"Tuple", fga.FormatUserset(c.TupleKey.Object, c.TupleKey.Relation, c.TupleKey.User)},
+	}
+	return "Change", keyValueCard(append(rows, fga.ConditionRows(c.TupleKey.Condition)...))
 }
 
 func (m Model) editorBody() string {
@@ -707,10 +709,13 @@ func (m Model) assertionsBody() string {
 	if len(m.assertions) == 0 {
 		return style.Faint.Render("no assertions yet — press a to add one")
 	}
+	w, h := m.contentSize()
+	at, ab := m.assertionPreview()
 	// Key hints live in the status bar like every other panel; here we show only
-	// the pass/fail tally, and only once a run has produced one.
+	// the pass/fail tally above the list/detail split, and only once a run has
+	// produced one (the list is sized one line shorter to make room — see resize).
 	if !m.assertHasResults() {
-		return m.assertionsList.View()
+		return masterDetail(m.assertionsList.View(), at, ab, w, h)
 	}
 	pass, fail := 0, 0
 	for _, r := range m.assertResults {
@@ -725,7 +730,47 @@ func (m Model) assertionsBody() string {
 	}
 	tally := style.Success.Render(style.IconCheck+" "+itoa(pass)) + "   " +
 		style.Failure.Render(style.IconCross+" "+itoa(fail))
-	return tally + "\n" + m.assertionsList.View()
+	return tally + "\n" + masterDetail(m.assertionsList.View(), at, ab, w, h-1)
+}
+
+// assertionPreview renders the selected assertion's title and detail card for
+// the assertions master-detail split, or ("", "") when nothing is selected. The
+// contextual tuples and context are surfaced here — they appear nowhere else.
+func (m Model) assertionPreview() (string, string) {
+	it, ok := m.assertionsList.Selected()
+	if !ok || it.Index < 0 || it.Index >= len(m.assertions) {
+		return "", ""
+	}
+	a := m.assertions[it.Index]
+	exp := "deny"
+	if a.Expectation {
+		exp = "allow"
+	}
+	rows := [][2]string{
+		{"Tuple", fga.FormatUserset(a.TupleKey.Object, a.TupleKey.Relation, a.TupleKey.User)},
+		{"Expectation", exp},
+	}
+	if it.Index < len(m.assertResults) && m.assertResults[it.Index].ran {
+		r := m.assertResults[it.Index]
+		if r.pass {
+			rows = append(rows, [2]string{"Result", style.Success.Render(style.IconCheck + " PASS")})
+		} else {
+			rows = append(rows, [2]string{"Result", style.Failure.Render(style.IconCross+" FAIL") + style.Faint.Render(" · got "+boolWord(r.got))})
+		}
+	}
+	// Each contextual tuple on its own line; only the first carries the label so
+	// the rest align beneath it.
+	for i, ct := range a.ContextualTuples {
+		label := ""
+		if i == 0 {
+			label = "Contextual Tuples"
+		}
+		rows = append(rows, [2]string{label, fga.FormatContextualTuple(ct)})
+	}
+	if ctx := fga.FormatContextJSON(a.Context); ctx != "" {
+		rows = append(rows, [2]string{"Context", ctx})
+	}
+	return "Assertion", keyValueCard(rows)
 }
 
 // statusKeys returns the right-aligned keycap hints for the current state.

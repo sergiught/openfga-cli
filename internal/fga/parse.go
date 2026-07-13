@@ -90,6 +90,50 @@ func FormatTuple(k openfga.TupleKey) string {
 	return s
 }
 
+// FormatUserset renders a tuple's parts in userset shorthand:
+// "object#relation@user". Taking parts rather than a typed key lets it serve
+// both openfga.TupleKey and openfga.CheckRequestTupleKey (which lack a common
+// interface).
+func FormatUserset(object, relation, user string) string {
+	return fmt.Sprintf("%s#%s@%s", object, relation, user)
+}
+
+// FormatContextualTuple renders a contextual tuple in userset shorthand, with a
+// " [conditionName]" suffix when the tuple carries a condition.
+func FormatContextualTuple(k openfga.TupleKey) string {
+	s := FormatUserset(k.Object, k.Relation, k.User)
+	if k.Condition != nil && k.Condition.Name != "" {
+		s += " [" + k.Condition.Name + "]"
+	}
+	return s
+}
+
+// FormatContextJSON renders a context map as compact JSON, or "" when empty.
+func FormatContextJSON(ctx map[string]any) string {
+	if len(ctx) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(ctx)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// ConditionRows renders a tuple's condition as label/value pairs for detail
+// views: a "Condition" row with the name, and a "Condition Context" row with the
+// context as compact JSON when present. Returns nil for an unconditioned tuple.
+func ConditionRows(c *openfga.RelationshipCondition) [][2]string {
+	if c == nil || c.Name == "" {
+		return nil
+	}
+	rows := [][2]string{{"Condition", c.Name}}
+	if ctx := FormatContextJSON(c.Context); ctx != "" {
+		rows = append(rows, [2]string{"Condition Context", ctx})
+	}
+	return rows
+}
+
 // SplitObject splits "type:id" into its type and id components.
 func SplitObject(object string) (typ, id string) {
 	typ, id, _ = strings.Cut(object, ":")
