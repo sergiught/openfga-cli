@@ -14,7 +14,7 @@ import (
 // to the visible rows starting at m.editorTop, with a line-number gutter (red
 // ▸ marker on diagnostic lines), a reverse-video cursor block when focused,
 // and the diagnostic column styled red. Long lines truncate to display width.
-func (m Model) editorPane(width int) string {
+func (m Model) editorPane(width, height int) string {
 	lines := splitCellLines(dsl.Cells(m.editor.Value()))
 
 	diagByLine := make(map[int]dsl.Diagnostic, len(m.editorDiags))
@@ -39,7 +39,6 @@ func (m Model) editorPane(width int) string {
 	li := m.editor.LineInfo()
 	cursorCol := li.StartColumn + li.ColumnOffset
 
-	height := m.editor.Height()
 	top := m.editorTop
 
 	rows := make([]string, 0, height)

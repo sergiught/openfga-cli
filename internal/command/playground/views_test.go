@@ -6,6 +6,7 @@ import (
 
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
+	lipgloss "charm.land/lipgloss/v2"
 
 	"github.com/sergiught/openfga-cli/internal/dsl"
 	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
@@ -60,7 +61,7 @@ func TestEditorPaneHighlightsAndDrawsCursor(t *testing.T) {
 	if m.editor.Line() != 0 {
 		t.Fatalf("precondition: expected cursor on line 0, got %d", m.editor.Line())
 	}
-	out := m.editorPane(80)
+	out := m.editorPane(80, 10)
 	if !strings.Contains(out, "\x1b[7m") {
 		t.Fatalf("expected reverse-video cursor block, got:\n%q", out)
 	}
@@ -75,7 +76,7 @@ func TestEditorPaneErrorMarkerNoRowShift(t *testing.T) {
 	if len(m.editorDiags) == 0 {
 		t.Fatal("precondition: expected a diagnostic")
 	}
-	out := m.editorPane(80)
+	out := m.editorPane(80, 10)
 	// 5 non-empty source lines + 1 trailing empty line = 6 logical lines; the
 	// render must not insert extra rows for the error (no caret row).
 	if got := strings.Count(out, "\n") + 1; got != 6 {
@@ -89,7 +90,7 @@ func TestEditorPaneErrorMarkerNoRowShift(t *testing.T) {
 func TestEditorPaneBlurHidesCursor(t *testing.T) {
 	m := newPaneModel("type user\n", 80)
 	m.editor.Blur()
-	if strings.Contains(m.editorPane(80), "\x1b[7m") {
+	if strings.Contains(m.editorPane(80, 10), "\x1b[7m") {
 		t.Fatal("expected no cursor block when editor is blurred")
 	}
 }
@@ -135,7 +136,38 @@ func TestResizeReflowsEditorScrollAfterShrink(t *testing.T) {
 	nm, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 9})
 	m = nm.(Model)
 
-	if m.editorTop > last || last >= m.editorTop+m.editor.Height() {
-		t.Fatalf("cursor line %d not in view [%d, %d) after resize", last, m.editorTop, m.editorTop+m.editor.Height())
+	if m.editorTop > last || last >= m.editorTop+m.editorViewportRows() {
+		t.Fatalf("cursor line %d not in view [%d, %d) after resize", last, m.editorTop, m.editorTop+m.editorViewportRows())
+	}
+}
+
+func TestEditorBodyWrapsLongErrorWithinWidth(t *testing.T) {
+	m := newPaneModel("type user\n", 60)
+	m.editorErr = "invalid_authorization_model: the relation viewer in type document " +
+		"references relation ownr which does not exist on any type in the model"
+	w, h := m.contentSize()
+	lines := strings.Split(m.editorBody(), "\n")
+	if len(lines) < 3 {
+		t.Fatalf("expected the long error to wrap across multiple footer lines, got %d:\n%s",
+			len(lines), strings.Join(lines, "\n"))
+	}
+	for i, ln := range lines {
+		if lipgloss.Width(ln) > w {
+			t.Fatalf("line %d exceeds content width %d (shell would truncate it): %q", i, w, ln)
+		}
+	}
+	if len(lines) > h {
+		t.Fatalf("rendered %d rows exceeds main-area height %d (would be clipped)", len(lines), h)
+	}
+}
+
+func TestEditorBodyPaneShrinksForTallFooter(t *testing.T) {
+	short := newPaneModel("type user\n", 60)
+	shortRows := short.editorViewportRows()
+	tall := newPaneModel("type user\n", 60)
+	tall.editorErr = strings.Repeat("very long error message that will certainly wrap. ", 8)
+	if tall.editorViewportRows() >= shortRows {
+		t.Fatalf("a tall wrapped footer should reduce the editor viewport rows (short=%d tall=%d)",
+			shortRows, tall.editorViewportRows())
 	}
 }

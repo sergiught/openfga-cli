@@ -484,22 +484,61 @@ func (m Model) changePreview() (string, string) {
 }
 
 func (m Model) editorBody() string {
-	help := style.Faint.Render("ctrl+s apply · esc cancel")
-
-	footer := help
-	if len(m.editorDiags) > 0 {
-		d := m.editorDiags[0]
-		msg := fmt.Sprintf("error line %d, col %d: %s", d.Line+1, d.Col+1, d.Msg)
-		if len(m.editorDiags) > 1 {
-			msg += fmt.Sprintf("  (+%d more)", len(m.editorDiags)-1)
-		}
-		footer = style.Failure.Render(msg) + "  " + help
-	} else if m.editorErr != "" {
-		footer = style.Failure.Render("error: "+m.editorErr) + "  " + help
+	w, h := m.contentSize()
+	footer := m.cappedFooter(w, h)
+	rows := h - len(footer)
+	if rows < 1 {
+		rows = 1
 	}
+	return m.editorPane(w, rows) + "\n" + strings.Join(footer, "\n")
+}
 
-	w, _ := m.contentSize()
-	return m.editorPane(w) + "\n" + footer
+// editorFooterLines builds the footer: a wrapped error (a live diagnostic, or
+// the apply-time editorErr) followed by the help hint, or just the help hint
+// when there is no error. Wrapping to w keeps each line within the content
+// width so the shell's per-line truncation never clips it.
+func (m Model) editorFooterLines(w int) []string {
+	help := style.Faint.Render("ctrl+s apply · esc cancel")
+	var errMsg string
+	switch {
+	case len(m.editorDiags) > 0:
+		d := m.editorDiags[0]
+		errMsg = fmt.Sprintf("error line %d, col %d: %s", d.Line+1, d.Col+1, d.Msg)
+		if len(m.editorDiags) > 1 {
+			errMsg += fmt.Sprintf("  (+%d more)", len(m.editorDiags)-1)
+		}
+	case m.editorErr != "":
+		errMsg = "error: " + m.editorErr
+	default:
+		return []string{help}
+	}
+	wrapped := style.Failure.Width(w).Render(errMsg)
+	return append(strings.Split(wrapped, "\n"), help)
+}
+
+// cappedFooter returns the footer lines capped so the editor keeps at least a
+// few rows (h-3) even for a very long error.
+func (m Model) cappedFooter(w, h int) []string {
+	lines := m.editorFooterLines(w)
+	maxLines := h - 3
+	if maxLines < 1 {
+		maxLines = 1
+	}
+	if len(lines) > maxLines {
+		lines = lines[:maxLines]
+	}
+	return lines
+}
+
+// editorViewportRows is the number of editor rows rendered: main-area height
+// minus footer height. Single source of truth for the pane render and reflow.
+func (m Model) editorViewportRows() int {
+	w, h := m.contentSize()
+	rows := h - len(m.cappedFooter(w, h))
+	if rows < 1 {
+		rows = 1
+	}
+	return rows
 }
 
 func (m Model) queryBody() string {

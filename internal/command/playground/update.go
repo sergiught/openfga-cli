@@ -795,7 +795,7 @@ func (m *Model) refreshEditorDiagnostics() {
 // within the visible window. We manage vertical scroll ourselves because the
 // textarea's ScrollYOffset is not reliable under our no-wrap config.
 func (m *Model) reflowEditorScroll() {
-	h := m.editor.Height()
+	h := m.editorViewportRows()
 	if h < 1 {
 		h = 1
 	}
