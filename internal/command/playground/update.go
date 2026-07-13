@@ -779,9 +779,11 @@ func plural(n int, noun string) string {
 	return strconv.Itoa(n) + " " + noun + "s"
 }
 
-// refreshEditorDiagnostics re-parses the editor buffer for syntax errors, but
+// refreshEditorDiagnostics re-parses the editor buffer for diagnostics, but
 // only when the buffer actually changed since the last parse (cursor-blink
 // and other no-op updates should not trigger a re-parse).
+// It first checks for syntax errors; if there are none, it runs the semantic
+// check for undefined types. Syntax errors take precedence.
 func (m *Model) refreshEditorDiagnostics() {
 	v := m.editor.Value()
 	if v == m.lastEditorDSL {
@@ -789,6 +791,10 @@ func (m *Model) refreshEditorDiagnostics() {
 	}
 	m.lastEditorDSL = v
 	m.editorDiags = dsl.Diagnostics(v)
+	// Only run semantic checks if syntax is valid (token stream is reliable)
+	if len(m.editorDiags) == 0 {
+		m.editorDiags = dsl.UndefinedTypeDiagnostics(v)
+	}
 }
 
 // reflowEditorScroll adjusts editorTop so the cursor's logical line stays
