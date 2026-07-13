@@ -15,6 +15,7 @@ import (
 
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/cli"
+	"github.com/sergiught/openfga-cli/internal/dsl"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/field"
@@ -203,10 +204,11 @@ type Model struct {
 	helpOpen bool
 
 	// DSL model editor
-	editorOpen bool
-	editor     textarea.Model
-	editorErr  string
-	modelDSL   string // DSL of the currently-loaded model, for edit pre-fill
+	editorOpen  bool
+	editor      textarea.Model
+	editorErr   string
+	editorDiags []dsl.Diagnostic
+	modelDSL    string // DSL of the currently-loaded model, for edit pre-fill
 }
 
 func newModel(ctx context.Context, cli *cli.CLI, cl *openfga.Client, storeID, modelID string) Model {

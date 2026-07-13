@@ -107,6 +107,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			} else {
 				m.editor.SetValue(modelTemplate)
 			}
+			m.refreshEditorDiagnostics()
 			return m, m.editor.Focus()
 		case "m":
 			if m.storeID == "" {

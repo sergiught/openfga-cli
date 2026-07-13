@@ -9,6 +9,7 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/sergiught/openfga-cli/internal/dsl"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/list"
@@ -400,6 +401,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.editorOpen {
 			var cmd tea.Cmd
 			m.editor, cmd = m.editor.Update(msg)
+			m.refreshEditorDiagnostics()
 			return m, cmd
 		}
 		if m.formKind != formNone {
@@ -592,6 +594,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		var cmd tea.Cmd
 		m.editor, cmd = m.editor.Update(msg)
+		m.refreshEditorDiagnostics()
 		return m, cmd
 	}
 
@@ -766,4 +769,10 @@ func plural(n int, noun string) string {
 		return "1 " + noun
 	}
 	return strconv.Itoa(n) + " " + noun + "s"
+}
+
+// refreshEditorDiagnostics re-parses the editor buffer for syntax errors. Cheap
+// enough (models are small) to run on every edit.
+func (m *Model) refreshEditorDiagnostics() {
+	m.editorDiags = dsl.Diagnostics(m.editor.Value())
 }
