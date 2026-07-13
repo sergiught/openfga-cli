@@ -41,13 +41,23 @@ func main() {
 	c := cli.New(logger, cfg, version.Version)
 
 	root := base.New(c)
-	if err := root.Command().ExecuteContext(ctx); err != nil {
+	rootCmd := root.Command()
+	rootCmd.SetContext(ctx)
+	cmd, err := rootCmd.ExecuteC()
+	if err != nil {
 		logger.Debugf("command failed: %+v", err)
 		output.Errorf(root.ErrWriter(), "%s", clierr.Friendly(err))
-		if logger.GetLevel() > log.DebugLevel {
+		code := clierr.Code(err)
+		if !root.RanCommand() {
+			// The error came from flag/arg validation, not the command body: a
+			// bad invocation. Point at usage on stderr and exit CodeUsage so
+			// scripts can tell a mistyped command from a runtime failure.
+			code = clierr.CodeUsage
+			output.Hintf(root.ErrWriter(), "run '%s --help' for usage", cmd.CommandPath())
+		} else if logger.GetLevel() > log.DebugLevel {
 			output.Hintf(root.ErrWriter(), "run with -v for more detail")
 		}
-		os.Exit(clierr.Code(err))
+		os.Exit(code)
 	}
 }
 

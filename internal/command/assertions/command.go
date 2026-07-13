@@ -213,9 +213,17 @@ func (c *Command) testCmd() *cobra.Command {
 			}
 
 			if c.cli.JSON {
-				return output.JSON(cmd.OutOrStdout(), map[string]any{
+				if err := output.JSON(cmd.OutOrStdout(), map[string]any{
 					"model_id": modelID, "passed": passed, "total": len(results), "results": results,
-				})
+				}); err != nil {
+					return err
+				}
+				// Machine mode must still fail the process when assertions
+				// failed, or CI gating on --json silently passes.
+				if passed != len(results) {
+					return clierr.WithCode(clierr.CodeTestFailed, fmt.Errorf("%d assertion(s) failed", len(results)-passed))
+				}
+				return nil
 			}
 			for _, res := range results {
 				mark := style.Success.Render(style.IconCheck)

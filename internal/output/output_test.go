@@ -34,6 +34,28 @@ func TestPlainTableUnchangedAndStyledFramed(t *testing.T) {
 	}
 }
 
+func TestJSONNilSliceSerializesAsEmptyArray(t *testing.T) {
+	var b bytes.Buffer
+	var empty []string // typed nil: would marshal to `null` without coercion
+	if err := JSON(&b, empty); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(b.String()); got != "[]" {
+		t.Fatalf("nil slice should serialize as [], got %q", got)
+	}
+
+	// A non-nil slice is untouched.
+	b.Reset()
+	if err := JSON(&b, []string{"x"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(b.String()); got != `[
+  "x"
+]` {
+		t.Fatalf("non-nil slice should serialize normally, got %q", got)
+	}
+}
+
 func TestErrorfNotSuppressedByQuiet(t *testing.T) {
 	Plain = false
 	Quiet = true

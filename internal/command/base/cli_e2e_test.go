@@ -119,23 +119,30 @@ func TestDidYouMeanAndAliases(t *testing.T) {
 	}
 }
 
-func TestUsageShownOnMisuseButNotRuntime(t *testing.T) {
+func TestUsageErrorVsRuntimeError(t *testing.T) {
 	home := t.TempDir()
 
-	// arg error: usage is printed (cobra writes it to the configured out stream).
+	// Bad invocation (too many args): exit 2 (CodeUsage), diagnostic and hint on
+	// stderr, nothing leaked to stdout for a script capturing it.
 	out, errb, code := runOfga(t, home, "", nil, "query", "check", "a", "b", "c", "d")
-	if code == 0 || !strings.Contains(out+errb, "Usage:") {
-		t.Errorf("arg error should show usage: code=%d out=%q err=%q", code, out, errb)
+	if code != 2 {
+		t.Errorf("arg error should exit 2 (CodeUsage), got %d (err=%q)", code, errb)
+	}
+	if out != "" {
+		t.Errorf("usage error should not write to stdout, got %q", out)
+	}
+	if !strings.Contains(errb, "--help") {
+		t.Errorf("usage error should hint at --help on stderr, got %q", errb)
 	}
 
-	// runtime (network) error: no usage dump, friendly message, exit 4.
+	// runtime (network) error: no usage hint, friendly message, exit 4.
 	env := []string{"OPENFGA_API_URL=http://127.0.0.1:0", "OPENFGA_STORE_ID=01ARZ3NDEKTSV4RRFFQ69G5FAV"}
 	out, errb, code = runOfga(t, home, "", env, "stores", "list")
 	if code != 4 {
 		t.Errorf("network error should exit 4, got %d (err=%q)", code, errb)
 	}
-	if strings.Contains(out+errb, "Usage:") {
-		t.Errorf("runtime error should not dump usage:\nout=%s\nerr=%s", out, errb)
+	if strings.Contains(out+errb, "--help for usage") {
+		t.Errorf("runtime error should not print a usage hint:\nout=%s\nerr=%s", out, errb)
 	}
 	if !strings.Contains(errb, "cannot reach") {
 		t.Errorf("network error should be humanized:\n%s", errb)

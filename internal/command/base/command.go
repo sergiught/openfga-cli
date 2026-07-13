@@ -32,6 +32,11 @@ type Command struct {
 	cmd  *cobra.Command
 	outW *colorprofile.Writer
 	errW *colorprofile.Writer
+	// ranCommand records whether execution got past flag/arg validation into
+	// PersistentPreRunE. When it is false after an error, the failure was a bad
+	// invocation (unknown flag/command, wrong arg count) rather than a runtime
+	// error, so main can exit with CodeUsage.
+	ranCommand bool
 }
 
 // New constructs the root command and wires persistent flags + sub-commands.
@@ -56,10 +61,12 @@ ofga model graph
 
 # Send a raw API request using the active profile's auth
 ofga api GET /stores`,
-		// SilenceUsage starts false so cobra prints usage for flag/arg errors
-		// (which occur before PersistentPreRunE); PersistentPreRunE then flips it
-		// on so a later runtime/API error doesn't dump usage. SilenceErrors is on
-		// because main formats and prints the error itself.
+		// Silence cobra's own usage dump and error line: it resolves usage to
+		// stdout (SetOut below), leaking a 50-line help block into scripts that
+		// capture stdout on failure. main prints the error to stderr instead, and
+		// adds a concise "run --help" hint on bad invocations (clig.dev:
+		// diagnostics on stderr).
+		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       cli.Version,
 		// No Args validator: cobra's default lets a bare `ofga` launch the TUI
@@ -81,9 +88,9 @@ ofga api GET /stores`,
 		},
 		// Resolve color + theme + output mode before any command renders.
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			// Past flag/arg validation now: silence usage so a runtime error
-			// (network, API, etc.) prints just the message, not the whole usage.
-			cmd.SilenceUsage = true
+			// Reaching here means flag/arg validation passed, so any later error
+			// is a runtime failure rather than a bad invocation.
+			c.ranCommand = true
 			c.applyEnvironment()
 			return nil
 		},
@@ -180,6 +187,11 @@ func (c *Command) Command() *cobra.Command { return c.cmd }
 // outside cobra's own output path (e.g. main's final error print) can reuse
 // the same NO_COLOR/pipe-aware downsampling.
 func (c *Command) ErrWriter() *colorprofile.Writer { return c.errW }
+
+// RanCommand reports whether execution reached PersistentPreRunE, i.e. flag and
+// argument validation passed. When it is false after Execute returns an error,
+// the failure was a bad invocation and main exits with CodeUsage.
+func (c *Command) RanCommand() bool { return c.ranCommand }
 
 // versionCmd prints the full build info (version, commit, date).
 func versionCmd() *cobra.Command {

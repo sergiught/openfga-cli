@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 
 	lipgloss "charm.land/lipgloss/v2"
@@ -25,8 +26,14 @@ var (
 	Interactive bool
 )
 
-// JSON writes v as indented JSON to w.
+// JSON writes v as indented JSON to w. A typed nil slice (e.g. `var x []T` with
+// zero rows) marshals to `null`, which breaks scripts doing `… --json | jq '.[]'`
+// or length checks on empty result sets, so it is coerced to an empty slice and
+// serialized as [].
 func JSON(w io.Writer, v any) error {
+	if rv := reflect.ValueOf(v); rv.Kind() == reflect.Slice && rv.IsNil() {
+		v = reflect.MakeSlice(rv.Type(), 0, 0).Interface()
+	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	enc.SetEscapeHTML(false)
