@@ -529,7 +529,8 @@ func (m *Model) populateAssertions() {
 		if !a.Expectation {
 			exp = "expect deny"
 		}
-		title := a.TupleKey.User + " " + a.TupleKey.Relation + " " + a.TupleKey.Object
+		filter := a.TupleKey.User + " " + a.TupleKey.Relation + " " + a.TupleKey.Object
+		title := filter
 		desc := exp
 		if i < len(m.assertResults) && m.assertResults[i].ran {
 			r := m.assertResults[i]
@@ -543,7 +544,7 @@ func (m *Model) populateAssertions() {
 			title = desc + "  " + title
 			desc = ""
 		}
-		items[i] = uilist.Item{TitleText: title, DescText: desc, Filter: title, Index: i}
+		items[i] = uilist.Item{TitleText: title, DescText: desc, Filter: filter, Index: i}
 	}
 	m.assertionsList.SetCompact(m.compact)
 	m.assertionsList.SetItems(items)

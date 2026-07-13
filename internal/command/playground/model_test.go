@@ -1707,6 +1707,32 @@ func TestPopulateTuplesCompactIsSingleLine(t *testing.T) {
 	}
 }
 
+// TestPopulateAssertionsCompactFilterIsClean guards that compact mode keeps the
+// assertion's fuzzy-filter value free of the styled PASS/FAIL badge (which
+// carries ANSI escapes) that compact folds into the visible title.
+func TestPopulateAssertionsCompactFilterIsClean(t *testing.T) {
+	cl, _ := openfga.NewClient("http://localhost:8080")
+	a := cli.New(log.New(io.Discard), config.New(), "test")
+	m := newModel(context.Background(), a, cl, "store-1", "")
+	m.assertions = []openfga.Assertion{
+		{TupleKey: openfga.CheckRequestTupleKey{User: "user:anne", Relation: "owner", Object: "document:roadmap"}, Expectation: true},
+	}
+	m.assertResults = []assertResult{{ran: true, pass: true}}
+
+	m.compact = true
+	m.populateAssertions()
+	it, _ := m.assertionsList.Selected()
+	if !strings.Contains(it.TitleText, "PASS") {
+		t.Fatalf("precondition: compact title should carry the PASS badge, got %q", it.TitleText)
+	}
+	if strings.Contains(it.Filter, "PASS") || strings.Contains(it.Filter, "\x1b") {
+		t.Fatalf("compact filter must stay clean of badge/ANSI, got %q", it.Filter)
+	}
+	if it.Filter != "user:anne owner document:roadmap" {
+		t.Fatalf("compact filter should be the plain tuple, got %q", it.Filter)
+	}
+}
+
 // TestCompactToggleInTuples verifies "v" flips compact mode on and off while
 // the Tuples panel has focus, re-populating the list and setting a status
 // message each time.
