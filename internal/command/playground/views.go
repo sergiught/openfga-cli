@@ -486,10 +486,7 @@ func (m Model) changePreview() (string, string) {
 func (m Model) editorBody() string {
 	w, h := m.contentSize()
 	footer := m.cappedFooter(w, h)
-	rows := h - len(footer)
-	if rows < 1 {
-		rows = 1
-	}
+	rows := m.editorViewportRows()
 	return m.editorPane(w, rows) + "\n" + strings.Join(footer, "\n")
 }
 
