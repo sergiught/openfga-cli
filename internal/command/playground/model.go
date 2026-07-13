@@ -208,11 +208,12 @@ type Model struct {
 	helpOpen bool
 
 	// DSL model editor
-	editorOpen  bool
-	editor      textarea.Model
-	editorErr   string
-	editorDiags []dsl.Diagnostic
-	modelDSL    string // DSL of the currently-loaded model, for edit pre-fill
+	editorOpen    bool
+	editor        textarea.Model
+	editorErr     string
+	editorDiags   []dsl.Diagnostic
+	lastEditorDSL string // last DSL value diagnostics were computed for
+	modelDSL      string // DSL of the currently-loaded model, for edit pre-fill
 }
 
 func newModel(ctx context.Context, cli *cli.CLI, cl *openfga.Client, storeID, modelID string) Model {

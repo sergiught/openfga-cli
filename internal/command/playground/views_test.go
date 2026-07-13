@@ -37,6 +37,21 @@ func TestEditorBodyShowsFooterOnError(t *testing.T) {
 	}
 }
 
+func TestEditorBodyFooterShowsMoreCountForMultipleErrors(t *testing.T) {
+	m := newEditorTestModel("model\n  schema 1.1\ntype user\n", 80)
+	m.editorDiags = []dsl.Diagnostic{
+		{Line: 5, Col: 1, Msg: "a"},
+		{Line: 6, Col: 1, Msg: "b"},
+	}
+	out := m.editorBody()
+	if !strings.Contains(out, "(+1 more)") {
+		t.Fatalf("expected footer to contain '(+1 more)', got:\n%s", out)
+	}
+	if !strings.Contains(out, "error line 6") {
+		t.Fatalf("expected footer to show the primary (top-most) error 'error line 6', got:\n%s", out)
+	}
+}
+
 func TestEditorBodyNarrowHasNoPreviewSeparator(t *testing.T) {
 	m := newEditorTestModel("model\n  schema 1.1\ntype user\n", 80) // MainSize < 100 -> no split
 	out := m.editorBody()

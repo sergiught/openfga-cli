@@ -771,8 +771,14 @@ func plural(n int, noun string) string {
 	return strconv.Itoa(n) + " " + noun + "s"
 }
 
-// refreshEditorDiagnostics re-parses the editor buffer for syntax errors. Cheap
-// enough (models are small) to run on every edit.
+// refreshEditorDiagnostics re-parses the editor buffer for syntax errors, but
+// only when the buffer actually changed since the last parse (cursor-blink
+// and other no-op updates should not trigger a re-parse).
 func (m *Model) refreshEditorDiagnostics() {
-	m.editorDiags = dsl.Diagnostics(m.editor.Value())
+	v := m.editor.Value()
+	if v == m.lastEditorDSL {
+		return
+	}
+	m.lastEditorDSL = v
+	m.editorDiags = dsl.Diagnostics(v)
 }
