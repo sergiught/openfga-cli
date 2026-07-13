@@ -27,6 +27,10 @@ import (
 
 const modelTemplate = "model\n  schema 1.1\n\ntype user\n\ntype document\n  relations\n    define owner: [user]\n    define viewer: [user] or owner\n"
 
+// editorSplitMinWidth is the content width at/above which the DSL editor shows
+// a side-by-side highlighted preview; below it, the editor uses the full width.
+const editorSplitMinWidth = 100
+
 type section int
 
 const (
@@ -362,7 +366,11 @@ func (m *Model) resize() {
 		m.graphVP.SetWidth(w)
 		m.graphVP.SetHeight(h)
 	}
-	m.editor.SetWidth(w)
+	if w >= editorSplitMinWidth {
+		m.editor.SetWidth(w/2 - 1) // leave the other half for the preview pane
+	} else {
+		m.editor.SetWidth(w)
+	}
 	m.editor.SetHeight(h - 2)
 	// Resolution viewport: a couple of rows below the query header/hint.
 	rh := h - 2
