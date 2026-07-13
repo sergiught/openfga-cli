@@ -50,17 +50,12 @@ func (c *Command) RegisterSubCommands() {
 
 // parseContext parses a JSON object string into a map, or nil if empty.
 func parseContext(s string) (map[string]any, error) {
-	if strings.TrimSpace(s) == "" {
-		return nil, nil
-	}
-	var m map[string]any
-	if err := json.Unmarshal([]byte(s), &m); err != nil {
-		return nil, fmt.Errorf("--context must be a JSON object: %w", err)
-	}
-	return m, nil
+	return fga.ParseJSONObject("--context", s)
 }
 
-// parseContextualTuples parses repeated "user,relation,object" values.
+// parseContextualTuples parses repeated "user,relation,object" values. Each
+// triple is validated through fga.ParseTuple, the same check the TUI applies,
+// so malformed contextual tuples are rejected consistently.
 func parseContextualTuples(vals []string) (*openfga.ContextualTupleKeys, error) {
 	if len(vals) == 0 {
 		return nil, nil
@@ -71,11 +66,11 @@ func parseContextualTuples(vals []string) (*openfga.ContextualTupleKeys, error) 
 		if len(parts) != 3 {
 			return nil, fmt.Errorf("contextual tuple %q must be user,relation,object", v)
 		}
-		keys = append(keys, openfga.TupleKey{
-			User:     strings.TrimSpace(parts[0]),
-			Relation: strings.TrimSpace(parts[1]),
-			Object:   strings.TrimSpace(parts[2]),
-		})
+		key, err := fga.ParseTuple(parts[0], parts[1], parts[2])
+		if err != nil {
+			return nil, err
+		}
+		keys = append(keys, key)
 	}
 	return &openfga.ContextualTupleKeys{TupleKeys: keys}, nil
 }

@@ -2,6 +2,43 @@ package fga
 
 import "testing"
 
+func TestTriple(t *testing.T) {
+	tests := []struct {
+		name                       string
+		args                       []string
+		uFlag, rFlag, oFlag        string
+		wantUser, wantRel, wantObj string
+		wantErr                    bool
+	}{
+		{name: "three positionals", args: []string{"user:anne", "viewer", "document:roadmap"},
+			wantUser: "user:anne", wantRel: "viewer", wantObj: "document:roadmap"},
+		{name: "all flags, no positionals", uFlag: "user:anne", rFlag: "viewer", oFlag: "document:roadmap",
+			wantUser: "user:anne", wantRel: "viewer", wantObj: "document:roadmap"},
+		// The point of CLI-3: --user set, remaining positionals fill relation+object
+		// left to right instead of shifting by index.
+		{name: "user flag then two positionals", args: []string{"viewer", "document:roadmap"}, uFlag: "user:anne",
+			wantUser: "user:anne", wantRel: "viewer", wantObj: "document:roadmap"},
+		{name: "object flag then two positionals", args: []string{"user:anne", "viewer"}, oFlag: "document:roadmap",
+			wantUser: "user:anne", wantRel: "viewer", wantObj: "document:roadmap"},
+		{name: "missing part", args: []string{"user:anne", "viewer"}, wantErr: true},
+		{name: "too many: three positionals plus a flag", args: []string{"user:anne", "viewer", "document:roadmap"}, uFlag: "user:bob", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			u, r, o, err := Triple(tt.args, tt.uFlag, tt.rFlag, tt.oFlag)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Triple err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				return
+			}
+			if u != tt.wantUser || r != tt.wantRel || o != tt.wantObj {
+				t.Errorf("Triple = (%q,%q,%q), want (%q,%q,%q)", u, r, o, tt.wantUser, tt.wantRel, tt.wantObj)
+			}
+		})
+	}
+}
+
 func TestParseTuple(t *testing.T) {
 	tests := []struct {
 		name                   string

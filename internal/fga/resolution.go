@@ -1,6 +1,9 @@
 package fga
 
-import "slices"
+import (
+	"slices"
+	"strings"
+)
 
 // This file turns an OpenFGA Expand response — the userset tree that grants a
 // relation — into a structured ResNode tree the playground can render. The
@@ -221,20 +224,7 @@ func leafGrants(n *ResNode, user string, r GrantResolver) bool {
 }
 
 func splitUserset(s string) (object, relation string, ok bool) {
-	i := indexRune(s, '#')
-	if i < 0 {
-		return "", "", false
-	}
-	return s[:i], s[i+1:], true
-}
-
-func indexRune(s string, r rune) int {
-	for i, c := range s {
-		if c == r {
-			return i
-		}
-	}
-	return -1
+	return strings.Cut(s, "#")
 }
 
 // ParseResolution builds a ResNode tree from an Expand response's untyped tree

@@ -3,12 +3,27 @@
 package fga
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/sergiught/go-openfga/openfga"
 )
+
+// ParseJSONObject parses s as a JSON object into a map, returning nil for empty
+// input. label names the field in the error message (e.g. "--context" or
+// "context") so both the CLI and TUI can share one implementation.
+func ParseJSONObject(label, s string) (map[string]any, error) {
+	if strings.TrimSpace(s) == "" {
+		return nil, nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(s), &m); err != nil {
+		return nil, fmt.Errorf("%s must be a JSON object: %w", label, err)
+	}
+	return m, nil
+}
 
 // ParseTuple parses the canonical "user relation object" triple from three
 // separate arguments and returns a TupleKey. Each part is validated lightly:
@@ -37,27 +52,35 @@ func ParseTuple(user, relation, object string) (openfga.TupleKey, error) {
 	return openfga.TupleKey{User: user, Relation: relation, Object: object}, nil
 }
 
-// FormatTuple renders a tuple key as "user relation object" with optional
-// condition suffix.
 // Triple resolves a user/relation/object triple from positional args and the
-// --user/--relation/--object flags (a set flag wins over the positional at that
-// index). It errors if any part is missing.
+// --user/--relation/--object flags. Flags set the fields they name; the
+// remaining positionals then fill the still-unset fields left to right. This
+// means `--user user:anne viewer document:roadmap` reads the two positionals as
+// relation and object (rather than shifting them by index). Extra positionals
+// that can't fill an unset field are an error, so a flag and a positional never
+// silently fight over the same field. It errors if any part is missing.
 func Triple(args []string, userFlag, relationFlag, objectFlag string) (user, relation, object string, err error) {
-	pick := func(flag string, i int) string {
-		if flag != "" {
-			return flag
+	user, relation, object = userFlag, relationFlag, objectFlag
+	rest := args
+	fill := func(field *string) {
+		if *field == "" && len(rest) > 0 {
+			*field, rest = rest[0], rest[1:]
 		}
-		if i < len(args) {
-			return args[i]
-		}
-		return ""
 	}
-	user, relation, object = pick(userFlag, 0), pick(relationFlag, 1), pick(objectFlag, 2)
+	fill(&user)
+	fill(&relation)
+	fill(&object)
+	if len(rest) > 0 {
+		return "", "", "", fmt.Errorf("too many arguments: %v — <user>/<relation>/<object> already set via flags and positionals", rest)
+	}
 	if user == "" || relation == "" || object == "" {
 		return "", "", "", errors.New("provide <user> <relation> <object> (as arguments or via --user/--relation/--object)")
 	}
 	return user, relation, object, nil
 }
+
+// FormatTuple renders a tuple key as "user relation object" with an optional
+// condition suffix.
 
 func FormatTuple(k openfga.TupleKey) string {
 	s := fmt.Sprintf("%s %s %s", k.User, k.Relation, k.Object)
@@ -69,8 +92,6 @@ func FormatTuple(k openfga.TupleKey) string {
 
 // SplitObject splits "type:id" into its type and id components.
 func SplitObject(object string) (typ, id string) {
-	if i := strings.Index(object, ":"); i >= 0 {
-		return object[:i], object[i+1:]
-	}
-	return object, ""
+	typ, id, _ = strings.Cut(object, ":")
+	return typ, id
 }

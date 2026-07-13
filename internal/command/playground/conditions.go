@@ -16,15 +16,7 @@ import (
 // parseContextJSON parses a JSON object of condition parameters (the request
 // `context`). Empty input yields nil.
 func parseContextJSON(s string) (map[string]any, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return nil, nil
-	}
-	var m map[string]any
-	if err := json.Unmarshal([]byte(s), &m); err != nil {
-		return nil, fmt.Errorf("context must be a JSON object: %w", err)
-	}
-	return m, nil
+	return fga.ParseJSONObject("context", s)
 }
 
 // parseContextualTuples parses `;`-separated `user relation object` tuples into
