@@ -171,6 +171,44 @@ func TestFocusSidebarMovesTabsPanelDoesNot(t *testing.T) {
 	}
 }
 
+// TestVimKeysMoveSidebarTabs verifies j/k (and h/l) move the highlighted tab in
+// sidebar focus, like ↑↓ (TUI-8).
+func TestVimKeysMoveSidebarTabs(t *testing.T) {
+	m := newTestModel() // secStores, sidebar focus
+	m, _ = m.Update(key("j"))
+	if m.(Model).section != secModel {
+		t.Fatal("j in sidebar focus should move to the next tab")
+	}
+	m, _ = m.Update(key("k"))
+	if m.(Model).section != secStores {
+		t.Fatal("k in sidebar focus should move to the previous tab")
+	}
+	m, _ = m.Update(key("l"))
+	if m.(Model).section != secModel {
+		t.Fatal("l in sidebar focus should move to the next tab")
+	}
+	m, _ = m.Update(key("h"))
+	if m.(Model).section != secStores {
+		t.Fatal("h in sidebar focus should move to the previous tab")
+	}
+}
+
+// TestSidebarCTADescendsAndActs verifies an empty-state call-to-action key
+// pressed from sidebar focus descends into the panel and performs the action,
+// instead of being a silent no-op (TUI-1). On the Stores tab, "n" opens the
+// create-store form.
+func TestSidebarCTADescendsAndActs(t *testing.T) {
+	m := newTestModel() // secStores, sidebar focus
+	m, _ = m.Update(key("n"))
+	mod := m.(Model)
+	if mod.focus != shell.FocusPanel {
+		t.Fatal("a CTA key from the sidebar should descend into the panel")
+	}
+	if mod.formKind != formCreateStore {
+		t.Fatalf("n on Stores should open the create-store form, got formKind %v", mod.formKind)
+	}
+}
+
 // TestEscFromQueryEditReturnsToSidebar verifies a single esc leaves the query
 // panel entirely: it stops editing and hands focus back to the tab selection in
 // one press, rather than parking in a non-editing panel layer.
@@ -353,7 +391,7 @@ func TestAssertionDeleteWrites(t *testing.T) {
 	if m.(Model).confirm == nil {
 		t.Fatal("d should open the delete-confirmation modal")
 	}
-	_, cmd := m.Update(key("enter")) // confirm: triggers the write
+	_, cmd := m.Update(key("y")) // explicit y confirms: triggers the write
 	if cmd == nil {
 		t.Fatal("confirming should trigger a write with the assertion removed")
 	}
@@ -1463,9 +1501,16 @@ func TestStoreDeleteConfirmFlow(t *testing.T) {
 	if m.(Model).confirm != nil {
 		t.Fatal("esc should cancel the confirmation")
 	}
-	// d then enter confirms and issues the delete.
+	// enter must NOT confirm a destructive delete (a reflexive Enter should be
+	// safe); it cancels like the CLI's [y/N] default.
 	m, _ = m.Update(key("d"))
-	m, cmd := m.Update(key("enter"))
+	m, _ = m.Update(key("enter"))
+	if m.(Model).confirm != nil {
+		t.Fatal("enter should cancel the delete confirmation, not confirm it")
+	}
+	// d then explicit y confirms and issues the delete.
+	m, _ = m.Update(key("d"))
+	m, cmd := m.Update(key("y"))
 	if m.(Model).confirm != nil {
 		t.Fatal("confirming should close the modal")
 	}

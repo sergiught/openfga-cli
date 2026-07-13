@@ -1,6 +1,7 @@
 package playground
 
 import (
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +18,16 @@ import (
 	"github.com/sergiught/openfga-cli/internal/ui/toast"
 )
 
+// reducedMotion reports whether ambient animation (the gradient drift) should be
+// suppressed: an explicit opt-out, or an environment that makes constant
+// repaints costly or ugly (dumb terminal, NO_COLOR). This lets users on SSH or
+// battery stop the perpetual repaint the drift would otherwise cause.
+func reducedMotion() bool {
+	return os.Getenv("OFGA_REDUCED_MOTION") != "" ||
+		os.Getenv("NO_COLOR") != "" ||
+		os.Getenv("TERM") == "dumb"
+}
+
 type pendingAction struct{ runAssertions bool }
 
 var pending pendingAction
@@ -32,9 +43,9 @@ func entranceTick() tea.Cmd {
 }
 
 // driftTickMsg advances the ambient gradient drift on the wordmark and the
-// active nav pill. Unlike every other timer in this package it re-arms
-// forever: the drift is ambience by design (documented spec exception). It
-// is never started on the mono rung.
+// active nav pill. It re-arms continuously (the drift is ambience by design) on
+// capable, motion-friendly terminals; it never starts on the mono rung and
+// stops when reducedMotion() is set, so SSH/battery users can opt out.
 type driftTickMsg struct{}
 
 func driftTick() tea.Cmd {
@@ -134,6 +145,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case modelLoadedMsg:
+		m.loading = false
 		if msg.err != nil {
 			cmd := m.toastErr("model", msg.err)
 			if !m.connLost {
@@ -168,6 +180,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.toasts.Push(toast.Success, m.status), loadModelCmd(m.ctx, m.client, m.storeID))
 
 	case modelsListedMsg:
+		m.loading = false
 		if msg.err != nil {
 			return m, m.toastErr("models", msg.err)
 		}
@@ -182,6 +195,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.connLost = false
 		m.tuples = msg.tuples
+		m.tuplesCapped = msg.capped
 		m.populateTuples()
 		return m, nil
 
@@ -192,6 +206,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.connLost = false
 		m.changes = msg.changes
+		m.changesCapped = msg.capped
 		m.populateChanges()
 		m.status = plural(len(msg.changes), "change")
 		return m, nil
@@ -366,6 +381,9 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.drift += 0.02
 		if m.drift >= 1 {
 			m.drift -= 1
+		}
+		if reducedMotion() {
+			return m, nil
 		}
 		return m, driftTick()
 
@@ -607,11 +625,13 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// destructive action (store, tuple, assertion, profile) routes through here.
 	if m.confirm != nil {
 		switch msg.String() {
-		case "enter", "y":
+		case "y":
 			run := m.confirm.run
 			m.confirm = nil
 			return m, run(&m)
-		case "esc", "n":
+		case "esc", "n", "enter":
+			// Enter cancels (matching the CLI's [y/N] default) so a reflexive
+			// Enter can't permanently delete a store and all its data.
 			m.confirm = nil
 		}
 		return m, nil
@@ -639,6 +659,25 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.editorOpen {
 		switch msg.String() {
 		case "esc":
+			// Guard against discarding unsaved DSL edits on a stray Esc: confirm
+			// first when the buffer differs from what was loaded.
+			baseline := m.modelDSL
+			if baseline == "" {
+				baseline = modelTemplate
+			}
+			if m.editor.Value() != baseline {
+				m.confirm = &confirmAction{
+					action:  "Discard model edits",
+					subject: "unsaved changes to the model DSL",
+					run: func(m *Model) tea.Cmd {
+						m.editorOpen = false
+						m.editorErr = ""
+						m.editor.Blur()
+						return nil
+					},
+				}
+				return m, nil
+			}
 			m.editorOpen = false
 			m.editorErr = ""
 			m.editor.Blur()
@@ -710,9 +749,9 @@ func (m Model) handleSidebarKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "q":
 		return m, tea.Quit
-	case "down", "tab", "right":
+	case "down", "tab", "right", "j", "l":
 		return m.gotoSection((m.section + 1) % n)
-	case "up", "shift+tab", "left":
+	case "up", "shift+tab", "left", "k", "h":
 		return m.gotoSection((m.section + n - 1) % n)
 	case "1", "2", "3", "4", "5", "6", "7":
 		return m.gotoSection(section(key[0] - '1'))
@@ -721,6 +760,18 @@ func (m Model) handleSidebarKey(key string) (tea.Model, tea.Cmd) {
 		m.fading = true
 		nm, cmd := m.onEnterSection()
 		return nm, tea.Batch(cmd, fadeTick())
+	case "n", "a", "e", "d":
+		// Empty-state call-to-action keys ("press n to create one") are panel
+		// actions. Descend into the panel and replay the key so a new user's very
+		// first keystroke works, instead of being a silent no-op on the sidebar.
+		m.focus = shell.FocusPanel
+		nm, cmd := m.onEnterSection()
+		mm, ok := nm.(Model)
+		if !ok {
+			return nm, cmd
+		}
+		m2, cmd2 := mm.handleSectionKey(key, keyMsg(key))
+		return m2, tea.Batch(cmd, cmd2)
 	}
 	return m, nil
 }
@@ -904,9 +955,11 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 				return m, nil
 			}
 			m.modelPicking = true
+			m.loading = true
 			return m, loadModelsCmd(m.ctx, m.client, m.storeID)
 		case "r":
 			if m.storeID != "" {
+				m.loading = true
 				return m, loadModelCmd(m.ctx, m.client, m.storeID)
 			}
 		case "up", "k", "shift+up":

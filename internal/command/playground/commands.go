@@ -13,6 +13,13 @@ import (
 	"github.com/sergiught/openfga-cli/internal/fga"
 )
 
+// Display caps: the playground loads at most this many rows for the tuples and
+// changes panes. A note is shown when the cap hides further rows.
+const (
+	tuplesDisplayCap  = 500
+	changesDisplayCap = 200
+)
+
 // --- async messages ---
 
 type storesLoadedMsg struct {
@@ -35,11 +42,13 @@ type modelsListedMsg struct {
 
 type tuplesLoadedMsg struct {
 	tuples []openfga.Tuple
+	capped bool // more rows exist than were loaded (hit the display cap)
 	err    error
 }
 
 type changesLoadedMsg struct {
 	changes []openfga.TupleChange
+	capped  bool // more changes exist than were loaded (hit the display cap)
 	err     error
 }
 
@@ -189,34 +198,36 @@ func loadTuplesCmd(ctx context.Context, cl *openfga.Client, storeID string) tea.
 	return func() tea.Msg {
 		var tuples []openfga.Tuple
 		req := &openfga.ReadRequest{PageSize: 100}
-		count := 0
+		capped := false
 		for t, err := range cl.Tuples.ReadAll(ctx, req, openfga.WithStore(storeID)) {
 			if err != nil {
 				return tuplesLoadedMsg{err: err}
 			}
-			tuples = append(tuples, t)
-			if count++; count >= 500 {
+			if len(tuples) >= tuplesDisplayCap {
+				capped = true // at least one more row exists beyond the cap
 				break
 			}
+			tuples = append(tuples, t)
 		}
-		return tuplesLoadedMsg{tuples: tuples}
+		return tuplesLoadedMsg{tuples: tuples, capped: capped}
 	}
 }
 
 func loadChangesCmd(ctx context.Context, cl *openfga.Client, storeID string) tea.Cmd {
 	return func() tea.Msg {
 		var changes []openfga.TupleChange
-		count := 0
+		capped := false
 		for ch, err := range cl.Tuples.ChangesAll(ctx, &openfga.ReadChangesOptions{}, openfga.WithStore(storeID)) {
 			if err != nil {
 				return changesLoadedMsg{err: err}
 			}
-			changes = append(changes, ch)
-			if count++; count >= 200 {
+			if len(changes) >= changesDisplayCap {
+				capped = true
 				break
 			}
+			changes = append(changes, ch)
 		}
-		return changesLoadedMsg{changes: changes}
+		return changesLoadedMsg{changes: changes, capped: capped}
 	}
 }
 

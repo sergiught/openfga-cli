@@ -1,6 +1,7 @@
 package playground
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -94,7 +95,7 @@ func (m Model) helpBody() string {
 	var section [][2]string
 	switch m.section {
 	case secProfiles:
-		section = [][2]string{{"↑↓", "move"}, {"↵", "switch to profile"}, {"n", "add"}, {"e", "edit"}, {"d", "delete"}}
+		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"↵", "switch to profile"}, {"n", "add"}, {"e", "edit"}, {"d", "delete"}}
 	case secStores:
 		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"↵", "select store"}, {"n", "new"}, {"d", "delete"}, {"r", "reload"}}
 	case secModel:
@@ -106,7 +107,7 @@ func (m Model) helpBody() string {
 	case secQuery:
 		section = [][2]string{{"i / ↵", "edit query"}, {"tab", "cycle mode"}, {"1–5", "rerun recent"}, {"r", "resolve"}}
 	case secAssertions:
-		section = [][2]string{{"↑↓", "move"}, {"↵", "run"}, {"a", "add"}, {"e", "edit"}, {"d", "delete"}, {"t", "run all"}}
+		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"↵", "run + resolve"}, {"a", "add"}, {"e", "edit"}, {"d", "delete"}, {"t", "run all"}}
 	}
 	render := func(rows [][2]string) string {
 		width := 0
@@ -159,7 +160,7 @@ func (m Model) dialogContent() (string, string) {
 		if c.detail != "" {
 			body += "\n\n" + style.Faint.Render(c.detail)
 		}
-		body += "\n\n" + style.Faint.Render("enter / y confirm · esc / n cancel")
+		body += "\n\n" + style.Faint.Render("y confirm · n / esc / enter cancel")
 		return "Confirm", body
 	case m.paletteOpen:
 		return "Command palette", m.paletteList.View() + "\n" + style.Faint.Render("↑↓ choose · enter go · esc close")
@@ -178,7 +179,11 @@ func (m Model) dialogContent() (string, string) {
 	case m.formKind == formEditProfile:
 		return "Edit Profile", m.form.View() + "\n" + style.Faint.Render("tab/↑↓ move · ←→ auth method · ctrl+s save · esc cancel")
 	case m.section == secModel && m.modelPicking:
-		return "Switch model", m.modelsList.View() + "\n" + style.Faint.Render("↑↓ choose · enter load · esc cancel")
+		inner := m.modelsList.View()
+		if m.loading && len(m.models) == 0 {
+			inner = m.spinner.View() + " loading models…"
+		}
+		return "Switch model", inner + "\n" + style.Faint.Render("↑↓ choose · enter load · esc cancel")
 	}
 	return "", ""
 }
@@ -258,6 +263,8 @@ func (m Model) sectionBody() string {
 			body = m.editorBody()
 		} else if m.storeID == "" {
 			body = style.Faint.Render("Select a store first — press 2")
+		} else if m.loading && len(m.graph.Types) == 0 {
+			body = m.spinner.View() + " loading model…"
 		} else if len(m.graph.Types) == 0 {
 			body = style.Faint.Render("No authorization model in this store")
 		} else {
@@ -690,7 +697,7 @@ func (m Model) statusKeys() []string {
 	case m.section == secModel && m.modelPicking:
 		return []string{"↑↓ browse", "↵ select", "esc"}
 	case m.section == secQuery && m.editing:
-		return []string{"↑↓/tab field", "tab mode", "↵ next/run", "esc"}
+		return []string{"↑↓ field", "tab mode", "↵ run", "esc"}
 	case m.section == secQuery && m.showRes:
 		return []string{"↑↓←→ scroll", "p ACL path", "r close", "esc"}
 	}
@@ -727,8 +734,14 @@ func (m Model) sectionStatus() string {
 	case secStores:
 		return plural(len(m.stores), "store")
 	case secTuples:
+		if m.tuplesCapped {
+			return fmt.Sprintf("first %d tuples (more exist)", len(m.tuples))
+		}
 		return plural(len(m.tuples), "tuple")
 	case secChanges:
+		if m.changesCapped {
+			return fmt.Sprintf("first %d changes (more exist)", len(m.changes))
+		}
 		return plural(len(m.changes), "change")
 	case secAssertions:
 		return plural(len(m.assertions), "assertion")

@@ -23,10 +23,9 @@ const (
 )
 
 const (
-	maxToasts  = 4  // stack cap; oldest drop off
-	wrapWidth  = 40 // text wrap width (content columns)
-	infoDwell  = 3 * time.Second
-	errorDwell = 6 * time.Second // errors linger longer so they can be read
+	maxToasts = 4  // stack cap; oldest drop off
+	wrapWidth = 40 // text wrap width (content columns)
+	infoDwell = 3 * time.Second
 )
 
 type expireMsg struct{ id int }
@@ -46,8 +45,10 @@ type Model struct {
 // New returns an empty toast model.
 func New() Model { return Model{} }
 
-// Push adds a toast and returns the command that expires it (errors linger
-// longer than info/success). When the stack is full the oldest toast drops off.
+// Push adds a toast and returns the command that expires it. Info/success
+// toasts auto-expire; error toasts are sticky — they stay until a newer toast
+// pushes them off the stack, so an API failure can't vanish before it is read.
+// When the stack is full the oldest toast drops off.
 func (m *Model) Push(l Level, text string) tea.Cmd {
 	m.nextID++
 	id := m.nextID
@@ -55,11 +56,10 @@ func (m *Model) Push(l Level, text string) tea.Cmd {
 	if len(m.items) > maxToasts {
 		m.items = m.items[len(m.items)-maxToasts:]
 	}
-	dwell := infoDwell
 	if l == Error {
-		dwell = errorDwell
+		return nil // sticky: no expire timer
 	}
-	return tea.Tick(dwell, func(time.Time) tea.Msg { return expireMsg{id: id} })
+	return tea.Tick(infoDwell, func(time.Time) tea.Msg { return expireMsg{id: id} })
 }
 
 // Update removes a toast when its own timer fires (stale timers no-op).

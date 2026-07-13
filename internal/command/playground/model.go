@@ -145,8 +145,9 @@ type Model struct {
 	// assertion, profile) so they all confirm the same way.
 	confirm *confirmAction
 
-	tuples     []openfga.Tuple
-	tuplesList *uilist.List
+	tuples       []openfga.Tuple
+	tuplesList   *uilist.List
+	tuplesCapped bool // more tuples exist than are shown (hit the display cap)
 
 	models       []openfga.AuthorizationModel
 	modelsList   *uilist.List
@@ -163,8 +164,9 @@ type Model struct {
 	graphTarget    float64
 	graphAnimating bool
 
-	changes     []openfga.TupleChange
-	changesList *uilist.List
+	changesCapped bool // more changes exist than are shown (hit the display cap)
+	changes       []openfga.TupleChange
+	changesList   *uilist.List
 
 	assertions     []openfga.Assertion
 	assertionsList *uilist.List
@@ -266,7 +268,7 @@ func (m Model) Init() tea.Cmd {
 	if m.entering {
 		cmds = append(cmds, entranceTick())
 	}
-	if style.Active.Name != "mono" {
+	if style.Active.Name != "mono" && !reducedMotion() {
 		cmds = append(cmds, driftTick())
 	}
 	if m.storeID != "" {
