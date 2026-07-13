@@ -170,6 +170,12 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.connLost = isConnErr(msg.err)
 			m.editorErr = msg.err.Error()
+			// While the editor is open the footer already shows this error; a
+			// toast would duplicate it. Toast only when the error would otherwise
+			// be invisible (editor closed).
+			if m.editorOpen {
+				return m, nil
+			}
 			return m, m.toasts.Push(toast.Error, "apply model: "+m.editorErr)
 		}
 		m.connLost = false
