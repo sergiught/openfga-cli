@@ -1726,7 +1726,13 @@ func TestCompactToggleInTuples(t *testing.T) {
 	if mod.status == "" {
 		t.Fatal("v should set a status message")
 	}
-	render(t, m, "tuples compact")
+	body := stripANSIView(mod.sectionBody())
+	if strings.Contains(body, "Relation") {
+		t.Fatalf("compact tuples body should not render the detail card, got:\n%s", body)
+	}
+	if !strings.Contains(body, "user:anne") {
+		t.Fatalf("compact tuples body should still list the tuple, got:\n%s", body)
+	}
 
 	m, _ = m.Update(key("v"))
 	mod = m.(Model)
@@ -1736,7 +1742,9 @@ func TestCompactToggleInTuples(t *testing.T) {
 	if mod.status == "" {
 		t.Fatal("v should set a status message when reverting too")
 	}
-	render(t, m, "tuples detail")
+	if !strings.Contains(stripANSIView(mod.sectionBody()), "Relation") {
+		t.Fatal("detail card should return when compact is off")
+	}
 }
 
 // TestCompactToggleIsNoOpInStores verifies "v" does nothing outside the
