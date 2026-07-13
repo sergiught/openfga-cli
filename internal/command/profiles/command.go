@@ -30,6 +30,7 @@ func New(cli *cli.CLI) *Command {
 	c.cmd = &cobra.Command{
 		Use:     "profiles",
 		Aliases: []string{"profile"},
+		RunE:    cli.GroupRunE,
 		Short:   "Manage connection profiles",
 		Long:    "Manage named connection profiles. Each profile stores an API URL, optional store and authorization-model IDs, and an optional API token.",
 	}
@@ -111,6 +112,7 @@ func (c *Command) currentCmd() *cobra.Command {
 func (c *Command) showCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:               "show [profile]",
+		Aliases:           []string{"get"},
 		ValidArgsFunction: c.completeNames,
 		Short:             "Show a profile's resolved values (token masked)",
 		Example: `  ofga profiles show
@@ -288,8 +290,9 @@ func (c *Command) addCmd() *cobra.Command {
 		keyFile, signingMethod, keyID   string
 	)
 	cmd := &cobra.Command{
-		Use:   "add <profile>",
-		Short: "Create a new profile",
+		Use:     "add <profile>",
+		Aliases: []string{"create"},
+		Short:   "Create a new profile",
 		Long: "Create a named connection profile. The auth method defaults to a bearer\n" +
 			"token when --token* is given, otherwise none. For OAuth flows pass\n" +
 			"--auth-method client_credentials or private_key_jwt with their fields.",

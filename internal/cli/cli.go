@@ -19,6 +19,9 @@ type CLI struct {
 	Config    *config.Config
 	Overrides config.Overrides // populated from persistent flags before Execute
 
+	// Output is the -o/--output mode (json|plain|table); it is the primary
+	// form, with --json/--plain kept as aliases that set JSON/Plain directly.
+	Output string
 	// JSON toggles machine-readable output across commands.
 	JSON bool
 	// Quiet suppresses incidental success/info output.

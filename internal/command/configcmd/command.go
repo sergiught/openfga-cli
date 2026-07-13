@@ -22,6 +22,7 @@ func New(c *cli.CLI) *Command {
 	cmd.cmd = &cobra.Command{
 		Use:   "config",
 		Short: "Inspect ofga's configuration",
+		RunE:  c.GroupRunE,
 	}
 	cmd.cmd.AddCommand(cmd.pathCmd())
 	return cmd

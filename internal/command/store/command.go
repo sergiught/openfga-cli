@@ -28,6 +28,7 @@ func New(cli *cli.CLI) *Command {
 	c.cmd = &cobra.Command{
 		Use:     "stores",
 		Aliases: []string{"store"},
+		RunE:    cli.GroupRunE,
 		Short:   "Create, list, inspect and delete stores",
 	}
 	c.RegisterSubCommands()

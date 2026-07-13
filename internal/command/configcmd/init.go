@@ -78,10 +78,13 @@ func NewInit(c *cli.CLI) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&apiURL, "api-url", "", "API URL (default "+config.DefaultAPIURL+")")
-	f.StringVar(&storeID, "store", "", "store ID to save in the profile")
+	// Profile-scoped names matching `profiles add` (these persist into the
+	// profile). --store-id in particular avoids clashing with the root's
+	// runtime-override --store, which means the opposite.
+	f.StringVar(&apiURL, "api-url", "", "API URL to save in the profile (default "+config.DefaultAPIURL+")")
+	f.StringVar(&storeID, "store-id", "", "store ID to save in the profile")
 	f.StringVar(&token, "token", "", "API token (prefer --token-stdin)")
 	f.BoolVar(&tokenStdin, "token-stdin", false, "read the API token from stdin")
-	f.BoolVar(&force, "force", false, "overwrite an existing profile without prompting")
+	f.BoolVarP(&force, "force", "f", false, "overwrite an existing profile without prompting")
 	return cmd
 }

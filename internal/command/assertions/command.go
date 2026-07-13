@@ -30,6 +30,7 @@ func New(cli *cli.CLI) *Command {
 	c.cmd = &cobra.Command{
 		Use:     "assertions",
 		Aliases: []string{"assert", "assertion"},
+		RunE:    cli.GroupRunE,
 		Short:   "Read, write and run a model's assertion test-suite",
 	}
 	c.RegisterSubCommands()
@@ -114,9 +115,6 @@ func (c *Command) writeCmd() *cobra.Command {
   cat assertions.json | ofga assertions write --file -`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if file == "" {
-				return fmt.Errorf("--file is required")
-			}
 			data, err := readFileOrStdin(file, cmd)
 			if err != nil {
 				return err
@@ -146,6 +144,7 @@ func (c *Command) writeCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&file, "file", "f", "", "assertions JSON file ('-' for stdin)")
+	_ = cmd.MarkFlagRequired("file")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate the file and show what would be written without writing it")
 	return cmd
 }

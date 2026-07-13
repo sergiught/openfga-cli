@@ -31,6 +31,7 @@ func New(cli *cli.CLI) *Command {
 	c.cmd = &cobra.Command{
 		Use:     "model",
 		Aliases: []string{"models"},
+		RunE:    cli.GroupRunE,
 		Short:   "Write, inspect and visualize authorization models",
 	}
 	c.RegisterSubCommands()
@@ -78,16 +79,14 @@ func (c *Command) writeCmd() *cobra.Command {
 		dryRun bool
 	)
 	cmd := &cobra.Command{
-		Use:   "write --file <model.json>",
-		Short: "Write a new authorization model from a JSON file",
+		Use:     "write --file <model.json>",
+		Aliases: []string{"create"},
+		Short:   "Write a new authorization model from a JSON file",
 		Example: `  ofga model write --file model.json
   cat model.json | ofga model write --file -`,
 		Long: "Write a new authorization model. The file must be the model JSON with schema_version and type_definitions (the format produced by `fga model transform` or the OpenFGA API).",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if file == "" {
-				return fmt.Errorf("--file is required (use '-' to read the model JSON from stdin)")
-			}
 			var data []byte
 			var err error
 			if file == "-" {
@@ -127,6 +126,7 @@ func (c *Command) writeCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&file, "file", "f", "", "path to the model JSON file")
+	_ = cmd.MarkFlagRequired("file")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate the file and show what would be written without writing it")
 	return cmd
 }

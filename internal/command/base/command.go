@@ -88,6 +88,11 @@ ofga api GET /stores`,
 		},
 		// Resolve color + theme + output mode before any command renders.
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			// Validate -o/--output before marking the command as run, so a bad
+			// value is treated as a usage error (exit 2), like other bad flags.
+			if err := c.resolveOutput(); err != nil {
+				return err
+			}
 			// Reaching here means flag/arg validation passed, so any later error
 			// is a runtime failure rather than a bad invocation.
 			c.ranCommand = true
@@ -106,6 +111,8 @@ ofga api GET /stores`,
 	c.cmd.SetErr(c.errW)
 	// Styled help across the whole command tree (cobra reuses the root's func).
 	c.cmd.SetHelpFunc(c.helpFunc)
+	// Both `--version` and `ofga version` render the same full build line.
+	c.cmd.SetVersionTemplate("ofga " + version.String() + "\n")
 	// cobra's `--help` flag short-circuits before PersistentPreRunE runs, so
 	// applyEnvironment's NO_COLOR handling below never fires for `--help`.
 	// Force the fully-stripping profile from the env var here too, so
@@ -120,8 +127,9 @@ ofga api GET /stores`,
 	pf.StringVar(&cli.Overrides.APIURL, "api-url", "", "OpenFGA API URL (overrides profile/env)")
 	pf.StringVar(&cli.Overrides.StoreID, "store", "", "store ID (overrides profile/env)")
 	pf.StringVar(&cli.Overrides.ModelID, "model", "", "authorization model ID (overrides profile/env)")
-	pf.BoolVar(&cli.JSON, "json", false, "output machine-readable JSON")
-	pf.BoolVar(&cli.Plain, "plain", false, "output unstyled, tab-separated rows (grep/awk friendly)")
+	pf.StringVarP(&cli.Output, "output", "o", "", "output format: json, plain or table")
+	pf.BoolVar(&cli.JSON, "json", false, "output machine-readable JSON (alias for --output json)")
+	pf.BoolVar(&cli.Plain, "plain", false, "output unstyled, tab-separated rows (alias for --output plain)")
 	pf.BoolVarP(&cli.Quiet, "quiet", "q", false, "suppress incidental output")
 	pf.BoolVar(&cli.NoColor, "no-color", false, "disable colored output")
 	pf.StringVar(&cli.ThemeName, "theme", "", "color theme ("+themeList()+")")
@@ -133,6 +141,9 @@ ofga api GET /stores`,
 	_ = c.cmd.RegisterFlagCompletionFunc("profile", c.completeProfiles)
 	_ = c.cmd.RegisterFlagCompletionFunc("store", c.completeStores)
 	_ = c.cmd.RegisterFlagCompletionFunc("model", c.completeModels)
+	_ = c.cmd.RegisterFlagCompletionFunc("output", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+		return []string{"json", "plain", "table"}, cobra.ShellCompDirectiveNoFileComp
+	})
 
 	c.RegisterSubCommands()
 	return c
@@ -140,6 +151,25 @@ ofga api GET /stores`,
 
 // applyEnvironment resolves the color profile, theme, and output toggles from
 // flags, environment (NO_COLOR, FORCE_COLOR, TERM=dumb) and config.
+// resolveOutput maps the -o/--output flag onto the JSON/Plain toggles. When set
+// it is authoritative (so `-o table` overrides a stray --json), which removes
+// the "what if both?" ambiguity. An unset -o leaves --json/--plain as parsed.
+func (c *Command) resolveOutput() error {
+	switch c.cli.Output {
+	case "":
+		return nil
+	case "json":
+		c.cli.JSON, c.cli.Plain = true, false
+	case "plain":
+		c.cli.JSON, c.cli.Plain = false, true
+	case "table":
+		c.cli.JSON, c.cli.Plain = false, false
+	default:
+		return fmt.Errorf("invalid --output %q: want json, plain or table", c.cli.Output)
+	}
+	return nil
+}
+
 func (c *Command) applyEnvironment() {
 	a := c.cli
 	output.Quiet = a.Quiet

@@ -28,6 +28,7 @@ func New(cli *cli.CLI) *Command {
 	c.cmd = &cobra.Command{
 		Use:     "query",
 		Aliases: []string{"q"},
+		RunE:    cli.GroupRunE,
 		Short:   "Ask authorization questions (check, expand, list)",
 	}
 	c.RegisterSubCommands()
@@ -183,6 +184,7 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringArrayVar(&checks, "check", nil, "a check as user,relation,object (repeatable)")
+	_ = cmd.MarkFlagRequired("check")
 	return cmd
 }
 
@@ -261,9 +263,6 @@ func (c *Command) listUsersCmd() *cobra.Command {
 		Example: "  ofga query list-users document:roadmap viewer --type user",
 		Args:    cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(userTypes) == 0 {
-				return fmt.Errorf("at least one --type filter is required (e.g. --type user)")
-			}
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
@@ -303,6 +302,7 @@ func (c *Command) listUsersCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringArrayVar(&userTypes, "type", nil, "user type filter, optionally type#relation (repeatable)")
+	_ = cmd.MarkFlagRequired("type")
 	return cmd
 }
 

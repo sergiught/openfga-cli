@@ -35,6 +35,7 @@ func New(cli *cli.CLI) *Command {
 	c.cmd = &cobra.Command{
 		Use:     "tuples",
 		Aliases: []string{"tuple"},
+		RunE:    cli.GroupRunE,
 		Short:   "Write, delete and read relationship tuples",
 	}
 	c.RegisterSubCommands()
@@ -62,7 +63,7 @@ func (c *Command) writeCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:     "write [user] [relation] [object]",
-		Aliases: []string{"add"},
+		Aliases: []string{"add", "create"},
 		Short:   "Write one relationship tuple, or many with --file",
 		Example: `  ofga tuples write user:anne viewer document:roadmap
   ofga tuples write --user user:anne --relation viewer --object document:roadmap
