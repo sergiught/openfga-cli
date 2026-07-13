@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"slices"
+	"strings"
 
 	"github.com/charmbracelet/log"
 
@@ -28,7 +29,9 @@ func main() {
 		Prefix:          "ofga",
 	})
 
-	cfg, err := config.Load()
+	// Config loads before cobra parses flags, so --config is read from argv here
+	// (env OPENFGA_CONFIG is honored by LoadFrom when no flag is given).
+	cfg, err := config.LoadFrom(configPathFromArgs(os.Args[1:]))
 	if err != nil {
 		output.Errorf(os.Stderr, "%s", err.Error())
 		if path := config.DefaultPath(); path != "" {
@@ -59,6 +62,20 @@ func main() {
 		}
 		os.Exit(code)
 	}
+}
+
+// configPathFromArgs extracts a --config value from raw args, before cobra
+// parses them (config must load first). Returns "" when the flag is absent.
+func configPathFromArgs(args []string) string {
+	for i, a := range args {
+		if a == "--config" && i+1 < len(args) {
+			return args[i+1]
+		}
+		if v, ok := strings.CutPrefix(a, "--config="); ok {
+			return v
+		}
+	}
+	return ""
 }
 
 // logLevel raises verbosity when --verbose or -v is present.

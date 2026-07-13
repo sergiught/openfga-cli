@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 	gap "github.com/muesli/go-app-paths"
@@ -87,6 +88,7 @@ type Config struct {
 
 	path    string // resolved file path; not serialized
 	existed bool   // whether the config was read from an existing file
+	loadErr error  // a deferred parse/version error; nil when the file loaded cleanly
 }
 
 // Resolved is the fully merged, ready-to-use connection configuration after
@@ -145,8 +147,12 @@ func (c *Config) IconsMode() string {
 	return c.Icons
 }
 
-// resolvePath computes the platform-appropriate config file path.
+// resolvePath computes the config file path: an explicit OPENFGA_CONFIG wins,
+// otherwise the platform-appropriate default is used.
 func resolvePath() (string, error) {
+	if v := os.Getenv("OPENFGA_CONFIG"); v != "" {
+		return v, nil
+	}
 	scope := gap.NewScope(gap.User, appName)
 	p, err := scope.ConfigPath(configFileName)
 	if err != nil {
@@ -155,12 +161,21 @@ func resolvePath() (string, error) {
 	return p, nil
 }
 
-// Load reads the config from disk. If the file does not exist, a fresh default
-// config is returned (not yet written to disk).
-func Load() (*Config, error) {
-	path, err := resolvePath()
-	if err != nil {
-		return nil, err
+// Load reads the config from its default location (honoring OPENFGA_CONFIG).
+func Load() (*Config, error) { return LoadFrom("") }
+
+// LoadFrom reads the config from path, or the resolved default when path is
+// empty. If the file does not exist, a fresh default config is returned (not yet
+// written to disk). A parse failure or an unsupported schema version is not
+// returned as an error but recorded on the Config (see Resolve), so read-only
+// inspection like `ofga config path` still works against a broken file.
+func LoadFrom(path string) (*Config, error) {
+	if path == "" {
+		var err error
+		path, err = resolvePath()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	cfg := New()
@@ -177,7 +192,11 @@ func Load() (*Config, error) {
 	// Reset profiles so the file is authoritative, then decode.
 	cfg.Profiles = map[string]Profile{}
 	if err := toml.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("parse config %s: %w", path, err)
+		broken := New()
+		broken.path = path
+		broken.existed = true
+		broken.loadErr = fmt.Errorf("parse config %s: %w", path, err)
+		return broken, nil
 	}
 	cfg.existed = true
 	if cfg.Profiles == nil {
@@ -188,6 +207,10 @@ func Load() (*Config, error) {
 	}
 	if cfg.Active == "" {
 		cfg.Active = "default"
+	}
+	if cfg.Version > SchemaVersion {
+		cfg.loadErr = fmt.Errorf("config %s is schema version %d, but this ofga supports up to %d — please upgrade ofga",
+			path, cfg.Version, SchemaVersion)
 	}
 	return cfg, nil
 }
@@ -264,7 +287,7 @@ func (c *Config) Set(name string, p Profile) {
 // Remove deletes a profile. The active profile cannot be removed.
 func (c *Config) Remove(name string) error {
 	if _, ok := c.Profiles[name]; !ok {
-		return fmt.Errorf("%w: %q", ErrNoProfile, name)
+		return c.noProfileErr(name)
 	}
 	if name == c.Active {
 		return fmt.Errorf("cannot remove the active profile %q; switch first", name)
@@ -276,10 +299,19 @@ func (c *Config) Remove(name string) error {
 // Use sets the active profile.
 func (c *Config) Use(name string) error {
 	if _, ok := c.Profiles[name]; !ok {
-		return fmt.Errorf("%w: %q", ErrNoProfile, name)
+		return c.noProfileErr(name)
 	}
 	c.Active = name
 	return nil
+}
+
+// noProfileErr builds an ErrNoProfile error that lists the available profiles,
+// so a typo'd or missing profile points the user at the real names.
+func (c *Config) noProfileErr(name string) error {
+	if names := c.ProfileNames(); len(names) > 0 {
+		return fmt.Errorf("%w: %q (available: %s)", ErrNoProfile, name, strings.Join(names, ", "))
+	}
+	return fmt.Errorf("%w: %q (no profiles configured; run `ofga init`)", ErrNoProfile, name)
 }
 
 // Overrides carries flag-supplied values that take precedence over everything.
@@ -306,6 +338,11 @@ func firstEnv(names ...string) string {
 // Resolve merges, in increasing order of precedence: profile values, OPENFGA_*
 // (or FGA_*) environment variables, then flag overrides.
 func (c *Config) Resolve(o Overrides) (Resolved, error) {
+	// A file that failed to parse (or was written by a newer ofga) surfaces here,
+	// so commands needing a profile fail clearly while `config path` still works.
+	if c.loadErr != nil {
+		return Resolved{}, c.loadErr
+	}
 	name := c.Active
 	if v := firstEnv("OPENFGA_PROFILE", "FGA_PROFILE"); v != "" {
 		name = v
@@ -315,7 +352,7 @@ func (c *Config) Resolve(o Overrides) (Resolved, error) {
 	}
 	p, ok := c.Profiles[name]
 	if !ok {
-		return Resolved{}, fmt.Errorf("%w: %q", ErrNoProfile, name)
+		return Resolved{}, c.noProfileErr(name)
 	}
 
 	r := Resolved{
@@ -345,6 +382,14 @@ func (c *Config) Resolve(o Overrides) (Resolved, error) {
 		if r.Auth.Method == "" || r.Auth.Method == AuthNone || r.Auth.Method == AuthAPIToken {
 			r.Auth = Auth{Method: AuthAPIToken, Token: v}
 		}
+	}
+	// OAuth secrets from the environment, so CI need not persist them in the
+	// config file. Each only applies to its own flow.
+	if v := firstEnv("OPENFGA_CLIENT_SECRET", "FGA_CLIENT_SECRET"); v != "" && r.Auth.Method == AuthClientCredentials {
+		r.Auth.ClientSecret = v
+	}
+	if v := firstEnv("OPENFGA_KEY_FILE", "FGA_KEY_FILE"); v != "" && r.Auth.Method == AuthPrivateKeyJWT {
+		r.Auth.KeyFile = v
 	}
 
 	// Flag overrides (highest precedence).

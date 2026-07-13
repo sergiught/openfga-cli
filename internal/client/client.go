@@ -40,6 +40,9 @@ func New(r config.Resolved) (*openfga.Client, error) {
 		openfga.WithUserAgent("ofga-cli"),
 		openfga.WithDefaultConsistency(openfga.ConsistencyHigherConsistency),
 		openfga.WithBaseTransport(baseTransport()),
+		// Retry transient server errors, not just 429 (the SDK default). A
+		// partial RetryConfig keeps the SDK's attempt/backoff defaults.
+		openfga.WithRetry(openfga.RetryConfig{RetryableStatus: []int{429, 500, 502, 503, 504}}),
 	}
 	if r.StoreID != "" {
 		opts = append(opts, openfga.WithStoreID(r.StoreID))

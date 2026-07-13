@@ -22,7 +22,13 @@ func New(c *cli.CLI) *Command {
 	cmd.cmd = &cobra.Command{
 		Use:   "config",
 		Short: "Inspect ofga's configuration",
-		RunE:  c.GroupRunE,
+		Long: "Inspect ofga's configuration.\n\n" +
+			"Profiles are stored in a plaintext TOML file (mode 0600), so any API\n" +
+			"tokens or client secrets saved in a profile are readable by your user.\n" +
+			"Prefer environment variables (OPENFGA_API_TOKEN, OPENFGA_CLIENT_SECRET)\n" +
+			"or --token-stdin/--value-stdin in CI. Run `ofga config path` to see the\n" +
+			"file location.",
+		RunE: c.GroupRunE,
 	}
 	cmd.cmd.AddCommand(cmd.pathCmd())
 	return cmd

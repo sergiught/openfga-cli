@@ -7,6 +7,8 @@ import (
 	"errors"
 	"net"
 	"strings"
+
+	"github.com/sergiught/go-openfga/openfga"
 )
 
 // Process exit codes. Scripts and CI can branch on these instead of parsing
@@ -57,6 +59,12 @@ func Code(err error) int {
 func Friendly(err error) string {
 	if err == nil {
 		return ""
+	}
+	var authErr *openfga.AuthenticationError
+	if errors.As(err, &authErr) {
+		return "authentication failed — check your token or credentials with `ofga profiles show`.\n" +
+			"  the token may be expired, or the profile's auth method may be wrong.\n" +
+			"  " + err.Error()
 	}
 	if IsConnErr(err) {
 		return "cannot reach the OpenFGA server. Is it running, and is the API URL correct?\n" +

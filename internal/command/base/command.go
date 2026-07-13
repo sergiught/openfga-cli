@@ -127,6 +127,7 @@ ofga api GET /stores`,
 	pf.StringVar(&cli.Overrides.APIURL, "api-url", "", "OpenFGA API URL (overrides profile/env)")
 	pf.StringVar(&cli.Overrides.StoreID, "store", "", "store ID (overrides profile/env)")
 	pf.StringVar(&cli.Overrides.ModelID, "model", "", "authorization model ID (overrides profile/env)")
+	pf.String("config", "", "path to the config file (overrides OPENFGA_CONFIG)")
 	pf.StringVarP(&cli.Output, "output", "o", "", "output format: json, plain or table")
 	pf.BoolVar(&cli.JSON, "json", false, "output machine-readable JSON (alias for --output json)")
 	pf.BoolVar(&cli.Plain, "plain", false, "output unstyled, tab-separated rows (alias for --output plain)")

@@ -216,6 +216,9 @@ func (c *Command) setCmd() *cobra.Command {
 			}
 			var literal string
 			if len(args) == 2 {
+				if k := strings.ToLower(args[0]); k == "token" || k == "api_token" || k == "client_secret" {
+					return fmt.Errorf("refusing to read %s from the command line (it would leak to `ps` and shell history); use --value-file or --value-stdin", k)
+				}
 				literal = args[1]
 			} else if valueFile == "" && !valueStdin {
 				return errors.New("value required: pass it as an argument, or use --value-file/--value-stdin")

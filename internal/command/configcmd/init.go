@@ -56,7 +56,7 @@ func NewInit(c *cli.CLI) *cobra.Command {
 				apiURL = prompt.Ask(cmd, "OpenFGA API URL", config.DefaultAPIURL)
 			}
 			if token == "" && !tokenStdin {
-				token = prompt.Ask(cmd, "API token (leave blank for none)", "")
+				token = prompt.AskSecret(cmd, "API token (leave blank for none)")
 			}
 			if storeID == "" {
 				storeID = prompt.Ask(cmd, "Store ID (optional)", "")
