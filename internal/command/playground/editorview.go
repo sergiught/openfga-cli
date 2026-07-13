@@ -115,5 +115,8 @@ func renderLine(cells []dsl.Cell, width int, showCursor bool, cursorCol, errCol 
 	if showCursor && cursorCol >= len(cells) && drawn < width {
 		b.WriteString(cursor.Render(" "))
 	}
+	// If cursorCol is at or beyond width, drawn == width and the cursor block
+	// above is skipped: a consequence of the v1 no-horizontal-scroll design,
+	// not a bug.
 	return b.String()
 }

@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/sergiught/openfga-cli/internal/dsl"
+	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
 	"github.com/sergiught/openfga-cli/internal/ui/shell"
 )
 
@@ -90,5 +91,51 @@ func TestEditorPaneBlurHidesCursor(t *testing.T) {
 	m.editor.Blur()
 	if strings.Contains(m.editorPane(80), "\x1b[7m") {
 		t.Fatal("expected no cursor block when editor is blurred")
+	}
+}
+
+// TestResizeReflowsEditorScrollAfterShrink covers the tea.WindowSizeMsg path
+// (model.go's resize()): shrinking the editor height must reflow editorTop
+// immediately, not leave the cursor's line outside the visible window
+// [editorTop, editorTop+Height()) until the next keypress.
+func TestResizeReflowsEditorScrollAfterShrink(t *testing.T) {
+	value := strings.Repeat("line\n", 30)
+	m := newPaneModel(value, 100)
+	// resize() touches every section list; give it real (empty) ones instead
+	// of nils so driving it through Update below doesn't panic.
+	m.profilesList = uilist.New()
+	m.storesList = uilist.New()
+	m.tuplesList = uilist.New()
+	m.changesList = uilist.New()
+	m.assertionsList = uilist.New()
+	m.paletteList = uilist.New()
+	m.modelsList = uilist.New()
+	m.editorOpen = true
+	m.ready = true
+
+	// A generous size first: the editor is tall enough that the whole buffer
+	// fits, so editorTop stays 0.
+	nm, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	m = nm.(Model)
+
+	// Move the cursor to the last line directly on the textarea, bypassing
+	// the model's own key-driven reflow (handleKey calls reflowEditorScroll
+	// after every editor keystroke) so editorTop is left stale relative to
+	// the cursor once we shrink below.
+	for i := 0; i < 40; i++ {
+		m.editor, _ = m.editor.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	}
+	last := m.editor.Line()
+	if last == 0 {
+		t.Fatal("precondition: expected cursor to have moved off line 0")
+	}
+
+	// Shrink the terminal drastically: the editor height drops well below
+	// the cursor's line.
+	nm, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 9})
+	m = nm.(Model)
+
+	if m.editorTop > last || last >= m.editorTop+m.editor.Height() {
+		t.Fatalf("cursor line %d not in view [%d, %d) after resize", last, m.editorTop, m.editorTop+m.editor.Height())
 	}
 }

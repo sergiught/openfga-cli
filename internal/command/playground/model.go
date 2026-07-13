@@ -373,6 +373,12 @@ func (m *Model) resize() {
 	}
 	m.editor.SetWidth(editorNoWrapWidth) // fixed no-wrap width; display width handled by render
 	m.editor.SetHeight(h - 2)
+	// A resize can shrink the editor height enough to push the cursor's line
+	// outside the visible window; reflow now so it doesn't sit off-screen
+	// until the next keypress.
+	if m.editorOpen {
+		m.reflowEditorScroll()
+	}
 	// Resolution viewport: a couple of rows below the query header/hint.
 	rh := h - 2
 	if rh < 1 {
