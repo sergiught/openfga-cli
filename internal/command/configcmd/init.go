@@ -72,8 +72,8 @@ func NewInit(c *cli.CLI) *cobra.Command {
 				return err
 			}
 
-			output.Successf(cmd.OutOrStdout(), "configured profile %s (now active)", style.Bold.Render(name))
-			output.Infof(cmd.OutOrStdout(), "next: run `ofga stores list` to check the connection")
+			output.Successf(cmd.ErrOrStderr(), "configured profile %s (now active)", style.Bold.Render(name))
+			output.Infof(cmd.ErrOrStderr(), "next: run `ofga stores list` to check the connection")
 			return nil
 		},
 	}

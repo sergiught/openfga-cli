@@ -153,15 +153,16 @@ func TestDryRunAndValidation(t *testing.T) {
 	home := t.TempDir()
 	store := []string{"--store", "01ARZ3NDEKTSV4RRFFQ69G5FAV", "--api-url", "http://127.0.0.1:0"}
 
-	// dry-run writes nothing and needs no server.
-	out, _, code := runOfga(t, home, "", nil,
+	// dry-run writes nothing and needs no server. The preview is a status line,
+	// so it goes to stderr (stdout stays a clean data stream).
+	out, errb, code := runOfga(t, home, "", nil,
 		append([]string{"tuples", "write", "user:anne", "viewer", "doc:1", "--dry-run"}, store...)...)
-	if code != 0 || !strings.Contains(out, "would write") {
-		t.Errorf("dry-run should preview without calling the API: code=%d out=%q", code, out)
+	if code != 0 || !strings.Contains(errb, "would write") || out != "" {
+		t.Errorf("dry-run should preview on stderr without calling the API: code=%d out=%q err=%q", code, out, errb)
 	}
 
 	// swapped/invalid tuple is rejected locally (before any network call).
-	_, errb, code := runOfga(t, home, "", nil,
+	_, errb, code = runOfga(t, home, "", nil,
 		append([]string{"tuples", "write", "anne", "viewer", "doc:1", "--dry-run"}, store...)...)
 	if code == 0 || !strings.Contains(errb, "type:id") {
 		t.Errorf("invalid user should be rejected locally: code=%d err=%q", code, errb)

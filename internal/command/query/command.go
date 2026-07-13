@@ -235,7 +235,7 @@ func (c *Command) listObjectsCmd() *cobra.Command {
 				return output.JSON(cmd.OutOrStdout(), res.Objects)
 			}
 			if len(res.Objects) == 0 {
-				output.Infof(cmd.OutOrStdout(), "no objects")
+				output.Infof(cmd.ErrOrStderr(), "no objects")
 				return nil
 			}
 			for _, o := range res.Objects {
@@ -289,7 +289,7 @@ func (c *Command) listUsersCmd() *cobra.Command {
 				return output.JSON(cmd.OutOrStdout(), res.Users)
 			}
 			if len(res.Users) == 0 {
-				output.Infof(cmd.OutOrStdout(), "no users")
+				output.Infof(cmd.ErrOrStderr(), "no users")
 				return nil
 			}
 			for _, u := range res.Users {

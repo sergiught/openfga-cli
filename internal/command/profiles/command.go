@@ -177,7 +177,7 @@ func (c *Command) useCmd() *cobra.Command {
 			if err := c.cli.SaveConfig(); err != nil {
 				return err
 			}
-			output.Successf(cmd.OutOrStdout(), "switched to profile %s", style.Bold.Render(args[0]))
+			output.Successf(cmd.ErrOrStderr(), "switched to profile %s", style.Bold.Render(args[0]))
 			return nil
 		},
 	}
@@ -264,7 +264,7 @@ func (c *Command) setCmd() *cobra.Command {
 			if err := c.cli.SaveConfig(); err != nil {
 				return err
 			}
-			output.Successf(cmd.OutOrStdout(), "set %s on profile %s", style.Key.Render(key), style.Bold.Render(name))
+			output.Successf(cmd.ErrOrStderr(), "set %s on profile %s", style.Key.Render(key), style.Bold.Render(name))
 			return nil
 		},
 	}
@@ -347,9 +347,9 @@ func (c *Command) addCmd() *cobra.Command {
 			if err := c.cli.SaveConfig(); err != nil {
 				return err
 			}
-			output.Successf(cmd.OutOrStdout(), "created profile %s", style.Bold.Render(name))
+			output.Successf(cmd.ErrOrStderr(), "created profile %s", style.Bold.Render(name))
 			if activate {
-				output.Infof(cmd.OutOrStdout(), "now the active profile")
+				output.Infof(cmd.ErrOrStderr(), "now the active profile")
 			}
 			return nil
 		},
@@ -403,7 +403,7 @@ func (c *Command) removeCmd() *cobra.Command {
 			if err := c.cli.SaveConfig(); err != nil {
 				return err
 			}
-			output.Successf(cmd.OutOrStdout(), "removed profile %s", style.Bold.Render(args[0]))
+			output.Successf(cmd.ErrOrStderr(), "removed profile %s", style.Bold.Render(args[0]))
 			return nil
 		},
 	}

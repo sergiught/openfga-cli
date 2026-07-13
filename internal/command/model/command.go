@@ -106,7 +106,7 @@ func (c *Command) writeCmd() *cobra.Command {
 				req.SchemaVersion = "1.1"
 			}
 			if dryRun {
-				output.Infof(cmd.OutOrStdout(), "would write authorization model (schema %s, %d type definitions)",
+				output.Infof(cmd.ErrOrStderr(), "would write authorization model (schema %s, %d type definitions)",
 					req.SchemaVersion, len(req.TypeDefinitions))
 				return nil
 			}
@@ -121,7 +121,7 @@ func (c *Command) writeCmd() *cobra.Command {
 			if c.cli.JSON {
 				return output.JSON(cmd.OutOrStdout(), res)
 			}
-			output.Successf(cmd.OutOrStdout(), "wrote authorization model")
+			output.Successf(cmd.ErrOrStderr(), "wrote authorization model")
 			output.KeyValues(cmd.OutOrStdout(), [][2]string{{"model_id", res.AuthorizationModelID}})
 			return nil
 		},
@@ -154,7 +154,7 @@ func (c *Command) listCmd() *cobra.Command {
 				return output.JSON(cmd.OutOrStdout(), models)
 			}
 			if len(models) == 0 {
-				output.Infof(cmd.OutOrStdout(), "no models found")
+				output.Infof(cmd.ErrOrStderr(), "no models found")
 				return nil
 			}
 			rows := make([][]string, 0, len(models))

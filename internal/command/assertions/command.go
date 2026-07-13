@@ -83,7 +83,7 @@ func (c *Command) readCmd() *cobra.Command {
 				return output.JSON(cmd.OutOrStdout(), res)
 			}
 			if len(res.Assertions) == 0 {
-				output.Infof(cmd.OutOrStdout(), "no assertions defined for model %s", modelID)
+				output.Infof(cmd.ErrOrStderr(), "no assertions defined for model %s", modelID)
 				return nil
 			}
 			rows := make([][]string, 0, len(res.Assertions))
@@ -126,7 +126,7 @@ func (c *Command) writeCmd() *cobra.Command {
 				return err
 			}
 			if dryRun {
-				output.Infof(cmd.OutOrStdout(), "would write %d assertion(s)", len(assertionsList))
+				output.Infof(cmd.ErrOrStderr(), "would write %d assertion(s)", len(assertionsList))
 				return nil
 			}
 			cl, r, err := c.cli.ClientWithStore()
@@ -141,7 +141,7 @@ func (c *Command) writeCmd() *cobra.Command {
 			if err := cl.Assertions.Write(cmd.Context(), id, req, openfga.WithStore(r.StoreID)); err != nil {
 				return err
 			}
-			output.Successf(cmd.OutOrStdout(), "wrote %d assertion(s) to model %s", len(assertionsList), id)
+			output.Successf(cmd.ErrOrStderr(), "wrote %d assertion(s) to model %s", len(assertionsList), id)
 			return nil
 		},
 	}
@@ -175,7 +175,7 @@ func (c *Command) testCmd() *cobra.Command {
 				return err
 			}
 			if len(res.Assertions) == 0 {
-				output.Infof(cmd.OutOrStdout(), "no assertions to run for model %s", modelID)
+				output.Infof(cmd.ErrOrStderr(), "no assertions to run for model %s", modelID)
 				return nil
 			}
 

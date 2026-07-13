@@ -49,7 +49,7 @@ func NewTheme(c *cli.CLI) *cobra.Command {
 			if err := c.SaveConfig(); err != nil {
 				return err
 			}
-			output.Successf(cmd.OutOrStdout(), "theme set to %s", style.Bold.Render(name))
+			output.Successf(cmd.ErrOrStderr(), "theme set to %s", style.Bold.Render(name))
 			return nil
 		},
 	}

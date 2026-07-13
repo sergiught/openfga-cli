@@ -80,7 +80,7 @@ func (c *Command) createCmd() *cobra.Command {
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if dryRun {
-				output.Infof(cmd.OutOrStdout(), "would create store %s", style.Bold.Render(args[0]))
+				output.Infof(cmd.ErrOrStderr(), "would create store %s", style.Bold.Render(args[0]))
 				return nil
 			}
 			cl, err := c.cli.Client()
@@ -107,14 +107,14 @@ func (c *Command) createCmd() *cobra.Command {
 			if c.cli.JSON {
 				return output.JSON(cmd.OutOrStdout(), st)
 			}
-			output.Successf(cmd.OutOrStdout(), "created store %s", style.Bold.Render(st.Name))
+			output.Successf(cmd.ErrOrStderr(), "created store %s", style.Bold.Render(st.Name))
 			output.KeyValues(cmd.OutOrStdout(), [][2]string{
 				{"id", st.ID},
 				{"name", st.Name},
 				{"created_at", st.CreatedAt.Format("2006-01-02 15:04:05")},
 			})
 			if use {
-				output.Infof(cmd.OutOrStdout(), "set as the active profile's store")
+				output.Infof(cmd.ErrOrStderr(), "set as the active profile's store")
 			}
 			return nil
 		},
@@ -147,7 +147,7 @@ func (c *Command) listCmd() *cobra.Command {
 				return output.JSON(cmd.OutOrStdout(), stores)
 			}
 			if len(stores) == 0 {
-				output.Infof(cmd.OutOrStdout(), "no stores found")
+				output.Infof(cmd.ErrOrStderr(), "no stores found")
 				return nil
 			}
 			rows := make([][]string, 0, len(stores))
@@ -156,7 +156,7 @@ func (c *Command) listCmd() *cobra.Command {
 			}
 			output.Table(cmd.OutOrStdout(), []string{"ID", "NAME", "CREATED"}, rows)
 			fmt.Fprintln(cmd.OutOrStdout())
-			output.Infof(cmd.OutOrStdout(), "%d store(s)", len(stores))
+			output.Infof(cmd.ErrOrStderr(), "%d store(s)", len(stores))
 			return nil
 		},
 	}
@@ -207,7 +207,7 @@ func (c *Command) deleteCmd() *cobra.Command {
 		Args:              cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if dryRun {
-				output.Infof(cmd.OutOrStdout(), "would delete store %s", style.Bold.Render(args[0]))
+				output.Infof(cmd.ErrOrStderr(), "would delete store %s", style.Bold.Render(args[0]))
 				return nil
 			}
 			// Deleting a store destroys all of its models, tuples and
@@ -224,7 +224,7 @@ func (c *Command) deleteCmd() *cobra.Command {
 			if err := cl.Stores.Delete(cmd.Context(), args[0]); err != nil {
 				return err
 			}
-			output.Successf(cmd.OutOrStdout(), "deleted store %s", style.Bold.Render(args[0]))
+			output.Successf(cmd.ErrOrStderr(), "deleted store %s", style.Bold.Render(args[0]))
 			return nil
 		},
 	}
