@@ -14,6 +14,8 @@ func queryLabels(mode string) (labels [3]string, placeholders [3]string) {
 		return [3]string{"Type", "Relation", "User"}, [3]string{"document", "viewer", "user:anne"}
 	case "list-users":
 		return [3]string{"Object", "Relation", "User type"}, [3]string{"document:roadmap", "viewer", "user"}
+	case "list-relations":
+		return [3]string{"User", "Object", ""}, [3]string{"user:anne", "document:roadmap", ""}
 	default: // check
 		return [3]string{"User", "Relation", "Object"}, [3]string{"user:anne", "viewer", "document:roadmap"}
 	}
@@ -25,12 +27,11 @@ func queryLabels(mode string) (labels [3]string, placeholders [3]string) {
 // Values() = [a, b, c, show_context, context_json?, contextual?].
 func buildQueryForm(mode string, w int, showContext bool) *field.Form {
 	labels, ph := queryLabels(mode)
-	fields := []*field.Field{
-		field.New(labels[0], ph[0]),
-		field.New(labels[1], ph[1]),
-		field.New(labels[2], ph[2]),
-		field.NewToggle("Context + Contextual Tuples", "on", "off", showContext),
+	fields := make([]*field.Field, 0, 4)
+	for i := 0; i < queryFieldCount(mode); i++ {
+		fields = append(fields, field.New(labels[i], ph[i]))
 	}
+	fields = append(fields, field.NewToggle("Context + Contextual Tuples", "on", "off", showContext))
 	// The user/object fields sit at different positions per mode.
 	switch mode {
 	case "check":
@@ -40,6 +41,9 @@ func buildQueryForm(mode string, w int, showContext bool) *field.Form {
 		fields[2].WithValidate(vUser)
 	case "list-users":
 		fields[0].WithValidate(vObject)
+	case "list-relations":
+		fields[0].WithValidate(vUser)
+		fields[1].WithValidate(vObject)
 	}
 	if showContext {
 		fields = append(fields,

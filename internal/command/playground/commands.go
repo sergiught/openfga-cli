@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -487,6 +489,56 @@ func listUsersCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, obj
 			lines = append(lines, formatUserEntry(u))
 		}
 		return queryResultMsg{title: title, lines: lines, ms: ms, vals: vals, mode: "list-users"}
+	}
+}
+
+// relationsForType returns every relation defined on the type of object (the
+// part before the ":") in the parsed model, in the graph's sorted order. It
+// backs list-relations, which tests a user against all of them. It errors when
+// object carries no type, the type is absent from the model, or the type has no
+// relations — none of which yield anything to test.
+func relationsForType(g fga.Graph, object string) ([]string, error) {
+	typ, _, ok := strings.Cut(object, ":")
+	if !ok || typ == "" {
+		return nil, fmt.Errorf("object %q has no type (expected type:id)", object)
+	}
+	for _, t := range g.Types {
+		if t.Name != typ {
+			continue
+		}
+		if len(t.Relations) == 0 {
+			return nil, fmt.Errorf("type %q has no relations to test", typ)
+		}
+		rels := make([]string, len(t.Relations))
+		for i, r := range t.Relations {
+			rels[i] = r.Name
+		}
+		return rels, nil
+	}
+	return nil, fmt.Errorf("type %q is not defined in the model", typ)
+}
+
+// listRelationsCmd tests user against each of relations on object and reports
+// the ones that hold. The relations are resolved from the model by the caller
+// so the command stays independent of the graph.
+func listRelationsCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, user, object string, relations []string, qc queryCtx) tea.Cmd {
+	start := time.Now()
+	return func() tea.Msg {
+		res, err := cl.Relationships.ListRelations(ctx, &openfga.ListRelationsRequest{
+			User: user, Object: object, Relations: relations,
+			ContextualTuples: contextualTupleKeys(qc.contextual),
+			Context:          qc.context,
+		}, openfga.WithStore(storeID), openfga.WithAuthorizationModel(modelID))
+		ms := time.Since(start).Milliseconds()
+		if err != nil {
+			return queryResultMsg{err: err, ms: ms}
+		}
+		title := user + " has these relations on " + object + ":"
+		vals := [3]string{user, object, ""}
+		if len(res) == 0 {
+			return queryResultMsg{title: title, lines: []string{"(none)"}, ms: ms, vals: vals, mode: "list-relations"}
+		}
+		return queryResultMsg{title: title, lines: res, ms: ms, vals: vals, mode: "list-relations"}
 	}
 }
 

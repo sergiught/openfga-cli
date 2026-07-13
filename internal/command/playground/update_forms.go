@@ -216,26 +216,32 @@ func (m Model) handleQueryForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // query once the form completes.
 func (m Model) advanceQueryForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmd := m.qform.Update(msg)
-	// The context toggle (field 3) reveals/hides the extra fields; rebuild the
-	// form when it flips, preserving the three main fields and staying on it.
+	mode := queryModes[m.qmode]
+	// The context toggle sits right after the mode's input fields (index n);
+	// flipping it reveals/hides the extra fields, so rebuild the form when it
+	// changes, preserving the main fields and staying on the toggle.
+	n := queryFieldCount(mode)
 	if !m.qform.Completed() {
-		if show := m.qform.Values()[3] == "true"; show != m.qShowContext {
+		if show := m.qform.Values()[n] == "true"; show != m.qShowContext {
 			m.qShowContext = show
 			vals := m.qform.Values()
 			m.rebuildQueryForm()
-			m.qform.SetValues(vals[:3])
-			return m, m.qform.FocusIndex(3)
+			m.qform.SetValues(vals[:n])
+			return m, m.qform.FocusIndex(n)
 		}
 	}
 	if m.qform.Completed() {
 		vals := m.qform.Values()
 		a := strings.TrimSpace(vals[0])
 		b := strings.TrimSpace(vals[1])
-		c := strings.TrimSpace(vals[2])
+		var c string
+		if n == 3 {
+			c = strings.TrimSpace(vals[2])
+		}
 		var qctx queryCtx
 		var cerr error
-		if m.qShowContext && len(vals) >= 6 {
-			qctx, cerr = parseQueryCtx(vals[4], vals[5])
+		if m.qShowContext && len(vals) >= n+3 {
+			qctx, cerr = parseQueryCtx(vals[n+1], vals[n+2])
 		}
 		// Stay in editing with a fresh, focused form so the next query can be
 		// typed immediately (esc drops to the panel for r / history / resolution).
@@ -244,19 +250,36 @@ func (m Model) advanceQueryForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setQueryError(cerr.Error())
 			return m, nil
 		}
-		if a == "" || b == "" || c == "" {
-			m.setQueryError("user, relation and object are required")
+		if a == "" || b == "" || (n == 3 && c == "") {
+			required := "user, relation and object are required"
+			if n == 2 {
+				required = "user and object are required"
+			}
+			m.setQueryError(required)
 			return m, nil
 		}
+		// list-relations tests every relation on the object's type; resolve them
+		// from the model up front so a missing or relationless type surfaces as a
+		// query error instead of an empty run.
+		var rels []string
+		if mode == "list-relations" {
+			var rerr error
+			if rels, rerr = relationsForType(m.graph, b); rerr != nil {
+				m.setQueryError(rerr.Error())
+				return m, nil
+			}
+		}
 		m.loading = true
-		m.status = "running " + queryModes[m.qmode] + "…"
-		switch queryModes[m.qmode] {
+		m.status = "running " + mode + "…"
+		switch mode {
 		case "check":
 			return m, checkCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx)
 		case "list-objects":
 			return m, listObjectsCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx)
 		case "list-users":
 			return m, listUsersCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx)
+		case "list-relations":
+			return m, listRelationsCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, rels, qctx)
 		}
 	}
 	return m, cmd
@@ -269,7 +292,7 @@ func (m Model) rerunHistory(idx int) (tea.Model, tea.Cmd) {
 	h := m.history[idx]
 	m.qmode = queryModeIndex(h.mode)
 	m.rebuildQueryForm()
-	m.qform.SetValues(h.vals[:])
+	m.qform.SetValues(h.vals[:queryFieldCount(h.mode)])
 	m.editing = false
 	a, b, c := h.vals[0], h.vals[1], h.vals[2]
 	m.loading = true
@@ -281,6 +304,13 @@ func (m Model) rerunHistory(idx int) (tea.Model, tea.Cmd) {
 		return m, listObjectsCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, queryCtx{})
 	case "list-users":
 		return m, listUsersCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, queryCtx{})
+	case "list-relations":
+		rels, err := relationsForType(m.graph, b)
+		if err != nil {
+			m.setQueryError(err.Error())
+			return m, nil
+		}
+		return m, listRelationsCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, rels, queryCtx{})
 	}
 	return m, nil
 }

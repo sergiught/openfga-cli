@@ -697,8 +697,12 @@ func (m Model) historyStrip(maxW int) string {
 // [user, relation, object]; the list-mode ordering (object/type first) is
 // handled too so the label stays correct if that ever changes.
 func histNotation(h histEntry) string {
-	if h.mode == "check" {
+	switch h.mode {
+	case "check":
 		return h.vals[2] + "#" + h.vals[1] + "@" + h.vals[0]
+	case "list-relations":
+		// No single relation to show — it tests every relation on the object.
+		return h.vals[0] + " → " + h.vals[1]
 	}
 	return h.vals[0] + "#" + h.vals[1] + "@" + h.vals[2]
 }

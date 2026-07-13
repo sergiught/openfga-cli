@@ -58,7 +58,7 @@ const (
 	formEditProfile
 )
 
-var queryModes = []string{"check", "list-objects", "list-users"}
+var queryModes = []string{"check", "list-objects", "list-users", "list-relations"}
 
 // queryModeIndex returns the index of mode within queryModes, defaulting to 0
 // ("check") if mode isn't recognized.
@@ -69,6 +69,16 @@ func queryModeIndex(mode string) int {
 		}
 	}
 	return 0
+}
+
+// queryFieldCount returns how many input fields a query mode's form carries.
+// list-relations takes only User and Object — the relations it tests are
+// derived from the model — while the other modes take three.
+func queryFieldCount(mode string) int {
+	if mode == "list-relations" {
+		return 2
+	}
+	return 3
 }
 
 // histEntry is one rerunnable query-history record. Model.history holds up
