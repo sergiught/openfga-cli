@@ -36,46 +36,86 @@ func tokenColor(tokenType int) (color.Color, bool) {
 	}
 }
 
-// Highlight returns dsl with each lexer token wrapped in a theme-colored
-// lipgloss style. Whitespace, newlines, and comments (any text the lexer skips
-// or hides) are copied verbatim by filling the gaps between token character
-// offsets, so stripping ANSI from Highlight(x) yields exactly x.
-func Highlight(dsl string) string {
+// Cell is a single source rune paired with its syntax color (nil = default
+// foreground). Cells preserves every rune of the input in order, including
+// whitespace, newlines, and comments (which have a nil Color).
+type Cell struct {
+	R     rune
+	Color color.Color
+}
+
+// Cells lexes dsl with the ANTLR lexer and returns per-rune colors. Text the
+// lexer skips or hides (whitespace, comments) is preserved with a nil Color by
+// filling the gaps between token character offsets.
+func Cells(dsl string) []Cell {
 	if dsl == "" {
-		return ""
+		return nil
 	}
 
 	input := antlr.NewInputStream(dsl)
 	lexer := parser.NewOpenFGALexer(input)
-	lexer.RemoveErrorListeners() // keep lex errors off stderr; text is still preserved
+	lexer.RemoveErrorListeners()
 	stream := antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)
 	stream.Fill()
 
 	runes := []rune(dsl)
-	var b strings.Builder
-	cursor := 0
-
+	colors := make([]color.Color, len(runes))
 	for _, tok := range stream.GetAllTokens() {
 		if tok.GetTokenType() == antlr.TokenEOF {
 			break
 		}
 		start, stop := tok.GetStart(), tok.GetStop()
-		if start < 0 || stop < start {
+		if start < 0 || stop < start || start >= len(runes) {
 			continue
 		}
-		if start > cursor {
-			b.WriteString(string(runes[cursor:start])) // gap: whitespace/comments
+		c, ok := tokenColor(tok.GetTokenType())
+		if !ok {
+			continue
 		}
-		text := string(runes[start : stop+1])
-		if c, ok := tokenColor(tok.GetTokenType()); ok {
-			b.WriteString(lipgloss.NewStyle().Foreground(c).Render(text))
-		} else {
-			b.WriteString(text)
+		for i := start; i <= stop && i < len(runes); i++ {
+			colors[i] = c
 		}
-		cursor = stop + 1
 	}
-	if cursor < len(runes) {
-		b.WriteString(string(runes[cursor:]))
+
+	cells := make([]Cell, len(runes))
+	for i, r := range runes {
+		cells[i] = Cell{R: r, Color: colors[i]}
+	}
+	return cells
+}
+
+// Highlight returns dsl with each colored run wrapped in a lipgloss style.
+// Stripping ANSI from Highlight(x) yields exactly x.
+func Highlight(dsl string) string {
+	cells := Cells(dsl)
+	if len(cells) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	i := 0
+	for i < len(cells) {
+		c := cells[i].Color
+		var seg strings.Builder
+		j := i
+		for j < len(cells) && sameColor(cells[j].Color, c) {
+			seg.WriteRune(cells[j].R)
+			j++
+		}
+		if c != nil {
+			b.WriteString(lipgloss.NewStyle().Foreground(c).Render(seg.String()))
+		} else {
+			b.WriteString(seg.String())
+		}
+		i = j
 	}
 	return b.String()
+}
+
+// sameColor reports whether two theme colors are equal (both nil counts as equal).
+func sameColor(a, b color.Color) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return a == b
 }

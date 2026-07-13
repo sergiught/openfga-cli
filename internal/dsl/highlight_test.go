@@ -38,3 +38,35 @@ func TestHighlightStylesKeywords(t *testing.T) {
 		t.Fatalf("stripped output missing source text, got %q", stripANSI(out))
 	}
 }
+
+func TestCellsPreservesAllRunes(t *testing.T) {
+	src := "model\n  schema 1.1\ntype user # note\n"
+	cs := Cells(src)
+	var b strings.Builder
+	for _, c := range cs {
+		b.WriteRune(c.R)
+	}
+	if got := b.String(); got != src {
+		t.Fatalf("Cells dropped/added runes:\n got %q\nwant %q", got, src)
+	}
+}
+
+func TestCellsColorsKeyword(t *testing.T) {
+	cs := Cells("type user\n")
+	// "type" (cols 0-3) is a keyword: those cells must carry a non-nil color;
+	// the space at col 4 must be nil.
+	for i := 0; i < 4; i++ {
+		if cs[i].Color == nil {
+			t.Fatalf("expected keyword rune %d (%q) to be colored", i, cs[i].R)
+		}
+	}
+	if cs[4].R != ' ' || cs[4].Color != nil {
+		t.Fatalf("expected space at col 4 to be uncolored, got %+v", cs[4])
+	}
+}
+
+func TestCellsEmpty(t *testing.T) {
+	if cs := Cells(""); cs != nil {
+		t.Fatalf("expected nil for empty input, got %v", cs)
+	}
+}
