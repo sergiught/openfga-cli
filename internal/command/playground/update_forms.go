@@ -176,6 +176,19 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			_, p := profileFromForm(false, vals)
+			// A blank secret field means "keep the current secret" (we never
+			// pre-fill secrets into the form). Carry the stored secret forward,
+			// but only when the auth method is unchanged, so switching methods
+			// can't smuggle a stale secret across.
+			prev := existing.ResolvedAuth()
+			if p.Auth.Method == prev.Method {
+				if p.Auth.Token == "" {
+					p.Auth.Token = prev.Token
+				}
+				if p.Auth.ClientSecret == "" {
+					p.Auth.ClientSecret = prev.ClientSecret
+				}
+			}
 			// Keep the auto-managed store/model; replace connection + auth, and
 			// migrate any legacy top-level token into the auth block.
 			existing.APIURL, existing.Auth, existing.APIToken = p.APIURL, p.Auth, ""
@@ -243,9 +256,12 @@ func (m Model) advanceQueryForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.qShowContext && len(vals) >= n+3 {
 			qctx, cerr = parseQueryCtx(vals[n+1], vals[n+2])
 		}
-		// Stay in editing with a fresh, focused form so the next query can be
-		// typed immediately (esc drops to the panel for r / history / resolution).
+		// Stay in editing with a focused form, re-filled with the values just
+		// run, so the core tweak-one-field-and-rerun loop doesn't force the user
+		// to retype user/relation/object each time (esc drops to the panel for
+		// r / history / resolution).
 		m.rebuildQueryForm()
+		m.qform.SetValues(vals)
 		if cerr != nil {
 			m.setQueryError(cerr.Error())
 			return m, nil
@@ -295,22 +311,26 @@ func (m Model) rerunHistory(idx int) (tea.Model, tea.Cmd) {
 	m.qform.SetValues(h.vals[:queryFieldCount(h.mode)])
 	m.editing = false
 	a, b, c := h.vals[0], h.vals[1], h.vals[2]
+	// Carry the recorded ABAC context + contextual tuples into the rerun so an
+	// ABAC verdict resolves the same way it did originally; dropping them would
+	// silently flip an ALLOWED result to DENIED.
+	qctx := h.qctx
 	m.loading = true
 	m.status = "running " + queryModes[m.qmode] + "…"
 	switch queryModes[m.qmode] {
 	case "check":
-		return m, checkCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, queryCtx{})
+		return m, checkCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx)
 	case "list-objects":
-		return m, listObjectsCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, queryCtx{})
+		return m, listObjectsCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx)
 	case "list-users":
-		return m, listUsersCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, queryCtx{})
+		return m, listUsersCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx)
 	case "list-relations":
 		rels, err := relationsForType(m.graph, b)
 		if err != nil {
 			m.setQueryError(err.Error())
 			return m, nil
 		}
-		return m, listRelationsCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, rels, queryCtx{})
+		return m, listRelationsCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, rels, qctx)
 	}
 	return m, nil
 }

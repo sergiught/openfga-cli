@@ -15,6 +15,7 @@ import (
 
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/cli"
+	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/dsl"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/style"
@@ -88,6 +89,7 @@ type histEntry struct {
 	vals [3]string
 	ok   bool
 	ms   int64
+	qctx queryCtx // ABAC context + contextual tuples the query ran with, so rerun applies them
 }
 
 // confirmAction is a destructive action awaiting confirmation in a modal. The
@@ -675,6 +677,13 @@ func (m *Model) selectStore(s openfga.Store) tea.Cmd {
 // model that loads next re-records it). No-op when the profile already reflects
 // this store with no model, so an ordinary launch doesn't rewrite the file.
 func (m *Model) persistStore() {
+	if m.cli.Overrides.APIURL != "" {
+		// The connection came from a one-shot --api-url override, not the saved
+		// profile URL. Writing this server's store/model ids onto that profile
+		// would point the next flagless launch at the wrong server / a
+		// nonexistent store, so don't persist them.
+		return
+	}
 	active := m.cli.Config.Active
 	p, ok := m.cli.Config.Get(active)
 	if !ok {
@@ -693,6 +702,11 @@ func (m *Model) persistStore() {
 // No-op when unchanged, so reloading an already-recorded model on launch
 // doesn't rewrite the file.
 func (m *Model) persistModel() {
+	if m.cli.Overrides.APIURL != "" {
+		// See persistStore: a flag URL override must not write ids back onto the
+		// saved profile.
+		return
+	}
 	active := m.cli.Config.Active
 	p, ok := m.cli.Config.Get(active)
 	if !ok {
@@ -798,6 +812,29 @@ func (m Model) currentStoreName() string {
 		}
 	}
 	return ""
+}
+
+// staleStore reports whether an async load's result belongs to a store other
+// than the one now selected — i.e. it was dispatched before a store switch and
+// landed late. Such results must be dropped so a previous store's tuples,
+// changes, model or assertions don't overwrite the current store's view. A
+// blank tag (msg.storeID == "") is treated as current for backward-compatible
+// tests that construct messages without a store id.
+func staleStore(msgStore, current string) bool {
+	return msgStore != "" && msgStore != current
+}
+
+// activeAPIURL is the API URL the current connection targets: a one-shot flag
+// override if present, otherwise the active profile's saved URL. Used to name
+// the unreachable server in the error empty-state.
+func (m Model) activeAPIURL() string {
+	if m.cli.Overrides.APIURL != "" {
+		return m.cli.Overrides.APIURL
+	}
+	if p, ok := m.cli.Config.Get(m.cli.Config.Active); ok && p.APIURL != "" {
+		return p.APIURL
+	}
+	return config.DefaultAPIURL
 }
 
 func boolWord(b bool) string {

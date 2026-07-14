@@ -51,6 +51,11 @@ func New() *List {
 	model.SetShowHelp(false)
 	model.SetShowTitle(false)
 	model.SetShowStatusBar(false)
+	// The app owns quitting (ctrl+c / q are handled by the playground's key
+	// router). Leaving the list's built-in q/esc quit bindings active would let
+	// a bare q hard-quit the whole TUI from any list-backed section, bypassing
+	// that routing.
+	model.DisableQuitKeybindings()
 	l.Model = model
 	l.Restyle()
 	return l

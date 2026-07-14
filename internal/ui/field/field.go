@@ -76,6 +76,17 @@ func (f *Field) WithValidate(fn func(string) error) *Field {
 	return f
 }
 
+// Secret marks a text field as sensitive: its value is echoed as a dot mask
+// while typing so API tokens and client secrets are never shown in cleartext.
+// No-op on non-text fields.
+func (f *Field) Secret() *Field {
+	if f.kind == kindText {
+		f.in.EchoMode = textinput.EchoPassword
+		f.in.EchoCharacter = '•'
+	}
+	return f
+}
+
 // --- per-field behavior, dispatched on kind ---
 
 func (f *Field) focus() tea.Cmd {

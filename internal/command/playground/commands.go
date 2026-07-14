@@ -30,6 +30,7 @@ type storesLoadedMsg struct {
 }
 
 type modelLoadedMsg struct {
+	storeID string // store the load ran against, to drop results from a stale store
 	modelID string
 	graph   fga.Graph
 	dsl     string
@@ -43,18 +44,21 @@ type modelsListedMsg struct {
 }
 
 type tuplesLoadedMsg struct {
-	tuples []openfga.Tuple
-	capped bool // more rows exist than were loaded (hit the display cap)
-	err    error
+	storeID string // store the load ran against, to drop results from a stale store
+	tuples  []openfga.Tuple
+	capped  bool // more rows exist than were loaded (hit the display cap)
+	err     error
 }
 
 type changesLoadedMsg struct {
+	storeID string // store the load ran against, to drop results from a stale store
 	changes []openfga.TupleChange
 	capped  bool // more changes exist than were loaded (hit the display cap)
 	err     error
 }
 
 type assertionsLoadedMsg struct {
+	storeID    string // store the load ran against, to drop results from a stale store
 	modelID    string
 	assertions []openfga.Assertion
 	err        error
@@ -124,6 +128,7 @@ type queryResultMsg struct {
 	ms    int64     // latency of the query, from command build to result
 	vals  [3]string // the three field values the query ran with, in form order
 	mode  string    // mode the query ran under (from queryModes)
+	qctx  queryCtx  // ABAC context + contextual tuples the query ran with (for history rerun)
 }
 
 // --- command builders ---
@@ -160,9 +165,9 @@ func loadModelCmd(ctx context.Context, cl *openfga.Client, storeID string) tea.C
 	return func() tea.Msg {
 		m, err := cl.AuthorizationModels.ReadLatest(ctx, openfga.WithStore(storeID))
 		if err != nil {
-			return modelLoadedMsg{err: err}
+			return modelLoadedMsg{storeID: storeID, err: err}
 		}
-		return modelLoadedMsg{modelID: m.ID, graph: fga.ParseModel(m), dsl: modelToDSL(m), latest: true}
+		return modelLoadedMsg{storeID: storeID, modelID: m.ID, graph: fga.ParseModel(m), dsl: modelToDSL(m), latest: true}
 	}
 }
 
@@ -170,7 +175,7 @@ func loadModelByIDCmd(ctx context.Context, cl *openfga.Client, storeID, modelID 
 	return func() tea.Msg {
 		m, err := cl.AuthorizationModels.Get(ctx, modelID, openfga.WithStore(storeID))
 		if err != nil {
-			return modelLoadedMsg{err: err}
+			return modelLoadedMsg{storeID: storeID, err: err}
 		}
 		// Learn whether this model is the store's newest so the footer's
 		// "(latest)" tag is correct even before the full model list is loaded
@@ -179,7 +184,7 @@ func loadModelByIDCmd(ctx context.Context, cl *openfga.Client, storeID, modelID 
 		if newest, lerr := cl.AuthorizationModels.ReadLatest(ctx, openfga.WithStore(storeID)); lerr == nil {
 			latest = newest.ID == m.ID
 		}
-		return modelLoadedMsg{modelID: m.ID, graph: fga.ParseModel(m), dsl: modelToDSL(m), latest: latest}
+		return modelLoadedMsg{storeID: storeID, modelID: m.ID, graph: fga.ParseModel(m), dsl: modelToDSL(m), latest: latest}
 	}
 }
 
@@ -203,7 +208,7 @@ func loadTuplesCmd(ctx context.Context, cl *openfga.Client, storeID string) tea.
 		capped := false
 		for t, err := range cl.Tuples.ReadAll(ctx, req, openfga.WithStore(storeID)) {
 			if err != nil {
-				return tuplesLoadedMsg{err: err}
+				return tuplesLoadedMsg{storeID: storeID, err: err}
 			}
 			if len(tuples) >= tuplesDisplayCap {
 				capped = true // at least one more row exists beyond the cap
@@ -211,7 +216,7 @@ func loadTuplesCmd(ctx context.Context, cl *openfga.Client, storeID string) tea.
 			}
 			tuples = append(tuples, t)
 		}
-		return tuplesLoadedMsg{tuples: tuples, capped: capped}
+		return tuplesLoadedMsg{storeID: storeID, tuples: tuples, capped: capped}
 	}
 }
 
@@ -221,7 +226,7 @@ func loadChangesCmd(ctx context.Context, cl *openfga.Client, storeID string) tea
 		capped := false
 		for ch, err := range cl.Tuples.ChangesAll(ctx, &openfga.ReadChangesOptions{}, openfga.WithStore(storeID)) {
 			if err != nil {
-				return changesLoadedMsg{err: err}
+				return changesLoadedMsg{storeID: storeID, err: err}
 			}
 			if len(changes) >= changesDisplayCap {
 				capped = true
@@ -229,7 +234,7 @@ func loadChangesCmd(ctx context.Context, cl *openfga.Client, storeID string) tea
 			}
 			changes = append(changes, ch)
 		}
-		return changesLoadedMsg{changes: changes, capped: capped}
+		return changesLoadedMsg{storeID: storeID, changes: changes, capped: capped}
 	}
 }
 
@@ -239,15 +244,15 @@ func loadAssertionsCmd(ctx context.Context, cl *openfga.Client, storeID, modelID
 		if id == "" {
 			m, err := cl.AuthorizationModels.ReadLatest(ctx, openfga.WithStore(storeID))
 			if err != nil {
-				return assertionsLoadedMsg{err: err}
+				return assertionsLoadedMsg{storeID: storeID, err: err}
 			}
 			id = m.ID
 		}
 		res, err := cl.Assertions.Read(ctx, id, openfga.WithStore(storeID))
 		if err != nil {
-			return assertionsLoadedMsg{modelID: id, err: err}
+			return assertionsLoadedMsg{storeID: storeID, modelID: id, err: err}
 		}
-		return assertionsLoadedMsg{modelID: id, assertions: res.Assertions}
+		return assertionsLoadedMsg{storeID: storeID, modelID: id, assertions: res.Assertions}
 	}
 }
 
@@ -440,7 +445,7 @@ func checkCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, user, r
 		if res.Resolution != "" {
 			lines = append(lines, "resolution: "+res.Resolution)
 		}
-		return queryResultMsg{title: "Check", lines: lines, ok: res.Allowed, badge: true, ms: ms, vals: [3]string{user, relation, object}, mode: "check"}
+		return queryResultMsg{title: "Check", lines: lines, ok: res.Allowed, badge: true, ms: ms, vals: [3]string{user, relation, object}, mode: "check", qctx: qc}
 	}
 }
 
@@ -459,9 +464,9 @@ func listObjectsCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, t
 		title := user + " can " + relation + " these " + typ + " objects:"
 		vals := [3]string{typ, relation, user}
 		if len(res.Objects) == 0 {
-			return queryResultMsg{title: title, lines: []string{"(none)"}, ms: ms, vals: vals, mode: "list-objects"}
+			return queryResultMsg{title: title, lines: []string{"(none)"}, ms: ms, vals: vals, mode: "list-objects", qctx: qc}
 		}
-		return queryResultMsg{title: title, lines: res.Objects, ms: ms, vals: vals, mode: "list-objects"}
+		return queryResultMsg{title: title, lines: res.Objects, ms: ms, vals: vals, mode: "list-objects", qctx: qc}
 	}
 }
 
@@ -482,13 +487,13 @@ func listUsersCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, obj
 		title := "users with " + relation + " on " + object + ":"
 		vals := [3]string{object, relation, userType}
 		if len(res.Users) == 0 {
-			return queryResultMsg{title: title, lines: []string{"(none)"}, ms: ms, vals: vals, mode: "list-users"}
+			return queryResultMsg{title: title, lines: []string{"(none)"}, ms: ms, vals: vals, mode: "list-users", qctx: qc}
 		}
 		lines := make([]string, 0, len(res.Users))
 		for _, u := range res.Users {
 			lines = append(lines, formatUserEntry(u))
 		}
-		return queryResultMsg{title: title, lines: lines, ms: ms, vals: vals, mode: "list-users"}
+		return queryResultMsg{title: title, lines: lines, ms: ms, vals: vals, mode: "list-users", qctx: qc}
 	}
 }
 
@@ -536,9 +541,9 @@ func listRelationsCmd(ctx context.Context, cl *openfga.Client, storeID, modelID,
 		title := user + " has these relations on " + object + ":"
 		vals := [3]string{user, object, ""}
 		if len(res) == 0 {
-			return queryResultMsg{title: title, lines: []string{"(none)"}, ms: ms, vals: vals, mode: "list-relations"}
+			return queryResultMsg{title: title, lines: []string{"(none)"}, ms: ms, vals: vals, mode: "list-relations", qctx: qc}
 		}
-		return queryResultMsg{title: title, lines: res, ms: ms, vals: vals, mode: "list-relations"}
+		return queryResultMsg{title: title, lines: res, ms: ms, vals: vals, mode: "list-relations", qctx: qc}
 	}
 }
 

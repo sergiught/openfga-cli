@@ -132,6 +132,27 @@ func TestToggleFieldFlips(t *testing.T) {
 	}
 }
 
+// TUI-16: a Secret() field must mask its input in the rendered view (no
+// cleartext token on screen) while still returning the real value to the form.
+func TestSecretFieldMasksButKeepsValue(t *testing.T) {
+	f := NewForm(New("API token", "token").Secret())
+	f.SetWidth(40)
+	f.Init()
+	for _, ch := range "s3cr3t" {
+		f.Update(key(string(ch)))
+	}
+	view := ansi.Strip(f.View())
+	if strings.Contains(view, "s3cr3t") {
+		t.Fatalf("secret field must not echo the token in cleartext, got:\n%s", view)
+	}
+	if !strings.Contains(view, "••••••") {
+		t.Fatalf("secret field should render a dot mask, got:\n%s", view)
+	}
+	if got := f.Values()[0]; got != "s3cr3t" {
+		t.Fatalf("secret field should still yield its real value, got %q", got)
+	}
+}
+
 func TestResetClearsState(t *testing.T) {
 	f := NewForm(New("User", ""))
 	f.SetWidth(40)

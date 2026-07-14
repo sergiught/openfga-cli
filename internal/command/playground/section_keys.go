@@ -297,10 +297,13 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 				a := m.assertions[it.Index]
 				u, rel, obj := a.TupleKey.User, a.TupleKey.Relation, a.TupleKey.Object
 				// Run the assertion (updates its badge) and open its resolution
-				// tree in the Query panel.
+				// tree in the Query panel. Seed only the query coordinates for the
+				// resolution header — leave hasResult false so no verdict shows
+				// until the real Check lands (assertOneMsg); pre-populating a
+				// zero-value result would flash a fabricated "✗ DENIED".
 				m.section = secQuery
 				m.result = queryResultMsg{badge: true, vals: [3]string{u, rel, obj}, mode: "check"}
-				m.hasResult = true
+				m.hasResult = false
 				m.loading = true
 				m.status = "resolving assertion…"
 				return m, tea.Batch(

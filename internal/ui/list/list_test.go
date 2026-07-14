@@ -3,7 +3,63 @@ package list
 import (
 	"strings"
 	"testing"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
+
+// TUI-14: a bare quit key (q/esc) from a list-backed section must not hard-quit
+// the whole TUI. The list's built-in quit keybindings must be disabled so the
+// app's own key router owns quitting.
+func TestQuitKeybindingsDisabled(t *testing.T) {
+	l := New()
+	if l.Model.KeyMap.Quit.Enabled() {
+		t.Fatal("list quit keybinding should be disabled (app owns quitting)")
+	}
+	if l.Model.KeyMap.ForceQuit.Enabled() {
+		t.Fatal("list force-quit keybinding should be disabled")
+	}
+	// A 'q' keypress must not produce a tea.Quit command.
+	l.SetItems([]Item{{TitleText: "alpha"}, {TitleText: "beta"}})
+	l.SetSize(40, 10)
+	cmd := l.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
+	if cmd != nil {
+		if _, isQuit := cmd().(tea.QuitMsg); isQuit {
+			t.Fatal("pressing q in a list must not quit the program")
+		}
+	}
+}
+
+// TUI-13: filtering must actually narrow the visible rows and move the selection
+// onto the matching row, so that a delete keyed off SelectedItem hits the
+// filtered match rather than the first (unfiltered) row. The bubbles list filter
+// is asynchronous — SetFilterText applies it synchronously for the test.
+func TestFilterNarrowsAndSelectsMatch(t *testing.T) {
+	l := New()
+	l.SetItems([]Item{
+		{TitleText: "alpha", ID: "a", Index: 0},
+		{TitleText: "beta", ID: "b", Index: 1},
+		{TitleText: "gamma", ID: "g", Index: 2},
+	})
+	l.SetSize(40, 10)
+
+	l.Model.SetFilterText("beta")
+
+	sel, ok := l.Selected()
+	if !ok {
+		t.Fatal("expected a selected item after filtering")
+	}
+	if sel.ID != "b" || sel.Index != 1 {
+		t.Fatalf("filter should select the matching row (beta, index 1), got ID=%q Index=%d", sel.ID, sel.Index)
+	}
+	view := ansi.Strip(l.View())
+	if !strings.Contains(view, "beta") {
+		t.Fatalf("filtered view should show the match, got:\n%s", view)
+	}
+	if strings.Contains(view, "alpha") || strings.Contains(view, "gamma") {
+		t.Fatalf("filtered view should hide non-matching rows, got:\n%s", view)
+	}
+}
 
 func TestSetCompactHidesDescriptionsButKeepsTitles(t *testing.T) {
 	l := New()

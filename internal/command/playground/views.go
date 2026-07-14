@@ -86,7 +86,8 @@ func (m Model) viewString() string {
 // section, formatted as an aligned two-column reference.
 func (m Model) helpBody() string {
 	global := [][2]string{
-		{"tab", "move between tabs and the panel"},
+		{"tab / ↑↓", "move between tabs (from the tab bar)"},
+		{"↵ / esc", "enter the panel / return to the tabs"},
 		{"1–7", "jump to a section"},
 		{"ctrl+k", "command palette"},
 		{"?", "toggle this help"},
@@ -192,11 +193,14 @@ func (m Model) dialogContent() (string, string) {
 // and model already appear in the bottom status bar, so they aren't repeated
 // here.
 func (m Model) sidebarContext() []string {
-	if m.storeID == "" {
-		return []string{style.Dot(style.DotOffline) + " " + style.Faint.Render("disconnected")}
-	}
+	// A connection failure takes precedence over the store state: it must be
+	// visible even when no store is selected (e.g. the server was unreachable on
+	// the very first stores load, so nothing could be selected).
 	if m.connLost {
 		return []string{style.Dot(style.DotError) + " " + style.Failure.Render("connection lost")}
+	}
+	if m.storeID == "" {
+		return []string{style.Dot(style.DotOffline) + " " + style.Faint.Render("disconnected")}
 	}
 	dot := lipgloss.NewStyle().Foreground(style.Green).Render(style.IconDot)
 	return []string{dot + " " + style.Faint.Render("connected")}
@@ -248,9 +252,14 @@ func (m Model) sectionBody() string {
 		body = masterDetail(m.profilesList.View(), pt, pb, w, h)
 	case secStores:
 		if len(m.stores) == 0 {
-			if m.loading {
+			switch {
+			case m.loading:
 				body = m.spinner.View() + " loading stores…"
-			} else {
+			case m.connLost:
+				// The server is unreachable — don't invite a create that will
+				// just fail; point at retry (r) instead.
+				body = style.Failure.Render("Can't reach " + m.activeAPIURL() + " — press r to retry")
+			default:
 				body = style.Faint.Render("No stores yet — press n to create one")
 			}
 		} else {
@@ -421,16 +430,13 @@ func autoField(s string) string {
 	return s + " (auto)"
 }
 
-// maskToken renders an API token with only its first and last few characters,
-// or a dash when unset.
+// maskToken renders a secret as a fixed dot mask (never a plaintext fragment,
+// matching the CLI's mask policy), or a dash when unset.
 func maskToken(tok string) string {
 	if tok == "" {
 		return "—"
 	}
-	if len(tok) <= 8 {
-		return "••••"
-	}
-	return tok[:3] + "…" + tok[len(tok)-3:]
+	return "••••••••"
 }
 
 // storePreview renders the selected store's title and details for the
@@ -801,7 +807,9 @@ func (m Model) statusKeys() []string {
 	case m.section == secModel && m.modelPicking:
 		return []string{"↑↓ browse", "↵ select", "esc"}
 	case m.section == secQuery && m.editing:
-		return []string{"↑↓ field", "tab mode", "↵ run", "esc"}
+		// Enter advances between fields and only runs on the last one; ctrl+s
+		// runs from anywhere. Spell both out so the hint matches reality.
+		return []string{"↑↓ field", "tab mode", "↵ next/run", "ctrl+s run", "esc"}
 	case m.section == secQuery && m.showRes:
 		return []string{"↑↓←→ scroll", "p ACL path", "r close", "esc"}
 	}

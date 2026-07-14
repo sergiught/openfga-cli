@@ -124,13 +124,21 @@ func buildProfileForm(add bool, method string, w int) *field.Form {
 		field.New("API URL", config.DefaultAPIURL).WithValidate(vURL),
 		field.NewSelect("Auth method", authMethods, authMethodIndex(method)),
 	)
+	// On edit we never pre-fill stored secrets, so the placeholder tells the
+	// user that leaving a secret blank keeps the current one.
+	secretPlaceholder := func(add bool, hint string) string {
+		if add {
+			return hint
+		}
+		return "leave blank to keep current"
+	}
 	switch method {
 	case config.AuthAPIToken:
-		fields = append(fields, field.New("API token", "token"))
+		fields = append(fields, field.New("API token", secretPlaceholder(add, "token")).Secret())
 	case config.AuthClientCredentials:
 		fields = append(fields,
 			field.New("Client ID", "client id"),
-			field.New("Client secret", "client secret"),
+			field.New("Client secret", secretPlaceholder(add, "client secret")).Secret(),
 			field.New("Token URL", "https://issuer/oauth/token").WithValidate(vURL),
 			field.New("Audience", "https://api.us1.fga.dev/"),
 		)
@@ -161,11 +169,14 @@ func profileFormValues(add bool, apiURL string, a config.Auth) []string {
 		vals = append(vals, "")
 	}
 	vals = append(vals, apiURL, method)
+	// Secrets (token, client secret) are intentionally left blank rather than
+	// pre-filled: they are never surfaced in the form. A blank secret field on
+	// save means "keep the stored secret" (see the edit-profile handler).
 	switch method {
 	case config.AuthAPIToken:
-		vals = append(vals, a.Token)
+		vals = append(vals, "")
 	case config.AuthClientCredentials:
-		vals = append(vals, a.ClientID, a.ClientSecret, a.TokenURL, a.Audience)
+		vals = append(vals, a.ClientID, "", a.TokenURL, a.Audience)
 	case config.AuthPrivateKeyJWT:
 		vals = append(vals, a.ClientID, a.TokenURL, a.Audience, a.APIAudience, a.KeyFile, a.SigningMethod)
 	}

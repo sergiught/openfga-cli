@@ -22,7 +22,10 @@ import (
 // repaints costly or ugly (dumb terminal, NO_COLOR). This lets users on SSH or
 // battery stop the perpetual repaint the drift would otherwise cause.
 func reducedMotion() bool {
-	return os.Getenv("OFGA_REDUCED_MOTION") != "" ||
+	// Accept both the canonical OPENFGA_-prefixed name and the legacy OFGA_ one
+	// (kept for compatibility) so the opt-out matches every other env var.
+	return os.Getenv("OPENFGA_REDUCED_MOTION") != "" ||
+		os.Getenv("OFGA_REDUCED_MOTION") != "" ||
 		os.Getenv("NO_COLOR") != "" ||
 		os.Getenv("TERM") == "dumb"
 }
@@ -144,6 +147,9 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case modelLoadedMsg:
+		if staleStore(msg.storeID, m.storeID) {
+			return m, nil // a load from a store we've since switched away from
+		}
 		m.loading = false
 		if msg.err != nil {
 			cmd := m.toastErr("model", msg.err)
@@ -195,6 +201,10 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tuplesLoadedMsg:
+		if staleStore(msg.storeID, m.storeID) {
+			return m, nil // a load from a store we've since switched away from
+		}
+		m.loading = false
 		if msg.err != nil {
 			return m, m.toastErr("tuples", msg.err)
 		}
@@ -205,6 +215,9 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case changesLoadedMsg:
+		if staleStore(msg.storeID, m.storeID) {
+			return m, nil // a load from a store we've since switched away from
+		}
 		m.loading = false
 		if msg.err != nil {
 			return m, m.toastErr("changes", msg.err)
@@ -217,6 +230,9 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case assertionsLoadedMsg:
+		if staleStore(msg.storeID, m.storeID) {
+			return m, nil // a load from a store we've since switched away from
+		}
 		m.loading = false
 		m.assertModelID = msg.modelID
 		if msg.err != nil {
@@ -265,6 +281,12 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.idx < len(m.assertResults) {
 			m.assertResults[msg.idx] = msg.result
 		}
+		// This is the real verdict for the assertion opened via Enter (see the
+		// secAssertions enter handler): fill the Query panel's result now, so the
+		// verdict reflects the actual Check instead of a fabricated denial.
+		m.result.ok = msg.result.got
+		m.result.badge = true
+		m.hasResult = true
 		m.populateAssertions()
 		m.resize()
 		m.status = assertResultWord(msg.result)
@@ -356,7 +378,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds := []tea.Cmd{m.toasts.Push(toast.Success, m.status)}
 		// Record every query — check, list-objects and list-users — so all of
 		// them are rerunnable from the Recent strip.
-		m.pushHistory(histEntry{mode: msg.mode, vals: msg.vals, ok: msg.ok, ms: msg.ms})
+		m.pushHistory(histEntry{mode: msg.mode, vals: msg.vals, ok: msg.ok, ms: msg.ms, qctx: msg.qctx})
 		// Only a check carries an allow/deny verdict, so only it flashes.
 		if msg.badge {
 			m.flash = true
@@ -417,19 +439,41 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.section == secQuery && m.editing {
 			return m.advanceQueryForm(msg)
 		}
+		// bubbles/list filtering is asynchronous: Model.Update returns a command
+		// that produces a list.FilterMatchesMsg, which must be fed back to the
+		// list for the filter to actually narrow the rows. Nothing else forwards
+		// it, so without this the "/" filter shows a filter prompt but every row
+		// stays visible — and a following delete would hit the wrong (unfiltered)
+		// row. Forward these async messages to the active section list.
+		if lst := m.activeList(); lst != nil {
+			return m, lst.Update(msg)
+		}
 	}
 	return m, nil
 }
 
 // toastErr surfaces a failed API call as a transient toast (and flags a
-// possible connection loss), deliberately keeping the raw error out of the
-// footer status line.
+// possible connection loss). A normal API error stays out of the footer status
+// line, but a connection failure is persisted there — a toast expires after a
+// few seconds while the outage doesn't, and the user may not have been looking.
+// It also collapses the storm of per-section toasts that a single unreachable
+// server produces (stores + model + tuples + changes + assertions all fail at
+// once) into one, so the stack isn't flooded with the same outage.
 func (m *Model) toastErr(label string, err error) tea.Cmd {
+	wasConnLost := m.connLost
 	m.connLost = isConnErr(err)
 	m.status = ""
 	detail := errStr(err)
 	if label != "" {
 		detail = label + ": " + detail
+	}
+	if m.connLost {
+		m.status = "connection failed: " + errStr(err)
+		if wasConnLost {
+			// Already in a connection-lost state (a concurrent failed load) —
+			// the status line already carries it; don't stack another toast.
+			return nil
+		}
 	}
 	return m.toasts.Push(toast.Error, detail)
 }
@@ -511,6 +555,10 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Ctrl+C is the universal quit. Honor it before any overlay, form, editor,
 	// or list-filter branch below can swallow the key (in raw mode Ctrl+C
 	// arrives as a key press, not a signal), so the user is never trapped.
+	// Note: this is a deliberate, unconfirmed hard exit — unlike Esc in the DSL
+	// editor (which prompts before discarding unsaved edits, see below), Ctrl+C
+	// quits immediately and discards any unsaved editor buffer. That is the
+	// intended "get me out now" escape hatch.
 	if msg.String() == "ctrl+c" {
 		return m, tea.Quit
 	}
@@ -651,6 +699,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		m.focus = shell.FocusSidebar
 		return m, nil
+	}
+	// Digit section-jumps stay global even with the panel focused — the ?
+	// overlay advertises "1–7 jump to a section" as global. The exception is
+	// Tuple Queries, where the digits rerun recent history.
+	if m.section != secQuery && len(key) == 1 && key[0] >= '1' && key[0] <= '7' {
+		return m.gotoSection(section(key[0] - '1'))
 	}
 	return m.handleSectionKey(key, msg)
 }
