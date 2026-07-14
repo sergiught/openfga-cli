@@ -5,6 +5,7 @@ package base
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/term"
@@ -117,7 +118,7 @@ ofga api GET /stores`,
 	// applyEnvironment's NO_COLOR handling below never fires for `--help`.
 	// Force the fully-stripping profile from the env var here too, so
 	// `NO_COLOR=1 ofga --help` is byte-clean even on a TTY.
-	if os.Getenv("NO_COLOR") != "" && os.Getenv("FORCE_COLOR") == "" {
+	if (os.Getenv("NO_COLOR") != "" && !forceColor()) || forceMono() {
 		c.outW.Profile = colorprofile.NoTTY
 		c.errW.Profile = colorprofile.NoTTY
 	} else if forceColor() {
@@ -201,7 +202,7 @@ func (c *Command) applyEnvironment() {
 	}
 
 	noColor := a.NoColor ||
-		os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb"
+		os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb" || forceMono()
 	force := forceColor()
 
 	if noColor && !force {
@@ -230,10 +231,27 @@ func (c *Command) applyEnvironment() {
 	}
 }
 
-// forceColor reports whether color should be forced on regardless of TTY
-// detection. CLICOLOR_FORCE is honored by colorprofile's writers directly; this
-// covers the documented FORCE_COLOR variable, which they ignore.
-func forceColor() bool { return os.Getenv("FORCE_COLOR") != "" }
+// forceColor and forceMono interpret the documented FORCE_COLOR variable, which
+// colorprofile's writers ignore (they honor only CLICOLOR_FORCE). Following the
+// widely-adopted convention (npm/chalk/supports-color), FORCE_COLOR=0/false/no/off
+// disables color and any other non-empty value forces it on; unset is no opinion.
+func forceColor() bool { f := colorForce(); return f != nil && *f }
+func forceMono() bool  { f := colorForce(); return f != nil && !*f }
+
+// colorForce returns the FORCE_COLOR intent: nil when unset/empty, else a pointer
+// to true (force on) or false (force off).
+func colorForce() *bool {
+	v, ok := os.LookupEnv("FORCE_COLOR")
+	if !ok || v == "" {
+		return nil
+	}
+	on := true
+	switch strings.ToLower(v) {
+	case "0", "false", "no", "off":
+		on = false
+	}
+	return &on
+}
 
 // Command returns the root cobra command.
 func (c *Command) Command() *cobra.Command { return c.cmd }

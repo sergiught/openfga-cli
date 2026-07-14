@@ -51,7 +51,9 @@ func Parse(s string) Mode {
 	case "off":
 		return ModeOff
 	default:
-		fmt.Fprintf(os.Stderr, "warning: unknown OPENFGA_ICONS value %q; using nerdfont (valid: nerdfont, unicode, off)\n", s)
+		// Source-neutral: the value may come from OPENFGA_ICONS or the config
+		// file's `icons` key, so don't blame the env var specifically.
+		fmt.Fprintf(os.Stderr, "warning: unknown icons value %q; using nerdfont (valid: nerdfont, unicode, off)\n", s)
 		return ModeNerdFont
 	}
 }
