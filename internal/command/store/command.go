@@ -126,11 +126,13 @@ func (c *Command) createCmd() *cobra.Command {
 }
 
 func (c *Command) listCmd() *cobra.Command {
-	return &cobra.Command{
+	var maxResults int
+	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
 		Short:   "List all stores",
 		Example: "  ofga stores list",
+		Long:    "List stores. By default all stores are returned (the CLI auto-pages); --max-results caps the total returned and stops paging once reached.",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cl, err := c.cli.Client()
@@ -143,6 +145,9 @@ func (c *Command) listCmd() *cobra.Command {
 					return err
 				}
 				stores = append(stores, st)
+				if maxResults > 0 && len(stores) >= maxResults {
+					break
+				}
 			}
 			if c.cli.JSON {
 				return output.JSON(cmd.OutOrStdout(), stores)
@@ -161,6 +166,8 @@ func (c *Command) listCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().IntVar(&maxResults, "max-results", 0, "cap the total number of stores returned (0 = unbounded)")
+	return cmd
 }
 
 func (c *Command) getCmd() *cobra.Command {
@@ -208,6 +215,9 @@ func (c *Command) deleteCmd() *cobra.Command {
 		Args:              cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if dryRun {
+				if c.cli.JSON {
+					return output.JSON(cmd.OutOrStdout(), map[string]any{"dry_run": true, "would_delete": args[0]})
+				}
 				output.Infof(cmd.ErrOrStderr(), "would delete store %s", style.Bold.Render(args[0]))
 				return nil
 			}
@@ -224,6 +234,9 @@ func (c *Command) deleteCmd() *cobra.Command {
 			}
 			if err := cl.Stores.Delete(cmd.Context(), args[0]); err != nil {
 				return err
+			}
+			if c.cli.JSON {
+				return output.JSON(cmd.OutOrStdout(), map[string]string{"deleted": args[0]})
 			}
 			output.Successf(cmd.ErrOrStderr(), "deleted store %s", style.Bold.Render(args[0]))
 			return nil

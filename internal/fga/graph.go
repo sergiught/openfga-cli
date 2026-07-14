@@ -13,21 +13,21 @@ import (
 // RelationEdge describes one resolution path for a relation.
 type RelationEdge struct {
 	// Kind is "direct", "computed", or "ttu" (tuple-to-userset).
-	Kind string
+	Kind string `json:"kind"`
 	// Label is a human-readable description of the edge target.
-	Label string
+	Label string `json:"label"`
 }
 
 // Relation is a single relation on a type with its resolution edges.
 type Relation struct {
-	Name  string
-	Edges []RelationEdge
+	Name  string         `json:"name"`
+	Edges []RelationEdge `json:"edges"`
 }
 
 // TypeNode is one object type in the model with its relations.
 type TypeNode struct {
-	Name      string
-	Relations []Relation
+	Name      string     `json:"name"`
+	Relations []Relation `json:"relations"`
 }
 
 // DiagramEdge is a directed dependency between two object types: type From has
@@ -36,27 +36,29 @@ type TypeNode struct {
 // dependency flows through (the relation on From for direct edges, the tupleset
 // relation for ttu edges).
 type DiagramEdge struct {
-	From string
-	To   string
-	Kind string
-	Via  string
+	From string `json:"from"`
+	To   string `json:"to"`
+	Kind string `json:"kind"`
+	Via  string `json:"via"`
 }
 
 // Graph is the parsed, render-ready view of an authorization model.
 type Graph struct {
-	SchemaVersion string
-	Types         []TypeNode
+	SchemaVersion string     `json:"schema_version"`
+	Types         []TypeNode `json:"types"`
 	// Edges are the inter-type dependencies used to draw the node-link diagram.
-	Edges []DiagramEdge
+	Edges []DiagramEdge `json:"edges"`
 }
 
 // ParseModel converts an authorization model into a Graph by interpreting the
-// relation rewrite rules and the directly-related-user-types metadata.
+// relation rewrite rules and the directly-related-user-types metadata. Slices
+// are initialized (never nil) so `--json` output serializes empty collections
+// as [] rather than null.
 func ParseModel(m *openfga.AuthorizationModel) Graph {
-	g := Graph{SchemaVersion: m.SchemaVersion}
+	g := Graph{SchemaVersion: m.SchemaVersion, Types: []TypeNode{}, Edges: []DiagramEdge{}}
 	seen := map[string]bool{}
 	for _, td := range m.TypeDefinitions {
-		node := TypeNode{Name: td.Type}
+		node := TypeNode{Name: td.Type, Relations: []Relation{}}
 
 		// Collect relation names and sort for stable output.
 		names := make([]string, 0, len(td.Relations))
@@ -68,7 +70,7 @@ func ParseModel(m *openfga.AuthorizationModel) Graph {
 		direct := directTypesByRelation(td.Metadata)
 
 		for _, name := range names {
-			rel := Relation{Name: name}
+			rel := Relation{Name: name, Edges: []RelationEdge{}}
 			// Directly assignable types from metadata.
 			for _, dt := range direct[name] {
 				rel.Edges = append(rel.Edges, RelationEdge{Kind: "direct", Label: dt})

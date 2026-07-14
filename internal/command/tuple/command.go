@@ -87,6 +87,9 @@ func (c *Command) writeCmd() *cobra.Command {
 				if err := writeInBatches(cmd.Context(), cl, keys, false); err != nil {
 					return err
 				}
+				if c.cli.JSON {
+					return output.JSON(cmd.OutOrStdout(), map[string]int{"written": len(keys)})
+				}
 				output.Successf(cmd.ErrOrStderr(), "wrote %d tuple(s)", len(keys))
 				return nil
 			}
@@ -109,6 +112,9 @@ func (c *Command) writeCmd() *cobra.Command {
 			req := &openfga.WriteRequest{Writes: &openfga.WriteRequestTuples{TupleKeys: []openfga.TupleKey{key}}}
 			if err := cl.Tuples.Write(cmd.Context(), req); err != nil {
 				return err
+			}
+			if c.cli.JSON {
+				return output.JSON(cmd.OutOrStdout(), map[string]int{"written": 1})
 			}
 			output.Successf(cmd.ErrOrStderr(), "wrote %s", style.Bold.Render(fga.FormatTuple(key)))
 			return nil
@@ -158,6 +164,9 @@ func (c *Command) deleteCmd() *cobra.Command {
 				if err := writeInBatches(cmd.Context(), cl, keys, true); err != nil {
 					return err
 				}
+				if c.cli.JSON {
+					return output.JSON(cmd.OutOrStdout(), map[string]int{"deleted": len(keys)})
+				}
 				output.Successf(cmd.ErrOrStderr(), "deleted %d tuple(s)", len(keys))
 				return nil
 			}
@@ -185,6 +194,9 @@ func (c *Command) deleteCmd() *cobra.Command {
 			if err := cl.Tuples.Write(cmd.Context(), req); err != nil {
 				return err
 			}
+			if c.cli.JSON {
+				return output.JSON(cmd.OutOrStdout(), map[string]int{"deleted": 1})
+			}
 			output.Successf(cmd.ErrOrStderr(), "deleted %s", style.Bold.Render(fga.FormatTuple(key)))
 			return nil
 		},
@@ -202,13 +214,17 @@ func (c *Command) readCmd() *cobra.Command {
 	var (
 		user, relation, object string
 		pageSize               int
+		maxResults             int
 	)
 	cmd := &cobra.Command{
 		Use:   "read",
 		Short: "Read relationship tuples (optionally filtered)",
 		Example: `  ofga tuples read
-  ofga tuples read --object document:roadmap`,
-		Long: "Read tuples from the store. Use --user, --relation and --object to filter; all are optional.",
+  ofga tuples read --object document:roadmap
+  ofga tuples read --max-results 100`,
+		Long: "Read tuples from the store. Use --user, --relation and --object to filter; all are optional. " +
+			"By default all matching tuples are returned (the CLI auto-pages); --max-results (alias --limit) " +
+			"caps the total returned and stops paging once reached. --page-size only tunes the per-request page.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cl, _, err := c.cli.ClientWithStore()
@@ -225,6 +241,9 @@ func (c *Command) readCmd() *cobra.Command {
 					return err
 				}
 				tuples = append(tuples, t)
+				if maxResults > 0 && len(tuples) >= maxResults {
+					break
+				}
 			}
 			if c.cli.JSON {
 				return output.JSON(cmd.OutOrStdout(), tuples)
@@ -251,7 +270,9 @@ func (c *Command) readCmd() *cobra.Command {
 	f.StringVar(&user, "user", "", "filter by user")
 	f.StringVar(&relation, "relation", "", "filter by relation")
 	f.StringVar(&object, "object", "", "filter by object")
-	f.IntVar(&pageSize, "page-size", 50, "page size")
+	f.IntVar(&pageSize, "page-size", 50, "per-request page size (wire knob, not a total cap)")
+	f.IntVar(&maxResults, "max-results", 0, "cap the total number of tuples returned (0 = unbounded)")
+	f.IntVar(&maxResults, "limit", 0, "alias for --max-results")
 	return cmd
 }
 

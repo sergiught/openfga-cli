@@ -2,7 +2,10 @@
 // -ldflags. Defaults are placeholders for `go run`/`go install` builds.
 package version
 
-import "fmt"
+import (
+	"fmt"
+	"runtime/debug"
+)
 
 var (
 	// Version is the semantic version (e.g. v1.2.3), set by goreleaser.
@@ -13,7 +16,20 @@ var (
 	Date = "unknown"
 )
 
+// resolveVersion returns the ldflags-set Version when present, otherwise falls
+// back to the module version embedded by the Go toolchain for `go install`/`go
+// run` builds (e.g. a tagged install reports "v1.2.3", a bare build "(devel)").
+func resolveVersion() string {
+	if Version != "dev" {
+		return Version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" {
+		return info.Main.Version
+	}
+	return Version
+}
+
 // String returns a one-line, human-readable build description.
 func String() string {
-	return fmt.Sprintf("%s (commit %s, built %s)", Version, Commit, Date)
+	return fmt.Sprintf("%s (commit %s, built %s)", resolveVersion(), Commit, Date)
 }

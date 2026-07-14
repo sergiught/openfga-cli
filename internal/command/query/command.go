@@ -5,12 +5,15 @@ package query
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/cli"
+	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/style"
@@ -30,6 +33,14 @@ func New(cli *cli.CLI) *Command {
 		Aliases: []string{"q"},
 		RunE:    cli.GroupRunE,
 		Short:   "Ask authorization questions (check, expand, list)",
+		Long: "Ask authorization questions (check, expand, list).\n\n" +
+			"Positional argument order mirrors the OpenFGA API for each call, so it differs " +
+			"between subcommands:\n" +
+			"  check        <user> <relation> <object>   (user first)\n" +
+			"  list-objects <type> <relation> <user>     (user last)\n" +
+			"  list-users   <object> <relation>          (object first, --type for the user filter)\n" +
+			"  expand       <relation> <object>\n" +
+			"Use the named flags (--user/--relation/--object) where available if the order is easy to mix up.",
 	}
 	c.RegisterSubCommands()
 	return c
@@ -91,7 +102,8 @@ func (c *Command) checkCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			user, relation, object, err := fga.Triple(args, fUser, fRel, fObj)
 			if err != nil {
-				return err
+				// Missing/incomplete arguments are a usage error (exit 2).
+				return clierr.WithCode(clierr.CodeUsage, err)
 			}
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
@@ -145,7 +157,7 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if len(checks) == 0 {
-				return fmt.Errorf("provide at least one --check user,relation,object")
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("provide at least one --check user,relation,object"))
 			}
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
@@ -156,7 +168,7 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 			for i, raw := range checks {
 				parts := strings.Split(raw, ",")
 				if len(parts) != 3 {
-					return fmt.Errorf("--check %q must be user,relation,object", raw)
+					return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--check %q must be user,relation,object", raw))
 				}
 				id := fmt.Sprintf("c%d", i)
 				items = append(items, openfga.BatchCheckItem{
@@ -204,8 +216,12 @@ func (c *Command) expandCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// The userset tree has no meaningful flat rendering; it is always
-			// emitted as JSON, so --json/--plain are intentionally no-ops here.
+			// --plain renders the userset tree as an indented text outline;
+			// otherwise (default and --json) it is emitted as JSON.
+			if output.Plain && !c.cli.JSON {
+				writeTreePlain(cmd.OutOrStdout(), res.Tree, 0)
+				return nil
+			}
 			return output.JSON(cmd.OutOrStdout(), res.Tree)
 		},
 	}
@@ -304,6 +320,35 @@ func (c *Command) listUsersCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&userTypes, "type", nil, "user type filter, optionally type#relation (repeatable)")
 	_ = cmd.MarkFlagRequired("type")
 	return cmd
+}
+
+// writeTreePlain renders an untyped expand tree (map[string]any) as an indented
+// text outline, so `expand --plain` produces a readable tree instead of JSON.
+func writeTreePlain(w io.Writer, v any, indent int) {
+	pad := strings.Repeat("  ", indent)
+	switch val := v.(type) {
+	case map[string]any:
+		keys := make([]string, 0, len(val))
+		for k := range val {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			switch child := val[k].(type) {
+			case map[string]any, []any:
+				fmt.Fprintf(w, "%s%s\n", pad, k)
+				writeTreePlain(w, child, indent+1)
+			default:
+				fmt.Fprintf(w, "%s%s: %v\n", pad, k, child)
+			}
+		}
+	case []any:
+		for _, item := range val {
+			writeTreePlain(w, item, indent)
+		}
+	default:
+		fmt.Fprintf(w, "%s%v\n", pad, val)
+	}
 }
 
 func allowedWord(ok bool) string {

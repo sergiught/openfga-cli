@@ -124,6 +124,9 @@ func (c *Command) writeCmd() *cobra.Command {
 				return err
 			}
 			if dryRun {
+				if c.cli.JSON {
+					return output.JSON(cmd.OutOrStdout(), map[string]any{"dry_run": true, "would_write": len(assertionsList)})
+				}
 				output.Infof(cmd.ErrOrStderr(), "would write %d assertion(s)", len(assertionsList))
 				return nil
 			}
@@ -138,6 +141,9 @@ func (c *Command) writeCmd() *cobra.Command {
 			req := &openfga.WriteAssertionsRequest{Assertions: assertionsList}
 			if err := cl.Assertions.Write(cmd.Context(), id, req, openfga.WithStore(r.StoreID)); err != nil {
 				return err
+			}
+			if c.cli.JSON {
+				return output.JSON(cmd.OutOrStdout(), map[string]int{"written": len(assertionsList)})
 			}
 			output.Successf(cmd.ErrOrStderr(), "wrote %d assertion(s) to model %s", len(assertionsList), id)
 			return nil
