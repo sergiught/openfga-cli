@@ -23,6 +23,10 @@ gofmt -l .              # list unformatted files (should be empty)
 golangci-lint run       # lint (see .golangci.yaml)
 ```
 
+A `Makefile` wraps the common tasks — run `make check` to run `fmt`, `vet`,
+`lint`, and `test` in one go (this is what the PR template asks you to run), and
+`make help` to list every available target.
+
 CI runs the same checks on every pull request.
 
 ### Testing the TUI

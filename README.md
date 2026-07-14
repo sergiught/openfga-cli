@@ -60,7 +60,10 @@ ofga init
 # 2. Create a store and make it active
 ofga stores create demo --use
 
-# 3. Write an authorization model
+# 3. Write an authorization model (a minimal one to copy-paste)
+cat > model.json <<'JSON'
+{"schema_version":"1.1","type_definitions":[{"type":"user"},{"type":"document","relations":{"viewer":{"this":{}}},"metadata":{"relations":{"viewer":{"directly_related_user_types":[{"type":"user"}]}}}}]}
+JSON
 ofga model write --file model.json
 
 # 4. Add a relationship tuple
@@ -140,7 +143,7 @@ Run `ofga` with no arguments to launch the interactive playground. It's a keyboa
 **Highlights**
 
 - 🎨 **Model graph** — the authorization model rendered as a colored tree of types, relations, and inherited (tuple-to-userset) paths.
-- 🔎 **Query + resolution tree** — run `check`/`list-objects`/`list-users` and expand *why* a decision was made.
+- 🔎 **Query + resolution tree** — run `check`/`list-objects`/`list-users`/`list-relations` and expand *why* a decision was made.
 - ✍️ **Inline editing** — add/edit tuples, assertions, and the model DSL, with **inline validation** as you type.
 - 🖱 **Full mouse support** — wheel-scroll the graph and lists, click tabs and list rows, click the footer keycaps as buttons, and click outside a dialog to dismiss it.
 - 🎭 **Themes** — `aurora`, `catppuccin`, `charm`, `dracula`, `gruvbox`, `nord`, `tokyonight`, and a `mono` (NO_COLOR-friendly) theme.
@@ -163,7 +166,7 @@ Run `ofga` with no arguments to launch the interactive playground. It's a keyboa
 | `ofga query` | Ask authorization questions: `check`, `batch-check`, `expand`, `list-objects`, `list-users` |
 | `ofga assertions` | Read, write, and **run** a model's assertion test-suite |
 | `ofga api` | Send a raw request to the OpenFGA API using the active profile's auth |
-| `ofga profiles` | Manage connection profiles (add/list/show/use/set/remove) |
+| `ofga profiles` | Manage connection profiles (add/list/show/current/use/set/remove) |
 | `ofga config` | Inspect configuration (`config path`) |
 | `ofga theme` | Show or set the color theme |
 | `ofga completion` | Generate a shell completion script |
@@ -204,11 +207,17 @@ Values are resolved in increasing order of precedence:
 | --- | --- |
 | `OPENFGA_API_URL` | API URL (alias: `FGA_API_URL`) |
 | `OPENFGA_STORE_ID` | Active store ID (alias: `FGA_STORE_ID`) |
-| `OPENFGA_MODEL_ID` | Authorization model ID (alias: `FGA_AUTHORIZATION_MODEL_ID`) |
+| `OPENFGA_MODEL_ID` | Authorization model ID (aliases: `OPENFGA_AUTHORIZATION_MODEL_ID`, `FGA_MODEL_ID`, `FGA_AUTHORIZATION_MODEL_ID`) |
 | `OPENFGA_API_TOKEN` | API bearer token (alias: `FGA_API_TOKEN`) |
+| `OPENFGA_CLIENT_SECRET` | OAuth2 client secret; applies to a `client_credentials` profile (alias: `FGA_CLIENT_SECRET`) |
+| `OPENFGA_KEY_FILE` | Path to the PEM signing key; applies to a `private_key_jwt` profile (alias: `FGA_KEY_FILE`) |
 | `OPENFGA_PROFILE` | Profile to use (alias: `FGA_PROFILE`) |
-| `OPENFGA_ICONS` | Icon mode: `auto`, `on`, or `off` |
-| `NO_COLOR` / `FORCE_COLOR` | Disable / force colored output |
+| `OPENFGA_CONFIG` | Path to the config file (overridden by the `--config` flag) |
+| `OPENFGA_ICONS` | Icon mode: `nerdfont` (default), `unicode`, or `off` |
+| `OFGA_REDUCED_MOTION` | Suppress TUI animations (alias: `OPENFGA_REDUCED_MOTION`) |
+| `NO_COLOR` | Disable colored output |
+| `CLICOLOR_FORCE` | Force colored output even when piped or redirected |
+| `FORCE_COLOR` | Force colored output even when piped or redirected (equivalent to `CLICOLOR_FORCE`) |
 
 `FGA_*` aliases are accepted for compatibility with the official CLI.
 
@@ -255,10 +264,12 @@ Completion is **dynamic**: `--profile`, `--store`, and `--model` (and the matchi
 
 - `--json` on every read command emits clean, machine-readable JSON (secrets omitted) for `jq`.
 - `--plain` emits unstyled, tab-separated rows for `grep`/`awk`; `query check --plain` prints `allowed`/`denied`.
-- Meaningful **exit codes**: `0` success, `2` usage error, `3` failed `assertions test`, `4` network error.
-- `--dry-run` on every mutation previews the change without applying it.
+- Meaningful **exit codes**: `0` success, `1` generic failure, `2` usage error, `3` failed `assertions test`, `4` network error.
+- `--dry-run` on every server mutation previews the change without applying it.
 - Destructive commands prompt on a TTY and require `--force` when non-interactive, so scripts fail safe.
 - Piped output drops colors and box-drawing automatically.
+
+> **Note:** `ofga tuples read` and `ofga stores list` auto-paginate and return **all** rows by default (`--page-size` only sets the per-request page size, not a total cap). Against a large store that can be a lot of output — pipe through `head`, or `--json | jq`, to bound it.
 
 ```bash
 # Which documents can anne view?
