@@ -209,7 +209,11 @@ Values are resolved in increasing order of precedence:
 | `OPENFGA_STORE_ID` | Active store ID (alias: `FGA_STORE_ID`) |
 | `OPENFGA_MODEL_ID` | Authorization model ID (aliases: `OPENFGA_AUTHORIZATION_MODEL_ID`, `FGA_MODEL_ID`, `FGA_AUTHORIZATION_MODEL_ID`) |
 | `OPENFGA_API_TOKEN` | API bearer token (alias: `FGA_API_TOKEN`) |
-| `OPENFGA_CLIENT_SECRET` | OAuth2 client secret; applies to a `client_credentials` profile (alias: `FGA_CLIENT_SECRET`) |
+| `OPENFGA_CLIENT_ID` | OAuth2 client ID for `client_credentials` (alias: `FGA_CLIENT_ID`) |
+| `OPENFGA_CLIENT_SECRET` | OAuth2 client secret for `client_credentials` (alias: `FGA_CLIENT_SECRET`) |
+| `OPENFGA_TOKEN_URL` | OAuth2 token endpoint for `client_credentials` (alias: `FGA_TOKEN_URL`) |
+| `OPENFGA_API_AUDIENCE` | OAuth2 audience for `client_credentials` (alias: `FGA_API_AUDIENCE`) |
+| `OPENFGA_SCOPES` | OAuth2 scopes for `client_credentials` (alias: `FGA_SCOPES`) |
 | `OPENFGA_KEY_FILE` | Path to the PEM signing key; applies to a `private_key_jwt` profile (alias: `FGA_KEY_FILE`) |
 | `OPENFGA_PROFILE` | Profile to use (alias: `FGA_PROFILE`) |
 | `OPENFGA_CONFIG` | Path to the config file (overridden by the `--config` flag) |
@@ -269,7 +273,7 @@ Completion is **dynamic**: `--profile`, `--store`, and `--model` (and the matchi
 - Destructive commands prompt on a TTY and require `--force` when non-interactive, so scripts fail safe.
 - Piped output drops colors and box-drawing automatically.
 
-> **Note:** `ofga tuples read` and `ofga stores list` auto-paginate and return **all** rows by default (`--page-size` only sets the per-request page size, not a total cap). Against a large store that can be a lot of output — pipe through `head`, or `--json | jq`, to bound it.
+> **Note:** `ofga tuples read` and `ofga stores list` auto-paginate and return **all** rows by default (`--page-size` only sets the per-request page size, not a total cap). Against a large store that can be a lot of output — cap it with `--max-results` (alias `--limit`), or pipe through `head` or `--json | jq`.
 
 ```bash
 # Which documents can anne view?
