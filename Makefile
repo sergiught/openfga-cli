@@ -36,6 +36,10 @@ $(BINARIES_DIR)/govulncheck:
 	@echo "==> Installing govulncheck into $(BINARIES_DIR)"
 	@GOBIN=$(BINARIES_DIR) go install golang.org/x/vuln/cmd/govulncheck@latest
 
+$(BINARIES_DIR)/commitlint:
+	@echo "==> Installing commitlint into $(BINARIES_DIR)"
+	@GOBIN=$(BINARIES_DIR) go install github.com/conventionalcommit/commitlint@e9a606ce7074ac884ea091765be1651be18356d4 # v0.10.1
+
 #-----------------------------------------------------------------------------------------------------------------------
 # Build & run
 #-----------------------------------------------------------------------------------------------------------------------
@@ -86,6 +90,10 @@ lint: $(BINARIES_DIR)/golangci-lint ## Run golangci-lint
 .PHONY: vuln
 vuln: $(BINARIES_DIR)/govulncheck ## Scan for known Go vulnerabilities
 	@$(BINARIES_DIR)/govulncheck ./...
+
+.PHONY: lint-commits
+lint-commits: $(BINARIES_DIR)/commitlint ## Lint the current commit message against commitlint.yaml
+	@$(BINARIES_DIR)/commitlint lint
 
 .PHONY: check
 check: fmt vet lint test ## Run fmt, vet, lint and test

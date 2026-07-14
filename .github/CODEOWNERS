@@ -1,0 +1,14 @@
+# Code owners — auto-requested review on matching paths.
+# Later, more specific patterns win over earlier ones.
+
+# Default owner for everything in the repo.
+* @sergiught
+
+# CLI entrypoint and commands.
+/cmd/ @sergiught
+
+# Core packages (client, TUI, config).
+/internal/ @sergiught
+
+# CI, workflows and repo automation.
+/.github/ @sergiught
