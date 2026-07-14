@@ -98,7 +98,7 @@ dockers:
     goarch: amd64
     dockerfile: Dockerfile.release
     image_templates:
-      - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-amd64'
+      - 'ghcr.io/sergiught/ofga:{{ .Version }}-amd64'
     build_flag_templates:
       - '--platform=linux/amd64'
       - '--label=org.opencontainers.image.title={{ .ProjectName }}'
@@ -117,7 +117,7 @@ dockers:
     goarch: arm64
     dockerfile: Dockerfile.release
     image_templates:
-      - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-arm64'
+      - 'ghcr.io/sergiught/ofga:{{ .Version }}-arm64'
     build_flag_templates:
       - '--platform=linux/arm64'
       - '--label=org.opencontainers.image.title={{ .ProjectName }}'
@@ -132,14 +132,14 @@ dockers:
       - LICENSE
 
 docker_manifests:
-  - name_template: 'ghcr.io/sergiught/openfga-cli:{{ .Version }}'
+  - name_template: 'ghcr.io/sergiught/ofga:{{ .Version }}'
     image_templates:
-      - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-amd64'
-      - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-arm64'
-  - name_template: 'ghcr.io/sergiught/openfga-cli:latest'
+      - 'ghcr.io/sergiught/ofga:{{ .Version }}-amd64'
+      - 'ghcr.io/sergiught/ofga:{{ .Version }}-arm64'
+  - name_template: 'ghcr.io/sergiught/ofga:latest'
     image_templates:
-      - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-amd64'
-      - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-arm64'
+      - 'ghcr.io/sergiught/ofga:{{ .Version }}-amd64'
+      - 'ghcr.io/sergiught/ofga:{{ .Version }}-arm64'
 
 snapshot:
   version_template: '{{ incpatch .Version }}-next'

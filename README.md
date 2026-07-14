@@ -15,7 +15,7 @@ Manage stores, authorization models, relationship tuples, and run checks from yo
 [![Go Report Card](https://goreportcard.com/badge/github.com/sergiught/openfga-cli)](https://goreportcard.com/report/github.com/sergiught/openfga-cli)
 [![Release](https://img.shields.io/github/v/release/sergiught/openfga-cli?sort=semver)](https://github.com/sergiught/openfga-cli/releases)
 [![Go version](https://img.shields.io/github/go-mod/go-version/sergiught/openfga-cli)](go.mod)
-[![GHCR](https://img.shields.io/badge/ghcr.io-openfga--cli-2496ed?logo=docker&logoColor=white)](https://github.com/sergiught/openfga-cli/pkgs/container/openfga-cli)
+[![GHCR](https://img.shields.io/badge/ghcr.io-ofga-2496ed?logo=docker&logoColor=white)](https://github.com/sergiught/openfga-cli/pkgs/container/ofga)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-fa6673.svg)](https://www.conventionalcommits.org)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -113,7 +113,7 @@ curl -sSfL https://github.com/sergiught/openfga-cli/releases/latest/download/ofg
 ### Docker
 
 ```bash
-docker run --rm -it --network host ghcr.io/sergiught/openfga-cli:latest stores list
+docker run --rm -it --network host ghcr.io/sergiught/ofga:latest stores list
 ```
 
 ### From source
