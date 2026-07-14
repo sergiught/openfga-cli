@@ -339,12 +339,14 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			if m.apiLogSel > 0 {
 				m.apiLogSel--
 				m.refreshAPILogVP()
+				m.apiLogVP.GotoTop()
 			}
 			return m, nil
 		case "down", "j":
 			if m.apiLogSel < len(entries)-1 {
 				m.apiLogSel++
 				m.refreshAPILogVP()
+				m.apiLogVP.GotoTop()
 			}
 			return m, nil
 		case "pgup", "pgdown", "b", "f", " ":
@@ -354,6 +356,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 		case "c":
 			m.apiLogPretty = !m.apiLogPretty
 			m.refreshAPILogVP()
+			m.apiLogVP.GotoTop()
 			if m.apiLogPretty {
 				m.status = "readable bodies"
 			} else {
@@ -364,6 +367,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			m.recorder.Clear()
 			m.apiLogSel = 0
 			m.refreshAPILogVP()
+			m.apiLogVP.GotoTop()
 			m.status = "cleared API logs"
 			return m, nil
 		}

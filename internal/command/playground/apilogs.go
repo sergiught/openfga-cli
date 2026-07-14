@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/viewport"
+	lipgloss "charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sergiught/openfga-cli/internal/apilog"
 	"github.com/sergiught/openfga-cli/internal/style"
@@ -43,15 +45,26 @@ func (m Model) apiLogsBody() string {
 	if sel < 0 {
 		sel = 0
 	}
-	list := m.apiLogList(entries, sel, h)
+	list := m.apiLogList(entries, sel, splitListWidth(w), h)
 	e := entries[len(entries)-1-sel]
 	title := e.Method + " " + e.URL
 	return masterDetail(list, title, m.apiLogVP.View(), w, h)
 }
 
+// apiLogRowSelected marks the current row with a thick left bar (mirroring the
+// list component's selection treatment); apiLogRowNormal indents other rows to
+// match, so the columns stay aligned whether or not a row is selected.
+var (
+	apiLogRowSelected = lipgloss.NewStyle().
+				Border(lipgloss.ThickBorder(), false, false, false, true).
+				BorderForeground(style.Secondary).
+				Padding(0, 0, 0, 1)
+	apiLogRowNormal = lipgloss.NewStyle().Padding(0, 0, 0, 2)
+)
+
 // apiLogList renders compact request rows, newest first, windowed to fit h
-// lines around the current selection.
-func (m Model) apiLogList(entries []apilog.Entry, sel, h int) string {
+// lines around the current selection. width is the list pane width.
+func (m Model) apiLogList(entries []apilog.Entry, sel, width, h int) string {
 	if h < 1 {
 		h = 1
 	}
@@ -70,32 +83,54 @@ func (m Model) apiLogList(entries []apilog.Entry, sel, h int) string {
 	if end > n {
 		end = n
 	}
+	// Both row styles spend 2 columns on the bar/padding, so lay out the row
+	// content in the remaining width.
+	cw := width - 2
+	if cw < 1 {
+		cw = 1
+	}
 	var b strings.Builder
 	for i := start; i < end; i++ {
-		row := apiLogRow(entries[n-1-i])
+		row := apiLogRow(entries[n-1-i], cw)
 		if i == sel {
-			b.WriteString(style.Bold.Render("▸ ") + row)
+			b.WriteString(apiLogRowSelected.Render(row))
 		} else {
-			b.WriteString("  " + row)
+			b.WriteString(apiLogRowNormal.Render(row))
 		}
 		b.WriteByte('\n')
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// apiLogRow renders a single-line summary of a request: time, method, path,
-// status, latency, and retry count.
-func apiLogRow(e apilog.Entry) string {
+// apiLogRow renders one compact row within width: a faint timestamp with the
+// method and (truncated) path on the left, and the status plus latency
+// right-aligned so the columns line up down the list.
+func apiLogRow(e apilog.Entry, width int) string {
 	path := e.URL
 	if u, err := url.Parse(e.URL); err == nil && u.Path != "" {
 		path = u.Path
 	}
-	attempts := ""
+	lat := fmt.Sprintf("%dms", e.Elapsed.Milliseconds())
 	if e.Attempt > 1 {
-		attempts = fmt.Sprintf(" (%d attempts)", e.Attempt)
+		lat += fmt.Sprintf("×%d", e.Attempt)
 	}
-	return fmt.Sprintf("%s %s %s %s %dms%s",
-		e.Time.Format("15:04:05"), e.Method, path, statusLabel(e), e.Elapsed.Milliseconds(), attempts)
+	// Right-align the latency in a fixed field so the status codes (always 3
+	// columns) and latencies line up as columns down the list.
+	if pad := 8 - len(lat); pad > 0 {
+		lat = strings.Repeat(" ", pad) + lat
+	}
+	right := statusLabel(e) + " " + style.Faint.Render(lat)
+	left := style.Faint.Render(e.Time.Format("15:04:05")) + " " + e.Method + " " + path
+
+	avail := width - lipgloss.Width(right) - 1
+	if avail < 1 {
+		avail = 1
+	}
+	left = ansi.Truncate(left, avail, "…")
+	if pad := avail - lipgloss.Width(left); pad > 0 {
+		left += strings.Repeat(" ", pad)
+	}
+	return left + " " + right
 }
 
 // statusLabel colors status code by class, or shows ERR on transport error.
@@ -132,9 +167,9 @@ func apiLogDetail(e apilog.Entry, pretty bool) string {
 	}
 	b.WriteString(style.Faint.Render(meta) + "\n\n")
 
-	b.WriteString(style.Bold.Render("Request headers") + "\n" + renderHeaders(e.ReqHeaders) + "\n")
+	b.WriteString(style.Bold.Render("Request headers") + "\n" + renderHeaders(e.ReqHeaders) + "\n\n")
 	b.WriteString(style.Bold.Render("Request body") + "\n" + renderBody(e.ReqBody, pretty) + "\n\n")
-	b.WriteString(style.Bold.Render("Response headers") + "\n" + renderHeaders(e.RespHeaders) + "\n")
+	b.WriteString(style.Bold.Render("Response headers") + "\n" + renderHeaders(e.RespHeaders) + "\n\n")
 	b.WriteString(style.Bold.Render("Response body") + "\n" + renderBody(e.RespBody, pretty))
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -210,5 +245,8 @@ func (m *Model) refreshAPILogVP() {
 	}
 	e := entries[len(entries)-1-m.apiLogSel] // newest-first index
 	m.apiLogVP.SetContent(apiLogDetail(e, m.apiLogPretty))
-	m.apiLogVP.GotoTop()
+	// Scroll position is preserved here so an incidental re-render (a new
+	// request captured while reading, or a terminal resize) doesn't snap the
+	// detail back to the top. Callers that change the selected entry reset it
+	// to the top explicitly via GotoTop.
 }

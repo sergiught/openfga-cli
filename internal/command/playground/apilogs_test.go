@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sergiught/openfga-cli/internal/apilog"
 	"github.com/sergiught/openfga-cli/internal/ui/shell"
@@ -83,6 +84,24 @@ func TestAPILogDetailToggleCompact(t *testing.T) {
 	raw := apiLogDetail(e, false)
 	if !strings.Contains(raw, `{"allowed":true}`) {
 		t.Fatalf("raw output should keep compact JSON:\n%s", raw)
+	}
+}
+
+func TestAPILogDetailHasBlankLineBeforeBodySections(t *testing.T) {
+	detail := ansi.Strip(apiLogDetail(sampleEntry(), true))
+	for _, want := range []string{"\n\nRequest body", "\n\nResponse body"} {
+		if !strings.Contains(detail, want) {
+			t.Fatalf("expected a blank line before %q:\n%s", strings.TrimSpace(want), detail)
+		}
+	}
+}
+
+func TestAPILogsBodyMarksSelectedRow(t *testing.T) {
+	// The selected row carries a thick left bar (lipgloss ThickBorder) so it is
+	// unambiguous which entry is selected.
+	m := apiLogModel(sampleEntry(), sampleEntry())
+	if body := m.apiLogsBody(); !strings.Contains(body, "┃") {
+		t.Fatalf("expected the selected row to be marked with a bar:\n%s", body)
 	}
 }
 

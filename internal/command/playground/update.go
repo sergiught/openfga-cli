@@ -822,6 +822,7 @@ func (m Model) onEnterSection() (tea.Model, tea.Cmd) {
 	case secAPILogs:
 		m.apiLogSel = 0
 		m.refreshAPILogVP()
+		m.apiLogVP.GotoTop()
 		return m, nil
 	}
 	return m, nil

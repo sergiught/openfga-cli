@@ -444,6 +444,12 @@ func (m *Model) resize() {
 		m.resVP.SetWidth(w)
 		m.resVP.SetHeight(rh)
 	}
+	// API Logs detail viewport follows the same list/detail split; resize it
+	// (preserving scroll) so the response body stays scrollable after a
+	// terminal resize.
+	if m.apiLogVPInit {
+		m.refreshAPILogVP()
+	}
 	// Preserve any in-progress query input across the rebuild: WindowSizeMsg can
 	// arrive mid-typing and async loads (assertions, etc.) also call resize().
 	// The mode/context is unchanged here, so the fields line up 1:1.
