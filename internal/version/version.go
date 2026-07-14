@@ -29,6 +29,13 @@ func resolveVersion() string {
 	return Version
 }
 
+// Resolved returns the version string, preferring the ldflags-set value and
+// falling back to the module version for `go install`/`go run` builds. Use it
+// wherever the version is reported (banner, `--json`) so every surface agrees.
+func Resolved() string {
+	return resolveVersion()
+}
+
 // String returns a one-line, human-readable build description.
 func String() string {
 	return fmt.Sprintf("%s (commit %s, built %s)", resolveVersion(), Commit, Date)

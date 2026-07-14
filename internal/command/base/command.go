@@ -259,7 +259,7 @@ func (c *Command) versionCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if c.cli.JSON {
 				return output.JSON(cmd.OutOrStdout(), map[string]string{
-					"version": version.Version,
+					"version": version.Resolved(),
 					"commit":  version.Commit,
 					"built":   version.Date,
 				})
