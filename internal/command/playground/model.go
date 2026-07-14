@@ -112,11 +112,12 @@ type Model struct {
 	client *openfga.Client
 	ctx    context.Context
 
-	recorder     *apilog.Recorder
-	apiLogSel    int  // selection index into Snapshot, 0 = newest (top)
-	apiLogPretty bool // pretty-print JSON bodies in the detail pane
-	apiLogVP     viewport.Model
-	apiLogVPInit bool
+	recorder      *apilog.Recorder
+	apiLogSel     int  // selection index into Snapshot, 0 = newest (top)
+	apiLogHScroll int  // horizontal scroll offset for the selected row's URL
+	apiLogPretty  bool // pretty-print JSON bodies in the detail pane
+	apiLogVP      viewport.Model
+	apiLogVPInit  bool
 
 	width, height int
 	ready         bool

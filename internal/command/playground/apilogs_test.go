@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sergiught/openfga-cli/internal/apilog"
+	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/shell"
 )
 
@@ -102,6 +103,73 @@ func TestAPILogsBodyMarksSelectedRow(t *testing.T) {
 	m := apiLogModel(sampleEntry(), sampleEntry())
 	if body := m.apiLogsBody(); !strings.Contains(body, "┃") {
 		t.Fatalf("expected the selected row to be marked with a bar:\n%s", body)
+	}
+}
+
+func TestStatusStyleByClass(t *testing.T) {
+	if statusStyle(200).Render("x") != style.Success.Render("x") {
+		t.Error("2xx should use the Success (green) style")
+	}
+	if statusStyle(301).Render("x") != style.Success.Render("x") {
+		t.Error("3xx should use the Success style")
+	}
+	if statusStyle(404).Render("x") != style.Warn.Render("x") {
+		t.Error("4xx should use the Warn style")
+	}
+	if statusStyle(500).Render("x") != style.Failure.Render("x") {
+		t.Error("5xx should use the Failure style")
+	}
+}
+
+func TestAPILogDetailStatusLine(t *testing.T) {
+	// The status label is bold and the status text is present and color-coded
+	// (green for 2xx) — assert the structure on the ANSI-stripped output.
+	detail := ansi.Strip(apiLogDetail(sampleEntry(), true))
+	if !strings.Contains(detail, "Status: 200 OK") {
+		t.Fatalf("expected a 'Status: 200 OK' line:\n%s", detail)
+	}
+}
+
+func TestAPILogRightArrowScrollsSelectedURL(t *testing.T) {
+	sh := shell.New()
+	sh.SetSize(80, 20)
+	rec := apilog.NewRecorder(apiLogHistory)
+	rec.Add(apilog.Entry{
+		Method: "POST", Status: 200, StatusText: "200 OK",
+		URL: "https://api.example.com/stores/01/a/very/long/path/that/is/truncated/in/the/list/check",
+	})
+	m := Model{sh: sh, recorder: rec, apiLogPretty: true, section: secAPILogs}
+	m.refreshAPILogVP()
+
+	before := ansi.Strip(m.apiLogList(rec.Snapshot(), 0, 50, 3))
+	m = pressAPILog(m, "right")
+	if m.apiLogHScroll == 0 {
+		t.Fatal("right arrow should increase the horizontal scroll offset")
+	}
+	if after := ansi.Strip(m.apiLogList(rec.Snapshot(), 0, 50, 3)); after == before {
+		t.Fatalf("the selected URL should shift on horizontal scroll:\n%q\n%q", before, after)
+	}
+	// left arrow clamps at 0.
+	m = pressAPILog(m, "left")
+	m = pressAPILog(m, "left")
+	if m.apiLogHScroll != 0 {
+		t.Fatalf("left arrow should clamp the offset at 0, got %d", m.apiLogHScroll)
+	}
+}
+
+func TestAPILogPageDownScrollsDetail(t *testing.T) {
+	sh := shell.New()
+	sh.SetSize(80, 8) // small height so the detail overflows the viewport
+	rec := apilog.NewRecorder(apiLogHistory)
+	rec.Add(sampleEntry())
+	m := Model{sh: sh, recorder: rec, apiLogPretty: true, section: secAPILogs}
+	m.refreshAPILogVP()
+	if m.apiLogVP.TotalLineCount() <= m.apiLogVP.Height() {
+		t.Skip("detail fits in the viewport; nothing to scroll")
+	}
+	m = pressAPILog(m, "pgdown")
+	if m.apiLogVP.YOffset() == 0 {
+		t.Fatal("pgdown should scroll the detail viewport")
 	}
 }
 

@@ -20,9 +20,33 @@ import (
 // apiLogHistory caps how many requests the API Logs view retains per session.
 const apiLogHistory = 200
 
+// apiLogHStep is how many columns ←/→ shift the selected row's URL per press.
+const apiLogHStep = 6
+
 // apiLogMsg is sent (via Recorder.SetNotify -> program.Send) whenever a new
 // request is captured, so the API Logs view re-renders.
 type apiLogMsg struct{}
+
+// selectedAPILogPathLen returns the rune length of the selected entry's URL
+// path, used to clamp horizontal scrolling so it can't run past the URL's end.
+func (m Model) selectedAPILogPathLen(entries []apilog.Entry) int {
+	if len(entries) == 0 {
+		return 0
+	}
+	sel := m.apiLogSel
+	if sel < 0 {
+		sel = 0
+	}
+	if sel > len(entries)-1 {
+		sel = len(entries) - 1
+	}
+	e := entries[len(entries)-1-sel]
+	path := e.URL
+	if u, err := url.Parse(e.URL); err == nil && u.Path != "" {
+		path = u.Path
+	}
+	return len([]rune(path))
+}
 
 // apiLogsBody renders the API Logs section: a master list of requests
 // (newest first) alongside a detail pane for the current selection.
@@ -91,7 +115,13 @@ func (m Model) apiLogList(entries []apilog.Entry, sel, width, h int) string {
 	}
 	var b strings.Builder
 	for i := start; i < end; i++ {
-		row := apiLogRow(entries[n-1-i], cw)
+		// Only the selected row scrolls horizontally, so other rows stay
+		// anchored at the start of their path and remain readable.
+		hs := 0
+		if i == sel {
+			hs = m.apiLogHScroll
+		}
+		row := apiLogRow(entries[n-1-i], cw, hs)
 		if i == sel {
 			b.WriteString(apiLogRowSelected.Render(row))
 		} else {
@@ -102,10 +132,11 @@ func (m Model) apiLogList(entries []apilog.Entry, sel, width, h int) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// apiLogRow renders one compact row within width: a faint timestamp with the
-// method and (truncated) path on the left, and the status plus latency
-// right-aligned so the columns line up down the list.
-func apiLogRow(e apilog.Entry, width int) string {
+// apiLogRow renders one compact row within width: a faint timestamp and method
+// on the left, then the request path, then the status and latency right-aligned
+// so the columns line up down the list. hscroll shifts the path left so a long
+// URL can be read in full with the ←/→ keys.
+func apiLogRow(e apilog.Entry, width, hscroll int) string {
 	path := e.URL
 	if u, err := url.Parse(e.URL); err == nil && u.Path != "" {
 		path = u.Path
@@ -120,32 +151,49 @@ func apiLogRow(e apilog.Entry, width int) string {
 		lat = strings.Repeat(" ", pad) + lat
 	}
 	right := statusLabel(e) + " " + style.Faint.Render(lat)
-	left := style.Faint.Render(e.Time.Format("15:04:05")) + " " + e.Method + " " + path
+	prefix := style.Faint.Render(e.Time.Format("15:04:05")) + " " + e.Method + " "
 
 	avail := width - lipgloss.Width(right) - 1
 	if avail < 1 {
 		avail = 1
 	}
-	left = ansi.Truncate(left, avail, "…")
-	if pad := avail - lipgloss.Width(left); pad > 0 {
-		left += strings.Repeat(" ", pad)
+	pathW := avail - lipgloss.Width(prefix)
+	if pathW < 1 {
+		pathW = 1
 	}
-	return left + " " + right
+	pr := []rune(path)
+	if hscroll > len(pr) {
+		hscroll = len(pr)
+	}
+	if hscroll > 0 {
+		pr = pr[hscroll:]
+	}
+	shown := ansi.Truncate(string(pr), pathW, "…")
+	if pad := pathW - lipgloss.Width(shown); pad > 0 {
+		shown += strings.Repeat(" ", pad)
+	}
+	return prefix + shown + " " + right
 }
 
-// statusLabel colors status code by class, or shows ERR on transport error.
+// statusLabel colors the status code by class, or shows ERR on a transport
+// error.
 func statusLabel(e apilog.Entry) string {
 	if e.Err != "" {
 		return style.Failure.Render("ERR")
 	}
-	s := fmt.Sprintf("%d", e.Status)
+	return statusStyle(e.Status).Render(fmt.Sprintf("%d", e.Status))
+}
+
+// statusStyle returns the color treatment for an HTTP status class: green for
+// 2xx/3xx, amber for 4xx, red for 5xx.
+func statusStyle(status int) lipgloss.Style {
 	switch {
-	case e.Status >= 500:
-		return style.Failure.Render(s)
-	case e.Status >= 400:
-		return style.Warn.Render(s)
+	case status >= 500:
+		return style.Failure
+	case status >= 400:
+		return style.Warn
 	default:
-		return style.Success.Render(s)
+		return style.Success
 	}
 }
 
@@ -158,14 +206,19 @@ func apiLogDetail(e apilog.Entry, pretty bool) string {
 		b.WriteString(style.Failure.Render("transport error: "+e.Err) + "\n")
 		return strings.TrimRight(b.String(), "\n")
 	}
-	meta := fmt.Sprintf("Status: %s  %dms", e.StatusText, e.Elapsed.Milliseconds())
+	timing := fmt.Sprintf("%dms", e.Elapsed.Milliseconds())
 	if e.ServerQueryDuration != "" {
-		meta += "  server " + e.ServerQueryDuration + "ms"
+		timing += "  server " + e.ServerQueryDuration + "ms"
 	}
 	if e.RequestID != "" {
-		meta += "  req-id " + e.RequestID
+		timing += "  req-id " + e.RequestID
 	}
-	b.WriteString(style.Faint.Render(meta) + "\n\n")
+	statusText := e.StatusText
+	if statusText == "" {
+		statusText = fmt.Sprintf("%d", e.Status)
+	}
+	b.WriteString(style.Bold.Render("Status:") + " " +
+		statusStyle(e.Status).Render(statusText) + "  " + style.Faint.Render(timing) + "\n\n")
 
 	b.WriteString(style.Bold.Render("Request headers") + "\n" + renderHeaders(e.ReqHeaders) + "\n\n")
 	b.WriteString(style.Bold.Render("Request body") + "\n" + renderBody(e.ReqBody, pretty) + "\n\n")

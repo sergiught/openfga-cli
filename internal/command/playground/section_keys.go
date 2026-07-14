@@ -338,6 +338,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 		case "up", "k":
 			if m.apiLogSel > 0 {
 				m.apiLogSel--
+				m.apiLogHScroll = 0
 				m.refreshAPILogVP()
 				m.apiLogVP.GotoTop()
 			}
@@ -345,14 +346,36 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 		case "down", "j":
 			if m.apiLogSel < len(entries)-1 {
 				m.apiLogSel++
+				m.apiLogHScroll = 0
 				m.refreshAPILogVP()
 				m.apiLogVP.GotoTop()
 			}
 			return m, nil
-		case "pgup", "pgdown", "b", "f", " ":
-			var cmd tea.Cmd
-			m.apiLogVP, cmd = m.apiLogVP.Update(msg)
-			return m, cmd
+		case "left", "h":
+			// Scroll the selected row's URL left so the start comes back.
+			m.apiLogHScroll -= apiLogHStep
+			if m.apiLogHScroll < 0 {
+				m.apiLogHScroll = 0
+			}
+			return m, nil
+		case "right", "l":
+			// Scroll the selected row's URL right to read a long path in full.
+			if pathLen := m.selectedAPILogPathLen(entries); m.apiLogHScroll+apiLogHStep <= pathLen {
+				m.apiLogHScroll += apiLogHStep
+			}
+			return m, nil
+		case "pgdown", "f", " ":
+			m.apiLogVP.PageDown()
+			return m, nil
+		case "pgup", "b":
+			m.apiLogVP.PageUp()
+			return m, nil
+		case "d":
+			m.apiLogVP.HalfPageDown()
+			return m, nil
+		case "u":
+			m.apiLogVP.HalfPageUp()
+			return m, nil
 		case "c":
 			m.apiLogPretty = !m.apiLogPretty
 			m.refreshAPILogVP()
@@ -366,6 +389,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 		case "x":
 			m.recorder.Clear()
 			m.apiLogSel = 0
+			m.apiLogHScroll = 0
 			m.refreshAPILogVP()
 			m.apiLogVP.GotoTop()
 			m.status = "cleared API logs"
