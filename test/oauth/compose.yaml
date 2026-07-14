@@ -1,0 +1,44 @@
+# Local OpenFGA + auth0-mock for exercising the CLI's OAuth flows
+# (client_credentials / private_key_jwt) and the playground's API Logs tab.
+#
+#   cd test/oauth && docker compose up -d
+#
+# OpenFGA runs in `oidc` mode and validates the JWTs that auth0-mock mints, so a
+# successful call proves the whole client_credentials flow end to end. To skip
+# validation (e.g. to only look at the API Logs redaction), comment out the
+# OPENFGA_AUTHN_* env below and OpenFGA falls back to no auth.
+#
+# Issuer note: auth0-mock stamps the token `iss` (and its discovery/JWKS URLs)
+# from ISSUER_URL, independent of the request host. We set it to
+# host.docker.internal:3000 so OpenFGA (in the container network) and your CLI
+# (on the host) agree on the issuer while reaching the same server — OpenFGA via
+# the host gateway, the CLI via localhost:3000.
+
+services:
+  openfga:
+    image: openfga/openfga:latest
+    command: run
+    ports:
+      - "8080:8080" # HTTP API the CLI talks to
+    environment:
+      OPENFGA_AUTHN_METHOD: oidc
+      OPENFGA_AUTHN_OIDC_ISSUER: http://host.docker.internal:3000/
+      OPENFGA_AUTHN_OIDC_AUDIENCE: https://api.openfga.local/
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # Linux: reach the host's published ports
+    depends_on:
+      - auth0-mock
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=:8081"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  auth0-mock:
+    image: ghcr.io/sergiught/auth0-mock:latest
+    ports:
+      - "3000:8080" # token / JWKS / discovery on http://localhost:3000
+    environment:
+      HTTP_ADDR: 0.0.0.0:8080
+      ISSUER_URL: http://host.docker.internal:3000/
+      DEFAULT_AUDIENCE: https://api.openfga.local/

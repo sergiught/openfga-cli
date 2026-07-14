@@ -107,6 +107,17 @@ release-snapshot: ## Build a full release locally without publishing (needs gore
 	@goreleaser release --snapshot --clean --skip=publish,sign
 
 #-----------------------------------------------------------------------------------------------------------------------
+# Demo stack (local OpenFGA + auth0-mock, seeded)
+#-----------------------------------------------------------------------------------------------------------------------
+.PHONY: demo
+demo: ## Bootstrap a seeded OpenFGA + auth0-mock demo stack (see test/oauth)
+	@$(MAKE) -C test/oauth demo
+
+.PHONY: demo-down
+demo-down: ## Tear down the demo stack
+	@$(MAKE) -C test/oauth down
+
+#-----------------------------------------------------------------------------------------------------------------------
 # Clean
 #-----------------------------------------------------------------------------------------------------------------------
 .PHONY: clean
