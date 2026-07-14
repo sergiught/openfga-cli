@@ -88,7 +88,7 @@ func (m Model) helpBody() string {
 	global := [][2]string{
 		{"tab / ↑↓", "move between tabs (from the tab bar)"},
 		{"↵ / esc", "enter the panel / return to the tabs"},
-		{"1–7", "jump to a section (1–5 rerun history in Tuple Queries)"},
+		{"1–8", "jump to a section (1–5 rerun history in Tuple Queries)"},
 		{"ctrl+k", "command palette"},
 		{"?", "toggle this help"},
 		{"q", "quit (from the tab bar)"},
@@ -310,6 +310,8 @@ func (m Model) sectionBody() string {
 		body = m.queryBody()
 	case secAssertions:
 		body = m.assertionsBody()
+	case secAPILogs:
+		body = m.apiLogsBody()
 	}
 	if m.fading {
 		return style.Faint.Render(ansi.Strip(body))
@@ -819,7 +821,7 @@ func (m Model) statusKeys() []string {
 	}
 	// Sidebar (tab selection) focus: browse tabs, enter to descend.
 	if m.focus == shell.FocusSidebar {
-		return []string{"↑↓/tab", "↵ open", "1-7 jump", "ctrl+k palette", "q quit"}
+		return []string{"↑↓/tab", "↵ open", "1-8 jump", "ctrl+k palette", "q quit"}
 	}
 	// Panel focus: section-specific keys, esc back to the tabs.
 	switch m.section {
