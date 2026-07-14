@@ -120,6 +120,13 @@ ofga api GET /stores`,
 	if os.Getenv("NO_COLOR") != "" && os.Getenv("FORCE_COLOR") == "" {
 		c.outW.Profile = colorprofile.NoTTY
 		c.errW.Profile = colorprofile.NoTTY
+	} else if forceColor() {
+		// FORCE_COLOR (documented in the banner) must force color even through a
+		// pipe, matching CLICOLOR_FORCE. colorprofile's writers only honor
+		// CLICOLOR_FORCE, so upgrade the profile here so `--help` (which
+		// short-circuits before PersistentPreRunE) is colored too.
+		c.outW.Profile = colorprofile.TrueColor
+		c.errW.Profile = colorprofile.TrueColor
 	}
 
 	pf := c.cmd.PersistentFlags()
@@ -158,6 +165,12 @@ ofga api GET /stores`,
 func (c *Command) resolveOutput() error {
 	switch c.cli.Output {
 	case "":
+		// With no authoritative -o, the --json/--plain booleans stand as parsed.
+		// Passing both is contradictory, so reject it rather than silently
+		// letting one win.
+		if c.cli.JSON && c.cli.Plain {
+			return fmt.Errorf("cannot use --json and --plain together; pick one (or use -o json|plain|table)")
+		}
 		return nil
 	case "json":
 		c.cli.JSON, c.cli.Plain = true, false
@@ -189,7 +202,7 @@ func (c *Command) applyEnvironment() {
 
 	noColor := a.NoColor ||
 		os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb"
-	force := os.Getenv("FORCE_COLOR") != ""
+	force := forceColor()
 
 	if noColor && !force {
 		style.Apply(theme.Mono())
@@ -201,6 +214,12 @@ func (c *Command) applyEnvironment() {
 		c.errW.Profile = colorprofile.NoTTY
 		return
 	}
+	if force {
+		// Force full-color output even when writing to a pipe (colorprofile
+		// would otherwise downgrade a non-TTY to NoTTY).
+		c.outW.Profile = colorprofile.TrueColor
+		c.errW.Profile = colorprofile.TrueColor
+	}
 
 	name := a.Config.Theme
 	if a.ThemeName != "" {
@@ -210,6 +229,11 @@ func (c *Command) applyEnvironment() {
 		style.Apply(theme.Default())
 	}
 }
+
+// forceColor reports whether color should be forced on regardless of TTY
+// detection. CLICOLOR_FORCE is honored by colorprofile's writers directly; this
+// covers the documented FORCE_COLOR variable, which they ignore.
+func forceColor() bool { return os.Getenv("FORCE_COLOR") != "" }
 
 // Command returns the root cobra command.
 func (c *Command) Command() *cobra.Command { return c.cmd }
@@ -224,14 +248,22 @@ func (c *Command) ErrWriter() *colorprofile.Writer { return c.errW }
 // the failure was a bad invocation and main exits with CodeUsage.
 func (c *Command) RanCommand() bool { return c.ranCommand }
 
-// versionCmd prints the full build info (version, commit, date).
-func versionCmd() *cobra.Command {
+// versionCmd prints the full build info (version, commit, date). Under --json
+// it emits a machine-readable object so scripts can parse the build.
+func (c *Command) versionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "version",
 		Short:   "Print version and build information",
 		Args:    cobra.NoArgs,
 		Example: "  ofga version",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if c.cli.JSON {
+				return output.JSON(cmd.OutOrStdout(), map[string]string{
+					"version": version.Version,
+					"commit":  version.Commit,
+					"built":   version.Date,
+				})
+			}
 			fmt.Fprintln(cmd.OutOrStdout(), "ofga "+version.String())
 			return nil
 		},
@@ -251,7 +283,7 @@ func (c *Command) RegisterSubCommands() {
 		configcmd.New(c.cli).Command(),
 		configcmd.NewInit(c.cli),
 		configcmd.NewTheme(c.cli),
-		versionCmd(),
+		c.versionCmd(),
 	)
 }
 

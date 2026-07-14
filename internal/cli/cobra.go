@@ -25,6 +25,12 @@ func (*CLI) GroupRunE(cmd *cobra.Command, args []string) error {
 		return cmd.Help()
 	}
 	msg := fmt.Sprintf("unknown command %q for %q", args[0], cmd.CommandPath())
+	// cobra's root typo path defaults SuggestionsMinimumDistance to 2, but a
+	// direct SuggestionsFor call uses the zero value, which misses distance-1
+	// typos like "lst" → "list". Match the root's threshold.
+	if cmd.SuggestionsMinimumDistance <= 0 {
+		cmd.SuggestionsMinimumDistance = 2
+	}
 	if suggestions := cmd.SuggestionsFor(args[0]); len(suggestions) > 0 {
 		msg += "\n\nDid you mean this?\n"
 		for _, s := range suggestions {

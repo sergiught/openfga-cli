@@ -51,10 +51,13 @@ func main() {
 		logger.Debugf("command failed: %+v", err)
 		output.Errorf(root.ErrWriter(), "%s", clierr.Friendly(err))
 		code := clierr.Code(err)
-		if !root.RanCommand() {
+		if !root.RanCommand() || code == clierr.CodeUsage {
 			// The error came from flag/arg validation, not the command body: a
 			// bad invocation. Point at usage on stderr and exit CodeUsage so
 			// scripts can tell a mistyped command from a runtime failure.
+			// cobra validates required flags after PersistentPreRunE marks the
+			// command as run, so those (and RunE-level usage errors) surface via
+			// the CodeUsage classification rather than RanCommand.
 			code = clierr.CodeUsage
 			output.Hintf(root.ErrWriter(), "run '%s --help' for usage", cmd.CommandPath())
 		} else if logger.GetLevel() > log.DebugLevel {
@@ -68,6 +71,11 @@ func main() {
 // parses them (config must load first). Returns "" when the flag is absent.
 func configPathFromArgs(args []string) string {
 	for i, a := range args {
+		// Stop at the `--` terminator: anything after it is a positional
+		// argument, not a flag, so a literal "--config" there isn't ours.
+		if a == "--" {
+			break
+		}
 		if a == "--config" && i+1 < len(args) {
 			return args[i+1]
 		}

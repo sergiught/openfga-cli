@@ -2,6 +2,11 @@
 // (default), universal Unicode fallback, or off for decorative glyphs.
 package icons
 
+import (
+	"fmt"
+	"os"
+)
+
 // Mode selects a glyph capability rung.
 type Mode int
 
@@ -34,14 +39,19 @@ var sets = map[Mode]Set{
 
 var current = sets[ModeNerdFont]
 
-// Parse maps a config string to a Mode; unknown values mean nerdfont.
+// Parse maps a config string to a Mode. The accepted values are "nerdfont"
+// (default), "unicode" and "off"; an empty string means the default, and any
+// other value warns on stderr before falling back to nerdfont.
 func Parse(s string) Mode {
 	switch s {
+	case "", "nerdfont":
+		return ModeNerdFont
 	case "unicode":
 		return ModeUnicode
 	case "off":
 		return ModeOff
 	default:
+		fmt.Fprintf(os.Stderr, "warning: unknown OPENFGA_ICONS value %q; using nerdfont (valid: nerdfont, unicode, off)\n", s)
 		return ModeNerdFont
 	}
 }

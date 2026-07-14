@@ -4,6 +4,7 @@
 package clierr
 
 import (
+	"context"
 	"errors"
 	"net"
 	"strings"
@@ -14,10 +15,11 @@ import (
 // Process exit codes. Scripts and CI can branch on these instead of parsing
 // stderr text.
 const (
-	CodeError      = 1 // generic runtime failure
-	CodeUsage      = 2 // bad invocation (unknown flag, wrong arg count)
-	CodeTestFailed = 3 // `assertions test` ran and some assertions failed
-	CodeNetwork    = 4 // could not reach the OpenFGA server
+	CodeError      = 1   // generic runtime failure
+	CodeUsage      = 2   // bad invocation (unknown flag, wrong arg count)
+	CodeTestFailed = 3   // `assertions test` ran and some assertions failed
+	CodeNetwork    = 4   // could not reach the OpenFGA server
+	CodeCanceled   = 130 // interrupted (Ctrl-C); 128 + SIGINT
 )
 
 // Coded wraps an error with an explicit process exit code.
@@ -37,8 +39,9 @@ func WithCode(code int, err error) error {
 	return &Coded{C: code, Err: err}
 }
 
-// Code resolves the exit code for err: an explicit Coded wins, otherwise a
-// network failure maps to CodeNetwork and anything else to CodeError.
+// Code resolves the exit code for err: an explicit Coded wins, then an
+// interruption maps to CodeCanceled, a bad invocation to CodeUsage, a network
+// failure to CodeNetwork, and anything else to CodeError.
 func Code(err error) int {
 	if err == nil {
 		return 0
@@ -47,10 +50,44 @@ func Code(err error) int {
 	if errors.As(err, &c) {
 		return c.C
 	}
+	// Ctrl-C cancels the request context; surface the conventional 130 rather
+	// than misreporting the resulting "context canceled" as a network failure.
+	if errors.Is(err, context.Canceled) {
+		return CodeCanceled
+	}
+	if IsUsageErr(err) {
+		return CodeUsage
+	}
 	if IsConnErr(err) {
 		return CodeNetwork
 	}
 	return CodeError
+}
+
+// IsUsageErr reports whether err is one of cobra's flag/argument validation
+// failures, which it returns as plain errors (missing required flag, unknown
+// flag/command, wrong arg count). These are bad invocations, not runtime
+// failures, so they map to CodeUsage and a "--help" hint.
+func IsUsageErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	for _, s := range []string{
+		"required flag(s)",
+		"unknown flag",
+		"unknown shorthand flag",
+		"unknown command",
+		"flag needs an argument",
+		"invalid argument",
+		"accepts ",  // "accepts N arg(s), received M"
+		"requires ", // "requires at least N arg(s)"
+	} {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // Friendly renders err for a human: connection failures get an actionable
