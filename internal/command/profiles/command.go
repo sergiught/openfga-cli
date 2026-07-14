@@ -41,6 +41,31 @@ func New(cli *cli.CLI) *Command {
 // Command returns the cobra command.
 func (c *Command) Command() *cobra.Command { return c.cmd }
 
+// activeProfile returns the effective active profile the same way
+// config.Resolve does: a --profile flag beats OPENFGA_PROFILE/FGA_PROFILE, which
+// beats the file's active_profile.
+func (c *Command) activeProfile() string {
+	name := c.cli.Config.Active
+	if v := os.Getenv("OPENFGA_PROFILE"); v != "" {
+		name = v
+	} else if v := os.Getenv("FGA_PROFILE"); v != "" {
+		name = v
+	}
+	if c.cli.Overrides.Profile != "" {
+		name = c.cli.Overrides.Profile
+	}
+	return name
+}
+
+// warnLoadErr surfaces a deferred config parse/version error on stderr for the
+// read-only inspection commands, which still operate on defaults so the user
+// can look around even when their real file is broken.
+func warnLoadErr(cmd *cobra.Command, cfg *config.Config) {
+	if err := cfg.LoadErr(); err != nil {
+		output.Errorf(cmd.ErrOrStderr(), "warning: %v", err)
+	}
+}
+
 // completeNames suggests configured profile names for the first positional arg.
 func (c *Command) completeNames(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
 	if len(args) > 0 {
@@ -71,6 +96,7 @@ func (c *Command) listCmd() *cobra.Command {
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg := c.cli.Config
+			warnLoadErr(cmd, cfg)
 			if c.cli.JSON {
 				return output.JSON(cmd.OutOrStdout(), map[string]any{
 					"active":   cfg.Active,
@@ -100,10 +126,16 @@ func (c *Command) currentCmd() *cobra.Command {
 		Example: "  ofga profiles current",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if c.cli.JSON {
-				return output.JSON(cmd.OutOrStdout(), map[string]string{"active": c.cli.Config.Active})
+			warnLoadErr(cmd, c.cli.Config)
+			active := c.activeProfile()
+			if _, ok := c.cli.Config.Get(active); !ok {
+				output.Errorf(cmd.ErrOrStderr(),
+					"active profile %q does not exist (set via --profile or OPENFGA_PROFILE?)", active)
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), c.cli.Config.Active)
+			if c.cli.JSON {
+				return output.JSON(cmd.OutOrStdout(), map[string]string{"active": active})
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), active)
 			return nil
 		},
 	}
@@ -120,6 +152,7 @@ func (c *Command) showCmd() *cobra.Command {
 		Long: "Show the values of a profile. With no argument, shows the fully resolved active configuration after applying env and flag overrides.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			warnLoadErr(cmd, c.cli.Config)
 			if len(args) == 1 {
 				p, ok := c.cli.Config.Get(args[0])
 				if !ok {
@@ -310,6 +343,14 @@ func (c *Command) addCmd() *cobra.Command {
 			if _, exists := c.cli.Config.Get(name); exists {
 				return fmt.Errorf("profile %q already exists", name)
 			}
+			// Refuse secrets passed literally on argv: they leak to `ps` and
+			// shell history. Consistent with `profiles set token`.
+			if token != "" {
+				return errors.New("refusing to read the token from --token (it would leak to `ps` and shell history); use --token-file or --token-stdin")
+			}
+			if clientSecret != "" {
+				return errors.New("refusing to read the client secret from --client-secret (it would leak to `ps` and shell history); use --client-secret-file or --client-secret-stdin")
+			}
 			token, err := readSecret(cmd.InOrStdin(), token, tokenFile, tokenStdin)
 			if err != nil {
 				return err
@@ -398,6 +439,12 @@ func (c *Command) removeCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if _, ok := c.cli.Config.Get(args[0]); !ok {
 				return fmt.Errorf("%w: %q", config.ErrNoProfile, args[0])
+			}
+			// Config.Remove guards the file's active_profile; also refuse the
+			// profile selected via --profile or OPENFGA_PROFILE, which would
+			// otherwise leave the session pointing at a deleted profile.
+			if args[0] == c.activeProfile() {
+				return fmt.Errorf("cannot remove the active profile %q; switch first", args[0])
 			}
 			if err := prompt.Confirm(cmd,
 				fmt.Sprintf("remove profile %s and its saved credentials", args[0]), force); err != nil {

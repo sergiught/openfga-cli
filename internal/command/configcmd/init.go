@@ -36,6 +36,11 @@ func NewInit(c *cli.CLI) *cobra.Command {
 			if len(args) == 1 {
 				name = args[0]
 			}
+			// Refuse a token passed literally on argv: it leaks to `ps` and
+			// shell history. Consistent with `profiles set token`.
+			if token != "" {
+				return fmt.Errorf("refusing to read the token from --token (it would leak to `ps` and shell history); use --token-stdin")
+			}
 			// Only guard against overwrite when the profile came from a real
 			// on-disk config, not the default synthesized on first run.
 			if _, exists := c.Config.Get(name); exists && c.Config.Existed() && !force {
@@ -60,6 +65,14 @@ func NewInit(c *cli.CLI) *cobra.Command {
 			}
 			if storeID == "" {
 				storeID = prompt.Ask(cmd, "Store ID (optional)", "")
+			}
+
+			// init is the recovery path: if the existing file was unparseable or
+			// an unsupported schema version, replacing it is the whole point, so
+			// clear the load error that would otherwise block Save.
+			if c.Config.LoadErr() != nil {
+				output.Infof(cmd.ErrOrStderr(), "replacing unreadable config: %v", c.Config.LoadErr())
+				c.Config.ClearLoadErr()
 			}
 
 			p := config.Profile{APIURL: apiURL, StoreID: storeID}

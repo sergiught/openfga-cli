@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/BurntSushi/toml"
 	gap "github.com/muesli/go-app-paths"
@@ -138,6 +139,17 @@ func DefaultPath() string {
 // out a starter config on first run.
 func (c *Config) Existed() bool { return c.existed }
 
+// LoadErr returns the deferred parse/version error recorded at load time, or
+// nil when the file loaded cleanly. Read-only inspection commands surface it as
+// a warning while still operating on the in-memory defaults.
+func (c *Config) LoadErr() error { return c.loadErr }
+
+// ClearLoadErr discards a recorded load error so a subsequent Save is allowed.
+// Only the intentional recovery path (`ofga init`) uses this: it deliberately
+// replaces an unparseable or unsupported file, whereas ordinary mutations keep
+// the Save guard that refuses to clobber a file that failed to load.
+func (c *Config) ClearLoadErr() { c.loadErr = nil }
+
 // IconsMode returns the configured glyph capability rung, giving precedence
 // to the OPENFGA_ICONS environment variable over the on-disk value.
 func (c *Config) IconsMode() string {
@@ -220,6 +232,12 @@ func LoadFrom(path string) (*Config, error) {
 // permissions (dir 0700) via a temp file + atomic rename, ensuring the secrets
 // are never world-readable even briefly and never left truncated on error.
 func (c *Config) Save() error {
+	// Refuse to overwrite a file we could not parse (or that a newer ofga
+	// wrote): replacing it with the in-memory defaults would destroy the user's
+	// real config. Callers surface this instead of silently clobbering.
+	if c.loadErr != nil {
+		return c.loadErr
+	}
 	if c.path == "" {
 		p, err := resolvePath()
 		if err != nil {
@@ -335,6 +353,30 @@ func firstEnv(names ...string) string {
 	return ""
 }
 
+// splitScopes parses an OPENFGA_SCOPES value, which may be space- or
+// comma-separated.
+func splitScopes(s string) []string {
+	fields := strings.FieldsFunc(s, func(r rune) bool {
+		return r == ' ' || r == ',' || r == '\t' || r == '\n'
+	})
+	if len(fields) == 0 {
+		return nil
+	}
+	return fields
+}
+
+// tokenIgnoredOnce guards the OPENFGA_API_TOKEN-ignored notice so it prints at
+// most once per process even when Resolve runs repeatedly.
+var tokenIgnoredOnce sync.Once
+
+// noteTokenIgnored emits a one-line stderr notice explaining why an env-supplied
+// bearer token was ignored: the active profile uses an OAuth flow instead.
+func noteTokenIgnored(profile, method string) {
+	tokenIgnoredOnce.Do(func() {
+		fmt.Fprintf(os.Stderr, "note: OPENFGA_API_TOKEN ignored; profile %q uses %s auth\n", profile, method)
+	})
+}
+
 // Resolve merges, in increasing order of precedence: profile values, OPENFGA_*
 // (or FGA_*) environment variables, then flag overrides.
 func (c *Config) Resolve(o Overrides) (Resolved, error) {
@@ -381,6 +423,10 @@ func (c *Config) Resolve(o Overrides) (Resolved, error) {
 	if v := firstEnv("OPENFGA_API_TOKEN", "FGA_API_TOKEN"); v != "" {
 		if r.Auth.Method == "" || r.Auth.Method == AuthNone || r.Auth.Method == AuthAPIToken {
 			r.Auth = Auth{Method: AuthAPIToken, Token: v}
+		} else {
+			// The profile uses an OAuth flow, so a bare env token can't apply.
+			// Note it once so the silence isn't mysterious.
+			noteTokenIgnored(name, r.Auth.Method)
 		}
 	}
 	// OAuth secrets from the environment, so CI need not persist them in the
@@ -390,6 +436,42 @@ func (c *Config) Resolve(o Overrides) (Resolved, error) {
 	}
 	if v := firstEnv("OPENFGA_KEY_FILE", "FGA_KEY_FILE"); v != "" && r.Auth.Method == AuthPrivateKeyJWT {
 		r.Auth.KeyFile = v
+	}
+	// Env-only client_credentials, so CI can run an OAuth flow without a stored
+	// profile. Only when the profile isn't already using a different flow, and
+	// only when the full grant (id + secret + token URL) is present in the
+	// environment; individual fields fall back to any stored profile values.
+	if pm := p.ResolvedAuth().Method; pm == "" || pm == AuthClientCredentials {
+		clientID := firstEnv("OPENFGA_CLIENT_ID", "FGA_CLIENT_ID")
+		clientSecret := firstEnv("OPENFGA_CLIENT_SECRET", "FGA_CLIENT_SECRET")
+		tokenURL := firstEnv("OPENFGA_TOKEN_URL", "FGA_TOKEN_URL")
+		if clientID == "" {
+			clientID = r.Auth.ClientID
+		}
+		if clientSecret == "" {
+			clientSecret = r.Auth.ClientSecret
+		}
+		if tokenURL == "" {
+			tokenURL = r.Auth.TokenURL
+		}
+		if clientID != "" && clientSecret != "" && tokenURL != "" {
+			audience := firstEnv("OPENFGA_API_AUDIENCE", "FGA_API_AUDIENCE")
+			if audience == "" {
+				audience = r.Auth.Audience
+			}
+			scopes := r.Auth.Scopes
+			if s := firstEnv("OPENFGA_SCOPES", "FGA_SCOPES"); s != "" {
+				scopes = splitScopes(s)
+			}
+			r.Auth = Auth{
+				Method:       AuthClientCredentials,
+				ClientID:     clientID,
+				ClientSecret: clientSecret,
+				TokenURL:     tokenURL,
+				Audience:     audience,
+				Scopes:       scopes,
+			}
+		}
 	}
 
 	// Flag overrides (highest precedence).

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -108,6 +109,115 @@ func TestResolveProfileAndOverrides(t *testing.T) {
 			t.Errorf("flag api-url should win: got %q", r.APIURL)
 		}
 	})
+}
+
+func TestSaveRefusesToOverwriteUnparseableFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	// A deliberately broken TOML file the user does not want clobbered.
+	const original = "this is = not [valid toml"
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadFrom(path)
+	if err != nil {
+		t.Fatalf("LoadFrom() error = %v", err)
+	}
+	if cfg.LoadErr() == nil {
+		t.Fatal("expected a load error for a broken config file")
+	}
+
+	// Mutating theme/profiles and saving must NOT touch the file on disk.
+	cfg.Theme = "nord"
+	if err := cfg.Save(); err == nil {
+		t.Fatal("Save() should refuse to overwrite an unparseable file")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != original {
+		t.Errorf("broken config was overwritten: got %q, want %q", got, original)
+	}
+}
+
+func TestSaveRefusesUnsupportedSchemaVersion(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	// A valid file written by a newer ofga (schema version above what we support).
+	original := fmt.Sprintf("version = %d\nactive_profile = \"default\"\n\n[profiles.default]\n  api_url = %q\n",
+		SchemaVersion+1, DefaultAPIURL)
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadFrom(path)
+	if err != nil {
+		t.Fatalf("LoadFrom() error = %v", err)
+	}
+	if cfg.LoadErr() == nil {
+		t.Fatal("expected a load error for an unsupported schema version")
+	}
+
+	cfg.Theme = "nord"
+	if err := cfg.Save(); err == nil {
+		t.Fatal("Save() should refuse to overwrite a newer-schema file")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != original {
+		t.Errorf("newer-schema config was mutated: got %q, want %q", got, original)
+	}
+}
+
+func TestResolveEnvOnlyClientCredentials(t *testing.T) {
+	t.Setenv("OPENFGA_CLIENT_ID", "cid")
+	t.Setenv("OPENFGA_CLIENT_SECRET", "csecret")
+	t.Setenv("OPENFGA_TOKEN_URL", "https://issuer/oauth/token")
+	t.Setenv("OPENFGA_API_AUDIENCE", "https://api.example.com")
+	t.Setenv("OPENFGA_SCOPES", "read write")
+
+	// A profile with no configured auth: the env alone must produce a usable
+	// client_credentials grant.
+	c := &Config{
+		Active:   "p",
+		Profiles: map[string]Profile{"p": {APIURL: DefaultAPIURL}},
+	}
+	r, err := c.Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if r.Auth.Method != AuthClientCredentials {
+		t.Fatalf("Auth.Method = %q, want %q", r.Auth.Method, AuthClientCredentials)
+	}
+	if r.Auth.ClientID != "cid" || r.Auth.ClientSecret != "csecret" ||
+		r.Auth.TokenURL != "https://issuer/oauth/token" || r.Auth.Audience != "https://api.example.com" {
+		t.Errorf("unexpected resolved auth: %+v", r.Auth)
+	}
+	if len(r.Auth.Scopes) != 2 || r.Auth.Scopes[0] != "read" || r.Auth.Scopes[1] != "write" {
+		t.Errorf("scopes = %v, want [read write]", r.Auth.Scopes)
+	}
+}
+
+func TestResolveEnvOnlyClientCredentialsIncompleteIsIgnored(t *testing.T) {
+	// Missing token URL: the partial env must not fabricate a broken grant.
+	t.Setenv("OPENFGA_CLIENT_ID", "cid")
+	t.Setenv("OPENFGA_CLIENT_SECRET", "csecret")
+
+	c := &Config{
+		Active:   "p",
+		Profiles: map[string]Profile{"p": {APIURL: DefaultAPIURL}},
+	}
+	r, err := c.Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if r.Auth.Method == AuthClientCredentials {
+		t.Errorf("incomplete env should not yield a client_credentials grant: %+v", r.Auth)
+	}
 }
 
 func TestResolveEnvTokenRespectsAuthMethod(t *testing.T) {

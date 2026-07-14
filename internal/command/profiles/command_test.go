@@ -49,6 +49,59 @@ func TestProfilesSetValidation(t *testing.T) {
 	}
 }
 
+// subCmd returns a named `profiles` subcommand wired to c, so its flags can be
+// set and its RunE invoked directly without touching disk.
+func subCmd(t *testing.T, c *cli.CLI, name string) *cobra.Command {
+	t.Helper()
+	for _, sub := range New(c).Command().Commands() {
+		if sub.Name() == name {
+			return sub
+		}
+	}
+	t.Fatalf("%s subcommand not found", name)
+	return nil
+}
+
+func TestProfilesAddRefusesLiteralSecrets(t *testing.T) {
+	t.Run("token", func(t *testing.T) {
+		add := subCmd(t, cli.New(charmlog.New(io.Discard), config.New(), "test"), "add")
+		if err := add.Flags().Set("token", "sekret"); err != nil {
+			t.Fatal(err)
+		}
+		if err := add.RunE(add, []string{"new"}); err == nil {
+			t.Error("add with a literal --token should be refused")
+		}
+	})
+	t.Run("client-secret", func(t *testing.T) {
+		add := subCmd(t, cli.New(charmlog.New(io.Discard), config.New(), "test"), "add")
+		if err := add.Flags().Set("client-secret", "sekret"); err != nil {
+			t.Fatal(err)
+		}
+		if err := add.RunE(add, []string{"new"}); err == nil {
+			t.Error("add with a literal --client-secret should be refused")
+		}
+	})
+}
+
+func TestProfilesRemoveRefusesEnvActiveProfile(t *testing.T) {
+	c := cli.New(charmlog.New(io.Discard), &config.Config{
+		Active: "default",
+		Profiles: map[string]config.Profile{
+			"default": {APIURL: config.DefaultAPIURL},
+			"prod":    {APIURL: "http://prod:8080"},
+		},
+	}, "test")
+	remove := subCmd(t, c, "remove")
+
+	// prod is selected via the environment; removing it must be refused even
+	// though it is not the file's active_profile. The guard returns before the
+	// confirmation prompt, so no --force is needed.
+	t.Setenv("OPENFGA_PROFILE", "prod")
+	if err := remove.RunE(remove, []string{"prod"}); err == nil {
+		t.Error("removing the env-selected active profile should be refused")
+	}
+}
+
 func TestReadSecret(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "token")
