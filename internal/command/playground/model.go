@@ -115,6 +115,7 @@ type Model struct {
 	recorder      *apilog.Recorder
 	apiLogSel     int  // selection index into Snapshot, 0 = newest (top)
 	apiLogHScroll int  // horizontal scroll offset for the selected row's URL
+	apiLogTab     int  // active detail sub-section (index into apiLogTabs)
 	apiLogPretty  bool // pretty-print JSON bodies in the detail pane
 	apiLogVP      viewport.Model
 	apiLogVPInit  bool

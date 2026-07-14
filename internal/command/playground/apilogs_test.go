@@ -76,24 +76,53 @@ func TestAPILogsBodyShowsRowAndDetail(t *testing.T) {
 	}
 }
 
-func TestAPILogDetailToggleCompact(t *testing.T) {
+func TestAPILogSectionBodyToggleCompact(t *testing.T) {
 	e := sampleEntry()
-	pretty := apiLogDetail(e, true)
+	pretty := apiLogSection(e, true, 3) // Resp Body tab
 	if !strings.Contains(pretty, "{\n") {
 		t.Fatalf("pretty output should contain indented JSON:\n%s", pretty)
 	}
-	raw := apiLogDetail(e, false)
+	raw := apiLogSection(e, false, 3)
 	if !strings.Contains(raw, `{"allowed":true}`) {
 		t.Fatalf("raw output should keep compact JSON:\n%s", raw)
 	}
 }
 
-func TestAPILogDetailHasBlankLineBeforeBodySections(t *testing.T) {
-	detail := ansi.Strip(apiLogDetail(sampleEntry(), true))
-	for _, want := range []string{"\n\nRequest body", "\n\nResponse body"} {
-		if !strings.Contains(detail, want) {
-			t.Fatalf("expected a blank line before %q:\n%s", strings.TrimSpace(want), detail)
+func TestAPILogDetailHeaderShowsTabStrip(t *testing.T) {
+	header := ansi.Strip(apiLogDetailHeader(sampleEntry(), 0))
+	for _, want := range apiLogTabs {
+		if !strings.Contains(header, want) {
+			t.Fatalf("detail header should list sub-section tab %q:\n%s", want, header)
 		}
+	}
+}
+
+func TestAPILogTabCyclesSections(t *testing.T) {
+	m := apiLogModel(sampleEntry())
+	if m.apiLogTab != 0 {
+		t.Fatalf("default tab should be 0, got %d", m.apiLogTab)
+	}
+	m = pressAPILog(m, "tab")
+	if m.apiLogTab != 1 {
+		t.Fatalf("tab should advance to 1, got %d", m.apiLogTab)
+	}
+	m = pressAPILog(m, "shift+tab")
+	m = pressAPILog(m, "shift+tab")
+	if m.apiLogTab != len(apiLogTabs)-1 {
+		t.Fatalf("shift+tab should wrap to the last tab, got %d", m.apiLogTab)
+	}
+}
+
+func TestAPILogTabSwitchesViewportContent(t *testing.T) {
+	m := apiLogModel(sampleEntry())
+	if v := m.apiLogVP.View(); !strings.Contains(v, "Authorization") {
+		t.Fatalf("Req Headers tab should show request headers:\n%s", v)
+	}
+	m = pressAPILog(m, "tab") // Req Body
+	m = pressAPILog(m, "tab") // Resp Headers
+	m = pressAPILog(m, "tab") // Resp Body
+	if v := m.apiLogVP.View(); !strings.Contains(v, "allowed") {
+		t.Fatalf("Resp Body tab should show the response body:\n%s", v)
 	}
 }
 
@@ -121,12 +150,12 @@ func TestStatusStyleByClass(t *testing.T) {
 	}
 }
 
-func TestAPILogDetailStatusLine(t *testing.T) {
+func TestAPILogStatusLine(t *testing.T) {
 	// The status label is bold and the status text is present and color-coded
 	// (green for 2xx) — assert the structure on the ANSI-stripped output.
-	detail := ansi.Strip(apiLogDetail(sampleEntry(), true))
-	if !strings.Contains(detail, "Status: 200 OK") {
-		t.Fatalf("expected a 'Status: 200 OK' line:\n%s", detail)
+	line := ansi.Strip(apiLogStatusLine(sampleEntry()))
+	if !strings.Contains(line, "Status: 200 OK") {
+		t.Fatalf("expected a 'Status: 200 OK' line:\n%s", line)
 	}
 }
 
@@ -159,13 +188,21 @@ func TestAPILogRightArrowScrollsSelectedURL(t *testing.T) {
 
 func TestAPILogPageDownScrollsDetail(t *testing.T) {
 	sh := shell.New()
-	sh.SetSize(80, 8) // small height so the detail overflows the viewport
+	sh.SetSize(80, 8) // small height so the section overflows the viewport
 	rec := apilog.NewRecorder(apiLogHistory)
-	rec.Add(sampleEntry())
+	big := `{"objects":[` + strings.Repeat(`"document:xxxxxxxxxxxxxxxxxxxx",`, 60) + `"end"]}`
+	rec.Add(apilog.Entry{
+		Method: "POST", URL: "https://api.example/list", Status: 200, StatusText: "200 OK",
+		RespBody: []byte(big),
+	})
 	m := Model{sh: sh, recorder: rec, apiLogPretty: true, section: secAPILogs}
 	m.refreshAPILogVP()
+	// Move to the Resp Body tab, whose big pretty-printed body overflows.
+	m = pressAPILog(m, "tab")
+	m = pressAPILog(m, "tab")
+	m = pressAPILog(m, "tab")
 	if m.apiLogVP.TotalLineCount() <= m.apiLogVP.Height() {
-		t.Skip("detail fits in the viewport; nothing to scroll")
+		t.Skip("content fits in the viewport; nothing to scroll")
 	}
 	m = pressAPILog(m, "pgdown")
 	if m.apiLogVP.YOffset() == 0 {

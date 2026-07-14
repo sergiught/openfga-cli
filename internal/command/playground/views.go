@@ -332,7 +332,13 @@ func splitListWidth(w int) int { return w * 2 / 5 }
 // instead of a bordered card; the whole split is borderless and
 // background-free, matching the main pane's flat treatment.
 func masterDetail(list, title, card string, w, h int) string {
-	lw := splitListWidth(w)
+	return masterDetailW(list, title, card, splitListWidth(w), w, h)
+}
+
+// masterDetailW is masterDetail with an explicit list-pane width lw, letting a
+// section widen the list beyond the default split (the API Logs tab uses it to
+// give long URLs more room).
+func masterDetailW(list, title, card string, lw, w, h int) string {
 	cw := w - lw - 2
 	if cw < 10 {
 		return list // too narrow: list only

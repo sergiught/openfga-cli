@@ -351,6 +351,18 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 				m.apiLogVP.GotoTop()
 			}
 			return m, nil
+		case "tab":
+			// Cycle the detail sub-section (Req/Resp headers/body); the section
+			// keeps across entry changes so you can compare the same part.
+			m.apiLogTab = (m.apiLogTab + 1) % len(apiLogTabs)
+			m.refreshAPILogVP()
+			m.apiLogVP.GotoTop()
+			return m, nil
+		case "shift+tab":
+			m.apiLogTab = (m.apiLogTab + len(apiLogTabs) - 1) % len(apiLogTabs)
+			m.refreshAPILogVP()
+			m.apiLogVP.GotoTop()
+			return m, nil
 		case "left", "h":
 			// Scroll the selected row's URL left so the start comes back.
 			m.apiLogHScroll -= apiLogHStep

@@ -69,10 +69,32 @@ func (m Model) apiLogsBody() string {
 	if sel < 0 {
 		sel = 0
 	}
-	list := m.apiLogList(entries, sel, splitListWidth(w), h)
+	lw := apiLogListWidth(w)
+	list := m.apiLogList(entries, sel, lw, h)
 	e := entries[len(entries)-1-sel]
 	title := e.Method + " " + e.URL
-	return masterDetail(list, title, m.apiLogVP.View(), w, h)
+	// The status line and sub-section tab strip sit above the scrollable
+	// section content; the active section (headers/body) lives in the viewport.
+	card := apiLogDetailHeader(e, m.apiLogTab) + "\n\n" + m.apiLogVP.View()
+	return masterDetailW(list, title, card, lw, w, h)
+}
+
+// apiLogMinDetailW keeps the detail pane wide enough for the sub-section tab
+// strip even after the list pane is widened.
+const apiLogMinDetailW = 40
+
+// apiLogListWidth is the API Logs list pane width — about 25% wider than the
+// shared master/detail split so long URLs have more room, clamped so the detail
+// pane keeps at least apiLogMinDetailW columns.
+func apiLogListWidth(w int) int {
+	lw := splitListWidth(w) * 5 / 4
+	if limit := w - 2 - apiLogMinDetailW; lw > limit {
+		lw = limit
+	}
+	if lw < 1 {
+		lw = 1
+	}
+	return lw
 }
 
 // apiLogRowSelected marks the current row with a thick left bar (mirroring the
@@ -141,16 +163,12 @@ func apiLogRow(e apilog.Entry, width, hscroll int) string {
 	if u, err := url.Parse(e.URL); err == nil && u.Path != "" {
 		path = u.Path
 	}
-	lat := fmt.Sprintf("%dms", e.Elapsed.Milliseconds())
+	// The latency lives in the detail pane; the list shows just the status (plus
+	// a compact retry marker) so the URL gets as much room as possible.
+	right := statusLabel(e)
 	if e.Attempt > 1 {
-		lat += fmt.Sprintf("×%d", e.Attempt)
+		right += style.Faint.Render(fmt.Sprintf(" ×%d", e.Attempt))
 	}
-	// Right-align the latency in a fixed field so the status codes (always 3
-	// columns) and latencies line up as columns down the list.
-	if pad := 8 - len(lat); pad > 0 {
-		lat = strings.Repeat(" ", pad) + lat
-	}
-	right := statusLabel(e) + " " + style.Faint.Render(lat)
 	prefix := style.Faint.Render(e.Time.Format("15:04:05")) + " " + e.Method + " "
 
 	avail := width - lipgloss.Width(right) - 1
@@ -197,14 +215,14 @@ func statusStyle(status int) lipgloss.Style {
 	}
 }
 
-// apiLogDetail renders the full request/response detail pane for e, with
-// bodies pretty-printed as indented JSON when pretty is true, or shown
-// exactly as captured otherwise.
-func apiLogDetail(e apilog.Entry, pretty bool) string {
-	var b strings.Builder
+// apiLogTabs are the detail sub-sections, cycled with Tab / Shift+Tab.
+var apiLogTabs = []string{"Req Headers", "Req Body", "Resp Headers", "Resp Body"}
+
+// apiLogStatusLine renders the bold "Status:" label with the color-coded status
+// text and faint timing / request-id, or the transport error for a failed call.
+func apiLogStatusLine(e apilog.Entry) string {
 	if e.Err != "" {
-		b.WriteString(style.Failure.Render("transport error: "+e.Err) + "\n")
-		return strings.TrimRight(b.String(), "\n")
+		return style.Bold.Render("Status:") + " " + style.Failure.Render("transport error")
 	}
 	timing := fmt.Sprintf("%dms", e.Elapsed.Milliseconds())
 	if e.ServerQueryDuration != "" {
@@ -217,14 +235,50 @@ func apiLogDetail(e apilog.Entry, pretty bool) string {
 	if statusText == "" {
 		statusText = fmt.Sprintf("%d", e.Status)
 	}
-	b.WriteString(style.Bold.Render("Status:") + " " +
-		statusStyle(e.Status).Render(statusText) + "  " + style.Faint.Render(timing) + "\n\n")
+	return style.Bold.Render("Status:") + " " +
+		statusStyle(e.Status).Render(statusText) + "  " + style.Faint.Render(timing)
+}
 
-	b.WriteString(style.Bold.Render("Request headers") + "\n" + renderHeaders(e.ReqHeaders) + "\n\n")
-	b.WriteString(style.Bold.Render("Request body") + "\n" + renderBody(e.ReqBody, pretty) + "\n\n")
-	b.WriteString(style.Bold.Render("Response headers") + "\n" + renderHeaders(e.RespHeaders) + "\n\n")
-	b.WriteString(style.Bold.Render("Response body") + "\n" + renderBody(e.RespBody, pretty))
-	return strings.TrimRight(b.String(), "\n")
+// apiLogTabStrip renders the sub-section labels with the active one bold and
+// accented and the rest faint. It stays compact (no chip padding) so it fits
+// the detail pane, wrapping to a second line only on a very narrow terminal.
+func apiLogTabStrip(active int) string {
+	segs := make([]string, len(apiLogTabs))
+	for i, name := range apiLogTabs {
+		if i == active {
+			segs[i] = lipgloss.NewStyle().Bold(true).Foreground(style.Secondary).Render(name)
+			continue
+		}
+		segs[i] = style.Faint.Render(name)
+	}
+	return strings.Join(segs, "  ")
+}
+
+// apiLogDetailHeader is the fixed header above the scrollable section content:
+// the status line and (for a non-error entry) the sub-section tab strip.
+func apiLogDetailHeader(e apilog.Entry, tab int) string {
+	if e.Err != "" {
+		return apiLogStatusLine(e)
+	}
+	return apiLogStatusLine(e) + "\n" + apiLogTabStrip(tab)
+}
+
+// apiLogSection renders the content of the active detail sub-section, with JSON
+// bodies pretty-printed when pretty is true.
+func apiLogSection(e apilog.Entry, pretty bool, tab int) string {
+	if e.Err != "" {
+		return style.Failure.Render("transport error: " + e.Err)
+	}
+	switch tab {
+	case 1:
+		return renderBody(e.ReqBody, pretty)
+	case 2:
+		return renderHeaders(e.RespHeaders)
+	case 3:
+		return renderBody(e.RespBody, pretty)
+	default:
+		return renderHeaders(e.ReqHeaders)
+	}
 }
 
 // renderHeaders formats an http.Header as sorted "Key: value" lines.
@@ -260,14 +314,42 @@ func renderBody(raw []byte, pretty bool) string {
 }
 
 // refreshAPILogVP rebuilds the detail viewport for the current selection. It
-// lazily creates the viewport and clamps the selection into range.
+// lazily creates the viewport, clamps the selection into range, and sizes the
+// viewport to the space left below the fixed header (whose tab strip may wrap
+// to a second line on a narrow pane).
 func (m *Model) refreshAPILogVP() {
 	w, h := m.contentSize()
-	cw := w - splitListWidth(w) - 2
+	cw := w - apiLogListWidth(w) - 2
 	if cw < 1 {
 		cw = 1
 	}
-	vh := h - 2
+
+	// m.recorder is nil in tests that build a Model directly via newModel
+	// instead of through Run (which always wires one up); treat that the same
+	// as an empty history rather than crashing.
+	var e apilog.Entry
+	haveEntry := false
+	if m.recorder != nil {
+		entries := m.recorder.Snapshot()
+		if len(entries) > 0 {
+			if m.apiLogSel < 0 {
+				m.apiLogSel = 0
+			}
+			if m.apiLogSel > len(entries)-1 {
+				m.apiLogSel = len(entries) - 1
+			}
+			e = entries[len(entries)-1-m.apiLogSel] // newest-first index
+			haveEntry = true
+		}
+	}
+
+	// Reserve the master/detail title (1), the header (status line + tab strip,
+	// which may wrap), and a blank separator (1) above the viewport.
+	headerLines := 2
+	if haveEntry {
+		headerLines = lipgloss.Height(lipgloss.NewStyle().Width(cw).Render(apiLogDetailHeader(e, m.apiLogTab)))
+	}
+	vh := h - 2 - headerLines
 	if vh < 1 {
 		vh = 1
 	}
@@ -278,26 +360,12 @@ func (m *Model) refreshAPILogVP() {
 		m.apiLogVP.SetWidth(cw)
 		m.apiLogVP.SetHeight(vh)
 	}
-	// m.recorder is nil in tests that build a Model directly via newModel
-	// instead of through Run (which always wires one up); treat that the same
-	// as an empty history rather than crashing.
-	if m.recorder == nil {
+
+	if !haveEntry {
 		m.apiLogVP.SetContent("")
 		return
 	}
-	entries := m.recorder.Snapshot()
-	if len(entries) == 0 {
-		m.apiLogVP.SetContent("")
-		return
-	}
-	if m.apiLogSel < 0 {
-		m.apiLogSel = 0
-	}
-	if m.apiLogSel > len(entries)-1 {
-		m.apiLogSel = len(entries) - 1
-	}
-	e := entries[len(entries)-1-m.apiLogSel] // newest-first index
-	m.apiLogVP.SetContent(apiLogDetail(e, m.apiLogPretty))
+	m.apiLogVP.SetContent(apiLogSection(e, m.apiLogPretty, m.apiLogTab))
 	// Scroll position is preserved here so an incidental re-render (a new
 	// request captured while reading, or a terminal resize) doesn't snap the
 	// detail back to the top. Callers that change the selected entry reset it
