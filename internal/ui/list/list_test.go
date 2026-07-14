@@ -61,6 +61,41 @@ func TestFilterNarrowsAndSelectsMatch(t *testing.T) {
 	}
 }
 
+// The "/" filter is gated behind a keypress and easy to miss, so a populated
+// list advertises it with a faint hint that the filter input replaces once the
+// user starts filtering. An empty list shows no hint (nothing to filter).
+func TestFilterHintAndPlaceholder(t *testing.T) {
+	l := New()
+	l.SetSize(40, 10)
+	l.SetFilterHint("press / to filter")
+	l.SetFilterPlaceholder("match any field")
+
+	// Empty list: no hint.
+	if got := ansi.Strip(l.View()); strings.Contains(got, "press / to filter") {
+		t.Fatalf("empty list should not show the filter hint, got:\n%s", got)
+	}
+
+	// Populated, not filtering: hint is shown.
+	l.SetItems([]Item{{TitleText: "alpha"}, {TitleText: "beta"}})
+	if got := ansi.Strip(l.View()); !strings.Contains(got, "press / to filter") {
+		t.Fatalf("populated list should advertise the filter, got:\n%s", got)
+	}
+
+	// While filtering with no input, the placeholder replaces the hint.
+	l.Model.KeyMap.Filter.SetEnabled(true)
+	l.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	if !l.SettingFilter() {
+		t.Fatal("'/' should start filtering")
+	}
+	got := ansi.Strip(l.View())
+	if strings.Contains(got, "press / to filter") {
+		t.Fatalf("hint should be replaced by the filter input while filtering, got:\n%s", got)
+	}
+	if !strings.Contains(got, "match any field") {
+		t.Fatalf("filter input should show the placeholder before any input, got:\n%s", got)
+	}
+}
+
 func TestSetCompactHidesDescriptionsButKeepsTitles(t *testing.T) {
 	l := New()
 	l.SetItems([]Item{

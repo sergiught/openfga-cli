@@ -38,9 +38,10 @@ var _ list.DefaultItem = Item{}
 
 // List wraps a bubbles list.Model.
 type List struct {
-	Model    list.Model
-	delegate list.DefaultDelegate
-	compact  bool
+	Model      list.Model
+	delegate   list.DefaultDelegate
+	compact    bool
+	filterHint string
 }
 
 // New creates a list with the themed delegate.
@@ -49,8 +50,16 @@ func New() *List {
 	l := &List{delegate: d}
 	model := list.New(nil, &l.delegate, 0, 0)
 	model.SetShowHelp(false)
-	model.SetShowTitle(false)
 	model.SetShowStatusBar(false)
+	// The title bar line is already reserved whenever filtering is enabled (the
+	// "/" filter input is drawn there). Turn the title on so that reserved line
+	// carries a faint "press / to filter" hint when the user isn't filtering —
+	// no extra height, just discoverability. The filter input replaces it the
+	// moment "/" is pressed.
+	model.SetShowTitle(true)
+	model.Styles.TitleBar = lipgloss.NewStyle().Padding(0, 0, 0, 2)
+	model.Styles.Title = style.Faint
+	model.FilterInput.Prompt = "filter: "
 	// The app owns quitting (ctrl+c / q are handled by the playground's key
 	// router). Leaving the list's built-in q/esc quit bindings active would let
 	// a bare q hard-quit the whole TUI from any list-backed section, bypassing
@@ -105,7 +114,32 @@ func (l *List) SetItems(items []Item) tea.Cmd {
 	for i, it := range items {
 		rows[i] = it
 	}
-	return l.Model.SetItems(rows)
+	cmd := l.Model.SetItems(rows)
+	l.applyFilterHint()
+	return cmd
+}
+
+// SetFilterHint sets the faint helper text shown in place of the title while
+// the user is not actively filtering, advertising the "/" filter. It is only
+// shown when the list has items; an empty list shows nothing.
+func (l *List) SetFilterHint(hint string) {
+	l.filterHint = hint
+	l.applyFilterHint()
+}
+
+// SetFilterPlaceholder sets the example text shown inside the "/" filter input
+// before the user types anything, hinting at what can be matched.
+func (l *List) SetFilterPlaceholder(ph string) {
+	l.Model.FilterInput.Placeholder = ph
+}
+
+// applyFilterHint shows the hint only when there are rows to filter.
+func (l *List) applyFilterHint() {
+	if len(l.Model.Items()) == 0 {
+		l.Model.Title = ""
+		return
+	}
+	l.Model.Title = l.filterHint
 }
 
 // SetSize sets the list dimensions.

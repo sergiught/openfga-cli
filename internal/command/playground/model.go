@@ -277,6 +277,26 @@ func newModel(ctx context.Context, cli *cli.CLI, cl *openfga.Client, storeID, mo
 		editor:         ta,
 		toasts:         toast.New(),
 	}
+	// Advertise the "/" filter on every section list and hint at what each one
+	// matches on. Filtering is gated behind "/" (single letters are section
+	// actions like n/e/d/r), so the hint is the main way users discover it.
+	// Placeholders stay short: the section lists render in a ~40%-width master
+	// pane, so anything much longer than the "match any field" hint truncates.
+	tuplePlaceholder := "match any field"
+	for _, fl := range []struct {
+		list        *uilist.List
+		placeholder string
+	}{
+		{m.profilesList, "profile name"},
+		{m.storesList, "name or id"},
+		{m.tuplesList, tuplePlaceholder},
+		{m.changesList, tuplePlaceholder},
+		{m.assertionsList, tuplePlaceholder},
+	} {
+		fl.list.SetFilterHint("press / to filter")
+		fl.list.SetFilterPlaceholder(fl.placeholder)
+	}
+
 	m.qmode = 0
 	m.populatePalette()
 	m.populateProfiles()
