@@ -30,6 +30,15 @@ func TestPlaintextCredentialWarning(t *testing.T) {
 		{"http ipv6 loopback", "http://[::1]:8080", config.Auth{Method: config.AuthAPIToken, Token: "secret"}, false},
 		{"http non-loopback no auth", "http://api.example.com", config.Auth{Method: config.AuthNone}, false},
 		{"http non-loopback empty method", "http://api.example.com", config.Auth{}, false},
+		// AUTH-8: api_token with no token sends no credential, so no warning.
+		{"http non-loopback empty token", "http://api.example.com", config.Auth{Method: config.AuthAPIToken}, false},
+		// AUTH-7: the client secret / signed assertion travels to the token
+		// endpoint, so a cleartext token_url must warn even when the API is https.
+		{"https api, http token_url client secret", "https://api.example.com", config.Auth{Method: config.AuthClientCredentials, ClientSecret: "s", TokenURL: "http://issuer.example.com/oauth/token"}, true},
+		{"https api, http token_url private key", "https://api.example.com", config.Auth{Method: config.AuthPrivateKeyJWT, KeyFile: "/k.pem", TokenURL: "http://issuer.example.com/oauth/token"}, true},
+		{"https api and https token_url", "https://api.example.com", config.Auth{Method: config.AuthClientCredentials, ClientSecret: "s", TokenURL: "https://issuer.example.com/oauth/token"}, false},
+		{"http api, https token_url still warns on bearer", "http://api.example.com", config.Auth{Method: config.AuthClientCredentials, ClientSecret: "s", TokenURL: "https://issuer.example.com/oauth/token"}, true},
+		{"client credentials no secret", "https://api.example.com", config.Auth{Method: config.AuthClientCredentials, TokenURL: "http://issuer.example.com/oauth/token"}, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

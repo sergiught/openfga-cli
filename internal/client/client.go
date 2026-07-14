@@ -77,14 +77,41 @@ func New(r config.Resolved) (*openfga.Client, error) {
 // once per process even if New is called repeatedly.
 var httpWarnOnce sync.Once
 
-// plaintextCredentialWarning returns a warning message when credentials would be
-// sent over cleartext http to a non-loopback host, or "" when the connection is
-// safe: https, a loopback/empty host, or no credentials (method none/empty).
+// plaintextCredentialWarning returns a warning message when a credential would
+// be sent over cleartext http to a non-loopback host, or "" when the connection
+// is safe. It checks the API endpoint (which receives the bearer token) and, for
+// OAuth methods, the token endpoint — which receives the far more sensitive,
+// longer-lived client secret / signed assertion and is otherwise unchecked.
 func plaintextCredentialWarning(apiURL string, a config.Auth) string {
-	if a.Method == "" || a.Method == config.AuthNone {
-		return ""
+	switch a.Method {
+	case config.AuthAPIToken:
+		// No credential is actually sent for an empty token, so don't warn.
+		if a.Token == "" {
+			return ""
+		}
+		if host := cleartextHost(apiURL); host != "" {
+			return credentialWarning(host)
+		}
+	case config.AuthClientCredentials, config.AuthPrivateKeyJWT:
+		hasCred := (a.Method == config.AuthClientCredentials && a.ClientSecret != "") ||
+			(a.Method == config.AuthPrivateKeyJWT && a.KeyFile != "")
+		if hasCred {
+			if host := cleartextHost(a.TokenURL); host != "" {
+				return credentialWarning(host + " (token endpoint)")
+			}
+		}
+		if host := cleartextHost(apiURL); host != "" {
+			return credentialWarning(host)
+		}
 	}
-	u, err := url.Parse(apiURL)
+	return ""
+}
+
+// cleartextHost returns the host of rawurl when a credential sent to it would
+// travel over plaintext http to a non-loopback address, or "" when the endpoint
+// is safe (https, empty, or a loopback/localhost host).
+func cleartextHost(rawurl string) string {
+	u, err := url.Parse(rawurl)
 	if err != nil || u.Scheme != "http" {
 		return ""
 	}
@@ -95,6 +122,10 @@ func plaintextCredentialWarning(apiURL string, a config.Auth) string {
 	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
 		return ""
 	}
+	return host
+}
+
+func credentialWarning(host string) string {
 	return "warning: sending credentials over plaintext http to " + host + "; use https or a loopback address"
 }
 
