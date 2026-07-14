@@ -230,6 +230,50 @@ func TestAPILogJKScrollDetail(t *testing.T) {
 	}
 }
 
+func TestAPILogHelpAndFooterAdvertiseKeys(t *testing.T) {
+	m := Model{section: secAPILogs}
+	help := ansi.Strip(m.helpBody())
+	for _, want := range []string{"cycle detail section", "scroll section", "clear the log"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("help overlay should describe %q:\n%s", want, help)
+		}
+	}
+	m.focus = shell.FocusPanel
+	footer := strings.Join(m.statusKeys(), " ")
+	for _, want := range []string{"tab section", "j/k scroll", "x clear"} {
+		if !strings.Contains(footer, want) {
+			t.Fatalf("footer should advertise %q: %s", want, footer)
+		}
+	}
+}
+
+func TestAPILogWheelScrollsDetailBody(t *testing.T) {
+	sh := shell.New()
+	sh.SetSize(100, 10)
+	rec := apilog.NewRecorder(apiLogHistory)
+	big := `{"objects":[` + strings.Repeat(`"document:xxxxxxxxxxxxxxxxxxxx",`, 60) + `"end"]}`
+	rec.Add(apilog.Entry{
+		Method: "POST", URL: "https://api.example/list", Status: 200, StatusText: "200 OK",
+		RespBody: []byte(big),
+	})
+	m := Model{sh: sh, recorder: rec, apiLogPretty: true, section: secAPILogs}
+	m.refreshAPILogVP()
+	m = pressAPILog(m, "tab")
+	m = pressAPILog(m, "tab")
+	m = pressAPILog(m, "tab") // Resp Body (overflows)
+	if m.apiLogVP.TotalLineCount() <= m.apiLogVP.Height() {
+		t.Skip("content fits; nothing to scroll")
+	}
+	bx, by := m.sh.MainBodyOrigin()
+	w, _ := m.contentSize()
+	x := bx + apiLogListWidth(w) + 3 // into the detail pane
+	nm, _ := m.handleWheel(tea.MouseWheelMsg{X: x, Y: by + 2, Button: tea.MouseWheelDown})
+	m = nm.(Model)
+	if m.apiLogVP.YOffset() == 0 {
+		t.Fatal("wheel over the detail pane should scroll the body")
+	}
+}
+
 func TestAPILogPageDownScrollsDetail(t *testing.T) {
 	sh := shell.New()
 	sh.SetSize(80, 8) // small height so the section overflows the viewport

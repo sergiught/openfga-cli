@@ -96,7 +96,9 @@ func (m Model) apiLogsBody() string {
 	// (via Run) has a resolved API URL to show.
 	urlHeader := ""
 	if m.cli != nil {
-		urlHeader = style.Faint.Render("API  ") + style.Bold.Render(m.activeAPIURL())
+		// Indent by 2 so "API" lines up with the list rows' timestamp column
+		// (rows reserve 2 columns for the selection bar / padding).
+		urlHeader = "  " + style.Faint.Render("API  ") + style.Bold.Render(m.activeAPIURL())
 	}
 	return urlHeader + "\n" + split
 }

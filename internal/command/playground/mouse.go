@@ -24,6 +24,24 @@ func (m Model) handleWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.resVP, cmd = m.resVP.Update(msg)
 		return m, cmd
+	case m.section == secAPILogs:
+		bx, _ := m.sh.MainBodyOrigin()
+		w, _ := m.contentSize()
+		if msg.X >= bx+apiLogListWidth(w) {
+			// Over the detail pane: scroll the active section (req/resp body).
+			if up {
+				m.apiLogVP.ScrollUp(apiLogScrollStep)
+			} else {
+				m.apiLogVP.ScrollDown(apiLogScrollStep)
+			}
+			return m, nil
+		}
+		// Over the list: move the selection (reusing the key handler's logic).
+		dir := "down"
+		if up {
+			dir = "up"
+		}
+		return m.handleSectionKey(dir, keyMsg(dir))
 	}
 	// List sections: move the selection, which pages the list at its boundaries.
 	if lst, _ := m.sectionList(); lst != nil {

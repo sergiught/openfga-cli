@@ -110,6 +110,17 @@ func (m Model) helpBody() string {
 		section = [][2]string{{"i / ↵", "edit query"}, {"tab", "cycle mode"}, {"1–5", "rerun recent"}, {"r", "resolve"}}
 	case secAssertions:
 		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"↵", "run + resolve"}, {"a", "add"}, {"e", "edit"}, {"d", "delete"}, {"t", "run all"}}
+	case secAPILogs:
+		section = [][2]string{
+			{"↑↓", "select request"},
+			{"tab / shift+tab", "cycle detail section"},
+			{"j / k", "scroll section up / down"},
+			{"pgup/pgdn b/f/space", "page the section"},
+			{"←→", "scroll the URL"},
+			{"c", "readable / compact bodies"},
+			{"x", "clear the log"},
+			{"wheel", "scroll list or body"},
+		}
 	}
 	render := func(rows [][2]string) string {
 		width := 0
@@ -851,6 +862,8 @@ func (m Model) statusKeys() []string {
 		return []string{"i/↵ edit", "tab mode", "1-5 rerun", "r resolve", "esc"}
 	case secAssertions:
 		return []string{"↑↓", "↵ run", "a add", "e edit", "d delete", "t run all", m.compactHint(), "esc"}
+	case secAPILogs:
+		return []string{"↑↓ list", "tab section", "j/k scroll", "←→ url", "c fmt", "x clear", "esc"}
 	}
 	return nil
 }
