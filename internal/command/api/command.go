@@ -5,14 +5,16 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/cli"
+	"github.com/sergiught/openfga-cli/internal/output"
 )
 
 // Command is the `api` command.
@@ -30,11 +32,11 @@ func New(cli *cli.CLI) *Command {
 		Long: "Send an arbitrary request to the OpenFGA API, reusing the active profile's " +
 			"URL and authentication (token, client-credentials or private-key JWT).\n\n" +
 			"The path is relative to the profile's API URL (e.g. /stores). A JSON body may " +
-			"be passed as the third argument or piped on stdin.",
+			"be passed as the third argument, or read from stdin by passing `-` as the body.",
 		Example: "  ofga api GET /stores\n" +
 			"  ofga api GET /stores/<id>/authorization-models\n" +
 			`  ofga api POST /stores/<id>/check '{"tuple_key":{"user":"user:anne","relation":"viewer","object":"document:roadmap"}}'` + "\n" +
-			`  echo '{"name":"demo"}' | ofga api POST /stores`,
+			`  echo '{"name":"demo"}' | ofga api POST /stores -`,
 		Args: cobra.RangeArgs(2, 3),
 		RunE: c.run,
 	}
@@ -48,7 +50,7 @@ func (c *Command) run(cmd *cobra.Command, args []string) error {
 	method := strings.ToUpper(args[0])
 	path := args[1]
 
-	body, err := requestBody(args)
+	body, err := requestBody(args, cmd.InOrStdin())
 	if err != nil {
 		return err
 	}
@@ -67,6 +69,14 @@ func (c *Command) run(cmd *cobra.Command, args []string) error {
 	}
 	if err != nil {
 		// Non-2xx: the error carries the method/URL, status and API code+message.
+		// Under --json, also emit the server error as a JSON object on stdout so
+		// scripts can capture it (curl-like), in addition to the non-zero exit.
+		if c.cli.JSON {
+			var er *openfga.ErrorResponse
+			if errors.As(err, &er) {
+				_ = output.JSON(cmd.OutOrStdout(), map[string]string{"code": er.Code, "message": er.Message})
+			}
+		}
 		return err
 	}
 	data, err := io.ReadAll(resp.Body)
@@ -76,22 +86,24 @@ func (c *Command) run(cmd *cobra.Command, args []string) error {
 	return c.write(cmd.OutOrStdout(), data)
 }
 
-// requestBody resolves the JSON request body from the third argument or piped
-// stdin, returning nil when there is none.
-func requestBody(args []string) (any, error) {
+// requestBody resolves the JSON request body from the third argument, returning
+// nil when there is none. A body argument of "-" reads the body from stdin
+// (matching the tool's own `--file -` convention); stdin is never consumed
+// otherwise, so non-body methods (GET/DELETE/HEAD) don't block on an open pipe.
+func requestBody(args []string, stdin io.Reader) (any, error) {
 	var raw []byte
-	if len(args) == 3 && strings.TrimSpace(args[2]) != "" {
-		raw = []byte(args[2])
-	} else if fi, _ := os.Stdin.Stat(); fi != nil && fi.Mode()&os.ModeCharDevice == 0 {
-		b, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			return nil, err
-		}
-		if len(bytes.TrimSpace(b)) > 0 {
+	if len(args) == 3 {
+		if args[2] == "-" {
+			b, err := io.ReadAll(stdin)
+			if err != nil {
+				return nil, err
+			}
 			raw = b
+		} else {
+			raw = []byte(args[2])
 		}
 	}
-	if raw == nil {
+	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil, nil
 	}
 	if !json.Valid(raw) {
