@@ -40,6 +40,9 @@ func (m Model) apiLogsBody() string {
 	if sel > len(entries)-1 {
 		sel = len(entries) - 1
 	}
+	if sel < 0 {
+		sel = 0
+	}
 	list := m.apiLogList(entries, sel, h)
 	e := entries[len(entries)-1-sel]
 	title := e.Method + " " + e.URL

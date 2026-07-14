@@ -329,6 +329,45 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 		cmd := m.assertionsList.Update(msg)
 		return m, cmd
 
+	case secAPILogs:
+		if m.recorder == nil {
+			return m, nil
+		}
+		entries := m.recorder.Snapshot()
+		switch key {
+		case "up", "k":
+			if m.apiLogSel > 0 {
+				m.apiLogSel--
+				m.refreshAPILogVP()
+			}
+			return m, nil
+		case "down", "j":
+			if m.apiLogSel < len(entries)-1 {
+				m.apiLogSel++
+				m.refreshAPILogVP()
+			}
+			return m, nil
+		case "pgup", "pgdown", "b", "f", " ":
+			var cmd tea.Cmd
+			m.apiLogVP, cmd = m.apiLogVP.Update(msg)
+			return m, cmd
+		case "c":
+			m.apiLogPretty = !m.apiLogPretty
+			m.refreshAPILogVP()
+			if m.apiLogPretty {
+				m.status = "readable bodies"
+			} else {
+				m.status = "compact bodies"
+			}
+			return m, nil
+		case "x":
+			m.recorder.Clear()
+			m.apiLogSel = 0
+			m.refreshAPILogVP()
+			m.status = "cleared API logs"
+			return m, nil
+		}
+		return m, nil
 	}
 	return m, nil
 }

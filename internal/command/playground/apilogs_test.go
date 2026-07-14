@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/sergiught/openfga-cli/internal/apilog"
 	"github.com/sergiught/openfga-cli/internal/ui/shell"
 )
@@ -81,5 +83,59 @@ func TestAPILogDetailToggleCompact(t *testing.T) {
 	raw := apiLogDetail(e, false)
 	if !strings.Contains(raw, `{"allowed":true}`) {
 		t.Fatalf("raw output should keep compact JSON:\n%s", raw)
+	}
+}
+
+func pressAPILog(m Model, key string) Model {
+	nm, _ := m.handleSectionKey(key, tea.KeyPressMsg{})
+	return nm.(Model)
+}
+
+func TestAPILogKeysNavigateSelectToggleClear(t *testing.T) {
+	m := apiLogModel(sampleEntry(), sampleEntry()) // two entries; sel starts at 0 (newest)
+
+	// down moves toward older entries (sel++)
+	m = pressAPILog(m, "down")
+	if m.apiLogSel != 1 {
+		t.Fatalf("down: apiLogSel = %d, want 1", m.apiLogSel)
+	}
+	// up moves back toward newest (sel--)
+	m = pressAPILog(m, "up")
+	if m.apiLogSel != 0 {
+		t.Fatalf("up: apiLogSel = %d, want 0", m.apiLogSel)
+	}
+	// down cannot pass the oldest
+	m = pressAPILog(m, "down")
+	m = pressAPILog(m, "down")
+	if m.apiLogSel != 1 {
+		t.Fatalf("down clamp: apiLogSel = %d, want 1", m.apiLogSel)
+	}
+	// c toggles pretty
+	before := m.apiLogPretty
+	m = pressAPILog(m, "c")
+	if m.apiLogPretty == before {
+		t.Fatal("c should toggle apiLogPretty")
+	}
+	// x clears history
+	m = pressAPILog(m, "x")
+	if len(m.recorder.Snapshot()) != 0 {
+		t.Fatal("x should clear the recorder")
+	}
+	if m.apiLogSel != 0 {
+		t.Fatalf("x should reset selection, got %d", m.apiLogSel)
+	}
+}
+
+func TestAPILogKeysNilRecorderNoPanic(t *testing.T) {
+	sh := shell.New()
+	sh.SetSize(120, 30)
+	m := Model{sh: sh, section: secAPILogs} // no recorder wired
+
+	// A nil recorder must not panic on any recorder-touching key.
+	for _, key := range []string{"x", "down", "up", "c"} {
+		nm, _ := m.handleSectionKey(key, tea.KeyPressMsg{})
+		if nm == nil {
+			t.Fatalf("handleSectionKey(%q) returned nil model", key)
+		}
 	}
 }
