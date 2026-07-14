@@ -23,6 +23,23 @@ const apiLogHistory = 200
 // apiLogHStep is how many columns ←/→ shift the selected row's URL per press.
 const apiLogHStep = 6
 
+// apiLogScrollStep is how many lines j/k scroll the detail viewport per press.
+const apiLogScrollStep = 3
+
+// apiLogURLHeaderLines is how many rows the base-API-URL header above the list
+// occupies (kept in sync with apiLogsBody and refreshAPILogVP's height math).
+const apiLogURLHeaderLines = 1
+
+// urlPath returns the path of a captured request URL (e.g. /stores/…), or the
+// whole string when it can't be parsed. The base URL is shown once above the
+// list, so rows and the detail title only need the path.
+func urlPath(raw string) string {
+	if u, err := url.Parse(raw); err == nil && u.Path != "" {
+		return u.Path
+	}
+	return raw
+}
+
 // apiLogMsg is sent (via Recorder.SetNotify -> program.Send) whenever a new
 // request is captured, so the API Logs view re-renders.
 type apiLogMsg struct{}
@@ -40,12 +57,7 @@ func (m Model) selectedAPILogPathLen(entries []apilog.Entry) int {
 	if sel > len(entries)-1 {
 		sel = len(entries) - 1
 	}
-	e := entries[len(entries)-1-sel]
-	path := e.URL
-	if u, err := url.Parse(e.URL); err == nil && u.Path != "" {
-		path = u.Path
-	}
-	return len([]rune(path))
+	return len([]rune(urlPath(entries[len(entries)-1-sel].URL)))
 }
 
 // apiLogsBody renders the API Logs section: a master list of requests
@@ -70,13 +82,23 @@ func (m Model) apiLogsBody() string {
 		sel = 0
 	}
 	lw := apiLogListWidth(w)
-	list := m.apiLogList(entries, sel, lw, h)
+	// The base API URL is shown once above the split, so rows and the detail
+	// title only carry the path; that header takes apiLogURLHeaderLines rows.
+	mdH := h - apiLogURLHeaderLines
+	list := m.apiLogList(entries, sel, lw, mdH)
 	e := entries[len(entries)-1-sel]
-	title := e.Method + " " + e.URL
+	title := e.Method + " " + urlPath(e.URL)
 	// The status line and sub-section tab strip sit above the scrollable
 	// section content; the active section (headers/body) lives in the viewport.
 	card := apiLogDetailHeader(e, m.apiLogTab) + "\n\n" + m.apiLogVP.View()
-	return masterDetailW(list, title, card, lw, w, h)
+	split := masterDetailW(list, title, card, lw, w, mdH)
+	// m.cli is nil in unit tests that build a Model directly; only production
+	// (via Run) has a resolved API URL to show.
+	urlHeader := ""
+	if m.cli != nil {
+		urlHeader = style.Faint.Render("API  ") + style.Bold.Render(m.activeAPIURL())
+	}
+	return urlHeader + "\n" + split
 }
 
 // apiLogMinDetailW keeps the detail pane wide enough for the sub-section tab
@@ -159,10 +181,7 @@ func (m Model) apiLogList(entries []apilog.Entry, sel, width, h int) string {
 // so the columns line up down the list. hscroll shifts the path left so a long
 // URL can be read in full with the ←/→ keys.
 func apiLogRow(e apilog.Entry, width, hscroll int) string {
-	path := e.URL
-	if u, err := url.Parse(e.URL); err == nil && u.Path != "" {
-		path = u.Path
-	}
+	path := urlPath(e.URL)
 	// The latency lives in the detail pane; the list shows just the status (plus
 	// a compact retry marker) so the URL gets as much room as possible.
 	right := statusLabel(e)
@@ -349,7 +368,10 @@ func (m *Model) refreshAPILogVP() {
 	if haveEntry {
 		headerLines = lipgloss.Height(lipgloss.NewStyle().Width(cw).Render(apiLogDetailHeader(e, m.apiLogTab)))
 	}
-	vh := h - 2 - headerLines
+	// Height budget: the base-URL header (apiLogURLHeaderLines), the
+	// master/detail title (1), the detail header (status + tab strip), and a
+	// blank separator (1) all sit above the viewport.
+	vh := h - apiLogURLHeaderLines - 2 - headerLines
 	if vh < 1 {
 		vh = 1
 	}

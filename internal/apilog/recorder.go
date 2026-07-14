@@ -81,6 +81,17 @@ func (r *Recorder) Snapshot() []Entry {
 	return result
 }
 
+// Len returns how many entries the buffer currently holds (0..capacity),
+// without copying them — cheap enough to call on every render.
+func (r *Recorder) Len() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.full {
+		return r.cap
+	}
+	return r.index
+}
+
 // Clear empties the buffer.
 func (r *Recorder) Clear() {
 	r.mu.Lock()

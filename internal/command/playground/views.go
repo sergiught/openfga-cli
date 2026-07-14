@@ -234,6 +234,12 @@ func (m Model) sidebarNav() []shell.NavItem {
 			// Always shown (including 0) — assertions are loaded up front, so 0
 			// genuinely means none rather than "not loaded yet".
 			it.Badge = itoa(len(m.assertions))
+		case secAPILogs:
+			if m.recorder != nil {
+				if n := m.recorder.Len(); n > 0 {
+					it.Badge = itoa(n)
+				}
+			}
 		}
 		items[i] = it
 	}

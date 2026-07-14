@@ -335,7 +335,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 		}
 		entries := m.recorder.Snapshot()
 		switch key {
-		case "up", "k":
+		case "up":
 			if m.apiLogSel > 0 {
 				m.apiLogSel--
 				m.apiLogHScroll = 0
@@ -343,13 +343,21 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 				m.apiLogVP.GotoTop()
 			}
 			return m, nil
-		case "down", "j":
+		case "down":
 			if m.apiLogSel < len(entries)-1 {
 				m.apiLogSel++
 				m.apiLogHScroll = 0
 				m.refreshAPILogVP()
 				m.apiLogVP.GotoTop()
 			}
+			return m, nil
+		case "j":
+			// Scroll the detail section up (arrows drive the list, so the body
+			// gets its own keys).
+			m.apiLogVP.ScrollUp(apiLogScrollStep)
+			return m, nil
+		case "k":
+			m.apiLogVP.ScrollDown(apiLogScrollStep)
 			return m, nil
 		case "tab":
 			// Cycle the detail sub-section (Req/Resp headers/body); the section
@@ -363,14 +371,14 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			m.refreshAPILogVP()
 			m.apiLogVP.GotoTop()
 			return m, nil
-		case "left", "h":
+		case "left":
 			// Scroll the selected row's URL left so the start comes back.
 			m.apiLogHScroll -= apiLogHStep
 			if m.apiLogHScroll < 0 {
 				m.apiLogHScroll = 0
 			}
 			return m, nil
-		case "right", "l":
+		case "right":
 			// Scroll the selected row's URL right to read a long path in full.
 			if pathLen := m.selectedAPILogPathLen(entries); m.apiLogHScroll+apiLogHStep <= pathLen {
 				m.apiLogHScroll += apiLogHStep

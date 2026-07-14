@@ -186,6 +186,50 @@ func TestAPILogRightArrowScrollsSelectedURL(t *testing.T) {
 	}
 }
 
+func TestAPILogDetailTitleUsesPathNotFullURL(t *testing.T) {
+	rec := apilog.NewRecorder(apiLogHistory)
+	rec.Add(apilog.Entry{Method: "POST", URL: "https://api.example.com/stores/1/check", Status: 200, StatusText: "200 OK"})
+	sh := shell.New()
+	sh.SetSize(120, 20)
+	m := Model{sh: sh, recorder: rec, apiLogPretty: true, section: secAPILogs}
+	m.refreshAPILogVP()
+	body := ansi.Strip(m.apiLogsBody())
+	if !strings.Contains(body, "/stores/1/check") {
+		t.Fatalf("expected the path in the detail:\n%s", body)
+	}
+	if strings.Contains(body, "https://") {
+		t.Fatalf("full URL should not appear (the base URL is a separate header):\n%s", body)
+	}
+}
+
+func TestAPILogJKScrollDetail(t *testing.T) {
+	sh := shell.New()
+	sh.SetSize(80, 8)
+	rec := apilog.NewRecorder(apiLogHistory)
+	big := `{"objects":[` + strings.Repeat(`"document:xxxxxxxxxxxxxxxxxxxx",`, 60) + `"end"]}`
+	rec.Add(apilog.Entry{
+		Method: "POST", URL: "https://api.example/list", Status: 200, StatusText: "200 OK",
+		RespBody: []byte(big),
+	})
+	m := Model{sh: sh, recorder: rec, apiLogPretty: true, section: secAPILogs}
+	m.refreshAPILogVP()
+	m = pressAPILog(m, "tab")
+	m = pressAPILog(m, "tab")
+	m = pressAPILog(m, "tab") // Resp Body (overflows)
+	if m.apiLogVP.TotalLineCount() <= m.apiLogVP.Height() {
+		t.Skip("content fits; nothing to scroll")
+	}
+	m = pressAPILog(m, "k") // scroll down
+	off := m.apiLogVP.YOffset()
+	if off == 0 {
+		t.Fatal("k should scroll the detail down")
+	}
+	m = pressAPILog(m, "j") // scroll up
+	if m.apiLogVP.YOffset() >= off {
+		t.Fatal("j should scroll the detail up")
+	}
+}
+
 func TestAPILogPageDownScrollsDetail(t *testing.T) {
 	sh := shell.New()
 	sh.SetSize(80, 8) // small height so the section overflows the viewport
