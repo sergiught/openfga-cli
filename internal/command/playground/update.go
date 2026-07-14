@@ -268,6 +268,11 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.populateAssertions()
 		m.resize()
 		m.status = m.assertSummary
+		if msg.passed < msg.total {
+			// Some assertions failed — surface it as an error toast, not a green
+			// success, mirroring the CLI's non-zero exit on assertion failure.
+			return m, m.toasts.Push(toast.Error, m.status)
+		}
 		return m, m.toasts.Push(toast.Success, m.status)
 
 	case assertOneMsg:
@@ -444,7 +449,13 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// list for the filter to actually narrow the rows. Nothing else forwards
 		// it, so without this the "/" filter shows a filter prompt but every row
 		// stays visible — and a following delete would hit the wrong (unfiltered)
-		// row. Forward these async messages to the active section list.
+		// row. Forward these async messages to the active section list — or to the
+		// command palette when it's open, whose list is otherwise never fed its own
+		// FilterMatchesMsg, leaving its "/" filter dead and navigation landing on
+		// the wrong section.
+		if m.paletteOpen {
+			return m, m.paletteList.Update(msg)
+		}
 		if lst := m.activeList(); lst != nil {
 			return m, lst.Update(msg)
 		}

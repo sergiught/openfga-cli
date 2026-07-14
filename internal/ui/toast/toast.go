@@ -80,6 +80,15 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 // Active reports whether any toast is showing.
 func (m Model) Active() bool { return len(m.items) > 0 }
 
+// Levels returns the level of each toast currently showing, oldest first.
+func (m Model) Levels() []Level {
+	ls := make([]Level, len(m.items))
+	for i, t := range m.items {
+		ls[i] = t.level
+	}
+	return ls
+}
+
 // View renders the stack of chips, or "" when empty.
 func (m Model) View() string {
 	if len(m.items) == 0 {

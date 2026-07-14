@@ -88,9 +88,10 @@ func (m Model) helpBody() string {
 	global := [][2]string{
 		{"tab / ↑↓", "move between tabs (from the tab bar)"},
 		{"↵ / esc", "enter the panel / return to the tabs"},
-		{"1–7", "jump to a section"},
+		{"1–7", "jump to a section (1–5 rerun history in Tuple Queries)"},
 		{"ctrl+k", "command palette"},
 		{"?", "toggle this help"},
+		{"q", "quit (from the tab bar)"},
 		{"ctrl+c", "quit"},
 	}
 	var section [][2]string
@@ -166,7 +167,7 @@ func (m Model) dialogContent() (string, string) {
 	case m.paletteOpen:
 		return "Command palette", m.paletteList.View() + "\n" + style.Faint.Render("↑↓ choose · enter go · esc close")
 	case m.formKind == formCreateStore:
-		return "Create Store", m.form.View() + "\n" + style.Faint.Render("enter submit · esc cancel")
+		return "Create Store", m.form.View() + "\n" + style.Faint.Render("↵ create · esc cancel")
 	case m.formKind == formWriteTuple:
 		return "Write Tuple", m.form.View() + "\n" + style.Faint.Render("tab move · ctrl+s submit · esc cancel")
 	case m.formKind == formWriteAssertion:
@@ -800,6 +801,9 @@ func (m Model) statusKeys() []string {
 	switch {
 	case m.formErr != "":
 		return []string{"↵ dismiss", "esc"}
+	case m.formKind == formCreateStore:
+		// Single-field form: Enter submits (ctrl+s also works); match the dialog hint.
+		return []string{"↵ create", "esc cancel"}
 	case m.formKind != formNone:
 		return []string{"ctrl+s save", "esc cancel"}
 	case m.section == secModel && m.editorOpen:

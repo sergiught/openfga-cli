@@ -10,7 +10,32 @@ import (
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/config"
+	"github.com/sergiught/openfga-cli/internal/ui/toast"
 )
+
+// TUI-30: "run all" assertions with any failure must surface an error toast, not
+// a green success — mirroring the CLI's non-zero exit on assertion failure.
+func TestAssertionRunAllFailedToast(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	m := newTestModel()
+	m, _ = m.Update(assertTestMsg{passed: 1, total: 2, results: []assertResult{
+		{ran: true, expected: true, got: true, pass: true},
+		{ran: true, expected: true, got: false, pass: false},
+	}})
+	if levels := m.(Model).toasts.Levels(); len(levels) == 0 || levels[len(levels)-1] != toast.Error {
+		t.Fatalf("a partially-failing assertion run must push an Error toast, got levels %v", levels)
+	}
+
+	m = newTestModel()
+	m, _ = m.Update(assertTestMsg{passed: 2, total: 2, results: []assertResult{
+		{ran: true, expected: true, got: true, pass: true},
+		{ran: true, expected: false, got: false, pass: true},
+	}})
+	if levels := m.(Model).toasts.Levels(); len(levels) == 0 || levels[len(levels)-1] != toast.Success {
+		t.Fatalf("an all-passing assertion run must push a Success toast, got levels %v", levels)
+	}
+}
 
 // TUI-15: running an assertion via Enter must never flash a fabricated
 // "✗ DENIED" verdict. Until the real Check result lands (assertOneMsg) no
