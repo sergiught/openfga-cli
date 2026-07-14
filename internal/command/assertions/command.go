@@ -219,7 +219,7 @@ func (c *Command) testCmd() *cobra.Command {
 
 			if c.cli.JSON {
 				if err := output.JSON(cmd.OutOrStdout(), map[string]any{
-					"model_id": modelID, "passed": passed, "total": len(results), "results": results,
+					"authorization_model_id": modelID, "passed": passed, "total": len(results), "results": results,
 				}); err != nil {
 					return err
 				}

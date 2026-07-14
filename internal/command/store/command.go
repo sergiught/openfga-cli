@@ -81,6 +81,9 @@ func (c *Command) createCmd() *cobra.Command {
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if dryRun {
+				if c.cli.JSON {
+					return output.JSON(cmd.OutOrStdout(), map[string]any{"dry_run": true, "would_create": args[0]})
+				}
 				output.Infof(cmd.ErrOrStderr(), "would create store %s", style.Bold.Render(args[0]))
 				return nil
 			}

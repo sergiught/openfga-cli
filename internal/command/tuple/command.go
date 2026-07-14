@@ -13,6 +13,7 @@ import (
 
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/cli"
+	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/prompt"
@@ -77,6 +78,9 @@ func (c *Command) writeCmd() *cobra.Command {
 					return err
 				}
 				if dryRun {
+					if c.cli.JSON {
+						return output.JSON(cmd.OutOrStdout(), map[string]any{"dry_run": true, "would_write": len(keys)})
+					}
 					output.Infof(cmd.ErrOrStderr(), "would write %d tuple(s)", len(keys))
 					return nil
 				}
@@ -95,13 +99,16 @@ func (c *Command) writeCmd() *cobra.Command {
 			}
 			user, relation, object, err := fga.Triple(args, fUser, fRel, fObj)
 			if err != nil {
-				return err
+				return clierr.WithCode(clierr.CodeUsage, err)
 			}
 			key, err := fga.ParseTuple(user, relation, object)
 			if err != nil {
-				return err
+				return clierr.WithCode(clierr.CodeUsage, err)
 			}
 			if dryRun {
+				if c.cli.JSON {
+					return output.JSON(cmd.OutOrStdout(), map[string]any{"dry_run": true, "would_write": 1})
+				}
 				output.Infof(cmd.ErrOrStderr(), "would write %s", style.Bold.Render(fga.FormatTuple(key)))
 				return nil
 			}
@@ -150,6 +157,9 @@ func (c *Command) deleteCmd() *cobra.Command {
 					return err
 				}
 				if dryRun {
+					if c.cli.JSON {
+						return output.JSON(cmd.OutOrStdout(), map[string]any{"dry_run": true, "would_delete": len(keys)})
+					}
 					output.Infof(cmd.ErrOrStderr(), "would delete %d tuple(s)", len(keys))
 					return nil
 				}
@@ -172,13 +182,16 @@ func (c *Command) deleteCmd() *cobra.Command {
 			}
 			user, relation, object, err := fga.Triple(args, fUser, fRel, fObj)
 			if err != nil {
-				return err
+				return clierr.WithCode(clierr.CodeUsage, err)
 			}
 			key, err := fga.ParseTuple(user, relation, object)
 			if err != nil {
-				return err
+				return clierr.WithCode(clierr.CodeUsage, err)
 			}
 			if dryRun {
+				if c.cli.JSON {
+					return output.JSON(cmd.OutOrStdout(), map[string]any{"dry_run": true, "would_delete": 1})
+				}
 				output.Infof(cmd.ErrOrStderr(), "would delete %s", style.Bold.Render(fga.FormatTuple(key)))
 				return nil
 			}

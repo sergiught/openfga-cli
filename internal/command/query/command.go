@@ -32,8 +32,8 @@ func New(cli *cli.CLI) *Command {
 		Use:     "query",
 		Aliases: []string{"q"},
 		RunE:    cli.GroupRunE,
-		Short:   "Ask authorization questions (check, expand, list)",
-		Long: "Ask authorization questions (check, expand, list).\n\n" +
+		Short:   "Ask authorization questions",
+		Long: "Ask authorization questions.\n\n" +
 			"Positional argument order mirrors the OpenFGA API for each call, so it differs " +
 			"between subcommands:\n" +
 			"  check        <user> <relation> <object>   (user first)\n" +
@@ -103,6 +103,12 @@ func (c *Command) checkCmd() *cobra.Command {
 			user, relation, object, err := fga.Triple(args, fUser, fRel, fObj)
 			if err != nil {
 				// Missing/incomplete arguments are a usage error (exit 2).
+				return clierr.WithCode(clierr.CodeUsage, err)
+			}
+			// Validate the triple locally (same check as `tuples write`) so a
+			// swapped/malformed argument gives a friendly hint instead of a raw
+			// server 400.
+			if _, err := fga.ParseTuple(user, relation, object); err != nil {
 				return clierr.WithCode(clierr.CodeUsage, err)
 			}
 			cl, _, err := c.cli.ClientWithStore()
