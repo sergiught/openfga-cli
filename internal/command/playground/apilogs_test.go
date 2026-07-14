@@ -274,6 +274,25 @@ func TestAPILogWheelScrollsDetailBody(t *testing.T) {
 	}
 }
 
+func TestAPILogCompactBodyWraps(t *testing.T) {
+	sh := shell.New()
+	sh.SetSize(80, 12)
+	rec := apilog.NewRecorder(apiLogHistory)
+	long := `{"a":"` + strings.Repeat("x", 300) + `"}` // one very long line
+	rec.Add(apilog.Entry{
+		Method: "POST", URL: "https://api.example/check", Status: 200, StatusText: "200 OK",
+		RespBody: []byte(long),
+	})
+	m := Model{sh: sh, recorder: rec, apiLogPretty: false, section: secAPILogs} // compact
+	m.refreshAPILogVP()
+	m = pressAPILog(m, "tab")
+	m = pressAPILog(m, "tab")
+	m = pressAPILog(m, "tab") // Resp Body
+	if n := m.apiLogVP.TotalLineCount(); n < 2 {
+		t.Fatalf("a long compact body should soft-wrap to multiple lines, got %d", n)
+	}
+}
+
 func TestAPILogPageDownScrollsDetail(t *testing.T) {
 	sh := shell.New()
 	sh.SetSize(80, 8) // small height so the section overflows the viewport

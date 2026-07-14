@@ -384,6 +384,9 @@ func (m *Model) refreshAPILogVP() {
 		m.apiLogVP.SetWidth(cw)
 		m.apiLogVP.SetHeight(vh)
 	}
+	// Soft-wrap so a long body line (especially a compact, single-line JSON
+	// body) wraps to the pane instead of running off the right edge.
+	m.apiLogVP.SoftWrap = true
 
 	if !haveEntry {
 		m.apiLogVP.SetContent("")
