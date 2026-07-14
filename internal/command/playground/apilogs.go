@@ -119,7 +119,6 @@ func statusLabel(e apilog.Entry) string {
 // exactly as captured otherwise.
 func apiLogDetail(e apilog.Entry, pretty bool) string {
 	var b strings.Builder
-	b.WriteString(style.Bold.Render(e.Method+" "+e.URL) + "\n")
 	if e.Err != "" {
 		b.WriteString(style.Failure.Render("transport error: "+e.Err) + "\n")
 		return strings.TrimRight(b.String(), "\n")

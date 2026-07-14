@@ -61,7 +61,7 @@ func New(r config.Resolved, opts ...Option) (*openfga.Client, error) {
 
 	base := baseTransport()
 	if o.capture != nil {
-		base = apilog.Transport(base, o.capture)
+		base = apilog.Transport(base, o.capture, r.APIURL)
 	}
 
 	opts2 := []openfga.Option{

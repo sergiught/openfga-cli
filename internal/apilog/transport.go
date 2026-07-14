@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -17,13 +18,27 @@ const maxBodyBytes = 64 << 10
 // It sits beneath the SDK's auth/retry chain (installed via WithBaseTransport),
 // so it sees the fully-decorated request and the raw response, and re-wraps both
 // body streams so the SDK's own reads are never disturbed.
-func Transport(base http.RoundTripper, rec *Recorder) http.RoundTripper {
-	return &roundTripper{base: base, rec: rec}
+//
+// apiURL is the resolved OpenFGA API endpoint. The SDK also routes out-of-band
+// OAuth token fetches (client_credentials / private_key_jwt) through this same
+// base transport, and those requests carry secrets (client_secret in the
+// request body, access_token in the response body) that must never be
+// captured. Only requests whose host matches apiURL's host are recorded;
+// everything else passes straight through unrecorded.
+func Transport(base http.RoundTripper, rec *Recorder, apiURL string) http.RoundTripper {
+	var apiHost string
+	if apiURL != "" {
+		if u, err := url.Parse(apiURL); err == nil {
+			apiHost = u.Host
+		}
+	}
+	return &roundTripper{base: base, rec: rec, apiHost: apiHost}
 }
 
 type roundTripper struct {
-	base http.RoundTripper
-	rec  *Recorder
+	base    http.RoundTripper
+	rec     *Recorder
+	apiHost string
 
 	mu      sync.Mutex
 	lastURL string
@@ -31,6 +46,10 @@ type roundTripper struct {
 }
 
 func (rt *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	if rt.apiHost == "" || req.URL.Host != rt.apiHost {
+		return rt.base.RoundTrip(req) // not an OpenFGA API call — never capture (avoids leaking OAuth token-fetch bodies)
+	}
+
 	e := Entry{
 		Time:       time.Now(),
 		Method:     req.Method,
