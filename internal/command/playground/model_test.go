@@ -1212,8 +1212,8 @@ func TestArrowKeysSwitchSections(t *testing.T) {
 	// wraps backward from the first section (Profiles) to the last
 	m, _ = m.Update(key("1")) // jump to Profiles
 	m, _ = m.Update(key("left"))
-	if got := m.(Model).section; got != secAssertions {
-		t.Fatalf("left arrow wrap: section = %v, want secAssertions", got)
+	if got := m.(Model).section; got != secAPILogs {
+		t.Fatalf("left arrow wrap: section = %v, want secAPILogs", got)
 	}
 }
 

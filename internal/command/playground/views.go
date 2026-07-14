@@ -209,7 +209,7 @@ func (m Model) sidebarContext() []string {
 
 func (m Model) sidebarNav() []shell.NavItem {
 	ic := icons.I()
-	sectionIcons := []string{ic.Profile, ic.Store, ic.Model, ic.Tuple, ic.Change, ic.Query, ic.Assert}
+	sectionIcons := []string{ic.Profile, ic.Store, ic.Model, ic.Tuple, ic.Change, ic.Query, ic.Assert, ic.APILog}
 	items := make([]shell.NavItem, len(sectionNames))
 	for i, name := range sectionNames {
 		it := shell.NavItem{Label: name, Icon: sectionIcons[i], Active: section(i) == m.section}

@@ -14,7 +14,9 @@ import (
 	"github.com/charmbracelet/harmonica"
 
 	"github.com/sergiught/go-openfga/openfga"
+	"github.com/sergiught/openfga-cli/internal/apilog"
 	"github.com/sergiught/openfga-cli/internal/cli"
+	"github.com/sergiught/openfga-cli/internal/client"
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/dsl"
 	"github.com/sergiught/openfga-cli/internal/fga"
@@ -43,9 +45,10 @@ const (
 	secChanges
 	secQuery
 	secAssertions
+	secAPILogs
 )
 
-var sectionNames = []string{"Profiles", "Stores", "Model", "Tuples", "Changes", "Tuple Queries", "Assertions"}
+var sectionNames = []string{"Profiles", "Stores", "Model", "Tuples", "Changes", "Tuple Queries", "Assertions", "API Logs"}
 
 // formKind identifies a full-panel form takeover.
 type formKind int
@@ -108,6 +111,12 @@ type Model struct {
 	cli    *cli.CLI
 	client *openfga.Client
 	ctx    context.Context
+
+	recorder     *apilog.Recorder
+	apiLogSel    int  // selection index into Snapshot, 0 = newest (top)
+	apiLogPretty bool // pretty-print JSON bodies in the detail pane
+	apiLogVP     viewport.Model
+	apiLogVPInit bool
 
 	width, height int
 	ready         bool
@@ -260,6 +269,7 @@ func newModel(ctx context.Context, cli *cli.CLI, cl *openfga.Client, storeID, mo
 		entranceFrac:   entranceFrac,
 		entranceSpring: entranceSpring,
 		section:        secStores,
+		apiLogPretty:   true,
 		version:        cli.Version,
 		storeID:        storeID,
 		modelID:        modelID,
@@ -343,7 +353,8 @@ func Run(ctx context.Context, cli *cli.CLI) error {
 	if err != nil {
 		return err
 	}
-	cl, err := cli.Client()
+	rec := apilog.NewRecorder(apiLogHistory)
+	cl, err := client.New(r, client.WithCapture(rec))
 	if err != nil {
 		return err
 	}
@@ -356,10 +367,12 @@ func Run(ctx context.Context, cli *cli.CLI) error {
 		}
 	}
 	m := newModel(ctx, cli, cl, r.StoreID, r.ModelID)
+	m.recorder = rec
 	icons.Apply(icons.Parse(cli.Config.IconsMode()))
 	// Bind the program to the interrupt-aware context so Ctrl-C / SIGINT tears
 	// the TUI down cleanly and cancels any in-flight requests it started.
 	p := tea.NewProgram(m, tea.WithContext(ctx))
+	rec.SetNotify(func() { p.Send(apiLogMsg{}) })
 	_, err = p.Run()
 	return err
 }
@@ -775,7 +788,7 @@ func (m *Model) reloadActive(status string) tea.Cmd {
 	if err != nil {
 		return m.toastErr("profile", err)
 	}
-	cl, err := m.cli.Client()
+	cl, err := client.New(r, client.WithCapture(m.recorder))
 	if err != nil {
 		m.populateProfiles()
 		return m.toastErr("profile", err)

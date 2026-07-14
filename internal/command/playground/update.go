@@ -427,6 +427,15 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.flash = false
 		return m, nil
 
+	case apiLogMsg:
+		if m.section == secAPILogs {
+			if m.apiLogSel > 0 {
+				m.apiLogSel++ // keep the pinned entry selected as newer ones arrive
+			}
+			m.refreshAPILogVP()
+		}
+		return m, nil
+
 	default:
 		// Field cursors blink via their own (non-key) messages. An active form
 		// must see every message, not just key presses, or the focused input's
@@ -714,7 +723,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Digit section-jumps stay global even with the panel focused — the ?
 	// overlay advertises "1–7 jump to a section" as global. The exception is
 	// Tuple Queries, where the digits rerun recent history.
-	if m.section != secQuery && len(key) == 1 && key[0] >= '1' && key[0] <= '7' {
+	if m.section != secQuery && len(key) == 1 && key[0] >= '1' && key[0] <= '8' {
 		return m.gotoSection(section(key[0] - '1'))
 	}
 	return m.handleSectionKey(key, msg)
@@ -732,7 +741,7 @@ func (m Model) handleSidebarKey(key string) (tea.Model, tea.Cmd) {
 		return m.gotoSection((m.section + 1) % n)
 	case "up", "shift+tab", "left", "k", "h":
 		return m.gotoSection((m.section + n - 1) % n)
-	case "1", "2", "3", "4", "5", "6", "7":
+	case "1", "2", "3", "4", "5", "6", "7", "8":
 		return m.gotoSection(section(key[0] - '1'))
 	case "enter":
 		m.focus = shell.FocusPanel
@@ -810,6 +819,10 @@ func (m Model) onEnterSection() (tea.Model, tea.Cmd) {
 		if m.focus == shell.FocusPanel {
 			return m, m.enterQueryEdit()
 		}
+	case secAPILogs:
+		m.apiLogSel = 0
+		m.refreshAPILogVP()
+		return m, nil
 	}
 	return m, nil
 }
