@@ -3,11 +3,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/signal"
 	"slices"
 	"strings"
 
+	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/log"
 
 	"github.com/sergiught/openfga-cli/internal/cli"
@@ -15,6 +17,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/command/base"
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/output"
+	"github.com/sergiught/openfga-cli/internal/prompt"
 	"github.com/sergiught/openfga-cli/internal/ui/icons"
 	"github.com/sergiught/openfga-cli/internal/version"
 )
@@ -33,15 +36,19 @@ func main() {
 	// (env OPENFGA_CONFIG is honored by LoadFrom when no flag is given).
 	cfg, err := config.LoadFrom(configPathFromArgs(os.Args[1:]))
 	if err != nil {
-		output.Errorf(os.Stderr, "%s", err.Error())
+		// base.New (which builds the profile-aware writers) hasn't run yet, so
+		// wrap stderr here too — otherwise this early error leaks ANSI to a pipe
+		// and ignores NO_COLOR.
+		errw := colorprofile.NewWriter(os.Stderr, os.Environ())
+		output.Errorf(errw, "%s", err.Error())
 		if path := config.DefaultPath(); path != "" {
-			output.Hintf(os.Stderr, "fix or remove %s, then try again", path)
+			output.Hintf(errw, "fix or remove %s, then try again", path)
 		}
 		os.Exit(clierr.CodeError)
 	}
 	icons.Apply(icons.Parse(cfg.IconsMode()))
 
-	c := cli.New(logger, cfg, version.Version)
+	c := cli.New(logger, cfg, version.Resolved())
 
 	root := base.New(c)
 	rootCmd := root.Command()
@@ -49,6 +56,14 @@ func main() {
 	cmd, err := rootCmd.ExecuteC()
 	if err != nil {
 		logger.Debugf("command failed: %+v", err)
+		if ctx.Err() != nil {
+			// A signal (Ctrl-C) cancelled the request context. signal.NotifyContext
+			// cancels with a signalError cause rather than context.Canceled, so the
+			// wrapped request error would otherwise be misread as a network failure.
+			// The context's own Err() is context.Canceled regardless of cause.
+			output.Errorf(root.ErrWriter(), "canceled")
+			os.Exit(clierr.CodeCanceled)
+		}
 		output.Errorf(root.ErrWriter(), "%s", clierr.Friendly(err))
 		code := clierr.Code(err)
 		if !root.RanCommand() || code == clierr.CodeUsage {
@@ -60,7 +75,9 @@ func main() {
 			// the CodeUsage classification rather than RanCommand.
 			code = clierr.CodeUsage
 			output.Hintf(root.ErrWriter(), "run '%s --help' for usage", cmd.CommandPath())
-		} else if logger.GetLevel() > log.DebugLevel {
+		} else if !errors.Is(err, prompt.ErrAborted) && logger.GetLevel() > log.DebugLevel {
+			// A deliberate abort has nothing more to show under -v; only hint for
+			// genuine failures where extra detail could help.
 			output.Hintf(root.ErrWriter(), "run with -v for more detail")
 		}
 		os.Exit(code)
