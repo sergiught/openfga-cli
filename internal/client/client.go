@@ -14,6 +14,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/sergiught/go-openfga/openfga"
+	"github.com/sergiught/openfga-cli/internal/apilog"
 	"github.com/sergiught/openfga-cli/internal/config"
 )
 
@@ -31,40 +32,64 @@ func baseTransport() http.RoundTripper {
 	return t
 }
 
+// Option configures optional client behavior layered on top of the resolved
+// config (e.g. request capture for the TUI).
+type Option func(*options)
+
+type options struct {
+	capture *apilog.Recorder
+}
+
+// WithCapture records every HTTP request/response into rec by wrapping the base
+// transport. Used by the playground's API Logs view; unused by CLI commands.
+func WithCapture(rec *apilog.Recorder) Option {
+	return func(o *options) { o.capture = rec }
+}
+
 // New builds an *openfga.Client from a resolved configuration. The store and
 // authorization-model IDs are registered as client defaults so per-call
 // overrides remain optional.
-func New(r config.Resolved) (*openfga.Client, error) {
+func New(r config.Resolved, opts ...Option) (*openfga.Client, error) {
 	if r.APIURL == "" {
 		return nil, fmt.Errorf("no API URL configured: set one with --api-url, OPENFGA_API_URL, or `ofga profiles set`")
 	}
 
-	opts := []openfga.Option{
+	var o options
+	for _, fn := range opts {
+		fn(&o)
+	}
+
+	base := baseTransport()
+	if o.capture != nil {
+		base = apilog.Transport(base, o.capture)
+	}
+
+	opts2 := []openfga.Option{
 		openfga.WithUserAgent("ofga-cli"),
 		openfga.WithDefaultConsistency(openfga.ConsistencyHigherConsistency),
-		openfga.WithBaseTransport(baseTransport()),
+		openfga.WithBaseTransport(base),
 		// Retry transient server errors, not just 429 (the SDK default). A
 		// partial RetryConfig keeps the SDK's attempt/backoff defaults.
 		openfga.WithRetry(openfga.RetryConfig{RetryableStatus: []int{429, 500, 502, 503, 504}}),
 	}
 	if r.StoreID != "" {
-		opts = append(opts, openfga.WithStoreID(r.StoreID))
+		opts2 = append(opts2, openfga.WithStoreID(r.StoreID))
 	}
 	if r.ModelID != "" {
-		opts = append(opts, openfga.WithAuthorizationModelID(r.ModelID))
+		opts2 = append(opts2, openfga.WithAuthorizationModelID(r.ModelID))
 	}
 	authOpt, err := authOption(r.Auth)
 	if err != nil {
 		return nil, err
 	}
 	if authOpt != nil {
-		opts = append(opts, authOpt)
+		opts2 = append(opts2, authOpt)
 	}
 	if msg := plaintextCredentialWarning(r.APIURL, r.Auth); msg != "" {
 		httpWarnOnce.Do(func() { fmt.Fprintln(os.Stderr, msg) })
 	}
 
-	c, err := openfga.NewClient(r.APIURL, opts...)
+	c, err := openfga.NewClient(r.APIURL, opts2...)
 	if err != nil {
 		// The SDK's errors are already user-facing (e.g. `invalid store ID …`);
 		// don't double-wrap them with an internal-sounding prefix.

@@ -1,15 +1,19 @@
 package client
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/sergiught/openfga-cli/internal/apilog"
 	"github.com/sergiught/openfga-cli/internal/config"
 )
 
@@ -78,5 +82,24 @@ func TestLoadSigningKeyMethodMismatch(t *testing.T) {
 	// RSA key with a matching method must succeed.
 	if _, _, err := loadSigningKey(path, "RS256"); err != nil {
 		t.Fatalf("expected RSA/RS256 to succeed, got %v", err)
+	}
+}
+
+func TestWithCaptureRecordsThroughTransport(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"stores":[]}`))
+	}))
+	defer srv.Close()
+
+	rec := apilog.NewRecorder(8)
+	c, err := New(config.Resolved{APIURL: srv.URL}, WithCapture(rec))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range c.Stores.All(context.Background(), nil) { // drive one request
+	}
+	if len(rec.Snapshot()) == 0 {
+		t.Fatal("expected WithCapture to record at least one request")
 	}
 }
