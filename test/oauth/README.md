@@ -19,8 +19,8 @@ make demo        # from the repo root (or `cd test/oauth && make demo`)
 ```
 
 This starts the stack and seeds **three stores — `dev`, `staging`, `prod`** —
-each with one authorization model, 100 tuples, and 100 assertions, then prints
-the CLI profile setup. Tear it down with `make demo-down`.
+each with the GitHub authorization model (`model.fga`), 100 tuples, and 100
+assertions, then prints the CLI profile setup. Tear it down with `make demo-down`.
 
 The sections below are the manual equivalents.
 
@@ -83,8 +83,8 @@ ofga stores list   # succeeds => the signed-JWT client assertion was accepted
 ```
 
 > auth0-mock does not verify the client assertion's signature (it's a mock), so
-> any key works here. Against a real IdP (e.g. Keycloak) you register the public
-> key on the client.
+> any key works here. Against a real IdP (e.g. Auth0 or Keycloak) you register
+> the public key on the client and OpenFGA validates the assertion for real.
 
 ## 4. See it in the playground's API Logs
 

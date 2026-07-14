@@ -15,6 +15,24 @@ CLIENT_SECRET="${CLIENT_SECRET:-demo-secret}"
 
 STORES=(dev staging prod)
 COUNT="${COUNT:-100}"
+# Authorization model (the GitHub sample). model.json is generated from
+# model.fga; regenerate with:
+#   go run test/oauth/genmodel.go test/oauth/model.fga test/oauth/model.json
+MODEL_FILE="${MODEL_FILE:-$(cd "$(dirname "$0")" && pwd)/model.json}"
+
+# Relations that accept a direct [user] assignment, cycled to produce a varied
+# but always-valid set of tuples (and matching assertions) for the model.
+TEMPLATES=(
+  "member organization org"
+  "owner organization org"
+  "repo_admin organization org"
+  "admin repo repo"
+  "maintainer repo repo"
+  "reader repo repo"
+  "writer repo repo"
+  "triager repo repo"
+  "member team team"
+)
 
 # json_get extracts the first "<key>":"<value>" string from stdin.
 json_get() { grep -o "\"$1\":\"[^\"]*\"" | head -1 | sed 's/.*":"\(.*\)"/\1/'; }
@@ -27,26 +45,7 @@ TOKEN=$(curl -sf -X POST "$TOKEN_URL" \
 [ -n "$TOKEN" ] || { echo "failed to obtain a token" >&2; exit 1; }
 auth=(-H "Authorization: Bearer $TOKEN")
 
-read -r -d '' MODEL <<'JSON' || true
-{
-  "schema_version": "1.1",
-  "type_definitions": [
-    { "type": "user" },
-    { "type": "document",
-      "relations": {
-        "owner":  { "this": {} },
-        "editor": { "union": { "child": [ { "this": {} }, { "computedUserset": { "relation": "owner" } } ] } },
-        "viewer": { "union": { "child": [ { "this": {} }, { "computedUserset": { "relation": "editor" } } ] } }
-      },
-      "metadata": { "relations": {
-        "owner":  { "directly_related_user_types": [ { "type": "user" } ] },
-        "editor": { "directly_related_user_types": [ { "type": "user" } ] },
-        "viewer": { "directly_related_user_types": [ { "type": "user" } ] }
-      } }
-    }
-  ]
-}
-JSON
+[ -f "$MODEL_FILE" ] || { echo "model file not found: $MODEL_FILE" >&2; exit 1; }
 
 for name in "${STORES[@]}"; do
   echo "› store '$name'"
@@ -55,7 +54,7 @@ for name in "${STORES[@]}"; do
   echo "  id: $store_id"
 
   model_id=$(curl -sf "${auth[@]}" -X POST "$API_URL/stores/$store_id/authorization-models" \
-    -H 'Content-Type: application/json' -d "$MODEL" | json_get authorization_model_id)
+    -H 'Content-Type: application/json' --data-binary @"$MODEL_FILE" | json_get authorization_model_id)
   echo "  model: $model_id"
 
   # Write tuples in chunks of 50 (a /write transaction caps at 100) and collect
@@ -67,7 +66,9 @@ for name in "${STORES[@]}"; do
   }
   chunk="" ; n=0 ; assertions=""
   for i in $(seq 1 "$COUNT"); do
-    key="{\"user\":\"user:user$i\",\"relation\":\"viewer\",\"object\":\"document:doc$i\"}"
+    # shellcheck disable=SC2206
+    t=(${TEMPLATES[$(((i - 1) % ${#TEMPLATES[@]}))]})
+    key="{\"user\":\"user:user$i\",\"relation\":\"${t[0]}\",\"object\":\"${t[1]}:${t[2]}$i\"}"
     chunk="$chunk${chunk:+,}$key"
     assertions="$assertions${assertions:+,}{\"tuple_key\":$key,\"expectation\":true}"
     n=$((n + 1))
