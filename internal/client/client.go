@@ -4,8 +4,11 @@ package client
 import (
 	"crypto"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -57,6 +60,9 @@ func New(r config.Resolved) (*openfga.Client, error) {
 	if authOpt != nil {
 		opts = append(opts, authOpt)
 	}
+	if msg := plaintextCredentialWarning(r.APIURL, r.Auth); msg != "" {
+		httpWarnOnce.Do(func() { fmt.Fprintln(os.Stderr, msg) })
+	}
 
 	c, err := openfga.NewClient(r.APIURL, opts...)
 	if err != nil {
@@ -65,6 +71,31 @@ func New(r config.Resolved) (*openfga.Client, error) {
 		return nil, err
 	}
 	return c, nil
+}
+
+// httpWarnOnce guards the plaintext-credentials warning so it prints at most
+// once per process even if New is called repeatedly.
+var httpWarnOnce sync.Once
+
+// plaintextCredentialWarning returns a warning message when credentials would be
+// sent over cleartext http to a non-loopback host, or "" when the connection is
+// safe: https, a loopback/empty host, or no credentials (method none/empty).
+func plaintextCredentialWarning(apiURL string, a config.Auth) string {
+	if a.Method == "" || a.Method == config.AuthNone {
+		return ""
+	}
+	u, err := url.Parse(apiURL)
+	if err != nil || u.Scheme != "http" {
+		return ""
+	}
+	host := u.Hostname()
+	if host == "" || host == "localhost" {
+		return ""
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return ""
+	}
+	return "warning: sending credentials over plaintext http to " + host + "; use https or a loopback address"
 }
 
 // authOption maps the profile's auth config to the matching client option, or
@@ -118,6 +149,9 @@ func loadSigningKey(path, methodName string) (crypto.PrivateKey, jwt.SigningMeth
 	if err != nil {
 		return nil, nil, fmt.Errorf("read signing key %s: %w", path, err)
 	}
+	if info, statErr := os.Stat(path); statErr == nil && info.Mode().Perm()&0o077 != 0 {
+		fmt.Fprintln(os.Stderr, "warning: signing key "+path+" is readable by other users; restrict it with chmod 600")
+	}
 	method := jwt.GetSigningMethod(methodName)
 	if method == nil {
 		if methodName != "" {
@@ -125,17 +159,19 @@ func loadSigningKey(path, methodName string) (crypto.PrivateKey, jwt.SigningMeth
 		}
 		method = jwt.SigningMethodRS256
 	}
+	var key crypto.PrivateKey
 	switch method.(type) {
 	case *jwt.SigningMethodRSA, *jwt.SigningMethodRSAPSS:
-		key, err := jwt.ParseRSAPrivateKeyFromPEM(pem)
-		return key, method, err
+		key, err = jwt.ParseRSAPrivateKeyFromPEM(pem)
 	case *jwt.SigningMethodECDSA:
-		key, err := jwt.ParseECPrivateKeyFromPEM(pem)
-		return key, method, err
+		key, err = jwt.ParseECPrivateKeyFromPEM(pem)
 	case *jwt.SigningMethodEd25519:
-		key, err := jwt.ParseEdPrivateKeyFromPEM(pem)
-		return key, method, err
+		key, err = jwt.ParseEdPrivateKeyFromPEM(pem)
 	default:
 		return nil, nil, fmt.Errorf("unsupported signing method %q", methodName)
 	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("signing key does not match signing_method %q: %w; for a PEM RSA key use signing_method RS256 (or PS256), for EC use ES256, for Ed25519 use EdDSA", method.Alg(), err)
+	}
+	return key, method, nil
 }
