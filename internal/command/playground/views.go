@@ -97,9 +97,9 @@ func (m Model) helpBody() string {
 	var section [][2]string
 	switch m.section {
 	case secProfiles:
-		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"↵", "switch to profile"}, {"n", "add"}, {"e", "edit"}, {"d", "delete"}}
+		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"↵", "switch to profile"}, {"a", "add"}, {"e", "edit"}, {"d", "delete"}}
 	case secStores:
-		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"↵", "select store"}, {"n", "new"}, {"d", "delete"}, {"r", "reload"}}
+		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"↵", "select store"}, {"a", "new"}, {"d", "delete"}, {"r", "reload"}}
 	case secModel:
 		section = [][2]string{{"↑↓ k/j", "scroll"}, {"←→ h/l", "pan"}, {"pgup/pgdn b/f/space", "page"}, {"g/G home/end", "top/bottom"}, {"e", "edit DSL"}, {"m", "switch model"}, {"r", "reload"}}
 	case secTuples:
@@ -849,9 +849,9 @@ func (m Model) statusKeys() []string {
 	// Panel focus: section-specific keys, esc back to the tabs.
 	switch m.section {
 	case secProfiles:
-		return []string{"↑↓", "↵ switch", "n add", "e edit", "d delete", "esc"}
+		return []string{"↑↓", "↵ switch", "a add", "e edit", "d delete", "esc"}
 	case secStores:
-		return []string{"↑↓", "/ filter", "↵ select", "n new", "d delete", "r reload", "esc"}
+		return []string{"↑↓", "/ filter", "↵ select", "a new", "d delete", "r reload", "esc"}
 	case secModel:
 		return []string{"↑↓/hjkl pan", "e edit DSL", "m switch", "r reload", "esc"}
 	case secTuples:

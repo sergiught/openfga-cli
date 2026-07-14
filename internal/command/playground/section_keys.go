@@ -41,7 +41,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			if it, ok := m.profilesList.Selected(); ok {
 				return m, m.switchProfile(it.ID)
 			}
-		case "n":
+		case "a":
 			return m.enterForm(formAddProfile)
 		case "e":
 			if it, ok := m.profilesList.Selected(); ok {
@@ -87,7 +87,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			if it, ok := m.storesList.Selected(); ok && it.Index < len(m.stores) {
 				return m, m.selectStore(m.stores[it.Index])
 			}
-		case "n":
+		case "a":
 			return m.enterForm(formCreateStore)
 		case "d":
 			if it, ok := m.storesList.Selected(); ok && it.Index < len(m.stores) {

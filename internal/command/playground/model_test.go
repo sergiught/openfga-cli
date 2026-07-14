@@ -195,17 +195,17 @@ func TestVimKeysMoveSidebarTabs(t *testing.T) {
 
 // TestSidebarCTADescendsAndActs verifies an empty-state call-to-action key
 // pressed from sidebar focus descends into the panel and performs the action,
-// instead of being a silent no-op (TUI-1). On the Stores tab, "n" opens the
+// instead of being a silent no-op (TUI-1). On the Stores tab, "a" opens the
 // create-store form.
 func TestSidebarCTADescendsAndActs(t *testing.T) {
 	m := newTestModel() // secStores, sidebar focus
-	m, _ = m.Update(key("n"))
+	m, _ = m.Update(key("a"))
 	mod := m.(Model)
 	if mod.focus != shell.FocusPanel {
 		t.Fatal("a CTA key from the sidebar should descend into the panel")
 	}
 	if mod.formKind != formCreateStore {
-		t.Fatalf("n on Stores should open the create-store form, got formKind %v", mod.formKind)
+		t.Fatalf("a on Stores should open the create-store form, got formKind %v", mod.formKind)
 	}
 }
 
@@ -290,7 +290,7 @@ func TestCreateStoreForm(t *testing.T) {
 	m := newTestModel()
 	m, _ = m.Update(key("2"))     // Stores
 	m, _ = m.Update(key("enter")) // descend into the panel
-	m, _ = m.Update(key("n"))     // create form
+	m, _ = m.Update(key("a"))     // create form
 	render(t, m, "create store form")
 	for _, r := range "newstore" {
 		m, _ = m.Update(key(string(r)))
@@ -874,7 +874,7 @@ func TestCreateStoreRendersAsOverlay(t *testing.T) {
 	m := newTestModel()
 	m, _ = m.Update(key("2"))     // Stores
 	m, _ = m.Update(key("enter")) // descend into the panel
-	m, _ = m.Update(key("n"))     // create form -> overlay
+	m, _ = m.Update(key("a"))     // create form -> overlay
 	plain := stripANSIView(m.(Model).viewString())
 	if !strings.Contains(plain, "Create Store") {
 		t.Error("overlay should show the dialog title")
@@ -1240,7 +1240,7 @@ func TestArrowsDoNotSwitchSectionsDuringTakeoverForm(t *testing.T) {
 	m := newTestModel()
 	m, _ = m.Update(key("2"))     // Stores
 	m, _ = m.Update(key("enter")) // descend into the panel
-	m, _ = m.Update(key("n"))     // create store form -> takeover
+	m, _ = m.Update(key("a"))     // create store form -> takeover
 	m2, _ := m.Update(key("left"))
 	if m2.(Model).section != secStores {
 		t.Fatal("left arrow while a takeover form is open must not switch sections")
@@ -1440,7 +1440,7 @@ func TestProfilesTabAddClientCredentials(t *testing.T) {
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
 	m, _ = m.Update(key("1"))     // Profiles
 	m, _ = m.Update(key("enter")) // descend
-	m, _ = m.Update(key("n"))     // add form: [name, api_url, auth method]
+	m, _ = m.Update(key("a"))     // add form: [name, api_url, auth method]
 
 	typeIn := func(s string) {
 		for _, r := range s {
@@ -1647,9 +1647,9 @@ func TestProfilesTabAddAndSwitch(t *testing.T) {
 	// Profiles is the first tab; descend and add a profile via the form.
 	m, _ = m.Update(key("1"))     // Profiles
 	m, _ = m.Update(key("enter")) // descend into the panel
-	m, _ = m.Update(key("n"))     // add-profile form
+	m, _ = m.Update(key("a"))     // add-profile form
 	if m.(Model).formKind != formAddProfile {
-		t.Fatalf("n should open the add-profile form; got kind=%d", m.(Model).formKind)
+		t.Fatalf("a should open the add-profile form; got kind=%d", m.(Model).formKind)
 	}
 	for _, r := range "staging" {
 		m, _ = m.Update(key(string(r)))
