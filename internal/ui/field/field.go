@@ -164,7 +164,7 @@ func (f *Field) setValue(s string) {
 		}
 		return
 	}
-	f.in.SetValue(s)
+	f.in.SetValue(style.SanitizeTerminal(s))
 }
 
 func (f *Field) setWidth(w int) {

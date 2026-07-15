@@ -98,6 +98,10 @@ func renderLine(cells []dsl.Cell, width int, showCursor bool, cursorCol, errCol 
 		if drawn >= width {
 			break
 		}
+		text := style.SanitizeTerminal(string(c.R))
+		if text == "" {
+			continue
+		}
 		s := lipgloss.NewStyle()
 		if c.Color != nil {
 			s = s.Foreground(c.Color)
@@ -108,7 +112,7 @@ func renderLine(cells []dsl.Cell, width int, showCursor bool, cursorCol, errCol 
 		case j == errCol:
 			s = errStyle
 		}
-		b.WriteString(s.Render(string(c.R)))
+		b.WriteString(s.Render(text))
 		drawn++
 	}
 	if showCursor && cursorCol >= len(cells) && drawn < width {

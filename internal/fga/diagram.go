@@ -43,7 +43,7 @@ func (g Graph) diagramHeader() string {
 		colorRune('─', style.Amber) + " " + style.Faint.Render("inherited (tuple-to-userset)"),
 		style.Faint.Render("↑↓←→ pan"),
 	}, "    ")
-	return style.Subtitle.Render("schema "+g.SchemaVersion) + "    " + legend
+	return style.Subtitle.Render("schema "+style.SanitizeTerminal(g.SchemaVersion)) + "    " + legend
 }
 
 // --- node boxes ---
@@ -123,6 +123,7 @@ func relationRow(r Relation) []scell {
 }
 
 func styledRunes(s string, fg color.Color) []scell {
+	s = style.SanitizeTerminal(s)
 	rs := []rune(s)
 	out := make([]scell, len(rs))
 	for i, r := range rs {

@@ -201,11 +201,20 @@ func RenderResolution(root *ResNode, user, object, relation string) string {
 		return ""
 	}
 	d := buildDisplay(root, user, object, relation)
+	sanitizeDisplay(d)
 	b := layoutDBox(d)
 	placeDBox(b, 0, 0)
 	c := newCanvas(b.subW+1, dboxHeight(b))
 	drawDTree(c, b)
 	return c.String()
+}
+
+func sanitizeDisplay(n *dispNode) {
+	n.label = style.SanitizeTerminal(n.label)
+	n.edge = style.SanitizeTerminal(n.edge)
+	for _, child := range n.kids {
+		sanitizeDisplay(child)
+	}
 }
 
 // --- drawing ---

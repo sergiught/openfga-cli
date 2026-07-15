@@ -281,3 +281,13 @@ func TestMarkGrantedTupleToUserset(t *testing.T) {
 		t.Fatal("TTU leaf should grant anne via organization:acme#repo_reader")
 	}
 }
+
+func TestRenderResolutionSanitizesTerminalControls(t *testing.T) {
+	attack := "\x1b]52;c;YXR0YWNr\x07"
+	root := &ResNode{Name: "viewer" + attack, Users: []string{"user:anne" + attack}}
+	got := RenderResolution(root, "user:anne"+attack, "document:1"+attack, "viewer"+attack)
+	plain := ansi.Strip(got)
+	if strings.Contains(got, attack) || strings.ContainsAny(plain, "\x1b\x07") {
+		t.Fatalf("resolution retained terminal controls: %q", got)
+	}
+}

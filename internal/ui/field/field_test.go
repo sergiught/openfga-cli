@@ -94,6 +94,16 @@ func TestSetValuesFillsFields(t *testing.T) {
 	}
 }
 
+func TestSetValuesSanitizesTerminalControls(t *testing.T) {
+	f := NewForm(New("Name", ""))
+	attack := "\x1b]52;c;YXR0YWNr\x07"
+	f.SetValues([]string{"before" + attack + "after"})
+	got := f.Values()[0]
+	if strings.Contains(got, attack) || strings.ContainsAny(got, "\x1b\x07") {
+		t.Fatalf("field retained terminal controls: %q", got)
+	}
+}
+
 func TestFocusedInputStartsAtCursor(t *testing.T) {
 	f := NewForm(New("User", "user:anne"), New("Relation", "viewer"))
 	f.SetWidth(40)

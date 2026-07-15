@@ -66,10 +66,17 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 					subject: id,
 					detail:  "This deletes its saved credentials.",
 					run: func(m *Model) tea.Cmd {
+						prev, _ := m.cli.Config.Get(id)
 						if err := m.cli.Config.Remove(id); err != nil {
 							return m.toastErr("profile", err)
 						}
-						m.saveConfig()
+						if err := m.saveConfig(); err != nil {
+							// Roll back the in-memory removal so the profile list stays
+							// consistent with what's actually on disk, and don't claim
+							// success.
+							m.cli.Config.Set(id, prev)
+							return m.configSaveErrCmd(err)
+						}
 						m.populateProfiles()
 						m.status = "removed profile " + id
 						return m.toasts.Push(toast.Success, m.status)
@@ -87,7 +94,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			if it, ok := m.storesList.Selected(); ok && it.Index < len(m.stores) {
 				return m, m.selectStore(m.stores[it.Index])
 			}
-		case "a":
+		case "a", "n":
 			return m.enterForm(formCreateStore)
 		case "d":
 			if it, ok := m.storesList.Selected(); ok && it.Index < len(m.stores) {
@@ -97,7 +104,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 					subject: s.Name,
 					detail:  "This permanently deletes the store and all its models, tuples and assertions.",
 					run: func(m *Model) tea.Cmd {
-						m.loading = true
+						m.beginLoad()
 						m.status = "deleting store…"
 						return deleteStoreCmd(m.ctx, m.client, s.ID)
 					},
@@ -105,8 +112,12 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			}
 			return m, nil
 		case "r":
-			m.loading = true
-			return m, loadStoresCmd(m.ctx, m.client)
+			m.beginLoad()
+			// A manual reload racing the refresh a create/delete already
+			// triggers (or another manual reload) must not let the older of
+			// the two overwrite the newer list.
+			m.storesGen++
+			return m, loadStoresCmd(m.ctx, m.client, m.storesGen)
 		}
 		cmd := m.storesList.Update(msg)
 		return m, cmd
@@ -134,12 +145,17 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 				return m, nil
 			}
 			m.modelPicking = true
-			m.loading = true
-			return m, loadModelsCmd(m.ctx, m.client, m.storeID)
+			m.beginLoad()
+			// A rapid close/reopen of the picker must not let an older list
+			// response (from a previous open) overwrite the model list a newer
+			// open already applied.
+			m.modelsGen++
+			return m, loadModelsCmd(m.ctx, m.client, m.storeID, m.modelsGen)
 		case "r":
 			if m.storeID != "" {
-				m.loading = true
-				return m, loadModelCmd(m.ctx, m.client, m.storeID)
+				m.beginLoad()
+				m.modelGen++
+				return m, loadModelCmd(m.ctx, m.client, m.storeID, m.modelGen)
 			}
 		case "up", "k", "shift+up":
 			return m.scrollGraph(-graphLineStep)
@@ -183,7 +199,9 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			return m, nil
 		case "r":
 			if m.storeID != "" {
-				return m, loadTuplesCmd(m.ctx, m.client, m.storeID)
+				m.beginLoad()
+				m.tuplesGen++
+				return m, loadTuplesCmd(m.ctx, m.client, m.storeID, m.tuplesGen)
 			}
 		}
 		cmd := m.tuplesList.Update(msg)
@@ -193,8 +211,9 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 		switch key {
 		case "r":
 			if m.storeID != "" {
-				m.loading = true
-				return m, loadChangesCmd(m.ctx, m.client, m.storeID)
+				m.beginLoad()
+				m.changesGen++
+				return m, loadChangesCmd(m.ctx, m.client, m.storeID, m.changesGen)
 			}
 		}
 		cmd := m.changesList.Update(msg)
@@ -237,9 +256,10 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 		case "r":
 			// Show the Check resolution tree for the last check.
 			if m.hasResult && m.result.badge {
-				m.loading = true
+				m.beginLoad()
+				m.resGen++
 				return m, expandCmd(m.ctx, m.client, m.storeID, m.modelID,
-					m.result.vals[0], m.result.vals[1], m.result.vals[2])
+					m.result.vals[0], m.result.vals[1], m.result.vals[2], m.resGen)
 			}
 			m.status = "run a check first (r shows its resolution)"
 		case "1", "2", "3", "4", "5", "6":
@@ -304,11 +324,17 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 				m.section = secQuery
 				m.result = queryResultMsg{badge: true, vals: [3]string{u, rel, obj}, mode: "check"}
 				m.hasResult = false
-				m.loading = true
+				// Two concurrent commands fire here (the assertion check and its
+				// resolution tree) — each needs its own begin so the spinner
+				// doesn't stop the moment whichever lands first.
+				m.beginLoad()
+				m.beginLoad()
+				m.assertGen++
+				m.resGen++
 				m.status = "resolving assertion…"
 				return m, tea.Batch(
-					runOneAssertionCmd(m.ctx, m.client, m.storeID, m.assertModelID, it.Index, a),
-					expandCmd(m.ctx, m.client, m.storeID, m.assertModelID, u, rel, obj),
+					runOneAssertionCmd(m.ctx, m.client, m.storeID, m.assertModelID, it.Index, a, m.assertGen),
+					expandCmd(m.ctx, m.client, m.storeID, m.assertModelID, u, rel, obj, m.resGen),
 				)
 			}
 			return m, nil
@@ -317,13 +343,15 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 				m.status = "no assertions to run"
 				return m, nil
 			}
-			m.loading = true
+			m.beginLoad()
+			m.assertGen++
 			m.status = "running assertions…"
-			return m, runAssertionsCmd(m.ctx, m.client, m.storeID, m.assertModelID, m.assertions)
+			return m, runAssertionsCmd(m.ctx, m.client, m.storeID, m.assertModelID, m.assertions, m.assertGen)
 		case "r":
 			if m.storeID != "" {
-				m.loading = true
-				return m, loadAssertionsCmd(m.ctx, m.client, m.storeID, m.modelID)
+				m.beginLoad()
+				m.assertLoadGen++
+				return m, loadAssertionsCmd(m.ctx, m.client, m.storeID, m.modelID, m.assertLoadGen)
 			}
 		}
 		cmd := m.assertionsList.Update(msg)

@@ -126,7 +126,17 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case storesLoadedMsg:
-		m.loading = false
+		// A stores list from a connection that's since been replaced (a profile
+		// switch or an edit to the active profile's connection, both of which
+		// go through reloadActive) must be dropped — unlike every other load,
+		// this one has no store id of its own to check, so it needs its own
+		// generation or it could repopulate the list from the wrong server, or
+		// even auto-select a store id that doesn't exist there.
+		stale := staleGen(msg.gen, m.storesGen)
+		m.endLoad()
+		if stale {
+			return m, nil
+		}
 		if msg.err != nil {
 			return m, m.toastErr("", msg.err)
 		}
@@ -147,10 +157,15 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case modelLoadedMsg:
-		if staleStore(msg.storeID, m.storeID) {
-			return m, nil // a load from a store we've since switched away from
+		// A stale response (superseded store switch, or a superseded model
+		// request against the same store — e.g. two quick picks in the model
+		// switcher) must still free its load slot; only the state it carries is
+		// dropped.
+		stale := staleStore(msg.storeID, m.storeID) || staleGen(msg.gen, m.modelGen)
+		m.endLoad()
+		if stale {
+			return m, nil
 		}
-		m.loading = false
 		if msg.err != nil {
 			cmd := m.toastErr("model", msg.err)
 			if !m.connLost {
@@ -168,14 +183,19 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.modelDSL = msg.dsl
 		m.graphVP.SetContent(m.graph.RenderDiagram())
 		m.resetGraphScroll()
-		m.persistModel()
+		// A failed persist must never be reported as a clean success — see
+		// persistStore's doc comment for why this can't just be overwritten a
+		// moment later.
+		if err := m.persistModel(); err != nil {
+			return m, m.configSaveErrCmd(err)
+		}
 		m.status = "model " + short(msg.modelID) + " · " + m.graph.Summary()
 		return m, nil
 
 	case modelAppliedMsg:
 		if msg.err != nil {
 			m.connLost = isConnErr(msg.err)
-			m.editorErr = msg.err.Error()
+			m.editorErr = errStr(msg.err)
 			// While the editor is open the footer already shows this error; a
 			// toast would duplicate it. Toast only when the error would otherwise
 			// be invisible (editor closed).
@@ -188,10 +208,22 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.editorOpen = false
 		m.editor.Blur()
 		m.status = "model applied"
-		return m, tea.Batch(m.toasts.Push(toast.Success, m.status), loadModelCmd(m.ctx, m.client, m.storeID))
+		// A fresh reload of the just-applied model follows; begin its slot and
+		// bump modelGen so a slow in-flight model load from before the apply
+		// can't clobber it.
+		m.beginLoad()
+		m.modelGen++
+		return m, tea.Batch(m.toasts.Push(toast.Success, m.status), loadModelCmd(m.ctx, m.client, m.storeID, m.modelGen))
 
 	case modelsListedMsg:
-		m.loading = false
+		// A rapid close/reopen of the model switcher can have two list loads in
+		// flight against the same store; only storeID was checked here before,
+		// so the older of the two could win a race and show a stale list.
+		stale := staleStore(msg.storeID, m.storeID) || staleGen(msg.gen, m.modelsGen)
+		m.endLoad()
+		if stale {
+			return m, nil // a load from a store we've since switched away from, or superseded by a newer list open
+		}
 		if msg.err != nil {
 			return m, m.toastErr("models", msg.err)
 		}
@@ -201,10 +233,11 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tuplesLoadedMsg:
-		if staleStore(msg.storeID, m.storeID) {
-			return m, nil // a load from a store we've since switched away from
+		stale := staleStore(msg.storeID, m.storeID) || staleGen(msg.gen, m.tuplesGen)
+		m.endLoad()
+		if stale {
+			return m, nil // a load from a store we've since switched away from, or superseded by a newer reload
 		}
-		m.loading = false
 		if msg.err != nil {
 			return m, m.toastErr("tuples", msg.err)
 		}
@@ -215,10 +248,11 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case changesLoadedMsg:
-		if staleStore(msg.storeID, m.storeID) {
-			return m, nil // a load from a store we've since switched away from
+		stale := staleStore(msg.storeID, m.storeID) || staleGen(msg.gen, m.changesGen)
+		m.endLoad()
+		if stale {
+			return m, nil // a load from a store we've since switched away from, or superseded by a newer reload
 		}
-		m.loading = false
 		if msg.err != nil {
 			return m, m.toastErr("changes", msg.err)
 		}
@@ -230,10 +264,17 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case assertionsLoadedMsg:
-		if staleStore(msg.storeID, m.storeID) {
-			return m, nil // a load from a store we've since switched away from
+		// The load may have started before any model was loaded (modelID == ""
+		// at dispatch), resolved "latest" internally, and landed after the user
+		// switched to a specific different model — that resolved identity is no
+		// longer current, so it's compared against the active model when one is
+		// known (an unknown m.modelID means nothing to compare against yet, so
+		// the resolved latest is accepted).
+		stale := staleStore(msg.storeID, m.storeID) || staleGen(msg.gen, m.assertLoadGen) || staleModelKnown(msg.modelID, m.modelID)
+		m.endLoad()
+		if stale {
+			return m, nil // a load from a store/model we've since switched away from, or superseded by a newer reload
 		}
-		m.loading = false
 		m.assertModelID = msg.modelID
 		if msg.err != nil {
 			cmd := m.toastErr("assertions", msg.err)
@@ -251,14 +292,26 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = plural(len(msg.assertions), "assertion")
 		if pending.runAssertions && len(m.assertions) > 0 {
 			pending.runAssertions = false
-			m.loading = true
+			m.beginLoad()
+			m.assertGen++
 			m.status = "running assertions…"
-			return m, runAssertionsCmd(m.ctx, m.client, m.storeID, m.assertModelID, m.assertions)
+			return m, runAssertionsCmd(m.ctx, m.client, m.storeID, m.assertModelID, m.assertions, m.assertGen)
 		}
 		return m, nil
 
 	case assertTestMsg:
-		m.loading = false
+		// assertModelID is the primary comparator (the model the assertions
+		// list itself was loaded against), but it only updates when that list
+		// reloads — if the user switches the *active* model (m.modelID) after
+		// starting this run but before Assertions reloads, assertModelID would
+		// still match and wrongly accept a now-stale result. staleModelKnown
+		// catches that by also checking against m.modelID when it's known.
+		stale := staleStore(msg.storeID, m.storeID) || staleModel(msg.modelID, m.assertModelID) ||
+			staleModelKnown(msg.modelID, m.modelID) || staleGen(msg.gen, m.assertGen)
+		m.endLoad()
+		if stale {
+			return m, nil // superseded by a newer assertion run against the same store
+		}
 		if msg.err != nil {
 			return m, m.toastErr("assertion test", msg.err)
 		}
@@ -276,6 +329,15 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.toasts.Push(toast.Success, m.status)
 
 	case assertOneMsg:
+		// Same rationale as assertTestMsg: check both assertModelID and the
+		// active model, since the latter can change before the former catches
+		// up on the next Assertions reload.
+		stale := staleStore(msg.storeID, m.storeID) || staleModel(msg.modelID, m.assertModelID) ||
+			staleModelKnown(msg.modelID, m.modelID) || staleGen(msg.gen, m.assertGen)
+		m.endLoad()
+		if stale {
+			return m, nil // superseded by a newer assertion run against the same store
+		}
 		if msg.err != nil {
 			return m, m.toastErr("assertion", msg.err)
 		}
@@ -309,11 +371,23 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.connLost = false
 		m.status = "assertions saved"
 		// Reload to confirm the write and reset the per-row badges.
+		m.beginLoad()
+		m.assertLoadGen++
 		return m, tea.Batch(m.toasts.Push(toast.Success, m.status),
-			loadAssertionsCmd(m.ctx, m.client, m.storeID, msg.modelID))
+			loadAssertionsCmd(m.ctx, m.client, m.storeID, msg.modelID, m.assertLoadGen))
 
 	case resolutionMsg:
-		m.loading = false
+		// resolutionMsg is dispatched with either m.modelID (Query section's
+		// "r") or m.assertModelID (Assertions section's "enter"), so its own
+		// modelID field is the primary comparator via staleGen's per-store/gen
+		// scoping; staleModelKnown additionally rejects it if the *active*
+		// model has since changed to something else, catching a race where the
+		// user switches models before this resolution lands.
+		stale := staleStore(msg.storeID, m.storeID) || staleGen(msg.gen, m.resGen) || staleModelKnown(msg.modelID, m.modelID)
+		m.endLoad()
+		if stale {
+			return m, nil // superseded by a newer resolution request against the same store
+		}
 		if msg.err != nil {
 			return m, m.toastErr("resolution", msg.err)
 		}
@@ -331,15 +405,23 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.connLost = false
 		m.status = "created store " + msg.store.Name
-		return m, tea.Batch(m.toasts.Push(toast.Success, m.status), m.selectStore(msg.store), loadStoresCmd(m.ctx, m.client))
+		// selectStore begins its own 4 loads; the stores-list refresh below is a
+		// fifth, independent load and needs its own begin. Bump storesGen too:
+		// it's an independent dispatch from any other in-flight stores refresh
+		// (e.g. a manual reload started just before this create completed), so
+		// the older of the two must not be allowed to win.
+		m.beginLoad()
+		m.storesGen++
+		return m, tea.Batch(m.toasts.Push(toast.Success, m.status), m.selectStore(msg.store), loadStoresCmd(m.ctx, m.client, m.storesGen))
 
 	case storeDeletedMsg:
-		m.loading = false
+		m.endLoad()
 		if msg.err != nil {
 			return m, m.toastErr("delete store", msg.err)
 		}
 		m.connLost = false
 		m.status = "store deleted"
+		cmds := []tea.Cmd{m.toasts.Push(toast.Success, m.status)}
 		// If the active store was deleted, clear it (a reload then auto-selects
 		// the first remaining store, or leaves the playground store-less).
 		if msg.id == m.storeID {
@@ -348,9 +430,22 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.graph = fga.Graph{}
 			m.models, m.tuples, m.changes, m.assertions, m.assertResults = nil, nil, nil, nil, nil
 			m.history, m.hasResult = nil, false
-			m.persistStore()
+			// The store itself is genuinely gone (the delete API call already
+			// succeeded) regardless of whether clearing its id from the saved
+			// profile succeeds, so this failure is additive — a separate error
+			// toast alongside the "store deleted" success already queued above,
+			// not a replacement of it (configSaveErrCmd would overwrite m.status,
+			// which must keep reporting the delete's own genuine success).
+			if err := m.persistStore(); err != nil {
+				cmds = append(cmds, m.toasts.Push(toast.Error, "config not saved: "+err.Error()))
+			}
 		}
-		return m, tea.Batch(m.toasts.Push(toast.Success, m.status), loadStoresCmd(m.ctx, m.client))
+		m.beginLoad()
+		// Bump storesGen: this refresh must not lose a race to (or win one
+		// against) another in-flight stores dispatch out of order.
+		m.storesGen++
+		cmds = append(cmds, loadStoresCmd(m.ctx, m.client, m.storesGen))
+		return m, tea.Batch(cmds...)
 
 	case tupleWrittenMsg:
 		if msg.err != nil {
@@ -362,10 +457,16 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			verb = "deleted"
 		}
 		m.status = verb + " " + msg.label
-		return m, tea.Batch(m.toasts.Push(toast.Success, m.status), loadTuplesCmd(m.ctx, m.client, m.storeID))
+		m.beginLoad()
+		m.tuplesGen++
+		return m, tea.Batch(m.toasts.Push(toast.Success, m.status), loadTuplesCmd(m.ctx, m.client, m.storeID, m.tuplesGen))
 
 	case queryResultMsg:
-		m.loading = false
+		stale := staleStore(msg.storeID, m.storeID) || staleModel(msg.modelID, m.modelID) || staleGen(msg.gen, m.queryGen)
+		m.endLoad()
+		if stale {
+			return m, nil // superseded by a newer query submission or rerun
+		}
 		m.hasResult = true
 		m.result = msg
 		// A fresh result invalidates any open resolution tree.
@@ -782,7 +883,11 @@ func (m Model) handleModelPicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.modelPicking = false
 			id := m.models[it.Index].ID
 			m.status = "loading model " + short(id) + "…"
-			return m, loadModelByIDCmd(m.ctx, m.client, m.storeID, id)
+			// A rapid re-pick before the previous one lands must not let the
+			// stale response overwrite the newer pick's graph/DSL.
+			m.beginLoad()
+			m.modelGen++
+			return m, loadModelByIDCmd(m.ctx, m.client, m.storeID, id, m.modelGen)
 		}
 		return m, nil
 	case "esc":
@@ -799,8 +904,13 @@ func (m Model) onEnterSection() (tea.Model, tea.Cmd) {
 	switch m.section {
 	case secChanges:
 		if m.storeID != "" && len(m.changes) == 0 {
-			m.loading = true
-			return m, loadChangesCmd(m.ctx, m.client, m.storeID)
+			m.beginLoad()
+			// A slow first load racing a second lazy trigger (e.g. leaving and
+			// re-entering the tab before the first response lands — len(changes)
+			// stays 0 either way) must not let the older response overwrite
+			// whichever landed later.
+			m.changesGen++
+			return m, loadChangesCmd(m.ctx, m.client, m.storeID, m.changesGen)
 		}
 	case secAssertions:
 		// Assertions are stored per authorization model, so reload them when the
@@ -809,8 +919,9 @@ func (m Model) onEnterSection() (tea.Model, tea.Cmd) {
 		// against a now-different selection. (Skip the model check when no model
 		// is resolved yet, to avoid reloading on every entry.)
 		if m.storeID != "" && (m.assertions == nil || (m.modelID != "" && m.assertModelID != m.modelID)) {
-			m.loading = true
-			return m, loadAssertionsCmd(m.ctx, m.client, m.storeID, m.modelID)
+			m.beginLoad()
+			m.assertLoadGen++
+			return m, loadAssertionsCmd(m.ctx, m.client, m.storeID, m.modelID, m.assertLoadGen)
 		}
 	case secQuery:
 		// Descending into the panel starts in the first field, ready to type

@@ -164,7 +164,14 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.cli.Config.Set(name, p)
-			m.saveConfig()
+			if err := m.saveConfig(); err != nil {
+				// The profile only exists in memory now — remove it so the
+				// in-memory config matches what's actually on disk, and don't
+				// claim success. name can't be the active profile (it didn't
+				// exist a moment ago), so Remove can't fail on that guard.
+				_ = m.cli.Config.Remove(name)
+				return m, m.configSaveErrCmd(err)
+			}
 			m.populateProfiles()
 			m.status = "created profile " + name
 			return m, m.toasts.Push(toast.Success, m.status)
@@ -175,24 +182,31 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "profile " + name + " no longer exists"
 				return m, nil
 			}
+			prev := existing
 			_, p := profileFromForm(false, vals)
 			// A blank secret field means "keep the current secret" (we never
 			// pre-fill secrets into the form). Carry the stored secret forward,
 			// but only when the auth method is unchanged, so switching methods
 			// can't smuggle a stale secret across.
-			prev := existing.ResolvedAuth()
-			if p.Auth.Method == prev.Method {
+			prevAuth := existing.ResolvedAuth()
+			if p.Auth.Method == prevAuth.Method {
 				if p.Auth.Token == "" {
-					p.Auth.Token = prev.Token
+					p.Auth.Token = prevAuth.Token
 				}
 				if p.Auth.ClientSecret == "" {
-					p.Auth.ClientSecret = prev.ClientSecret
+					p.Auth.ClientSecret = prevAuth.ClientSecret
 				}
 			}
 			// Keep the auto-managed store/model; replace connection + auth.
 			existing.APIURL, existing.Auth = p.APIURL, p.Auth
 			m.cli.Config.Set(name, existing)
-			m.saveConfig()
+			if err := m.saveConfig(); err != nil {
+				// Roll back to the profile as it was before this edit, so the
+				// in-memory config matches what's actually on disk, and don't
+				// claim success or reconnect with the unsaved edit.
+				m.cli.Config.Set(name, prev)
+				return m, m.configSaveErrCmd(err)
+			}
 			m.populateProfiles()
 			// Editing the active profile changes the live connection — reconnect.
 			if name == m.cli.Config.Active {
@@ -284,17 +298,19 @@ func (m Model) advanceQueryForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
-		m.loading = true
+		m.beginLoad()
+		m.queryGen++
+		gen := m.queryGen
 		m.status = "running " + mode + "…"
 		switch mode {
 		case "check":
-			return m, checkCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx)
+			return m, checkCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx, gen)
 		case "list-objects":
-			return m, listObjectsCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx)
+			return m, listObjectsCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx, gen)
 		case "list-users":
-			return m, listUsersCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx)
+			return m, listUsersCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx, gen)
 		case "list-relations":
-			return m, listRelationsCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, rels, qctx)
+			return m, listRelationsCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, rels, qctx, gen)
 		}
 	}
 	return m, cmd
@@ -314,22 +330,27 @@ func (m Model) rerunHistory(idx int) (tea.Model, tea.Cmd) {
 	// ABAC verdict resolves the same way it did originally; dropping them would
 	// silently flip an ALLOWED result to DENIED.
 	qctx := h.qctx
-	m.loading = true
+	m.beginLoad()
+	m.queryGen++
+	gen := m.queryGen
 	m.status = "running " + queryModes[m.qmode] + "…"
 	switch queryModes[m.qmode] {
 	case "check":
-		return m, checkCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx)
+		return m, checkCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx, gen)
 	case "list-objects":
-		return m, listObjectsCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx)
+		return m, listObjectsCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx, gen)
 	case "list-users":
-		return m, listUsersCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx)
+		return m, listUsersCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx, gen)
 	case "list-relations":
 		rels, err := relationsForType(m.graph, b)
 		if err != nil {
+			// The load begun above never actually dispatched a request — free
+			// its slot immediately instead of leaving the spinner stuck on it.
+			m.endLoad()
 			m.setQueryError(err.Error())
 			return m, nil
 		}
-		return m, listRelationsCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, rels, qctx)
+		return m, listRelationsCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, rels, qctx, gen)
 	}
 	return m, nil
 }

@@ -49,6 +49,16 @@ func TestToastTextWidthCap(t *testing.T) {
 	}
 }
 
+func TestToastSanitizesTerminalControls(t *testing.T) {
+	attack := "\x1b]52;c;YXR0YWNr\x07"
+	m := New()
+	m.Push(Error, "before"+attack+"after")
+	got := m.View()
+	if strings.Contains(got, attack) || strings.Contains(got, "]52;") || strings.Contains(got, "\x07") {
+		t.Fatalf("toast retained terminal control sequence: %q", got)
+	}
+}
+
 // stripAnsi removes CSI sequences for assertion purposes.
 func stripAnsi(s string) string {
 	var b strings.Builder

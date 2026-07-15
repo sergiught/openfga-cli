@@ -215,10 +215,10 @@ func (g Graph) Render() string {
 		edgeGlyph("computed") + " " + style.Faint.Render("implied by relation"),
 		edgeGlyph("ttu") + " " + style.Faint.Render("inherited (tuple-to-userset)"),
 	}, "    ")
-	b.WriteString(style.Subtitle.Render("schema "+g.SchemaVersion) + "    " + legend + "\n\n")
+	b.WriteString(style.Subtitle.Render("schema "+style.SanitizeTerminal(g.SchemaVersion)) + "    " + legend + "\n\n")
 
 	for ti, t := range g.Types {
-		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(style.Violet).Render(t.Name))
+		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(style.Violet).Render(style.SanitizeTerminal(t.Name)))
 		b.WriteString("\n")
 		for ri, r := range t.Relations {
 			lastRel := ri == len(t.Relations)-1
@@ -228,7 +228,7 @@ func (g Graph) Render() string {
 				relBranch = "└─"
 				relIndent = "   "
 			}
-			b.WriteString(style.Faint.Render(relBranch) + " " + style.Key.Render(r.Name) + "\n")
+			b.WriteString(style.Faint.Render(relBranch) + " " + style.Key.Render(style.SanitizeTerminal(r.Name)) + "\n")
 			if len(r.Edges) == 0 {
 				b.WriteString(style.Faint.Render(relIndent+"└─ ") + style.Faint.Render("(no resolutions)") + "\n")
 				continue
@@ -239,7 +239,7 @@ func (g Graph) Render() string {
 				if lastEdge {
 					edgeBranch = "└─"
 				}
-				b.WriteString(style.Faint.Render(relIndent+edgeBranch+" ") + edgeGlyph(e.Kind) + " " + style.Value.Render(e.Label) + "\n")
+				b.WriteString(style.Faint.Render(relIndent+edgeBranch+" ") + edgeGlyph(e.Kind) + " " + style.Value.Render(style.SanitizeTerminal(e.Label)) + "\n")
 			}
 		}
 		if ti != len(g.Types)-1 {

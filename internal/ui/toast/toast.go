@@ -115,7 +115,7 @@ func chip(t entry) string {
 	}
 	body := lipgloss.NewStyle().
 		Foreground(style.Fg).Background(style.BgRaised).
-		Width(wrapWidth).Render(t.text)
+		Width(wrapWidth).Render(style.SanitizeTerminal(t.text))
 	// The separator space is part of the icon's styled segment (a bare " "
 	// between the two blocks would carry no background and read as a gap), and
 	// the icon block spans the body's full height so a wrapped error keeps the

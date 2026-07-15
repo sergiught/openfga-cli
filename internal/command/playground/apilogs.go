@@ -87,7 +87,7 @@ func (m Model) apiLogsBody() string {
 	mdH := h - apiLogURLHeaderLines
 	list := m.apiLogList(entries, sel, lw, mdH)
 	e := entries[len(entries)-1-sel]
-	title := e.Method + " " + urlPath(e.URL)
+	title := safeText(e.Method) + " " + safeText(urlPath(e.URL))
 	// The status line and sub-section tab strip sit above the scrollable
 	// section content; the active section (headers/body) lives in the viewport.
 	card := apiLogDetailHeader(e, m.apiLogTab) + "\n\n" + m.apiLogVP.View()
@@ -98,7 +98,7 @@ func (m Model) apiLogsBody() string {
 	if m.cli != nil {
 		// Indent by 2 so "API" lines up with the list rows' timestamp column
 		// (rows reserve 2 columns for the selection bar / padding).
-		urlHeader = "  " + style.Faint.Render("API  ") + style.Bold.Render(m.activeAPIURL())
+		urlHeader = "  " + style.Faint.Render("API  ") + style.Bold.Render(safeText(m.activeAPIURL()))
 	}
 	return urlHeader + "\n" + split
 }
@@ -183,14 +183,14 @@ func (m Model) apiLogList(entries []apilog.Entry, sel, width, h int) string {
 // so the columns line up down the list. hscroll shifts the path left so a long
 // URL can be read in full with the ←/→ keys.
 func apiLogRow(e apilog.Entry, width, hscroll int) string {
-	path := urlPath(e.URL)
+	path := safeText(urlPath(e.URL))
 	// The latency lives in the detail pane; the list shows just the status (plus
 	// a compact retry marker) so the URL gets as much room as possible.
 	right := statusLabel(e)
 	if e.Attempt > 1 {
 		right += style.Faint.Render(fmt.Sprintf(" ×%d", e.Attempt))
 	}
-	prefix := style.Faint.Render(e.Time.Format("15:04:05")) + " " + e.Method + " "
+	prefix := style.Faint.Render(e.Time.Format("15:04:05")) + " " + safeText(e.Method) + " "
 
 	avail := width - lipgloss.Width(right) - 1
 	if avail < 1 {
@@ -247,12 +247,12 @@ func apiLogStatusLine(e apilog.Entry) string {
 	}
 	timing := fmt.Sprintf("%dms", e.Elapsed.Milliseconds())
 	if e.ServerQueryDuration != "" {
-		timing += "  server " + e.ServerQueryDuration + "ms"
+		timing += "  server " + safeText(e.ServerQueryDuration) + "ms"
 	}
 	if e.RequestID != "" {
-		timing += "  req-id " + e.RequestID
+		timing += "  req-id " + safeText(e.RequestID)
 	}
-	statusText := e.StatusText
+	statusText := safeText(e.StatusText)
 	if statusText == "" {
 		statusText = fmt.Sprintf("%d", e.Status)
 	}
@@ -288,7 +288,7 @@ func apiLogDetailHeader(e apilog.Entry, tab int) string {
 // bodies pretty-printed when pretty is true.
 func apiLogSection(e apilog.Entry, pretty bool, tab int) string {
 	if e.Err != "" {
-		return style.Failure.Render("transport error: " + e.Err)
+		return style.Failure.Render("transport error: " + safeMultiline(e.Err))
 	}
 	switch tab {
 	case 1:
@@ -314,7 +314,11 @@ func renderHeaders(h http.Header) string {
 	sort.Strings(keys)
 	var b strings.Builder
 	for _, k := range keys {
-		b.WriteString(k + ": " + strings.Join(h[k], ", ") + "\n")
+		values := make([]string, len(h[k]))
+		for i, value := range h[k] {
+			values[i] = safeText(value)
+		}
+		b.WriteString(safeText(k) + ": " + strings.Join(values, ", ") + "\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -328,10 +332,10 @@ func renderBody(raw []byte, pretty bool) string {
 	if pretty {
 		var buf bytes.Buffer
 		if err := json.Indent(&buf, raw, "", "  "); err == nil {
-			return buf.String()
+			return safeMultiline(buf.String())
 		}
 	}
-	return string(raw)
+	return safeMultiline(string(raw))
 }
 
 // refreshAPILogVP rebuilds the detail viewport for the current selection. It

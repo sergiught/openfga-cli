@@ -88,6 +88,17 @@ func TestAPILogSectionBodyToggleCompact(t *testing.T) {
 	}
 }
 
+func TestAPILogRenderingSanitizesTerminalControls(t *testing.T) {
+	attack := "\x1b]52;c;YXR0YWNr\x07"
+	if got := renderBody([]byte("before"+attack+"after"), false); strings.Contains(got, attack) || strings.ContainsAny(got, "\x1b\x07") {
+		t.Fatalf("renderBody retained terminal controls: %q", got)
+	}
+	headers := http.Header{"X-Test": {"before" + attack + "after"}}
+	if got := renderHeaders(headers); strings.Contains(got, attack) || strings.ContainsAny(got, "\x1b\x07") {
+		t.Fatalf("renderHeaders retained terminal controls: %q", got)
+	}
+}
+
 func TestAPILogDetailHeaderShowsTabStrip(t *testing.T) {
 	header := ansi.Strip(apiLogDetailHeader(sampleEntry(), 0))
 	for _, want := range apiLogTabs {

@@ -44,14 +44,14 @@ func (m Model) viewString() string {
 	// Always advertise the help overlay so every binding is discoverable.
 	st := shell.Status{Left: m.sectionStatus(), Keys: append(m.statusKeys(), "? help")}
 	// The active profile leads the footer as the connection identity.
-	st.Profile = "Profile: " + m.cli.Config.Active
+	st.Profile = "Profile: " + safeText(m.cli.Config.Active)
 	// Show the selected store's name and the full (untruncated) model id, tagged
 	// "(latest)" when it is the store's newest model.
 	if name := m.currentStoreName(); name != "" {
-		st.Store = "Store: " + name
+		st.Store = "Store: " + safeText(name)
 	}
 	if m.modelID != "" {
-		st.Model = "Model ID: " + m.modelID
+		st.Model = "Model ID: " + safeText(m.modelID)
 		if m.modelIsLatest {
 			st.Model += " (latest)"
 		}
@@ -163,15 +163,15 @@ func (m Model) dialogContent() (string, string) {
 		return "Keybindings", m.helpBody()
 	case m.formErr != "":
 		w, _ := m.sh.DialogSize()
-		return "Error", style.Failure.Width(w).Render(m.formErr) +
+		return "Error", style.Failure.Width(w).Render(safeMultiline(m.formErr)) +
 			"\n\n" + style.Faint.Render("enter or esc to dismiss")
 	case m.confirm != nil:
 		c := m.confirm
-		body := style.Value.Render(c.action+" ") +
-			style.Warn.Render(c.subject) +
+		body := style.Value.Render(safeText(c.action)+" ") +
+			style.Warn.Render(safeText(c.subject)) +
 			style.Value.Render("?")
 		if c.detail != "" {
-			body += "\n\n" + style.Faint.Render(c.detail)
+			body += "\n\n" + style.Faint.Render(safeMultiline(c.detail))
 		}
 		body += "\n\n" + style.Faint.Render("y confirm · n / esc / enter cancel")
 		return "Confirm", body
@@ -276,7 +276,7 @@ func (m Model) sectionBody() string {
 			case m.connLost:
 				// The server is unreachable — don't invite a create that will
 				// just fail; point at retry (r) instead.
-				body = style.Failure.Render("Can't reach " + m.activeAPIURL() + " — press r to retry")
+				body = style.Failure.Render("Can't reach " + safeText(m.activeAPIURL()) + " — press r to retry")
 			default:
 				body = style.Faint.Render("No stores yet — press n to create one")
 			}
@@ -381,8 +381,9 @@ func keyValueCard(pairs [][2]string) string {
 	}
 	lines := make([]string, len(pairs))
 	for i, p := range pairs {
-		pad := strings.Repeat(" ", width-lipgloss.Width(p[0]))
-		lines[i] = style.Key.Render(p[0]) + pad + "  " + style.Value.Render(p[1])
+		key, value := safeText(p[0]), safeMultiline(p[1])
+		pad := strings.Repeat(" ", width-lipgloss.Width(key))
+		lines[i] = style.Key.Render(key) + pad + "  " + style.Value.Render(value)
 	}
 	return strings.Join(lines, "\n")
 }
@@ -399,7 +400,7 @@ func (m Model) profilePreview() (string, string) {
 	if !ok {
 		return "", ""
 	}
-	title := it.ID
+	title := safeText(it.ID)
 	if it.ID == m.cli.Config.Active {
 		title += "  · active"
 	}
@@ -473,7 +474,7 @@ func (m Model) storePreview() (string, string) {
 		return "", ""
 	}
 	s := m.stores[it.Index]
-	title := s.Name
+	title := safeText(s.Name)
 	if title == "" {
 		title = "Store"
 	}
@@ -591,7 +592,7 @@ func (m Model) queryBody() string {
 			full = style.Heading.Render("full tree")
 		}
 		head := style.Heading.Render("Resolution") + "  " +
-			style.Faint.Render(m.result.vals[0]+" "+m.result.vals[1]+" "+m.result.vals[2]) +
+			style.Faint.Render(safeText(m.result.vals[0])+" "+safeText(m.result.vals[1])+" "+safeText(m.result.vals[2])) +
 			"   " + full + " " + style.Faint.Render("·") + " " + path +
 			"   " + style.Faint.Render("p toggle · ↑↓←→ scroll · r/esc close")
 		return head + "\n" + style.SectionHeader("", w) + "\n" + m.resVP.View()
@@ -626,7 +627,7 @@ func (m Model) queryBody() string {
 		if w >= 135 {
 			ew = w / 2
 		}
-		b.WriteString("\n\n" + style.Failure.Width(ew).Render("error: "+m.result.err.Error()))
+		b.WriteString("\n\n" + style.Failure.Width(ew).Render("error: "+safeMultiline(m.result.err.Error())))
 	case m.hasResult:
 		tint := style.Faintc
 		if r := m.result; m.flash && r.badge {
@@ -677,12 +678,12 @@ func (m Model) renderResult() string {
 		meta := style.Faint.Render(itoa(int(msg.ms)) + "ms")
 		body = verdict + "  " + meta
 		for _, l := range msg.lines {
-			body += "\n" + style.Faint.Render(l)
+			body += "\n" + style.Faint.Render(safeText(l))
 		}
 	} else {
-		body = lipgloss.NewStyle().Bold(true).Foreground(style.Muted).Render(msg.title)
+		body = lipgloss.NewStyle().Bold(true).Foreground(style.Muted).Render(safeText(msg.title))
 		for _, l := range msg.lines {
-			body += "\n" + style.Bullet() + " " + style.Value.Render(l)
+			body += "\n" + style.Bullet() + " " + style.Value.Render(safeText(l))
 		}
 	}
 	return body
@@ -708,7 +709,7 @@ func (m Model) historyStrip(maxW int) string {
 			}
 		}
 		label := itoa(i+1) + " " + lipgloss.NewStyle().Foreground(c).Background(style.BgHighlight).Render(ic)
-		chip := style.Chip(label+" "+histNotation(h), style.Muted, style.BgHighlight)
+		chip := style.Chip(label+" "+safeText(histNotation(h)), style.Muted, style.BgHighlight)
 		// Keep only the (newest-first) chips that fit on the one-line strip;
 		// otherwise the panel's fitLines hard-truncates it with a stray ellipsis.
 		sep := 0

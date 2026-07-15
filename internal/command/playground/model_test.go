@@ -626,7 +626,7 @@ func TestCheckCmdRecordsLatencyAndVals(t *testing.T) {
 	defer srv.Close()
 
 	cl, _ := openfga.NewClient(srv.URL)
-	cmd := checkCmd(context.Background(), cl, "store-1", "model-1", "user:anne", "viewer", "document:roadmap", queryCtx{})
+	cmd := checkCmd(context.Background(), cl, "store-1", "model-1", "user:anne", "viewer", "document:roadmap", queryCtx{}, 1)
 	msg, ok := cmd().(queryResultMsg)
 	if !ok {
 		t.Fatal("checkCmd should return a queryResultMsg")
