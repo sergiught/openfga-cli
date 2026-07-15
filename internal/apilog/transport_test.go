@@ -161,3 +161,59 @@ func TestTransportSkipsNonAPIHost(t *testing.T) {
 		t.Fatalf("expected exactly one recorded entry for the API-host request, got %d", len(rec.Snapshot()))
 	}
 }
+
+// TestTransportRedactsSecretFieldsInBody is a security regression test:
+// defense-in-depth against a deployment where the OAuth token endpoint shares
+// a host with the API (e.g. behind a gateway), which would otherwise bypass
+// the host-based exclusion in TestTransportSkipsNonAPIHost. Any captured body
+// must have known secret field values masked, in both JSON and form encodings.
+func TestTransportRedactsSecretFieldsInBody(t *testing.T) {
+	rec := NewRecorder(4)
+	respBody := `{"access_token":"eyJLEAKED","refresh_token":"rt-leak","expires_in":86400}`
+	stub := &stubRT{resp: newResp(200, respBody)}
+	rt := Transport(stub, rec, "https://api.example")
+
+	reqBody := "grant_type=client_credentials&client_id=abc&client_secret=SUPERSECRET"
+	req, _ := http.NewRequest(http.MethodPost, "https://api.example/oauth/token", strings.NewReader(reqBody))
+
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The downstream transport must still receive the FULL, unredacted body.
+	if stub.gotReqBody != reqBody {
+		t.Fatalf("downstream req body = %q, want unredacted %q", stub.gotReqBody, reqBody)
+	}
+	// The caller must still be able to read the FULL, unredacted response body.
+	got, _ := io.ReadAll(resp.Body)
+	if string(got) != respBody {
+		t.Fatalf("resp body = %q, want unredacted %q", got, respBody)
+	}
+
+	e := rec.Snapshot()[0]
+	if strings.Contains(string(e.ReqBody), "SUPERSECRET") {
+		t.Fatalf("client_secret leaked into captured request body: %q", e.ReqBody)
+	}
+	if !strings.Contains(string(e.ReqBody), "client_secret=******") {
+		t.Fatalf("client_secret not masked in captured request body: %q", e.ReqBody)
+	}
+	if strings.Contains(string(e.RespBody), "eyJLEAKED") || strings.Contains(string(e.RespBody), "rt-leak") {
+		t.Fatalf("tokens leaked into captured response body: %q", e.RespBody)
+	}
+	if !strings.Contains(string(e.RespBody), `"access_token":"******"`) ||
+		!strings.Contains(string(e.RespBody), `"refresh_token":"******"`) {
+		t.Fatalf("tokens not masked in captured response body: %q", e.RespBody)
+	}
+	// Non-sensitive fields must be preserved untouched.
+	if !strings.Contains(string(e.RespBody), `"expires_in":86400`) {
+		t.Fatalf("non-sensitive field altered: %q", e.RespBody)
+	}
+}
+
+func TestRedactBodyLeavesOrdinaryBodiesUntouched(t *testing.T) {
+	in := `{"user":"anne","relation":"viewer","object":"document:roadmap"}`
+	if got := string(redactBody([]byte(in))); got != in {
+		t.Fatalf("ordinary body altered: got %q, want %q", got, in)
+	}
+}

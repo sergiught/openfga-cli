@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +14,47 @@ import (
 
 // maxBodyBytes caps the size of each stored request/response body copy.
 const maxBodyBytes = 64 << 10
+
+// sensitiveBodyFields lists field/parameter names whose values must never be
+// stored in a captured body, even for requests to the configured API host.
+// This is defense-in-depth on top of the host check in RoundTrip: the primary
+// control is that OAuth token-fetch traffic (a different host, normally the
+// IdP) is never captured at all, but these names are redacted unconditionally
+// in case a deployment ever fronts both the API and the token endpoint behind
+// the same host (e.g. a gateway), or a future field carries a secret.
+var sensitiveBodyFields = []string{
+	"client_secret", "access_token", "refresh_token", "id_token",
+	"client_assertion", "assertion", "private_key",
+}
+
+// redactJSONBody masks the value of any sensitive field in body when body
+// looks like `"field": "value"` JSON (quoted string values only — the fields
+// above are never numbers/booleans/objects in practice).
+var redactJSONBody = func() func([]byte) []byte {
+	pattern := `(?i)"(` + strings.Join(sensitiveBodyFields, "|") + `)"\s*:\s*"[^"]*"`
+	re := regexp.MustCompile(pattern)
+	return func(b []byte) []byte {
+		return re.ReplaceAll(b, []byte(`"$1":"******"`))
+	}
+}()
+
+// redactFormBody masks the value of any sensitive field in body when body
+// looks like `application/x-www-form-urlencoded` (field=value&field=value),
+// the encoding OAuth token requests commonly use.
+var redactFormBody = func() func([]byte) []byte {
+	pattern := `(?i)(^|&)(` + strings.Join(sensitiveBodyFields, "|") + `)=[^&]*`
+	re := regexp.MustCompile(pattern)
+	return func(b []byte) []byte {
+		return re.ReplaceAll(b, []byte(`$1$2=******`))
+	}
+}()
+
+// redactBody masks sensitive field values in a captured request/response body,
+// trying both the JSON and form-encoded shapes since either can appear
+// regardless of Content-Type.
+func redactBody(b []byte) []byte {
+	return redactFormBody(redactJSONBody(b))
+}
 
 // Transport returns an http.RoundTripper that records each attempt into rec.
 // It sits beneath the SDK's auth/retry chain (installed via WithBaseTransport),
@@ -24,7 +66,10 @@ const maxBodyBytes = 64 << 10
 // base transport, and those requests carry secrets (client_secret in the
 // request body, access_token in the response body) that must never be
 // captured. Only requests whose host matches apiURL's host are recorded;
-// everything else passes straight through unrecorded.
+// everything else passes straight through unrecorded. As defense-in-depth for
+// deployments where the token endpoint shares a host with the API (e.g. behind
+// a gateway), captured bodies also go through redactBody, which masks known
+// secret field names regardless of host.
 func Transport(base http.RoundTripper, rec *Recorder, apiURL string) http.RoundTripper {
 	var apiHost string
 	if apiURL != "" {
@@ -61,7 +106,7 @@ func (rt *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 			_ = req.Body.Close()
 			req.Body = io.NopCloser(bytes.NewReader(full))
 			req.ContentLength = int64(len(full))
-			e.ReqBody = cap64(full)
+			e.ReqBody = cap64(redactBody(full))
 		}
 	}
 
@@ -89,7 +134,7 @@ func (rt *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 		if full, rerr := io.ReadAll(resp.Body); rerr == nil {
 			_ = resp.Body.Close()
 			resp.Body = io.NopCloser(bytes.NewReader(full))
-			e.RespBody = cap64(full)
+			e.RespBody = cap64(redactBody(full))
 		}
 	}
 
