@@ -27,6 +27,7 @@ Manage stores, authorization models, relationship tuples, and run checks from yo
 - [✨ What is this?](#-what-is-this)
 - [🚀 Quick start](#-quick-start)
 - [📦 Installation](#-installation)
+- [⬆️ Upgrade and uninstall](#️-upgrade-and-uninstall)
 - [🖥 The interactive TUI](#-the-interactive-tui)
 - [📋 Command reference](#-command-reference)
 - [🛠 Configuration](#-configuration)
@@ -42,7 +43,7 @@ Manage stores, authorization models, relationship tuples, and run checks from yo
 
 `ofga` is a single, dependency-free binary that gives you two ways to work with an OpenFGA server:
 
-- 🧰 **A scriptable CLI** — create stores, write and inspect authorization models, manage relationship tuples, run `check`/`list-objects`/`list-users`, and run assertion suites. Every read command speaks `--json` (for `jq`), `--yaml`, and `--plain` (for `grep`/`awk`), returns meaningful exit codes, and confirms destructive actions.
+- 🧰 **A scriptable CLI** — create stores, write and inspect authorization models, manage relationship tuples, run `check`/`list-objects`/`list-users`, and run assertion suites. Read commands provide consistent JSON/YAML output, tabular commands support `--plain`, and failures return meaningful exit codes.
 - 🖥 **A full-screen TUI** — launch it by running `ofga` with no arguments. Browse stores, visualize a model as a colored relation graph, edit tuples, run queries and expand their resolution trees, and manage assertions — all with the keyboard **or the mouse**.
 
 It talks to any OpenFGA-compatible server and reuses your connection **profiles** so you can switch between local, staging, and production in one flag.
@@ -102,12 +103,25 @@ go install github.com/sergiught/openfga-cli/cmd/ofga@latest
 ### Pre-built binaries
 
 Download a `.tar.gz`, `.deb`, `.rpm`, or `.apk` for your platform from the
-[latest release](https://github.com/sergiught/openfga-cli/releases/latest), or:
+[latest release](https://github.com/sergiught/openfga-cli/releases/latest).
+Each release includes SHA-256 checksums, an SPDX SBOM, and signed provenance.
 
 ```bash
-# Linux/macOS one-liner (installs to /usr/local/bin)
-curl -sSfL https://github.com/sergiught/openfga-cli/releases/latest/download/ofga_$(uname -s)_$(uname -m).tar.gz \
-  | tar -xz ofga && sudo mv ofga /usr/local/bin/
+# Linux/macOS: download and verify before installing
+asset="ofga_$(uname -s)_$(uname -m).tar.gz"
+base="https://github.com/sergiught/openfga-cli/releases/latest/download"
+curl -fLO "$base/$asset"
+curl -fLO "$base/checksums.txt"
+grep "  $asset$" checksums.txt > ofga-checksum.txt
+if command -v sha256sum >/dev/null; then sha256sum -c ofga-checksum.txt; else shasum -a 256 -c ofga-checksum.txt; fi
+tar -xzf "$asset" ofga
+sudo install -m 0755 ofga /usr/local/bin/ofga
+```
+
+GitHub CLI can additionally verify the signed provenance:
+
+```bash
+gh attestation verify "$asset" --repo sergiught/openfga-cli
 ```
 
 ### Docker
@@ -132,19 +146,41 @@ ofga version
 
 ---
 
+## ⬆️ Upgrade and uninstall
+
+Upgrade with the same package manager used to install `ofga`:
+
+```bash
+brew upgrade ofga
+yay -Syu ofga-bin
+go install github.com/sergiught/openfga-cli/cmd/ofga@latest
+```
+
+Before removing the binary, use `ofga profiles remove <name>` for saved
+profiles whose keyring credentials should also be deleted. Then uninstall the
+package (`brew uninstall ofga`, your system package manager, or
+`rm "$(command -v ofga)"`). Remove the remaining configuration directory only
+if it is no longer needed:
+
+```bash
+rm -rf "$(dirname "$(ofga config path)")"
+```
+
+---
+
 ## 🖥 The interactive TUI
 
 Run `ofga` with no arguments to launch the interactive playground. It's a keyboard- **and mouse**-driven cockpit for the whole OpenFGA surface.
 
 <!-- TODO: add a demo GIF/asciinema here -->
 
-**Sections** (switch with `tab`, the number keys `1`–`7`, `ctrl+k` for the command palette, or **click a tab**): Profiles · Stores · Model · Tuples · Changes · Tuple Queries · Assertions.
+**Sections** (switch with `tab`, the number keys `1`–`8`, `ctrl+k` for the command palette, or **click a tab**): Profiles · Stores · Model · Tuples · Changes · Tuple Queries · Assertions · API Logs.
 
 **Highlights**
 
 - 🎨 **Model graph** — the authorization model rendered as a colored tree of types, relations, and inherited (tuple-to-userset) paths.
 - 🔎 **Query + resolution tree** — run `check`/`list-objects`/`list-users`/`list-relations` and expand *why* a decision was made.
-- ✍️ **Inline editing** — add/edit tuples, assertions, and the model DSL, with **inline validation** as you type.
+- ✍️ **Inline editing** — add/delete tuples, edit assertions, and edit the model DSL, with **inline validation** as you type.
 - 🖱 **Full mouse support** — wheel-scroll the graph and lists, click tabs and list rows, click the footer keycaps as buttons, and click outside a dialog to dismiss it.
 - 🎭 **Themes** — `aurora`, `catppuccin`, `charm`, `dracula`, `gruvbox`, `nord`, `tokyonight`, and a `mono` (NO_COLOR-friendly) theme.
 
@@ -218,7 +254,7 @@ Values are resolved in increasing order of precedence:
 | `OPENFGA_PROFILE` | Profile to use (alias: `FGA_PROFILE`) |
 | `OPENFGA_CONFIG` | Path to the config file (overridden by the `--config` flag) |
 | `OPENFGA_ICONS` | Icon mode: `nerdfont` (default), `unicode`, or `off` |
-| `OFGA_REDUCED_MOTION` | Suppress TUI animations (alias: `OPENFGA_REDUCED_MOTION`) |
+| `OPENFGA_REDUCED_MOTION` | Suppress TUI animations (alias: `OFGA_REDUCED_MOTION`) |
 | `NO_COLOR` | Disable colored output |
 | `CLICOLOR_FORCE` | Force colored output even when piped or redirected |
 | `FORCE_COLOR` | Force colored output even when piped or redirected (equivalent to `CLICOLOR_FORCE`) |
@@ -243,7 +279,10 @@ ofga profiles set token --value-stdin < token.txt        # from stdin
 ofga profiles set client_secret --value-file ./secret    # from a file
 ```
 
-The config file is written with `0600` permissions, and `profiles show` masks all secrets.
+The config file is written atomically with `0600` permissions. Tokens, client
+secrets, and private keys are stored in the OS keyring; the TOML file contains
+managed-secret markers rather than plaintext credentials. `profiles show`
+masks secrets.
 
 ---
 
@@ -256,6 +295,8 @@ source <(ofga completion bash)
 ofga completion zsh > "${fpath[1]}/_ofga"
 # fish
 ofga completion fish | source
+# PowerShell
+ofga completion powershell | Out-String | Invoke-Expression
 ```
 
 Completion is **dynamic**: `--profile`, `--store-id`, and `--model-id` (and the matching positional args) complete real profile names, store IDs, and model IDs from your server. Network-backed completions are bounded by a short timeout so they never hang your shell.
@@ -266,15 +307,17 @@ Completion is **dynamic**: `--profile`, `--store-id`, and `--model-id` (and the 
 
 `ofga` is built to compose:
 
-- `--json` on every read command emits clean, machine-readable JSON (secrets omitted) for `jq`.
+- `--json` emits clean, machine-readable JSON (secrets omitted) for `jq`.
 - `--yaml` (or `-o yaml` / `--output yaml`) emits the same structured data as YAML, for tools that prefer it (e.g. diffing against a YAML-based config).
 - `--plain` emits unstyled, tab-separated rows for `grep`/`awk`; `query check --plain` prints `allowed`/`denied`.
 - Meaningful **exit codes**: `0` success, `1` generic failure, `2` usage error, `3` failed `assertions test`, `4` network error.
-- `--dry-run` on every server mutation previews the change without applying it.
-- Destructive commands prompt on a TTY and require `--force` when non-interactive, so scripts fail safe.
+- First-class server mutation commands support `--dry-run`; `ofga api` is an explicitly unguarded expert escape hatch.
+- Destructive replacements and deletes prompt on a TTY and require `--force` when non-interactive, so scripts fail safe.
 - Piped output drops colors and box-drawing automatically.
+- `--timeout` bounds each HTTP request (30 seconds by default; `0` disables it).
+- `--no-input` prevents prompts and disables the bare-command TUI for automation running under a pseudo-TTY.
 
-> **Note:** `ofga tuples read` and `ofga stores list` auto-paginate and return **all** rows by default (`--page-size` only sets the per-request page size, not a total cap). Against a large store that can be a lot of output — cap it with `--max-results` (alias `--limit`), or pipe through `head` or `--json | jq`.
+> **Note:** `ofga tuples read`, `ofga stores list`, and `ofga model list` auto-paginate and return **all** rows by default (`--page-size` only sets the per-request page size, not a total cap). Against a large store that can be a lot of output — cap it with `--max-results` (alias `--limit`), or pipe through `head` or `--json | jq`.
 
 ```bash
 # Which documents can anne view?
@@ -289,6 +332,8 @@ ofga assertions test || exit 1
 ## 🏗 Contributing
 
 Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for the build/test/lint workflow and the [Conventional Commits](https://www.conventionalcommits.org) convention used for automated releases.
+
+Report bugs and request features through [GitHub Issues](https://github.com/sergiught/openfga-cli/issues). Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 
 ```bash
 go build ./...
