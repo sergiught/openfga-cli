@@ -55,6 +55,11 @@ type Auth struct {
 	KeyFile       string `toml:"key_file,omitempty" json:"key_file,omitempty"`         // path to the PEM signing key
 	SigningMethod string `toml:"signing_method,omitempty" json:"signing_method,omitempty"`
 	KeyID         string `toml:"key_id,omitempty" json:"key_id,omitempty"`
+
+	// private_key holds the PEM signing key contents for private_key_jwt when
+	// stored in the OS keyring (config carries the sentinel). key_file remains
+	// the on-disk-path alternative.
+	PrivateKey string `toml:"private_key,omitempty" json:"-"` // secret; never serialized to JSON output
 }
 
 // Profile is a single named connection context.
@@ -73,6 +78,16 @@ func (p Profile) ResolvedAuth() Auth {
 		return Auth{Method: AuthAPIToken, Token: p.APIToken}
 	}
 	return p.Auth
+}
+
+// secretFields returns the keyring-managed secret fields of a, so Save and
+// Resolve can treat them uniformly.
+func (a *Auth) secretFields() []secretField {
+	return []secretField{
+		{"token", &a.Token},
+		{"client_secret", &a.ClientSecret},
+		{"private_key", &a.PrivateKey},
+	}
 }
 
 // Config is the on-disk configuration document.

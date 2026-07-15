@@ -20,6 +20,7 @@ require (
 	github.com/sergiught/go-openfga v0.110.0
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/pflag v1.0.9
+	github.com/zalando/go-keyring v0.2.8
 )
 
 require (
@@ -32,8 +33,10 @@ require (
 	github.com/charmbracelet/x/windows v0.2.2 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
+	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.3.3 // indirect
 	github.com/go-logfmt/logfmt v0.6.1 // indirect
+	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
