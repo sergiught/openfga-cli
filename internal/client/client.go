@@ -175,7 +175,11 @@ func authOption(a config.Auth) (openfga.Option, error) {
 			Scopes:       a.Scopes,
 		}), nil
 	case config.AuthPrivateKeyJWT:
-		key, method, err := loadSigningKey(a.KeyFile, a.SigningMethod)
+		pem, err := signingKeyPEM(a)
+		if err != nil {
+			return nil, err
+		}
+		key, method, err := parseSigningKey(pem, a.SigningMethod)
 		if err != nil {
 			return nil, err
 		}
@@ -194,20 +198,28 @@ func authOption(a config.Auth) (openfga.Option, error) {
 	}
 }
 
-// loadSigningKey reads a PEM private key from path and parses it for the named
-// JWT signing method (defaulting to RS256), returning the key and the resolved
-// jwt.SigningMethod.
-func loadSigningKey(path, methodName string) (crypto.PrivateKey, jwt.SigningMethod, error) {
-	if path == "" {
-		return nil, nil, fmt.Errorf("private_key_jwt requires a key_file")
+// signingKeyPEM returns the PEM bytes for private_key_jwt: the inline key
+// (resolved from the keyring by config) when present, otherwise key_file.
+func signingKeyPEM(a config.Auth) ([]byte, error) {
+	if a.PrivateKey != "" {
+		return []byte(a.PrivateKey), nil
 	}
-	pem, err := os.ReadFile(path)
+	if a.KeyFile == "" {
+		return nil, fmt.Errorf("private_key_jwt requires private_key or key_file")
+	}
+	pem, err := os.ReadFile(a.KeyFile)
 	if err != nil {
-		return nil, nil, fmt.Errorf("read signing key %s: %w", path, err)
+		return nil, fmt.Errorf("read signing key %s: %w", a.KeyFile, err)
 	}
-	if info, statErr := os.Stat(path); statErr == nil && info.Mode().Perm()&0o077 != 0 {
-		fmt.Fprintln(os.Stderr, "warning: signing key "+path+" is readable by other users; restrict it with chmod 600")
+	if info, statErr := os.Stat(a.KeyFile); statErr == nil && info.Mode().Perm()&0o077 != 0 {
+		fmt.Fprintln(os.Stderr, "warning: signing key "+a.KeyFile+" is readable by other users; restrict it with chmod 600")
 	}
+	return pem, nil
+}
+
+// parseSigningKey parses a PEM private key for the named JWT signing method
+// (defaulting to RS256), returning the key and the resolved jwt.SigningMethod.
+func parseSigningKey(pem []byte, methodName string) (crypto.PrivateKey, jwt.SigningMethod, error) {
 	method := jwt.GetSigningMethod(methodName)
 	if method == nil {
 		if methodName != "" {
@@ -216,6 +228,7 @@ func loadSigningKey(path, methodName string) (crypto.PrivateKey, jwt.SigningMeth
 		method = jwt.SigningMethodRS256
 	}
 	var key crypto.PrivateKey
+	var err error
 	switch method.(type) {
 	case *jwt.SigningMethodRSA, *jwt.SigningMethodRSAPSS:
 		key, err = jwt.ParseRSAPrivateKeyFromPEM(pem)

@@ -8,8 +8,6 @@ import (
 	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -60,28 +58,62 @@ func TestPlaintextCredentialWarning(t *testing.T) {
 // TestLoadSigningKeyMethodMismatch covers AUTH-5: a key/method mismatch yields an
 // actionable error instead of an opaque parse failure.
 func TestLoadSigningKeyMethodMismatch(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "key.pem")
-	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatalf("generate key: %v", err)
-	}
-	der := x509.MarshalPKCS1PrivateKey(rsaKey)
-	block := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: der})
-	if err := os.WriteFile(path, block, 0o600); err != nil {
-		t.Fatalf("write key: %v", err)
-	}
+	block := genTestRSAKeyPEM(t)
 
 	// RSA key parsed as an EC method must fail with the actionable message.
-	if _, _, err := loadSigningKey(path, "ES256"); err == nil {
+	if _, _, err := parseSigningKey([]byte(block), "ES256"); err == nil {
 		t.Fatal("expected mismatch error, got nil")
 	} else if !strings.Contains(err.Error(), `does not match signing_method "ES256"`) {
 		t.Fatalf("error missing actionable context: %v", err)
 	}
 
 	// RSA key with a matching method must succeed.
-	if _, _, err := loadSigningKey(path, "RS256"); err != nil {
+	if _, _, err := parseSigningKey([]byte(block), "RS256"); err != nil {
 		t.Fatalf("expected RSA/RS256 to succeed, got %v", err)
+	}
+}
+
+// genTestRSAKeyPEM generates a 2048-bit RSA key and returns it PEM-encoded
+// (PKCS1) as a string, for use as a signing key in tests.
+func genTestRSAKeyPEM(t *testing.T) string {
+	t.Helper()
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	der := x509.MarshalPKCS1PrivateKey(rsaKey)
+	block := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: der})
+	return string(block)
+}
+
+// TestPrivateKeyFromInlinePEM covers loading the private_key_jwt signing key
+// from the resolved config's inline PrivateKey (keyring-sourced), not a file.
+func TestPrivateKeyFromInlinePEM(t *testing.T) {
+	pemStr := genTestRSAKeyPEM(t)
+	a := config.Auth{Method: config.AuthPrivateKeyJWT, TokenURL: "http://idp/token", ClientID: "id", PrivateKey: pemStr, SigningMethod: "RS256"}
+	if _, err := authOption(a); err != nil {
+		t.Fatalf("inline PEM should load: %v", err)
+	}
+}
+
+// TestPrivateKeyPrefersInlineOverFile covers that PrivateKey wins over KeyFile
+// when both are set, so a stale/missing key_file doesn't break a profile once
+// migrated to the keyring.
+func TestPrivateKeyPrefersInlineOverFile(t *testing.T) {
+	pemStr := genTestRSAKeyPEM(t)
+	// key_file points at a non-existent path; PrivateKey must be used instead.
+	a := config.Auth{Method: config.AuthPrivateKeyJWT, TokenURL: "http://idp/token", ClientID: "id", PrivateKey: pemStr, KeyFile: "/does/not/exist", SigningMethod: "RS256"}
+	if _, err := authOption(a); err != nil {
+		t.Fatalf("inline PEM should take precedence over key_file: %v", err)
+	}
+}
+
+// TestPrivateKeyRequiresKeyOrFile covers the error path when neither the
+// inline private_key nor a key_file is configured.
+func TestPrivateKeyRequiresKeyOrFile(t *testing.T) {
+	a := config.Auth{Method: config.AuthPrivateKeyJWT, TokenURL: "http://idp/token", ClientID: "id"}
+	if _, err := authOption(a); err == nil {
+		t.Fatal("private_key_jwt with neither private_key nor key_file should error")
 	}
 }
 
