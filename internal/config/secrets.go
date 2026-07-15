@@ -11,8 +11,6 @@ const keyringService = "openfga-cli"
 
 // keyringSentinel is the placeholder written to config.toml for a secret whose
 // real value lives in the OS keyring.
-//
-//nolint:unused // consumed by the Save/Resolve tasks that follow this one
 const keyringSentinel = "keyring:managed"
 
 // secretField pairs a keyring field name with the Auth field it maps to.

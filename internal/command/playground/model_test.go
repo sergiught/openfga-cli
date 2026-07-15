@@ -18,6 +18,7 @@ import (
 	lipgloss "charm.land/lipgloss/v2"
 	"github.com/charmbracelet/log"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/zalando/go-keyring"
 
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/cli"
@@ -1432,6 +1433,7 @@ func TestFooterStoreNameFromLoadedList(t *testing.T) {
 // selector to create a client_credentials profile and verifies the auth block
 // is persisted.
 func TestProfilesTabAddClientCredentials(t *testing.T) {
+	keyring.MockInit() // Save now stores client_secret in the OS keyring
 	cfg, _ := loadIsolatedConfig(t)
 	a := cli.New(log.New(io.Discard), cfg, "test")
 	cl, _ := openfga.NewClient("http://localhost:8080")
@@ -1474,9 +1476,15 @@ func TestProfilesTabAddClientCredentials(t *testing.T) {
 	if p.Auth.Method != config.AuthClientCredentials {
 		t.Fatalf("auth method = %q, want client_credentials", p.Auth.Method)
 	}
-	if p.Auth.ClientID != "cid" || p.Auth.ClientSecret != "sekret" ||
+	// client_secret is keyring-managed as of the config keyring-secrets
+	// feature: Save writes only the sentinel to disk and moves the real
+	// value into the OS keyring, so it is verified there instead.
+	if p.Auth.ClientID != "cid" || p.Auth.ClientSecret != "keyring:managed" ||
 		p.Auth.TokenURL != "https://iss/token" || p.Auth.Audience != "aud" {
 		t.Fatalf("persisted auth wrong: %+v", p.Auth)
+	}
+	if got, err := keyring.Get("openfga-cli", "prod.client_secret"); err != nil || got != "sekret" {
+		t.Fatalf("keyring client_secret = %q, %v; want \"sekret\"", got, err)
 	}
 	if p.APIURL != "https://api.fga" {
 		t.Errorf("api_url = %q, want https://api.fga", p.APIURL)

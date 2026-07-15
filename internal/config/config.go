@@ -255,6 +255,30 @@ func (c *Config) Save() error {
 	if c.Version == 0 {
 		c.Version = SchemaVersion
 	}
+
+	// Move any real secret values into the OS keyring, leaving only the
+	// sentinel in the file. A value already equal to the sentinel came from
+	// disk and is left alone.
+	for name, p := range c.Profiles {
+		auth := p.Auth
+		for _, sf := range auth.secretFields() {
+			if *sf.ptr == "" || *sf.ptr == keyringSentinel {
+				continue
+			}
+			if !secretsAvailable() {
+				return fmt.Errorf("cannot store %s for profile %q securely: the OS keyring is unavailable. "+
+					"Provide the secret via the environment (OPENFGA_API_TOKEN / OPENFGA_CLIENT_SECRET) instead, "+
+					"or use key_file for private_key_jwt", sf.name, name)
+			}
+			if err := secretSet(name, sf.name, *sf.ptr); err != nil {
+				return fmt.Errorf("store %s for profile %q in keyring: %w", sf.name, name, err)
+			}
+			*sf.ptr = keyringSentinel
+		}
+		p.Auth = auth
+		c.Profiles[name] = p
+	}
+
 	if err := os.MkdirAll(filepath.Dir(c.path), 0o700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}

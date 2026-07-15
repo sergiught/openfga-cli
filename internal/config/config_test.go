@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/zalando/go-keyring"
 )
 
 func TestIconsModeEnvPrecedence(t *testing.T) {
@@ -31,6 +33,7 @@ func TestIconsModeEnvPrecedence(t *testing.T) {
 }
 
 func TestSaveWritesSecretsWithRestrictivePerms(t *testing.T) {
+	keyring.MockInit() // Save pushes the real token into the OS keyring; keep the test hermetic
 	dir := filepath.Join(t.TempDir(), "cfg")
 	c := &Config{
 		path:     filepath.Join(dir, "config.toml"),
