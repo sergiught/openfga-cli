@@ -195,6 +195,8 @@ ofga profiles show                # resolved active config (secrets masked)
 ofga --profile staging stores list
 ```
 
+> **Flag naming:** the global `--store`/`--model` flags are a *runtime override* for the current invocation only (e.g. `ofga --store 01ABC query check …`). `--store-id`/`--model-id` on `ofga profiles add|set` and `ofga init` *persist* a value into a profile. They're named differently on purpose — `--store-id` on those commands would otherwise be shadowed by the global `--store` override — but they resolve the same store/model ID either way (see [Precedence](#precedence)).
+
 ### Precedence
 
 Values are resolved in increasing order of precedence:

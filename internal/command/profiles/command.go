@@ -335,7 +335,10 @@ func (c *Command) addCmd() *cobra.Command {
 		Short:   "Create a new profile",
 		Long: "Create a named connection profile. The auth method defaults to a bearer\n" +
 			"token when --token* is given, otherwise none. For OAuth flows pass\n" +
-			"--auth-method client_credentials or private_key_jwt with their fields.",
+			"--auth-method client_credentials or private_key_jwt with their fields.\n\n" +
+			"Note: --store-id/--model-id persist into the profile; they're named\n" +
+			"differently from the global --store/--model (which override the active\n" +
+			"store/model for a single invocation) so the two don't shadow each other.",
 		Example: `  ofga profiles add dev --api-url http://localhost:8080 --use
   ofga profiles add prod --api-url https://fga.example.com --token-stdin < token.txt
   ofga profiles add ci --auth-method client_credentials \

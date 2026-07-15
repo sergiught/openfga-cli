@@ -27,7 +27,10 @@ func NewInit(c *cli.CLI) *cobra.Command {
 		Short: "Set up a connection profile (guided)",
 		Long: "Create or update a connection profile and make it active. On a terminal " +
 			"it prompts for any values not given as flags; non-interactively it uses the " +
-			"flags and defaults, so it is safe in CI.",
+			"flags and defaults, so it is safe in CI.\n\n" +
+			"Note: --store-id persists into the profile; it's named differently from " +
+			"the global --store (which overrides the active store for a single " +
+			"invocation) so the two don't shadow each other.",
 		Example: `  ofga init
   ofga init prod --api-url https://fga.example.com --token-stdin < token.txt`,
 		Args: cobra.MaximumNArgs(1),
