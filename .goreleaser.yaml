@@ -5,7 +5,6 @@ project_name: ofga
 
 before:
   hooks:
-    - go mod tidy
     - go mod download
 
 builds:
@@ -38,11 +37,14 @@ archives:
     files:
       - LICENSE
       - README.md
-      - CHANGELOG.md
 
 checksum:
   name_template: 'checksums.txt'
   algorithm: sha256
+
+sboms:
+  - id: archives
+    artifacts: archive
 
 # Linux packages.
 nfpms:

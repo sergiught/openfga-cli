@@ -4,6 +4,8 @@
 BINARIES_DIR = $(CURDIR)/bin
 BINARY_NAME  = ofga
 MAIN         = ./cmd/ofga
+GOLANGCI_LINT_VERSION = v2.12.2
+GOVULNCHECK_VERSION   = v1.6.0
 
 # Build metadata baked into the binary via -ldflags so local builds report
 # something useful from `ofga version` (goreleaser overrides these in CI).
@@ -30,11 +32,11 @@ help: ## Show this help message and exit
 #-----------------------------------------------------------------------------------------------------------------------
 $(BINARIES_DIR)/golangci-lint:
 	@echo "==> Installing golangci-lint into $(BINARIES_DIR)"
-	@GOBIN=$(BINARIES_DIR) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+	@GOBIN=$(BINARIES_DIR) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 $(BINARIES_DIR)/govulncheck:
 	@echo "==> Installing govulncheck into $(BINARIES_DIR)"
-	@GOBIN=$(BINARIES_DIR) go install golang.org/x/vuln/cmd/govulncheck@latest
+	@GOBIN=$(BINARIES_DIR) go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 
 $(BINARIES_DIR)/commitlint:
 	@echo "==> Installing commitlint into $(BINARIES_DIR)"
