@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/BurntSushi/toml"
 	gap "github.com/muesli/go-app-paths"
@@ -64,21 +63,14 @@ type Auth struct {
 
 // Profile is a single named connection context.
 type Profile struct {
-	APIURL   string `toml:"api_url" json:"api_url"`
-	StoreID  string `toml:"store_id,omitempty" json:"store_id,omitempty"`
-	ModelID  string `toml:"model_id,omitempty" json:"model_id,omitempty"`
-	APIToken string `toml:"api_token,omitempty" json:"-"` // legacy secret; never serialized to JSON output
-	Auth     Auth   `toml:"auth,omitempty" json:"auth"`
+	APIURL  string `toml:"api_url" json:"api_url"`
+	StoreID string `toml:"store_id,omitempty" json:"store_id,omitempty"`
+	ModelID string `toml:"model_id,omitempty" json:"model_id,omitempty"`
+	Auth    Auth   `toml:"auth,omitempty" json:"auth"`
 }
 
-// ResolvedAuth returns the profile's effective auth, folding the legacy
-// top-level api_token into an api_token method when no explicit method is set.
-func (p Profile) ResolvedAuth() Auth {
-	if p.Auth.Method == "" && p.APIToken != "" {
-		return Auth{Method: AuthAPIToken, Token: p.APIToken}
-	}
-	return p.Auth
-}
+// ResolvedAuth returns the profile's effective auth.
+func (p Profile) ResolvedAuth() Auth { return p.Auth }
 
 // secretFields returns the keyring-managed secret fields of a, so Save and
 // Resolve can treat them uniformly.
@@ -380,18 +372,6 @@ func splitScopes(s string) []string {
 	return fields
 }
 
-// tokenIgnoredOnce guards the OPENFGA_API_TOKEN-ignored notice so it prints at
-// most once per process even when Resolve runs repeatedly.
-var tokenIgnoredOnce sync.Once
-
-// noteTokenIgnored emits a one-line stderr notice explaining why an env-supplied
-// bearer token was ignored: the active profile uses an OAuth flow instead.
-func noteTokenIgnored(profile, method string) {
-	tokenIgnoredOnce.Do(func() {
-		fmt.Fprintf(os.Stderr, "note: OPENFGA_API_TOKEN ignored; profile %q uses %s auth\n", profile, method)
-	})
-}
-
 // Resolve merges, in increasing order of precedence: profile values, OPENFGA_*
 // (or FGA_*) environment variables, then flag overrides.
 func (c *Config) Resolve(o Overrides) (Resolved, error) {
@@ -438,10 +418,6 @@ func (c *Config) Resolve(o Overrides) (Resolved, error) {
 	if v := firstEnv("OPENFGA_API_TOKEN", "FGA_API_TOKEN"); v != "" {
 		if r.Auth.Method == "" || r.Auth.Method == AuthNone || r.Auth.Method == AuthAPIToken {
 			r.Auth = Auth{Method: AuthAPIToken, Token: v}
-		} else {
-			// The profile uses an OAuth flow, so a bare env token can't apply.
-			// Note it once so the silence isn't mysterious.
-			noteTokenIgnored(name, r.Auth.Method)
 		}
 	}
 	// OAuth secrets from the environment, so CI need not persist them in the

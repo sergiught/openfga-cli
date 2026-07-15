@@ -274,9 +274,9 @@ func (c *Command) setCmd() *cobra.Command {
 				default:
 					return fmt.Errorf("invalid auth_method %q (use none, api_token, client_credentials or private_key_jwt)", val)
 				}
-				p.Auth.Method, p.APIToken = val, ""
+				p.Auth.Method = val
 			case "api_token", "token":
-				p.Auth.Method, p.Auth.Token, p.APIToken = config.AuthAPIToken, val, ""
+				p.Auth.Method, p.Auth.Token = config.AuthAPIToken, val
 			case "client_id":
 				p.Auth.ClientID = val
 			case "client_secret":

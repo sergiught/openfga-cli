@@ -189,9 +189,8 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 					p.Auth.ClientSecret = prev.ClientSecret
 				}
 			}
-			// Keep the auto-managed store/model; replace connection + auth, and
-			// migrate any legacy top-level token into the auth block.
-			existing.APIURL, existing.Auth, existing.APIToken = p.APIURL, p.Auth, ""
+			// Keep the auto-managed store/model; replace connection + auth.
+			existing.APIURL, existing.Auth = p.APIURL, p.Auth
 			m.cli.Config.Set(name, existing)
 			m.saveConfig()
 			m.populateProfiles()

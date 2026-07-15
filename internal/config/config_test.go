@@ -35,7 +35,7 @@ func TestSaveWritesSecretsWithRestrictivePerms(t *testing.T) {
 	c := &Config{
 		path:     filepath.Join(dir, "config.toml"),
 		Active:   "default",
-		Profiles: map[string]Profile{"default": {APIURL: DefaultAPIURL, APIToken: "supersecret"}},
+		Profiles: map[string]Profile{"default": {APIURL: DefaultAPIURL, Auth: Auth{Method: AuthAPIToken, Token: "supersecret"}}},
 	}
 	if err := c.Save(); err != nil {
 		t.Fatalf("Save() error = %v", err)
