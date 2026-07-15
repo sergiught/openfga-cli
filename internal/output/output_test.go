@@ -2,6 +2,8 @@ package output
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -11,7 +13,9 @@ func TestPlainTableUnchangedAndStyledFramed(t *testing.T) {
 
 	var b bytes.Buffer
 	Plain = true
-	Table(&b, []string{"A"}, [][]string{{"x"}})
+	if err := Table(&b, []string{"A"}, [][]string{{"x"}}); err != nil {
+		t.Fatal(err)
+	}
 	if b.String() != "x\n" {
 		t.Fatalf("plain output changed: %q", b.String())
 	}
@@ -19,7 +23,9 @@ func TestPlainTableUnchangedAndStyledFramed(t *testing.T) {
 	// Styled output to a terminal is framed with box-drawing.
 	Plain, Interactive = false, true
 	b.Reset()
-	Table(&b, []string{"A"}, [][]string{{"x"}})
+	if err := Table(&b, []string{"A"}, [][]string{{"x"}}); err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(b.String(), "╭") {
 		t.Fatal("styled table on a TTY should be framed")
 	}
@@ -28,9 +34,14 @@ func TestPlainTableUnchangedAndStyledFramed(t *testing.T) {
 	// grep/awk-friendly.
 	Interactive = false
 	b.Reset()
-	Table(&b, []string{"A"}, [][]string{{"x"}})
+	if err := Table(&b, []string{"A"}, [][]string{{"x"}}); err != nil {
+		t.Fatal(err)
+	}
 	if strings.Contains(b.String(), "╭") {
 		t.Fatalf("piped table should not be framed: %q", b.String())
+	}
+	if strings.Contains(b.String(), "─") {
+		t.Fatalf("piped table should not contain box-drawing: %q", b.String())
 	}
 }
 
@@ -80,6 +91,35 @@ func TestYAMLMatchesJSONFieldNamesAndCoercesNilSlice(t *testing.T) {
 	}
 	if got := strings.TrimSpace(b.String()); got != "[]" {
 		t.Fatalf("nil slice should serialize as [], got %q", got)
+	}
+}
+
+func TestYAMLPreservesLargeIntegers(t *testing.T) {
+	var b bytes.Buffer
+	const n int64 = 9_007_199_254_740_993
+	if err := YAML(&b, map[string]int64{"value": n}); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(b.String()); got != "value: 9007199254740993" {
+		t.Fatalf("large integer lost precision: %q", got)
+	}
+}
+
+func TestSanitizeFieldRemovesTerminalControls(t *testing.T) {
+	got := SanitizeField("safe\x1b]52;c;secret\a\nforged\x1b[31mred\x1b[0m\u009b31m")
+	if got != "safeforgedred31m" {
+		t.Fatalf("SanitizeField() = %q", got)
+	}
+}
+
+type failingWriter struct{ err error }
+
+func (w failingWriter) Write([]byte) (int, error) { return 0, w.err }
+
+func TestTablePropagatesWriteErrors(t *testing.T) {
+	want := fmt.Errorf("write failed")
+	if err := Table(failingWriter{err: want}, []string{"A"}, [][]string{{"x"}}); !errors.Is(err, want) {
+		t.Fatalf("Table() error = %v, want %v", err, want)
 	}
 }
 

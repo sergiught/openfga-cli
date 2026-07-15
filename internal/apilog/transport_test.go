@@ -154,9 +154,12 @@ func TestTransportSkipsNonAPIHost(t *testing.T) {
 
 	// Positive case: a request to the configured API host IS recorded.
 	req2, _ := http.NewRequest(http.MethodGet, "https://api.example/stores/1/check", nil)
-	if _, err := rt.RoundTrip(req2); err != nil {
+	resp2, err := rt.RoundTrip(req2)
+	if err != nil {
 		t.Fatal(err)
 	}
+	_, _ = io.Copy(io.Discard, resp2.Body)
+	_ = resp2.Body.Close()
 	if len(rec.Snapshot()) != 1 {
 		t.Fatalf("expected exactly one recorded entry for the API-host request, got %d", len(rec.Snapshot()))
 	}
@@ -215,5 +218,51 @@ func TestRedactBodyLeavesOrdinaryBodiesUntouched(t *testing.T) {
 	in := `{"user":"anne","relation":"viewer","object":"document:roadmap"}`
 	if got := string(redactBody([]byte(in))); got != in {
 		t.Fatalf("ordinary body altered: got %q, want %q", got, in)
+	}
+}
+
+func TestCaptureRedactsTruncatedAndEscapedSecrets(t *testing.T) {
+	body := `{"client_secret":"prefix\\\"still-secret`
+	got := string(redactBody([]byte(body)))
+	if strings.Contains(got, "still-secret") || !strings.Contains(got, `"client_secret":"******"`) {
+		t.Fatalf("truncated escaped secret was not fully redacted: %q", got)
+	}
+}
+
+func TestRedactURLMasksSensitiveQueryValues(t *testing.T) {
+	req, _ := http.NewRequest(http.MethodGet,
+		"https://api.example/stores?token=secret&continuation_token=safe", nil)
+	got := redactURL(req.URL)
+	if strings.Contains(got, "token=secret") || !strings.Contains(got, "token=%2A%2A%2A%2A%2A%2A") {
+		t.Fatalf("redactURL() = %q", got)
+	}
+	if !strings.Contains(got, "continuation_token=safe") {
+		t.Fatalf("redactURL removed non-sensitive query: %q", got)
+	}
+}
+
+func TestRedactHeadersMasksCredentialsAndCookies(t *testing.T) {
+	h := http.Header{
+		"Authorization":       {"Bearer secret"},
+		"Proxy-Authorization": {"test-value"},
+		"Cookie":              {"test-value"},
+		"Set-Cookie":          {"test-value"},
+		"X-Api-Key":           {"test-value"},
+		"X-Auth-Token":        {"test-value"},
+		"Accept":              {"application/json"},
+	}
+	got := redactHeaders(h)
+	for _, name := range []string{
+		"Authorization", "Proxy-Authorization", "Cookie", "Set-Cookie", "X-API-Key", "X-Auth-Token",
+	} {
+		if got.Get(name) == "test-value" || strings.Contains(got.Get(name), "secret") || got.Get(name) == "" {
+			t.Errorf("%s = %q, want redacted", name, got.Get(name))
+		}
+	}
+	if got.Get("Accept") != "application/json" {
+		t.Errorf("Accept = %q, want preserved", got.Get("Accept"))
+	}
+	if h.Get("Authorization") != "Bearer secret" {
+		t.Fatal("redactHeaders mutated its input")
 	}
 }

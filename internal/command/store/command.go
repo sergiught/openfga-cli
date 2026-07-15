@@ -11,6 +11,7 @@ import (
 
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/cli"
+	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/prompt"
 	"github.com/sergiught/openfga-cli/internal/style"
@@ -111,12 +112,14 @@ func (c *Command) createCmd() *cobra.Command {
 			if c.cli.JSON || c.cli.YAML {
 				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, st)
 			}
-			output.Successf(cmd.ErrOrStderr(), "created store %s", style.Bold.Render(st.Name))
-			output.KeyValues(cmd.OutOrStdout(), [][2]string{
+			output.Successf(cmd.ErrOrStderr(), "created store %s", style.Bold.Render(output.SanitizeField(st.Name)))
+			if err := output.KeyValues(cmd.OutOrStdout(), [][2]string{
 				{"id", st.ID},
 				{"name", st.Name},
 				{"created_at", st.CreatedAt.Format("2006-01-02 15:04:05")},
-			})
+			}); err != nil {
+				return err
+			}
 			if use {
 				output.Infof(cmd.ErrOrStderr(), "set as the active profile's store")
 			}
@@ -138,10 +141,14 @@ func (c *Command) listCmd() *cobra.Command {
 		Long:    "List stores. By default all stores are returned (the CLI auto-pages); --max-results caps the total returned and stops paging once reached.",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if maxResults < 0 {
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--max-results must be non-negative"))
+			}
 			cl, err := c.cli.Client()
 			if err != nil {
 				return err
 			}
+			output.Progressf(cmd.ErrOrStderr(), "fetching stores…")
 			var stores []openfga.Store
 			for st, err := range cl.Stores.All(cmd.Context(), nil) {
 				if err != nil {
@@ -161,15 +168,24 @@ func (c *Command) listCmd() *cobra.Command {
 			}
 			rows := make([][]string, 0, len(stores))
 			for _, st := range stores {
-				rows = append(rows, []string{st.ID, st.Name, st.CreatedAt.Format("2006-01-02 15:04")})
+				rows = append(rows, []string{
+					output.SanitizeField(st.ID),
+					output.SanitizeField(st.Name),
+					st.CreatedAt.Format("2006-01-02 15:04"),
+				})
 			}
-			output.Table(cmd.OutOrStdout(), []string{"ID", "NAME", "CREATED"}, rows)
-			fmt.Fprintln(cmd.OutOrStdout())
+			if err := output.Table(cmd.OutOrStdout(), []string{"ID", "NAME", "CREATED"}, rows); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintln(cmd.OutOrStdout()); err != nil {
+				return err
+			}
 			output.Infof(cmd.ErrOrStderr(), "%d store(s)", len(stores))
 			return nil
 		},
 	}
 	cmd.Flags().IntVar(&maxResults, "max-results", 0, "cap the total number of stores returned (0 = unbounded)")
+	cmd.Flags().IntVar(&maxResults, "limit", 0, "alias for --max-results")
 	return cmd
 }
 
@@ -192,13 +208,12 @@ func (c *Command) getCmd() *cobra.Command {
 			if c.cli.JSON || c.cli.YAML {
 				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, st)
 			}
-			output.KeyValues(cmd.OutOrStdout(), [][2]string{
+			return output.KeyValues(cmd.OutOrStdout(), [][2]string{
 				{"id", st.ID},
 				{"name", st.Name},
 				{"created_at", st.CreatedAt.Format("2006-01-02 15:04:05")},
 				{"updated_at", st.UpdatedAt.Format("2006-01-02 15:04:05")},
 			})
-			return nil
 		},
 	}
 }

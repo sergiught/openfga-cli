@@ -5,8 +5,6 @@ package assertions
 import (
 	"encoding/json"
 	"fmt"
-	"io"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -15,6 +13,8 @@ import (
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/output"
+	"github.com/sergiught/openfga-cli/internal/prompt"
+	"github.com/sergiught/openfga-cli/internal/readlimit"
 	"github.com/sergiught/openfga-cli/internal/style"
 )
 
@@ -93,10 +93,14 @@ func (c *Command) readCmd() *cobra.Command {
 				if !a.Expectation {
 					exp = style.Failure.Render("deny")
 				}
-				rows = append(rows, []string{a.TupleKey.User, a.TupleKey.Relation, a.TupleKey.Object, exp})
+				rows = append(rows, []string{
+					output.SanitizeField(a.TupleKey.User),
+					output.SanitizeField(a.TupleKey.Relation),
+					output.SanitizeField(a.TupleKey.Object),
+					exp,
+				})
 			}
-			output.Table(cmd.OutOrStdout(), []string{"USER", "RELATION", "OBJECT", "EXPECT"}, rows)
-			return nil
+			return output.Table(cmd.OutOrStdout(), []string{"USER", "RELATION", "OBJECT", "EXPECT"}, rows)
 		},
 	}
 }
@@ -105,6 +109,7 @@ func (c *Command) writeCmd() *cobra.Command {
 	var (
 		file   string
 		dryRun bool
+		force  bool
 	)
 	cmd := &cobra.Command{
 		Use:   "write --file <assertions.json>",
@@ -138,6 +143,11 @@ func (c *Command) writeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := prompt.Confirm(cmd,
+				fmt.Sprintf("replace all assertions for model %s with %d assertion(s)?", id, len(assertionsList)),
+				force); err != nil {
+				return err
+			}
 			req := &openfga.WriteAssertionsRequest{Assertions: assertionsList}
 			if err := cl.Assertions.Write(cmd.Context(), id, req, openfga.WithStore(r.StoreID)); err != nil {
 				return err
@@ -152,6 +162,7 @@ func (c *Command) writeCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&file, "file", "f", "", "assertions JSON file ('-' for stdin)")
 	_ = cmd.MarkFlagRequired("file")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate the file and show what would be written without writing it")
+	cmd.Flags().BoolVar(&force, "force", false, "replace assertions without prompting")
 	return cmd
 }
 
@@ -183,6 +194,7 @@ func (c *Command) testCmd() *cobra.Command {
 				output.Infof(cmd.ErrOrStderr(), "no assertions to run for model %s", modelID)
 				return nil
 			}
+			output.Progressf(cmd.ErrOrStderr(), "testing %d assertion(s)…", len(res.Assertions))
 
 			type result struct {
 				Assertion string `json:"assertion"`
@@ -235,17 +247,23 @@ func (c *Command) testCmd() *cobra.Command {
 				if !res.Pass {
 					mark = style.Failure.Render(style.IconCross)
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s\n", mark,
-					style.Value.Render(res.Assertion),
-					style.Faint.Render(fmt.Sprintf("(expected %v, got %v)", res.Expected, res.Got)))
+				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s\n", mark,
+					style.Value.Render(output.SanitizeField(res.Assertion)),
+					style.Faint.Render(fmt.Sprintf("(expected %v, got %v)", res.Expected, res.Got))); err != nil {
+					return err
+				}
 			}
-			fmt.Fprintln(cmd.OutOrStdout())
+			if _, err := fmt.Fprintln(cmd.OutOrStdout()); err != nil {
+				return err
+			}
 			summary := fmt.Sprintf("%d/%d passed", passed, len(results))
 			if passed == len(results) {
-				fmt.Fprintln(cmd.OutOrStdout(), style.Success.Render(style.IconCheck+" "+summary))
-				return nil
+				_, err := fmt.Fprintln(cmd.OutOrStdout(), style.Success.Render(style.IconCheck+" "+summary))
+				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), style.Failure.Render(style.IconCross+" "+summary))
+			if _, err := fmt.Fprintln(cmd.OutOrStdout(), style.Failure.Render(style.IconCross+" "+summary)); err != nil {
+				return err
+			}
 			// A dedicated exit code lets CI tell "assertions ran and failed"
 			// apart from the tool erroring for another reason.
 			return clierr.WithCode(clierr.CodeTestFailed, fmt.Errorf("%d assertion(s) failed", len(results)-passed))
@@ -261,9 +279,9 @@ func toTupleKey(k openfga.CheckRequestTupleKey) openfga.TupleKey {
 
 func readFileOrStdin(path string, cmd *cobra.Command) ([]byte, error) {
 	if path == "-" {
-		return io.ReadAll(cmd.InOrStdin())
+		return readlimit.All(cmd.InOrStdin(), readlimit.Document, "assertions from stdin")
 	}
-	return os.ReadFile(path)
+	return readlimit.File(path, readlimit.Document, "assertions file")
 }
 
 // parseAssertions accepts either a bare array or a {"assertions":[...]} object.

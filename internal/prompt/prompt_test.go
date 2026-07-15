@@ -52,3 +52,17 @@ func TestConfirmNameNonInteractiveRefuses(t *testing.T) {
 		t.Error("ConfirmName(non-tty) should refuse without --force")
 	}
 }
+
+func TestNoInputDisablesPrompts(t *testing.T) {
+	cmd, _ := newCmd("")
+	cmd.Flags().Bool("no-input", false, "")
+	if err := cmd.Flags().Set("no-input", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if interactive(cmd) {
+		t.Fatal("--no-input must disable prompting")
+	}
+	if got := Ask(cmd, "value", "default"); got != "default" {
+		t.Fatalf("Ask() = %q, want default under --no-input", got)
+	}
+}

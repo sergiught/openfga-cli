@@ -54,6 +54,17 @@ func TestRequestBodyStdin(t *testing.T) {
 	}
 }
 
+func TestValidatePathRequiresSameOriginRelativePath(t *testing.T) {
+	for _, path := range []string{"https://evil.example/stores", "//evil.example/stores", "stores"} {
+		if err := validatePath(path); err == nil {
+			t.Errorf("validatePath(%q) should reject cross-origin/non-rooted input", path)
+		}
+	}
+	if err := validatePath("/stores?continuation_token=x"); err != nil {
+		t.Fatalf("validatePath(relative) = %v", err)
+	}
+}
+
 // panicReader panics if Read is ever called, proving stdin is not consumed.
 type panicReader struct{}
 

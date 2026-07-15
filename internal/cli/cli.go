@@ -6,6 +6,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/charmbracelet/log"
 	"github.com/sergiught/go-openfga/openfga"
@@ -29,12 +30,16 @@ type CLI struct {
 	YAML bool
 	// Quiet suppresses incidental success/info output.
 	Quiet bool
+	// NoInput prevents prompts and the interactive TUI.
+	NoInput bool
 	// Plain renders unstyled, tab-separated tables.
 	Plain bool
 	// NoColor disables color regardless of terminal/theme.
 	NoColor bool
 	// ThemeName, when set via --theme, overrides the configured theme.
 	ThemeName string
+	// RequestTimeout bounds each HTTP exchange; zero disables the deadline.
+	RequestTimeout time.Duration
 
 	// Version is the build version, injected from main.
 	Version string
@@ -42,7 +47,12 @@ type CLI struct {
 
 // New builds a CLI with the given logger, config and version.
 func New(logger *log.Logger, cfg *config.Config, version string) *CLI {
-	return &CLI{Logger: logger, Config: cfg, Version: version}
+	return &CLI{
+		Logger:         logger,
+		Config:         cfg,
+		Version:        version,
+		RequestTimeout: client.DefaultRequestTimeout,
+	}
 }
 
 // Resolve merges profile, env and flag overrides into a usable configuration.
@@ -56,7 +66,7 @@ func (cli *CLI) Client() (*openfga.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return client.New(r)
+	return client.New(r, client.WithTimeout(cli.RequestTimeout))
 }
 
 // ClientWithStore returns a client and guarantees a store ID is configured,
@@ -69,7 +79,7 @@ func (cli *CLI) ClientWithStore() (*openfga.Client, config.Resolved, error) {
 	if r.StoreID == "" {
 		return nil, r, errors.New("no store selected: pass --store-id, set OPENFGA_STORE_ID, or run `ofga profiles set store_id <id>`")
 	}
-	c, err := client.New(r)
+	c, err := client.New(r, client.WithTimeout(cli.RequestTimeout))
 	if err != nil {
 		return nil, r, err
 	}

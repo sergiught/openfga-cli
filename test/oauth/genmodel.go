@@ -1,7 +1,8 @@
 //go:build ignore
 
 // Regenerate model.json from model.fga (the GitHub sample DSL):
-//   go run test/oauth/genmodel.go test/oauth/model.fga test/oauth/model.json
+//
+//	go run test/oauth/genmodel.go test/oauth/model.fga test/oauth/model.json
 package main
 
 import (

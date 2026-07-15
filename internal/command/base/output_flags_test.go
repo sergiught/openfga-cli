@@ -19,6 +19,11 @@ func TestOutputAliasFlags(t *testing.T) {
 		if root.PersistentFlags().Lookup(name) == nil {
 			t.Errorf("expected global --%s flag", name)
 		}
+		for _, name := range []string{"no-input", "timeout"} {
+			if root.PersistentFlags().Lookup(name) == nil {
+				t.Errorf("expected global --%s flag", name)
+			}
+		}
 	}
 }
 

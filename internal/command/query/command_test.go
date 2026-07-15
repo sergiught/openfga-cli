@@ -1,6 +1,7 @@
 package query
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/sergiught/go-openfga/openfga"
@@ -70,5 +71,22 @@ func TestParseContext(t *testing.T) {
 	}
 	if _, err := parseContext("not json"); err == nil {
 		t.Error("invalid JSON should error")
+	}
+}
+
+func TestResolveArgsCombinesPositionalsAndFlags(t *testing.T) {
+	got, err := resolveArgs(
+		[]string{"viewer"},
+		[]string{"document", "", "user:anne"},
+		[]string{"type", "relation", "user"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, "|") != "document|viewer|user:anne" {
+		t.Fatalf("resolveArgs() = %v", got)
+	}
+	if _, err := resolveArgs(nil, []string{"document", "", ""}, []string{"type", "relation", "user"}); err == nil {
+		t.Fatal("resolveArgs should report missing named fields")
 	}
 }

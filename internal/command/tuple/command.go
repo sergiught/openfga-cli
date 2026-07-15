@@ -6,8 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -17,6 +15,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/prompt"
+	"github.com/sergiught/openfga-cli/internal/readlimit"
 	"github.com/sergiught/openfga-cli/internal/style"
 )
 
@@ -240,6 +239,9 @@ func (c *Command) readCmd() *cobra.Command {
 			"caps the total returned and stops paging once reached. --page-size only tunes the per-request page.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if maxResults < 0 {
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--max-results must be non-negative"))
+			}
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
@@ -248,6 +250,7 @@ func (c *Command) readCmd() *cobra.Command {
 			if user != "" || relation != "" || object != "" {
 				req.TupleKey = &openfga.ReadRequestTupleKey{User: user, Relation: relation, Object: object}
 			}
+			output.Progressf(cmd.ErrOrStderr(), "fetching tuples…")
 			var tuples []openfga.Tuple
 			for t, err := range cl.Tuples.ReadAll(cmd.Context(), req) {
 				if err != nil {
@@ -269,12 +272,22 @@ func (c *Command) readCmd() *cobra.Command {
 			for _, t := range tuples {
 				cond := ""
 				if t.Key.Condition != nil {
-					cond = t.Key.Condition.Name
+					cond = output.SanitizeField(t.Key.Condition.Name)
 				}
-				rows = append(rows, []string{t.Key.User, t.Key.Relation, t.Key.Object, cond, t.Timestamp.Format("2006-01-02 15:04")})
+				rows = append(rows, []string{
+					output.SanitizeField(t.Key.User),
+					output.SanitizeField(t.Key.Relation),
+					output.SanitizeField(t.Key.Object),
+					cond,
+					t.Timestamp.Format("2006-01-02 15:04"),
+				})
 			}
-			output.Table(cmd.OutOrStdout(), []string{"USER", "RELATION", "OBJECT", "CONDITION", "WRITTEN"}, rows)
-			fmt.Fprintln(cmd.OutOrStdout())
+			if err := output.Table(cmd.OutOrStdout(), []string{"USER", "RELATION", "OBJECT", "CONDITION", "WRITTEN"}, rows); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintln(cmd.OutOrStdout()); err != nil {
+				return err
+			}
 			output.Infof(cmd.ErrOrStderr(), "%d tuple(s)", len(tuples))
 			return nil
 		},
@@ -333,11 +346,10 @@ func (c *Command) changesCmd() *cobra.Command {
 				rows = append(rows, []string{
 					ch.Timestamp.Format("2006-01-02 15:04:05"),
 					op,
-					fga.FormatTuple(ch.TupleKey),
+					output.SanitizeField(fga.FormatTuple(ch.TupleKey)),
 				})
 			}
-			output.Table(cmd.OutOrStdout(), []string{"TIMESTAMP", "OP", "TUPLE"}, rows)
-			return nil
+			return output.Table(cmd.OutOrStdout(), []string{"TIMESTAMP", "OP", "TUPLE"}, rows)
 		},
 	}
 	f := cmd.Flags()
@@ -366,9 +378,9 @@ func bulkTuples(cmd *cobra.Command, file string, args []string, fUser, fRel, fOb
 	var data []byte
 	var err error
 	if file == "-" {
-		data, err = io.ReadAll(cmd.InOrStdin())
+		data, err = readlimit.All(cmd.InOrStdin(), readlimit.Document, "tuples from stdin")
 	} else {
-		data, err = os.ReadFile(file)
+		data, err = readlimit.File(file, readlimit.Document, "tuples file")
 	}
 	if err != nil {
 		return nil, err

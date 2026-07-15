@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -15,6 +16,7 @@ import (
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/output"
+	"github.com/sergiught/openfga-cli/internal/readlimit"
 )
 
 // Command is the `api` command.
@@ -32,7 +34,9 @@ func New(cli *cli.CLI) *Command {
 		Long: "Send an arbitrary request to the OpenFGA API, reusing the active profile's " +
 			"URL and authentication (token, client-credentials or private-key JWT).\n\n" +
 			"The path is relative to the profile's API URL (e.g. /stores). A JSON body may " +
-			"be passed as the third argument, or read from stdin by passing `-` as the body.",
+			"be passed as the third argument, or read from stdin by passing `-` as the body.\n\n" +
+			"This is an expert escape hatch: mutating methods are sent directly without " +
+			"confirmation or dry-run support.",
 		Example: "  ofga api GET /stores\n" +
 			"  ofga api GET /stores/<id>/authorization-models\n" +
 			`  ofga api POST /stores/<id>/check '{"tuple_key":{"user":"user:anne","relation":"viewer","object":"document:roadmap"}}'` + "\n" +
@@ -49,6 +53,9 @@ func (c *Command) Command() *cobra.Command { return c.cmd }
 func (c *Command) run(cmd *cobra.Command, args []string) error {
 	method := strings.ToUpper(args[0])
 	path := args[1]
+	if err := validatePath(path); err != nil {
+		return err
+	}
 
 	body, err := requestBody(args, cmd.InOrStdin())
 	if err != nil {
@@ -80,7 +87,7 @@ func (c *Command) run(cmd *cobra.Command, args []string) error {
 		}
 		return err
 	}
-	data, err := io.ReadAll(resp.Body)
+	data, err := readlimit.All(resp.Body, readlimit.APIResponse, "API response")
 	if err != nil {
 		return err
 	}
@@ -95,7 +102,7 @@ func requestBody(args []string, stdin io.Reader) (any, error) {
 	var raw []byte
 	if len(args) == 3 {
 		if args[2] == "-" {
-			b, err := io.ReadAll(stdin)
+			b, err := readlimit.All(stdin, readlimit.Document, "API request body")
 			if err != nil {
 				return nil, err
 			}
@@ -111,6 +118,18 @@ func requestBody(args []string, stdin io.Reader) (any, error) {
 		return nil, fmt.Errorf("request body is not valid JSON")
 	}
 	return json.RawMessage(raw), nil
+}
+
+func validatePath(path string) error {
+	parsed, err := url.Parse(path)
+	if err != nil {
+		return fmt.Errorf("invalid API path: %w", err)
+	}
+	if !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") ||
+		parsed.IsAbs() || parsed.Host != "" {
+		return errors.New("API path must be relative to the configured server and begin with a single '/'")
+	}
+	return nil
 }
 
 // write emits the response body: raw under --json (for piping), converted to

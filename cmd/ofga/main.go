@@ -4,9 +4,11 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/signal"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/colorprofile"
@@ -26,35 +28,50 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	logger := log.NewWithOptions(os.Stderr, log.Options{
-		ReportTimestamp: false,
-		Level:           logLevel(os.Args[1:]),
-		Prefix:          "ofga",
-	})
-
 	// Config loads before cobra parses flags, so --config is read from argv here
 	// (env OPENFGA_CONFIG is honored by LoadFrom when no flag is given).
+	noColor := noColorFromArgs(os.Args[1:], "")
 	cfg, err := config.LoadFrom(configPathFromArgs(os.Args[1:]))
 	if err != nil {
 		// base.New (which builds the profile-aware writers) hasn't run yet, so
 		// wrap stderr here too — otherwise this early error leaks ANSI to a pipe
 		// and ignores NO_COLOR.
-		errw := colorprofile.NewWriter(os.Stderr, os.Environ())
+		errw := profileWriter(os.Stderr, noColor)
 		output.Errorf(errw, "%s", err.Error())
 		if path := config.DefaultPath(); path != "" {
 			output.Hintf(errw, "fix or remove %s, then try again", path)
 		}
 		os.Exit(clierr.CodeError)
 	}
+	noColor = noColor || cfg.Theme == "mono"
+
+	// charmbracelet/log probes terminal foreground/background colors when its
+	// writer is a TTY. Wrap stderr before constructing it in no-color modes so
+	// even `--no-color --help` cannot emit OSC/CSI terminal queries.
+	var logWriter io.Writer = os.Stderr
+	if noColor {
+		logWriter = profileWriter(os.Stderr, true)
+	}
+	logger := log.NewWithOptions(logWriter, log.Options{
+		ReportTimestamp: false,
+		Level:           logLevel(os.Args[1:]),
+		Prefix:          "ofga",
+	})
 	icons.Apply(icons.Parse(cfg.IconsMode()))
 
 	c := cli.New(logger, cfg, version.Resolved())
+	c.NoColor = boolFlagFromArgs(os.Args[1:], "--no-color")
+	c.Plain = boolFlagFromArgs(os.Args[1:], "--plain")
+	c.ThemeName = valueFlagFromArgs(os.Args[1:], "--theme")
 
 	root := base.New(c)
 	rootCmd := root.Command()
 	rootCmd.SetContext(ctx)
 	cmd, err := rootCmd.ExecuteC()
 	if err != nil {
+		if clierr.IsBrokenPipe(err) {
+			return
+		}
 		logger.Debugf("command failed: %+v", err)
 		if ctx.Err() != nil {
 			// A signal (Ctrl-C) cancelled the request context. signal.NotifyContext
@@ -82,6 +99,58 @@ func main() {
 		}
 		os.Exit(code)
 	}
+}
+
+func profileWriter(w io.Writer, noColor bool) *colorprofile.Writer {
+	if noColor {
+		return &colorprofile.Writer{Forward: w, Profile: colorprofile.NoTTY}
+	}
+	return colorprofile.NewWriter(w, os.Environ())
+}
+
+func noColorFromArgs(args []string, configuredTheme string) bool {
+	if boolFlagFromArgs(args, "--no-color") || boolFlagFromArgs(args, "--plain") ||
+		valueFlagFromArgs(args, "--theme") == "mono" || configuredTheme == "mono" {
+		return true
+	}
+	noColorEnv := os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb"
+	return base.ForceMono() || (noColorEnv && !base.ForceColor())
+}
+
+func boolFlagFromArgs(args []string, name string) bool {
+	enabled := false
+	for _, arg := range args {
+		if arg == "--" {
+			break
+		}
+		if arg == name {
+			enabled = true
+			continue
+		}
+		if value, ok := strings.CutPrefix(arg, name+"="); ok {
+			if parsed, err := strconv.ParseBool(value); err == nil {
+				enabled = parsed
+			}
+		}
+	}
+	return enabled
+}
+
+func valueFlagFromArgs(args []string, name string) string {
+	var value string
+	for i, arg := range args {
+		if arg == "--" {
+			break
+		}
+		if arg == name && i+1 < len(args) {
+			value = args[i+1]
+			continue
+		}
+		if parsed, ok := strings.CutPrefix(arg, name+"="); ok {
+			value = parsed
+		}
+	}
+	return value
 }
 
 // configPathFromArgs extracts a --config value from raw args, before cobra

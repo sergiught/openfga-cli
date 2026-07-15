@@ -3,11 +3,10 @@
 package configcmd
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/openfga-cli/internal/cli"
+	"github.com/sergiught/openfga-cli/internal/output"
 )
 
 // Command is the `config` command group.
@@ -23,11 +22,11 @@ func New(c *cli.CLI) *Command {
 		Use:   "config",
 		Short: "Inspect ofga's configuration",
 		Long: "Inspect ofga's configuration.\n\n" +
-			"Profiles are stored in a plaintext TOML file (mode 0600), so any API\n" +
-			"tokens or client secrets saved in a profile are readable by your user.\n" +
-			"Prefer environment variables (OPENFGA_API_TOKEN, OPENFGA_CLIENT_SECRET)\n" +
-			"or --token-stdin/--value-stdin in CI. Run `ofga config path` to see the\n" +
-			"file location.",
+			"Profile metadata is stored in a TOML file (mode 0600). Tokens, client\n" +
+			"secrets, and private keys are stored separately in the OS keyring; the\n" +
+			"TOML file contains only managed-secret markers. Environment variables\n" +
+			"remain available for ephemeral CI overrides. Run `ofga config path` to\n" +
+			"see the file location.",
 		RunE: c.GroupRunE,
 	}
 	cmd.cmd.AddCommand(cmd.pathCmd())
@@ -44,8 +43,12 @@ func (c *Command) pathCmd() *cobra.Command {
 		Example: "  ofga config path",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			fmt.Fprintln(cmd.OutOrStdout(), c.cli.Config.Path())
-			return nil
+			path := c.cli.Config.Path()
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]string{"path": path})
+			}
+			_, err := cmd.OutOrStdout().Write([]byte(path + "\n"))
+			return err
 		},
 	}
 }

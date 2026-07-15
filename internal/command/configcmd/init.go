@@ -2,7 +2,6 @@ package configcmd
 
 import (
 	"fmt"
-	"io"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -11,6 +10,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/prompt"
+	"github.com/sergiught/openfga-cli/internal/readlimit"
 	"github.com/sergiught/openfga-cli/internal/style"
 )
 
@@ -51,7 +51,7 @@ func NewInit(c *cli.CLI) *cobra.Command {
 			}
 
 			if token == "" && tokenStdin {
-				b, err := io.ReadAll(cmd.InOrStdin())
+				b, err := readlimit.All(cmd.InOrStdin(), readlimit.Secret, "token from stdin")
 				if err != nil {
 					return fmt.Errorf("read token from stdin: %w", err)
 				}
@@ -94,8 +94,9 @@ func NewInit(c *cli.CLI) *cobra.Command {
 	// Profile-scoped names matching the global override names and `profiles add`.
 	f.StringVar(&apiURL, "api-url", "", "API URL to save in the profile (default "+config.DefaultAPIURL+")")
 	f.StringVar(&storeID, "store-id", "", "store ID to save in the profile")
-	f.StringVar(&token, "token", "", "API token (prefer --token-stdin)")
+	f.StringVar(&token, "token", "", "rejected: use --token-stdin")
 	f.BoolVar(&tokenStdin, "token-stdin", false, "read the API token from stdin")
 	f.BoolVarP(&force, "force", "f", false, "overwrite an existing profile without prompting")
+	_ = f.MarkHidden("token")
 	return cmd
 }

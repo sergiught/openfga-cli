@@ -6,16 +6,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"os"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/cli"
+	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/output"
+	"github.com/sergiught/openfga-cli/internal/readlimit"
 	"github.com/sergiught/openfga-cli/internal/style"
 )
 
@@ -90,9 +90,9 @@ func (c *Command) writeCmd() *cobra.Command {
 			var data []byte
 			var err error
 			if file == "-" {
-				data, err = io.ReadAll(cmd.InOrStdin())
+				data, err = readlimit.All(cmd.InOrStdin(), readlimit.Document, "model from stdin")
 			} else {
-				data, err = os.ReadFile(file)
+				data, err = readlimit.File(file, readlimit.Document, "model file")
 			}
 			if err != nil {
 				return fmt.Errorf("read model: %w", err)
@@ -121,8 +121,7 @@ func (c *Command) writeCmd() *cobra.Command {
 				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, res)
 			}
 			output.Successf(cmd.ErrOrStderr(), "wrote authorization model")
-			output.KeyValues(cmd.OutOrStdout(), [][2]string{{"model_id", res.AuthorizationModelID}})
-			return nil
+			return output.KeyValues(cmd.OutOrStdout(), [][2]string{{"model_id", res.AuthorizationModelID}})
 		},
 	}
 	cmd.Flags().StringVarP(&file, "file", "f", "", "path to the model JSON file")
@@ -132,23 +131,31 @@ func (c *Command) writeCmd() *cobra.Command {
 }
 
 func (c *Command) listCmd() *cobra.Command {
-	return &cobra.Command{
+	var maxResults int
+	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
 		Short:   "List authorization models in the store",
 		Example: "  ofga model list",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if maxResults < 0 {
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--max-results must be non-negative"))
+			}
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
 			}
+			output.Progressf(cmd.ErrOrStderr(), "fetching authorization models…")
 			var models []openfga.AuthorizationModel
 			for m, err := range cl.AuthorizationModels.All(cmd.Context(), nil) {
 				if err != nil {
 					return err
 				}
 				models = append(models, m)
+				if maxResults > 0 && len(models) >= maxResults {
+					break
+				}
 			}
 			if c.cli.JSON || c.cli.YAML {
 				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, models)
@@ -163,12 +170,19 @@ func (c *Command) listCmd() *cobra.Command {
 				if i == 0 {
 					marker = style.Success.Render("latest")
 				}
-				rows = append(rows, []string{m.ID, m.SchemaVersion, fmt.Sprintf("%d", len(m.TypeDefinitions)), marker})
+				rows = append(rows, []string{
+					output.SanitizeField(m.ID),
+					output.SanitizeField(m.SchemaVersion),
+					fmt.Sprintf("%d", len(m.TypeDefinitions)),
+					marker,
+				})
 			}
-			output.Table(cmd.OutOrStdout(), []string{"MODEL ID", "SCHEMA", "TYPES", ""}, rows)
-			return nil
+			return output.Table(cmd.OutOrStdout(), []string{"MODEL ID", "SCHEMA", "TYPES", ""}, rows)
 		},
 	}
+	cmd.Flags().IntVar(&maxResults, "max-results", 0, "cap the total number of models returned (0 = unbounded)")
+	cmd.Flags().IntVar(&maxResults, "limit", 0, "alias for --max-results")
+	return cmd
 }
 
 func (c *Command) getCmd() *cobra.Command {
@@ -210,12 +224,11 @@ func (c *Command) latestCmd() *cobra.Command {
 			if c.cli.JSON || c.cli.YAML {
 				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, m)
 			}
-			output.KeyValues(cmd.OutOrStdout(), [][2]string{
+			return output.KeyValues(cmd.OutOrStdout(), [][2]string{
 				{"model_id", m.ID},
 				{"schema", m.SchemaVersion},
 				{"types", fmt.Sprintf("%d", len(m.TypeDefinitions))},
 			})
-			return nil
 		},
 	}
 }
@@ -245,10 +258,15 @@ func (c *Command) graphCmd() *cobra.Command {
 			if c.cli.JSON || c.cli.YAML {
 				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, g)
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), style.Title.Render("Authorization Model "+m.ID))
-			fmt.Fprintln(cmd.OutOrStdout())
-			fmt.Fprintln(cmd.OutOrStdout(), g.Render())
-			return nil
+			if _, err := fmt.Fprintln(cmd.OutOrStdout(),
+				style.Title.Render("Authorization Model "+output.SanitizeField(m.ID))); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintln(cmd.OutOrStdout()); err != nil {
+				return err
+			}
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), g.Render())
+			return err
 		},
 	}
 }

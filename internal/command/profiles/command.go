@@ -15,6 +15,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/prompt"
+	"github.com/sergiught/openfga-cli/internal/readlimit"
 	"github.com/sergiught/openfga-cli/internal/style"
 )
 
@@ -110,11 +111,17 @@ func (c *Command) listCmd() *cobra.Command {
 				if name == cfg.Active {
 					active = style.Success.Render("●")
 				}
-				rows = append(rows, []string{active, name, p.APIURL, orDash(p.StoreID), orDash(p.ModelID), authMethod(p)})
+				rows = append(rows, []string{
+					active,
+					output.SanitizeField(name),
+					output.SanitizeField(p.APIURL),
+					output.SanitizeField(orDash(p.StoreID)),
+					output.SanitizeField(orDash(p.ModelID)),
+					output.SanitizeField(authMethod(p)),
+				})
 			}
-			output.Table(cmd.OutOrStdout(),
+			return output.Table(cmd.OutOrStdout(),
 				[]string{"", "PROFILE", "API URL", "STORE", "MODEL", "AUTH"}, rows)
-			return nil
 		},
 	}
 }
@@ -135,8 +142,8 @@ func (c *Command) currentCmd() *cobra.Command {
 			if c.cli.JSON || c.cli.YAML {
 				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]string{"active": active})
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), active)
-			return nil
+			_, err := fmt.Fprintln(cmd.OutOrStdout(), output.SanitizeField(active))
+			return err
 		},
 	}
 }
@@ -167,8 +174,7 @@ func (c *Command) showCmd() *cobra.Command {
 					{"store_id", orDash(p.StoreID)},
 					{"model_id", orDash(p.ModelID)},
 				}
-				output.KeyValues(cmd.OutOrStdout(), append(rows, authRows(p.ResolvedAuth())...))
-				return nil
+				return output.KeyValues(cmd.OutOrStdout(), append(rows, authRows(p.ResolvedAuth())...))
 			}
 			r, err := c.cli.Resolve()
 			if err != nil {
@@ -192,8 +198,7 @@ func (c *Command) showCmd() *cobra.Command {
 				{"store_id", orDash(r.StoreID)},
 				{"model_id", orDash(r.ModelID)},
 			}
-			output.KeyValues(cmd.OutOrStdout(), append(rows, authRows(r.Auth)...))
-			return nil
+			return output.KeyValues(cmd.OutOrStdout(), append(rows, authRows(r.Auth)...))
 		},
 	}
 }
@@ -410,12 +415,12 @@ func (c *Command) addCmd() *cobra.Command {
 	f.StringVar(&storeID, "store-id", "", "store ID to save in the profile")
 	f.StringVar(&modelID, "model-id", "", "authorization model ID to save in the profile")
 	f.StringVar(&authMethod, "auth-method", "", "none | api_token | client_credentials | private_key_jwt")
-	f.StringVar(&token, "token", "", "API bearer token (prefer --token-file/--token-stdin)")
+	f.StringVar(&token, "token", "", "rejected: use --token-file or --token-stdin")
 	f.StringVar(&tokenFile, "token-file", "", "read the API token from a file")
 	f.BoolVar(&tokenStdin, "token-stdin", false, "read the API token from stdin")
 	// OAuth (client_credentials / private_key_jwt).
 	f.StringVar(&clientID, "client-id", "", "OAuth client ID")
-	f.StringVar(&clientSecret, "client-secret", "", "OAuth client secret (prefer --client-secret-file/-stdin)")
+	f.StringVar(&clientSecret, "client-secret", "", "rejected: use --client-secret-file or --client-secret-stdin")
 	f.StringVar(&clientSecretFile, "client-secret-file", "", "read the client secret from a file")
 	f.BoolVar(&clientSecretStdin, "client-secret-stdin", false, "read the client secret from stdin")
 	f.StringVar(&tokenURL, "token-url", "", "OAuth token endpoint URL")
@@ -426,6 +431,8 @@ func (c *Command) addCmd() *cobra.Command {
 	f.StringVar(&signingMethod, "signing-method", "", "JWT signing method, e.g. RS256 (private_key_jwt)")
 	f.StringVar(&keyID, "key-id", "", "signing key ID (private_key_jwt)")
 	f.BoolVar(&activate, "use", false, "switch to this profile after creating it")
+	_ = f.MarkHidden("token")
+	_ = f.MarkHidden("client-secret")
 	return cmd
 }
 
@@ -538,13 +545,13 @@ func readSecret(stdin io.Reader, literal, file string, fromStdin bool) (string, 
 	}
 	switch {
 	case file != "":
-		b, err := os.ReadFile(file)
+		b, err := readlimit.File(file, readlimit.Secret, "secret file")
 		if err != nil {
 			return "", err
 		}
 		return strings.TrimSpace(string(b)), nil
 	case fromStdin:
-		b, err := io.ReadAll(stdin)
+		b, err := readlimit.All(stdin, readlimit.Secret, "secret from stdin")
 		if err != nil {
 			return "", fmt.Errorf("read secret from stdin: %w", err)
 		}

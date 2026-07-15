@@ -37,3 +37,10 @@ func TestToTupleKey(t *testing.T) {
 		t.Errorf("toTupleKey = %+v, want the same user/relation/object", k)
 	}
 }
+
+func TestWriteHasExplicitReplacementGate(t *testing.T) {
+	cmd := (&Command{}).writeCmd()
+	if cmd.Flags().Lookup("force") == nil {
+		t.Fatal("assertions write must expose --force for non-interactive replacement")
+	}
+}

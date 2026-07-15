@@ -2,8 +2,10 @@
 package client
 
 import (
+	"context"
 	"crypto"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -16,20 +18,22 @@ import (
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/apilog"
 	"github.com/sergiught/openfga-cli/internal/config"
+	"github.com/sergiught/openfga-cli/internal/readlimit"
 )
 
-// responseHeaderTimeout bounds how long the client waits for a server to start
-// responding after the request is sent, so a server that accepts the connection
-// but never replies fails fast instead of hanging indefinitely.
-const responseHeaderTimeout = 30 * time.Second
+// DefaultRequestTimeout bounds each HTTP exchange, including reading its body.
+const DefaultRequestTimeout = 30 * time.Second
 
 // baseTransport returns the network-level transport placed beneath the SDK's
 // auth/retry chain. It clones the standard transport (keeping proxy, dial, and
 // TLS defaults) and adds a response-header timeout.
-func baseTransport() http.RoundTripper {
+func baseTransport(timeout time.Duration) http.RoundTripper {
 	t := http.DefaultTransport.(*http.Transport).Clone()
-	t.ResponseHeaderTimeout = responseHeaderTimeout
-	return t
+	t.ResponseHeaderTimeout = timeout
+	if timeout <= 0 {
+		return t
+	}
+	return &timeoutTransport{base: t, timeout: timeout}
 }
 
 // Option configures optional client behavior layered on top of the resolved
@@ -38,12 +42,57 @@ type Option func(*options)
 
 type options struct {
 	capture *apilog.Recorder
+	timeout time.Duration
 }
 
 // WithCapture records every HTTP request/response into rec by wrapping the base
 // transport. Used by the playground's API Logs view; unused by CLI commands.
 func WithCapture(rec *apilog.Recorder) Option {
 	return func(o *options) { o.capture = rec }
+}
+
+// WithTimeout sets the maximum duration of each HTTP exchange. Zero disables
+// the deadline for callers that intentionally use a long-lived endpoint.
+func WithTimeout(timeout time.Duration) Option {
+	return func(o *options) { o.timeout = timeout }
+}
+
+type timeoutTransport struct {
+	base    http.RoundTripper
+	timeout time.Duration
+}
+
+func (t *timeoutTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	ctx, cancel := context.WithTimeout(req.Context(), t.timeout)
+	resp, err := t.base.RoundTrip(req.Clone(ctx))
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	if resp.Body == nil {
+		cancel()
+		return resp, nil
+	}
+	resp.Body = &cancelReadCloser{ReadCloser: resp.Body, cancel: cancel}
+	return resp, nil
+}
+
+type cancelReadCloser struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (r *cancelReadCloser) Read(p []byte) (int, error) {
+	n, err := r.ReadCloser.Read(p)
+	if err != nil {
+		r.cancel()
+	}
+	return n, err
+}
+
+func (r *cancelReadCloser) Close() error {
+	r.cancel()
+	return r.ReadCloser.Close()
 }
 
 // New builds an *openfga.Client from a resolved configuration. The store and
@@ -54,12 +103,12 @@ func New(r config.Resolved, opts ...Option) (*openfga.Client, error) {
 		return nil, fmt.Errorf("no API URL configured: set one with --api-url, OPENFGA_API_URL, or `ofga profiles set`")
 	}
 
-	var o options
+	o := options{timeout: DefaultRequestTimeout}
 	for _, fn := range opts {
 		fn(&o)
 	}
 
-	base := baseTransport()
+	base := baseTransport(o.timeout)
 	if o.capture != nil {
 		base = apilog.Transport(base, o.capture, r.APIURL)
 	}
@@ -207,7 +256,7 @@ func signingKeyPEM(a config.Auth) ([]byte, error) {
 	if a.KeyFile == "" {
 		return nil, fmt.Errorf("private_key_jwt requires private_key or key_file")
 	}
-	pem, err := os.ReadFile(a.KeyFile)
+	pem, err := readlimit.File(a.KeyFile, readlimit.Secret, "private key")
 	if err != nil {
 		return nil, fmt.Errorf("read signing key %s: %w", a.KeyFile, err)
 	}

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net"
 	"strings"
+	"syscall"
 
 	"github.com/sergiught/go-openfga/openfga"
 )
@@ -62,6 +63,13 @@ func Code(err error) int {
 		return CodeNetwork
 	}
 	return CodeError
+}
+
+// IsBrokenPipe reports that the downstream stdout consumer closed its end of
+// a pipe. This is normal shell control flow (for example `ofga ... | head`),
+// not an OpenFGA network failure.
+func IsBrokenPipe(err error) bool {
+	return errors.Is(err, syscall.EPIPE)
 }
 
 // IsUsageErr reports whether err is one of cobra's flag/argument validation
@@ -119,6 +127,9 @@ func IsConnErr(err error) bool {
 	if err == nil {
 		return false
 	}
+	if IsBrokenPipe(err) {
+		return false
+	}
 	var ne net.Error
 	if errors.As(err, &ne) {
 		return true
@@ -126,7 +137,7 @@ func IsConnErr(err error) bool {
 	msg := strings.ToLower(err.Error())
 	for _, s := range []string{
 		"connection refused", "no such host", "network is unreachable",
-		"i/o timeout", "connection reset", "broken pipe",
+		"i/o timeout", "connection reset",
 	} {
 		if strings.Contains(msg, s) {
 			return true

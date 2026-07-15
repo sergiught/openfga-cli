@@ -14,6 +14,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 	gap "github.com/muesli/go-app-paths"
+
+	"github.com/sergiught/openfga-cli/internal/readlimit"
 )
 
 const (
@@ -200,7 +202,7 @@ func LoadFrom(path string) (*Config, error) {
 	cfg := New()
 	cfg.path = path
 
-	data, err := os.ReadFile(path)
+	data, err := readlimit.File(path, readlimit.Config, "config file")
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return cfg, nil

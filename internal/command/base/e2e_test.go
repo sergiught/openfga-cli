@@ -64,4 +64,16 @@ func TestClassicCLIByteParity(t *testing.T) {
 			t.Errorf("CLICOLOR_FORCE=1 output missing truecolor escapes, downsampling may be unconditional:\n%s", out)
 		}
 	})
+
+	t.Run("--no-color overrides forced color", func(t *testing.T) {
+		cmd := exec.Command(bin, "--no-color", "--help")
+		cmd.Env = append(os.Environ(), "FORCE_COLOR=1", "COLORTERM=truecolor")
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("ofga --no-color --help: %v", err)
+		}
+		if n := bytes.Count(out, []byte{0x1b}); n != 0 {
+			t.Errorf("--no-color with FORCE_COLOR=1 has %d escape bytes, want 0:\n%s", n, out)
+		}
+	})
 }

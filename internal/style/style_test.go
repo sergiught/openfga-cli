@@ -41,6 +41,13 @@ func TestDotRendersGlyph(t *testing.T) {
 	}
 }
 
+func TestSanitizeTerminalRemovesEscapeSequencesAndControls(t *testing.T) {
+	got := SanitizeTerminal("safe\x1b]52;c;secret\a\nforged\x1b[31mred\x1b[0m")
+	if got != "safeforgedred" {
+		t.Fatalf("SanitizeTerminal() = %q", got)
+	}
+}
+
 func TestBlend(t *testing.T) {
 	Apply(theme.Default())
 	if got := Blend(Green, Faintc, 0); got != Green {

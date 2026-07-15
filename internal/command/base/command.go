@@ -80,6 +80,9 @@ ofga api GET /stores`,
 				// a future Args override silently routing typos into the TUI.
 				return fmt.Errorf("unknown command %q for %q", args[0], cmd.CommandPath())
 			}
+			if cli.NoInput {
+				return cmd.Help()
+			}
 			// The TUI needs an interactive terminal; without one (piped, CI, no
 			// TTY) print help instead of launching and hanging.
 			if !term.IsTerminal(os.Stdin.Fd()) || !term.IsTerminal(os.Stdout.Fd()) {
@@ -89,6 +92,9 @@ ofga api GET /stores`,
 		},
 		// Resolve color + theme + output mode before any command renders.
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			if cli.RequestTimeout < 0 {
+				return fmt.Errorf("--timeout must be non-negative")
+			}
 			// Validate -o/--output before marking the command as run, so a bad
 			// value is treated as a usage error (exit 2), like other bad flags.
 			if err := c.resolveOutput(); err != nil {
@@ -106,8 +112,16 @@ ofga api GET /stores`,
 	// non-TTY output (pipes) or NO_COLOR now happens here, at the writer layer,
 	// rather than at Render time as lipgloss v1 did. This covers all cobra
 	// output — help, usage, and the banner baked into Long above.
-	c.outW = colorprofile.NewWriter(os.Stdout, os.Environ())
-	c.errW = colorprofile.NewWriter(os.Stderr, os.Environ())
+	noColorAtConstruction := cli.NoColor || cli.Plain || cli.ThemeName == "mono" || cli.Config.Theme == "mono" ||
+		((os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb") && !ForceColor()) ||
+		ForceMono()
+	if noColorAtConstruction {
+		c.outW = &colorprofile.Writer{Forward: os.Stdout, Profile: colorprofile.NoTTY}
+		c.errW = &colorprofile.Writer{Forward: os.Stderr, Profile: colorprofile.NoTTY}
+	} else {
+		c.outW = colorprofile.NewWriter(os.Stdout, os.Environ())
+		c.errW = colorprofile.NewWriter(os.Stderr, os.Environ())
+	}
 	c.cmd.SetOut(c.outW)
 	c.cmd.SetErr(c.errW)
 	// Styled help across the whole command tree (cobra reuses the root's func).
@@ -115,13 +129,12 @@ ofga api GET /stores`,
 	// Both `--version` and `ofga version` render the same full build line.
 	c.cmd.SetVersionTemplate("ofga " + version.String() + "\n")
 	// cobra's `--help` flag short-circuits before PersistentPreRunE runs, so
-	// applyEnvironment's NO_COLOR handling below never fires for `--help`.
-	// Force the fully-stripping profile from the env var here too, so
-	// `NO_COLOR=1 ofga --help` is byte-clean even on a TTY.
-	if (os.Getenv("NO_COLOR") != "" && !forceColor()) || forceMono() {
+	// retain the construction-time decision on the writers themselves. Explicit
+	// --no-color/--plain/mono always wins over a force-color environment.
+	if noColorAtConstruction {
 		c.outW.Profile = colorprofile.NoTTY
 		c.errW.Profile = colorprofile.NoTTY
-	} else if forceColor() {
+	} else if ForceColor() {
 		// FORCE_COLOR (documented in the banner) must force color even through a
 		// pipe, matching CLICOLOR_FORCE. colorprofile's writers only honor
 		// CLICOLOR_FORCE, so upgrade the profile here so `--help` (which
@@ -139,10 +152,12 @@ ofga api GET /stores`,
 	pf.StringVarP(&cli.Output, "output", "o", "", "output format: json, yaml, plain or table")
 	pf.BoolVar(&cli.JSON, "json", false, "output machine-readable JSON (alias for --output json)")
 	pf.BoolVar(&cli.YAML, "yaml", false, "output machine-readable YAML (alias for --output yaml)")
-	pf.BoolVar(&cli.Plain, "plain", false, "output unstyled, tab-separated rows (alias for --output plain)")
+	pf.BoolVar(&cli.Plain, "plain", cli.Plain, "output unstyled, tab-separated rows (alias for --output plain)")
 	pf.BoolVarP(&cli.Quiet, "quiet", "q", false, "suppress incidental output")
-	pf.BoolVar(&cli.NoColor, "no-color", false, "disable colored output")
-	pf.StringVar(&cli.ThemeName, "theme", "", "color theme ("+themeList()+")")
+	pf.BoolVar(&cli.NoInput, "no-input", false, "never prompt or launch the interactive TUI")
+	pf.BoolVar(&cli.NoColor, "no-color", cli.NoColor, "disable colored output")
+	pf.StringVar(&cli.ThemeName, "theme", cli.ThemeName, "color theme ("+themeList()+")")
+	pf.DurationVar(&cli.RequestTimeout, "timeout", cli.RequestTimeout, "per-request timeout (0 disables)")
 	// Registered so `--verbose`/`-v` is a known flag and appears in help; its
 	// value is read from os.Args in main.logLevel, which must set the log level
 	// before cobra parses (to cover errors during early config loading).
@@ -211,11 +226,10 @@ func (c *Command) applyEnvironment() {
 		return
 	}
 
-	noColor := a.NoColor ||
-		os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb" || forceMono()
-	force := forceColor()
+	noColor := os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb" || ForceMono()
+	force := ForceColor()
 
-	if noColor && !force {
+	if a.NoColor || (noColor && !force) {
 		style.Apply(theme.Mono())
 		// colorprofile's own NO_COLOR handling only strips color params,
 		// leaving attribute codes (bold, etc.) intact on a TTY. Force the
@@ -241,12 +255,15 @@ func (c *Command) applyEnvironment() {
 	}
 }
 
-// forceColor and forceMono interpret the documented FORCE_COLOR variable, which
+// ForceColor and ForceMono interpret the documented FORCE_COLOR variable, which
 // colorprofile's writers ignore (they honor only CLICOLOR_FORCE). Following the
 // widely-adopted convention (npm/chalk/supports-color), FORCE_COLOR=0/false/no/off
 // disables color and any other non-empty value forces it on; unset is no opinion.
-func forceColor() bool { f := colorForce(); return f != nil && *f }
-func forceMono() bool  { f := colorForce(); return f != nil && !*f }
+// ForceColor reports whether color is explicitly forced on.
+func ForceColor() bool { f := colorForce(); return f != nil && *f }
+
+// ForceMono reports whether color is explicitly forced off.
+func ForceMono() bool { f := colorForce(); return f != nil && !*f }
 
 // colorForce returns the FORCE_COLOR intent: nil when unset/empty, else a pointer
 // to true (force on) or false (force off).
@@ -292,8 +309,8 @@ func (c *Command) versionCmd() *cobra.Command {
 					"built":   version.Date,
 				})
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "ofga "+version.String())
-			return nil
+			_, err := fmt.Fprintln(cmd.OutOrStdout(), "ofga "+version.String())
+			return err
 		},
 	}
 }

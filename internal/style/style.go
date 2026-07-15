@@ -8,6 +8,7 @@ import (
 	"image/color"
 	"math"
 	"strings"
+	"unicode/utf8"
 
 	lipgloss "charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -160,6 +161,27 @@ func Allowed(ok bool) string {
 
 // Bullet returns a primary-colored bullet prefix.
 func Bullet() string { return lipgloss.NewStyle().Foreground(Primary).Render(IconBullet) }
+
+// SanitizeTerminal removes escape sequences and control characters from
+// untrusted text before it is styled for an interactive terminal.
+func SanitizeTerminal(s string) string {
+	s = ansi.Strip(s)
+	var b strings.Builder
+	b.Grow(len(s))
+	for len(s) > 0 {
+		r, size := utf8.DecodeRuneInString(s)
+		s = s[size:]
+		if r == utf8.RuneError && size == 1 {
+			b.WriteRune(utf8.RuneError)
+			continue
+		}
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
 
 // DotState selects the color of a status dot.
 type DotState int

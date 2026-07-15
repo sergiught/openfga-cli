@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sergiught/openfga-cli/internal/apilog"
 	"github.com/sergiught/openfga-cli/internal/config"
@@ -134,4 +135,29 @@ func TestWithCaptureRecordsThroughTransport(t *testing.T) {
 	if len(rec.Snapshot()) == 0 {
 		t.Fatal("expected WithCapture to record at least one request")
 	}
+}
+
+func TestWithTimeoutBoundsResponseBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		time.Sleep(100 * time.Millisecond)
+		_, _ = w.Write([]byte(`{"stores":[]}`))
+	}))
+	defer srv.Close()
+
+	c, err := New(config.Resolved{APIURL: srv.URL}, WithTimeout(20*time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, err := range c.Stores.All(context.Background(), nil) {
+		if err == nil || !strings.Contains(err.Error(), "context deadline exceeded") {
+			t.Fatalf("request error = %v, want timeout", err)
+		}
+		return
+	}
+	t.Fatal("expected request to time out")
 }

@@ -191,11 +191,12 @@ func TestConfigPathAndInit(t *testing.T) {
 // TestStoresListAgainstMockServer exercises the full client path against a
 // stand-in OpenFGA HTTP endpoint.
 func TestStoresListAgainstMockServer(t *testing.T) {
+	const hostileName = "demo\x1b]52;c;clipboard\a\nforged"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/stores" {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"stores": []map[string]any{
-					{"id": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "name": "demo",
+					{"id": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "name": hostileName,
 						"created_at": "2023-01-01T00:00:00Z", "updated_at": "2023-01-01T00:00:00Z"},
 				},
 				"continuation_token": "",
@@ -216,10 +217,37 @@ func TestStoresListAgainstMockServer(t *testing.T) {
 	if !strings.Contains(out, "demo") {
 		t.Errorf("expected the mock store in output:\n%s", out)
 	}
+	if strings.ContainsAny(out, "\x1b\a") || strings.Contains(out, "\nforged") {
+		t.Errorf("human output retained terminal controls from the server: %q", out)
+	}
+	if strings.Contains(out, "─") {
+		t.Errorf("piped table retained box-drawing: %q", out)
+	}
 
 	// --json path returns the store as machine-readable output.
 	out, _, code = runOfga(t, home, "", env, "stores", "list", "--json")
-	if code != 0 || !strings.Contains(out, "\"demo\"") {
+	if code != 0 || !strings.Contains(out, `\u001b`) {
 		t.Errorf("stores list --json should emit the store: code=%d out=%q", code, out)
+	}
+}
+
+func TestGlobalStructuredOutputContracts(t *testing.T) {
+	home := t.TempDir()
+
+	out, errb, code := runOfga(t, home, "", nil, "config", "path", "--json")
+	if code != 0 {
+		t.Fatalf("config path --json exit=%d stderr=%q", code, errb)
+	}
+	var pathResult map[string]string
+	if err := json.Unmarshal([]byte(out), &pathResult); err != nil || pathResult["path"] == "" {
+		t.Fatalf("config path --json returned invalid shape: out=%q err=%v", out, err)
+	}
+
+	out, errb, code = runOfga(t, home, "", nil, "theme", "--yaml")
+	if code != 0 {
+		t.Fatalf("theme --yaml exit=%d stderr=%q", code, errb)
+	}
+	if !strings.Contains(out, "available:") || !strings.Contains(out, "current:") {
+		t.Fatalf("theme --yaml returned human output: %q", out)
 	}
 }

@@ -19,6 +19,9 @@ var ErrAborted = errors.New("aborted")
 
 // interactive reports whether cmd's stdin is a terminal we can prompt on.
 func interactive(cmd *cobra.Command) bool {
+	if noInput, err := cmd.Flags().GetBool("no-input"); err == nil && noInput {
+		return false
+	}
 	f, ok := cmd.InOrStdin().(*os.File)
 	return ok && term.IsTerminal(f.Fd())
 }

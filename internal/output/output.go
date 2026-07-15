@@ -3,10 +3,13 @@
 package output
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"reflect"
+	"sort"
+	"strconv"
 	"strings"
 
 	lipgloss "charm.land/lipgloss/v2"
@@ -53,14 +56,67 @@ func YAML(w io.Writer, v any) error {
 	if err != nil {
 		return err
 	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
 	var generic any
-	if err := json.Unmarshal(raw, &generic); err != nil {
+	if err := dec.Decode(&generic); err != nil {
+		return err
+	}
+	node, err := yamlNode(generic)
+	if err != nil {
 		return err
 	}
 	enc := yaml.NewEncoder(w)
 	enc.SetIndent(2)
 	defer func() { _ = enc.Close() }()
-	return enc.Encode(generic)
+	return enc.Encode(node)
+}
+
+func yamlNode(v any) (*yaml.Node, error) {
+	switch value := v.(type) {
+	case nil:
+		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!null", Value: "null"}, nil
+	case bool:
+		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: strconv.FormatBool(value)}, nil
+	case string:
+		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value}, nil
+	case json.Number:
+		tag := "!!int"
+		if strings.ContainsAny(value.String(), ".eE") {
+			tag = "!!float"
+		}
+		return &yaml.Node{Kind: yaml.ScalarNode, Tag: tag, Value: value.String()}, nil
+	case []any:
+		node := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		for _, item := range value {
+			child, err := yamlNode(item)
+			if err != nil {
+				return nil, err
+			}
+			node.Content = append(node.Content, child)
+		}
+		return node, nil
+	case map[string]any:
+		node := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		keys := make([]string, 0, len(value))
+		for key := range value {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			child, err := yamlNode(value[key])
+			if err != nil {
+				return nil, err
+			}
+			node.Content = append(node.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+				child,
+			)
+		}
+		return node, nil
+	default:
+		return nil, fmt.Errorf("convert JSON value %T to YAML", value)
+	}
 }
 
 // Emit writes v as YAML when asYAML is set, otherwise as JSON. Commands that
@@ -77,12 +133,14 @@ func Emit(w io.Writer, asYAML bool, v any) error {
 // sized to their widest cell. It is intentionally dependency-light so it can be
 // used from any command. In Plain mode it emits tab-separated, unstyled rows
 // for grep/awk pipelines.
-func Table(w io.Writer, headers []string, rows [][]string) {
+func Table(w io.Writer, headers []string, rows [][]string) error {
 	if Plain {
 		for _, row := range rows {
-			fmt.Fprintln(w, strings.Join(row, "\t"))
+			if _, err := fmt.Fprintln(w, strings.Join(row, "\t")); err != nil {
+				return err
+			}
 		}
-		return
+		return nil
 	}
 	widths := make([]int, len(headers))
 	for i, h := range headers {
@@ -118,15 +176,18 @@ func Table(w io.Writer, headers []string, rows [][]string) {
 	}
 	fmt.Fprintln(&buf, hb.String())
 
-	// Rule.
-	var rb strings.Builder
-	for i := range headers {
-		if i > 0 {
-			rb.WriteString("   ")
+	// Keep redirected output free of box-drawing. --plain remains the
+	// headerless, tab-separated mode for machine pipelines.
+	if Interactive {
+		var rb strings.Builder
+		for i := range headers {
+			if i > 0 {
+				rb.WriteString("   ")
+			}
+			rb.WriteString(style.Faint.Render(strings.Repeat("─", widths[i])))
 		}
-		rb.WriteString(style.Faint.Render(strings.Repeat("─", widths[i])))
+		fmt.Fprintln(&buf, rb.String())
 	}
-	fmt.Fprintln(&buf, rb.String())
 
 	// Rows.
 	for _, row := range rows {
@@ -145,22 +206,20 @@ func Table(w io.Writer, headers []string, rows [][]string) {
 	}
 
 	if style.Active.Name == "mono" || !Interactive {
-		// NO_COLOR/--no-color, or piped/redirected stdout: keep the pre-framed
-		// structure (header, rule, rows) instead of drawing a box around it, so
-		// the box-drawing runes don't end up in grep/awk pipelines.
-		fmt.Fprint(w, buf.String())
-		return
+		_, err := io.WriteString(w, buf.String())
+		return err
 	}
 
-	fmt.Fprintln(w, lipgloss.NewStyle().
+	_, err := fmt.Fprintln(w, lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(style.Faintc).
 		Padding(0, 1).
 		Render(strings.TrimRight(buf.String(), "\n")))
+	return err
 }
 
 // KeyValues renders an aligned key/value block (used for "get" style output).
-func KeyValues(w io.Writer, pairs [][2]string) {
+func KeyValues(w io.Writer, pairs [][2]string) error {
 	width := 0
 	for _, p := range pairs {
 		if lipgloss.Width(p[0]) > width {
@@ -169,8 +228,12 @@ func KeyValues(w io.Writer, pairs [][2]string) {
 	}
 	for _, p := range pairs {
 		pad := strings.Repeat(" ", width-lipgloss.Width(p[0]))
-		fmt.Fprintf(w, "%s%s  %s\n", style.Key.Render(p[0]), pad, style.Value.Render(p[1]))
+		if _, err := fmt.Fprintf(w, "%s%s  %s\n",
+			style.Key.Render(SanitizeField(p[0])), pad, style.Value.Render(SanitizeField(p[1]))); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // Successf prints a success line with a green dot (suppressed in Quiet/Plain).
@@ -192,21 +255,45 @@ func Infof(w io.Writer, format string, a ...any) {
 	fmt.Fprintf(w, "%s %s\n", dot, fmt.Sprintf(format, a...))
 }
 
+// Progressf prints transient progress only for an interactive human session,
+// keeping redirected and machine-readable command output quiet.
+func Progressf(w io.Writer, format string, a ...any) {
+	if Quiet || Plain || !Interactive {
+		return
+	}
+	Infof(w, format, a...)
+}
+
 // Errorf prints an error line with a red dot. Unlike Successf/Infof it is
 // never suppressed by Quiet — errors must always reach the user.
 func Errorf(w io.Writer, format string, a ...any) {
 	dot := lipgloss.NewStyle().Foreground(style.Red).Render(style.IconDot)
-	fmt.Fprintf(w, "%s %s\n", dot, fmt.Sprintf(format, a...))
+	fmt.Fprintf(w, "%s %s\n", dot, sanitizeText(fmt.Sprintf(format, a...)))
 }
 
 // Hintf writes a faint, indented follow-up line (e.g. a "try this next" hint
 // after an error). Rendered on stderr by callers; not suppressed by --quiet so
 // remediation guidance always shows.
 func Hintf(w io.Writer, format string, a ...any) {
-	fmt.Fprintf(w, "  %s\n", style.Faint.Render(fmt.Sprintf(format, a...)))
+	fmt.Fprintf(w, "  %s\n", style.Faint.Render(sanitizeText(fmt.Sprintf(format, a...))))
 }
 
 // Title prints a bold violet title line.
 func Title(w io.Writer, s string) {
-	fmt.Fprintln(w, style.Title.Render(s))
+	fmt.Fprintln(w, style.Title.Render(SanitizeField(s)))
+}
+
+// SanitizeField removes terminal control characters from untrusted values
+// before they are embedded in human-readable output. Structured output must
+// keep the original data, so callers apply this only at terminal render sites.
+func SanitizeField(s string) string {
+	return style.SanitizeTerminal(s)
+}
+
+func sanitizeText(s string) string {
+	lines := strings.Split(s, "\n")
+	for i := range lines {
+		lines[i] = style.SanitizeTerminal(lines[i])
+	}
+	return strings.Join(lines, "\n")
 }

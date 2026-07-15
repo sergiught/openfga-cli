@@ -17,6 +17,10 @@ import (
 // two-column command and flag lists. It is set on the root command, so cobra
 // applies it across the whole command tree.
 func (c *Command) helpFunc(cmd *cobra.Command, _ []string) {
+	// Cobra renders --help after parsing flags but before PersistentPreRunE.
+	// Apply color/theme flags here too so --no-color/--theme affect help.
+	c.applyEnvironment()
+
 	var b strings.Builder
 
 	// Intro — the banner for the root, the path + short line for a subcommand.
@@ -68,6 +72,8 @@ func (c *Command) helpFunc(cmd *cobra.Command, _ []string) {
 	if !cmd.HasParent() {
 		b.WriteString(sectionHead("Environment"))
 		b.WriteString(envList())
+		b.WriteString(sectionHead("Support"))
+		b.WriteString("    https://github.com/sergiught/openfga-cli/issues\n")
 	}
 
 	if cmd.HasAvailableSubCommands() {
@@ -127,15 +133,33 @@ func exampleLines(example string) []blockLine {
 	if ex == "" {
 		return nil
 	}
+	raw := strings.Split(ex, "\n")
+	commonIndent := -1
+	for _, line := range raw {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		indent := len(line) - len(strings.TrimLeft(line, " \t"))
+		if commonIndent == -1 || indent < commonIndent {
+			commonIndent = indent
+		}
+	}
+	if commonIndent < 0 {
+		commonIndent = 0
+	}
 	var lines []blockLine
-	for _, l := range strings.Split(ex, "\n") {
-		switch t := strings.TrimSpace(l); {
+	for _, line := range raw {
+		line = strings.TrimRight(line, " \t")
+		if len(line) >= commonIndent {
+			line = line[commonIndent:]
+		}
+		switch t := strings.TrimSpace(line); {
 		case t == "":
 			lines = append(lines, blockLine{"", style.Fg})
 		case strings.HasPrefix(t, "#"):
-			lines = append(lines, blockLine{t, style.Faintc})
+			lines = append(lines, blockLine{line, style.Faintc})
 		default:
-			lines = append(lines, blockLine{t, style.Fg})
+			lines = append(lines, blockLine{line, style.Fg})
 		}
 	}
 	return lines

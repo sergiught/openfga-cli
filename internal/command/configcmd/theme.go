@@ -29,15 +29,17 @@ func NewTheme(c *cli.CLI) *cobra.Command {
 				current = theme.Default().Name
 			}
 			if len(args) == 0 {
-				if c.JSON {
-					return output.JSON(cmd.OutOrStdout(), map[string]any{"current": current, "available": theme.Names()})
+				if c.JSON || c.YAML {
+					return output.Emit(cmd.OutOrStdout(), c.YAML, map[string]any{"current": current, "available": theme.Names()})
 				}
 				for _, n := range theme.Names() {
 					marker := "  "
 					if n == current {
 						marker = style.Success.Render(style.IconDot) + " "
 					}
-					fmt.Fprintf(cmd.OutOrStdout(), "%s%s\n", marker, style.Value.Render(n))
+					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s%s\n", marker, style.Value.Render(n)); err != nil {
+						return err
+					}
 				}
 				return nil
 			}

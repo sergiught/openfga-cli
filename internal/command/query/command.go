@@ -65,6 +65,29 @@ func parseContext(s string) (map[string]any, error) {
 	return fga.ParseJSONObject("--context", s)
 }
 
+func resolveArgs(args, flags, names []string) ([]string, error) {
+	values := append([]string(nil), flags...)
+	rest := args
+	for i := range values {
+		if values[i] == "" && len(rest) > 0 {
+			values[i], rest = rest[0], rest[1:]
+		}
+	}
+	if len(rest) > 0 {
+		return nil, fmt.Errorf("too many arguments: %v", rest)
+	}
+	var missing []string
+	for i, value := range values {
+		if value == "" {
+			missing = append(missing, "--"+names[i])
+		}
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("provide %s as arguments or named flags", strings.Join(missing, ", "))
+	}
+	return values, nil
+}
+
 // parseContextualTuples parses repeated "user,relation,object" values. Each
 // triple is validated through fga.ParseTuple, the same check the TUI applies,
 // so malformed contextual tuples are rejected consistently.
@@ -136,13 +159,13 @@ func (c *Command) checkCmd() *cobra.Command {
 				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, res)
 			}
 			if output.Plain {
-				fmt.Fprintln(cmd.OutOrStdout(), allowedWord(res.Allowed))
-				return nil
+				_, err := fmt.Fprintln(cmd.OutOrStdout(), allowedWord(res.Allowed))
+				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s  %s\n",
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s  %s\n",
 				style.Allowed(res.Allowed),
 				style.Faint.Render(fmt.Sprintf("%s %s %s", user, relation, object)))
-			return nil
+			return err
 		},
 	}
 	f := cmd.Flags()
@@ -193,9 +216,13 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 			for i, item := range items {
 				r := res.Result[item.CorrelationID]
 				if output.Plain {
-					fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\n", allowedWord(r.Allowed), labels[i])
+					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\n", allowedWord(r.Allowed), labels[i]); err != nil {
+						return err
+					}
 				} else {
-					fmt.Fprintf(cmd.OutOrStdout(), "%s  %s\n", style.Allowed(r.Allowed), style.Faint.Render(labels[i]))
+					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s  %s\n", style.Allowed(r.Allowed), style.Faint.Render(labels[i])); err != nil {
+						return err
+					}
 				}
 			}
 			return nil
@@ -226,8 +253,7 @@ func (c *Command) expandCmd() *cobra.Command {
 			// otherwise (default, --json, and --output yaml) it is emitted
 			// structured via output.Emit.
 			if output.Plain && !c.cli.JSON && !c.cli.YAML {
-				writeTreePlain(cmd.OutOrStdout(), res.Tree, 0)
-				return nil
+				return writeTreePlain(cmd.OutOrStdout(), res.Tree, 0)
 			}
 			return output.Emit(cmd.OutOrStdout(), c.cli.YAML, res.Tree)
 		},
@@ -235,14 +261,24 @@ func (c *Command) expandCmd() *cobra.Command {
 }
 
 func (c *Command) listObjectsCmd() *cobra.Command {
-	var contextJSON string
+	var (
+		contextJSON           string
+		objectType, rel, user string
+	)
 	cmd := &cobra.Command{
-		Use:     "list-objects <type> <relation> <user>",
+		Use:     "list-objects [type] [relation] [user]",
 		Aliases: []string{"objects"},
 		Short:   "List objects of a type a user has a relation with",
-		Example: "  ofga query list-objects document viewer user:anne",
-		Args:    cobra.ExactArgs(3),
+		Example: "  ofga query list-objects document viewer user:anne\n" +
+			"  ofga query list-objects --type document --relation viewer --user user:anne",
+		Args: cobra.MaximumNArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			values, err := resolveArgs(args,
+				[]string{objectType, rel, user},
+				[]string{"type", "relation", "user"})
+			if err != nil {
+				return clierr.WithCode(clierr.CodeUsage, err)
+			}
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
@@ -251,7 +287,7 @@ func (c *Command) listObjectsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			req := &openfga.ListObjectsRequest{Type: args[0], Relation: args[1], User: args[2], Context: cx}
+			req := &openfga.ListObjectsRequest{Type: values[0], Relation: values[1], User: values[2], Context: cx}
 			res, err := cl.Relationships.ListObjects(cmd.Context(), req)
 			if err != nil {
 				return err
@@ -264,28 +300,46 @@ func (c *Command) listObjectsCmd() *cobra.Command {
 				return nil
 			}
 			for _, o := range res.Objects {
+				safe := output.SanitizeField(o)
 				if output.Plain {
-					fmt.Fprintln(cmd.OutOrStdout(), o)
+					if _, err := fmt.Fprintln(cmd.OutOrStdout(), safe); err != nil {
+						return err
+					}
 				} else {
-					fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", style.Bullet(), o)
+					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", style.Bullet(), safe); err != nil {
+						return err
+					}
 				}
 			}
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&contextJSON, "context", "", "JSON object of condition context")
+	cmd.Flags().StringVar(&objectType, "type", "", "object type")
+	cmd.Flags().StringVar(&rel, "relation", "", "relation")
+	cmd.Flags().StringVar(&user, "user", "", "user")
 	return cmd
 }
 
 func (c *Command) listUsersCmd() *cobra.Command {
-	var userTypes []string
+	var (
+		userTypes   []string
+		object, rel string
+	)
 	cmd := &cobra.Command{
-		Use:     "list-users <object> <relation> --type <user-type>",
+		Use:     "list-users [object] [relation] --type <user-type>",
 		Aliases: []string{"users"},
 		Short:   "List users that have a relation on an object",
-		Example: "  ofga query list-users document:roadmap viewer --type user",
-		Args:    cobra.ExactArgs(2),
+		Example: "  ofga query list-users document:roadmap viewer --type user\n" +
+			"  ofga query list-users --object document:roadmap --relation viewer --type user",
+		Args: cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			values, err := resolveArgs(args,
+				[]string{object, rel},
+				[]string{"object", "relation"})
+			if err != nil {
+				return clierr.WithCode(clierr.CodeUsage, err)
+			}
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
@@ -299,8 +353,8 @@ func (c *Command) listUsersCmd() *cobra.Command {
 				}
 			}
 			req := &openfga.ListUsersRequest{
-				Object:      openfga.FGAObjectRelation{Object: args[0]},
-				Relation:    args[1],
+				Object:      openfga.FGAObjectRelation{Object: values[0]},
+				Relation:    values[1],
 				UserFilters: filters,
 			}
 			res, err := cl.Relationships.ListUsers(cmd.Context(), req)
@@ -315,23 +369,30 @@ func (c *Command) listUsersCmd() *cobra.Command {
 				return nil
 			}
 			for _, u := range res.Users {
+				safe := output.SanitizeField(formatUser(u))
 				if output.Plain {
-					fmt.Fprintln(cmd.OutOrStdout(), formatUser(u))
+					if _, err := fmt.Fprintln(cmd.OutOrStdout(), safe); err != nil {
+						return err
+					}
 				} else {
-					fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", style.Bullet(), formatUser(u))
+					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", style.Bullet(), safe); err != nil {
+						return err
+					}
 				}
 			}
 			return nil
 		},
 	}
 	cmd.Flags().StringArrayVar(&userTypes, "type", nil, "user type filter, optionally type#relation (repeatable)")
+	cmd.Flags().StringVar(&object, "object", "", "object")
+	cmd.Flags().StringVar(&rel, "relation", "", "relation")
 	_ = cmd.MarkFlagRequired("type")
 	return cmd
 }
 
 // writeTreePlain renders an untyped expand tree (map[string]any) as an indented
 // text outline, so `expand --plain` produces a readable tree instead of JSON.
-func writeTreePlain(w io.Writer, v any, indent int) {
+func writeTreePlain(w io.Writer, v any, indent int) error {
 	pad := strings.Repeat("  ", indent)
 	switch val := v.(type) {
 	case map[string]any:
@@ -343,19 +404,30 @@ func writeTreePlain(w io.Writer, v any, indent int) {
 		for _, k := range keys {
 			switch child := val[k].(type) {
 			case map[string]any, []any:
-				fmt.Fprintf(w, "%s%s\n", pad, k)
-				writeTreePlain(w, child, indent+1)
+				if _, err := fmt.Fprintf(w, "%s%s\n", pad, output.SanitizeField(k)); err != nil {
+					return err
+				}
+				if err := writeTreePlain(w, child, indent+1); err != nil {
+					return err
+				}
 			default:
-				fmt.Fprintf(w, "%s%s: %v\n", pad, k, child)
+				if _, err := fmt.Fprintf(w, "%s%s: %s\n", pad,
+					output.SanitizeField(k), output.SanitizeField(fmt.Sprint(child))); err != nil {
+					return err
+				}
 			}
 		}
 	case []any:
 		for _, item := range val {
-			writeTreePlain(w, item, indent)
+			if err := writeTreePlain(w, item, indent); err != nil {
+				return err
+			}
 		}
 	default:
-		fmt.Fprintf(w, "%s%v\n", pad, val)
+		_, err := fmt.Fprintf(w, "%s%s\n", pad, output.SanitizeField(fmt.Sprint(val)))
+		return err
 	}
+	return nil
 }
 
 func allowedWord(ok bool) string {
