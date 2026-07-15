@@ -97,8 +97,8 @@ func (c *Command) listCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg := c.cli.Config
 			warnLoadErr(cmd, cfg)
-			if c.cli.JSON {
-				return output.JSON(cmd.OutOrStdout(), map[string]any{
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{
 					"active":   cfg.Active,
 					"profiles": cfg.Profiles,
 				})
@@ -132,8 +132,8 @@ func (c *Command) currentCmd() *cobra.Command {
 				output.Errorf(cmd.ErrOrStderr(),
 					"active profile %q does not exist (set via --profile or OPENFGA_PROFILE?)", active)
 			}
-			if c.cli.JSON {
-				return output.JSON(cmd.OutOrStdout(), map[string]string{"active": active})
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]string{"active": active})
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), active)
 			return nil
@@ -158,8 +158,8 @@ func (c *Command) showCmd() *cobra.Command {
 				if !ok {
 					return fmt.Errorf("%w: %q", config.ErrNoProfile, args[0])
 				}
-				if c.cli.JSON {
-					return output.JSON(cmd.OutOrStdout(), p)
+				if c.cli.JSON || c.cli.YAML {
+					return output.Emit(cmd.OutOrStdout(), c.cli.YAML, p)
 				}
 				rows := [][2]string{
 					{"profile", args[0]},
@@ -174,10 +174,10 @@ func (c *Command) showCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if c.cli.JSON {
+			if c.cli.JSON || c.cli.YAML {
 				// Never emit the token (masked or raw) into machine output;
 				// report only whether one is configured.
-				return output.JSON(cmd.OutOrStdout(), map[string]any{
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{
 					"profile":   r.Profile,
 					"api_url":   r.APIURL,
 					"store_id":  r.StoreID,

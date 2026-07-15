@@ -117,8 +117,8 @@ func (c *Command) writeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if c.cli.JSON {
-				return output.JSON(cmd.OutOrStdout(), res)
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, res)
 			}
 			output.Successf(cmd.ErrOrStderr(), "wrote authorization model")
 			output.KeyValues(cmd.OutOrStdout(), [][2]string{{"model_id", res.AuthorizationModelID}})
@@ -150,8 +150,8 @@ func (c *Command) listCmd() *cobra.Command {
 				}
 				models = append(models, m)
 			}
-			if c.cli.JSON {
-				return output.JSON(cmd.OutOrStdout(), models)
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, models)
 			}
 			if len(models) == 0 {
 				output.Infof(cmd.ErrOrStderr(), "no models found")
@@ -187,7 +187,7 @@ func (c *Command) getCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return output.JSON(cmd.OutOrStdout(), m)
+			return output.Emit(cmd.OutOrStdout(), c.cli.YAML, m)
 		},
 	}
 }
@@ -207,8 +207,8 @@ func (c *Command) latestCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if c.cli.JSON {
-				return output.JSON(cmd.OutOrStdout(), m)
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, m)
 			}
 			output.KeyValues(cmd.OutOrStdout(), [][2]string{
 				{"model_id", m.ID},
@@ -242,8 +242,8 @@ func (c *Command) graphCmd() *cobra.Command {
 				return err
 			}
 			g := fga.ParseModel(m)
-			if c.cli.JSON {
-				return output.JSON(cmd.OutOrStdout(), g)
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, g)
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), style.Title.Render("Authorization Model "+m.ID))
 			fmt.Fprintln(cmd.OutOrStdout())

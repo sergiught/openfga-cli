@@ -71,10 +71,10 @@ func (c *Command) run(cmd *cobra.Command, args []string) error {
 		// Non-2xx: the error carries the method/URL, status and API code+message.
 		// Under --json, also emit the server error as a JSON object on stdout so
 		// scripts can capture it (curl-like), in addition to the non-zero exit.
-		if c.cli.JSON {
+		if c.cli.JSON || c.cli.YAML {
 			var er *openfga.ErrorResponse
 			if errors.As(err, &er) {
-				_ = output.JSON(cmd.OutOrStdout(), map[string]string{"code": er.Code, "message": er.Message})
+				_ = output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]string{"code": er.Code, "message": er.Message})
 			}
 		}
 		return err
@@ -112,11 +112,22 @@ func requestBody(args []string, stdin io.Reader) (any, error) {
 	return json.RawMessage(raw), nil
 }
 
-// write emits the response body: raw under --json (for piping), pretty-printed
-// otherwise.
+// write emits the response body: raw under --json (for piping), converted to
+// YAML under --output yaml, pretty-printed JSON otherwise.
 func (c *Command) write(w io.Writer, data []byte) error {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil
+	}
+	if c.cli.YAML {
+		var generic any
+		if err := json.Unmarshal(data, &generic); err != nil {
+			// Not valid JSON (or empty/non-JSON body) — fall through and write
+			// the raw bytes rather than failing the whole command over a
+			// best-effort format conversion.
+			_, err := w.Write(data)
+			return err
+		}
+		return output.YAML(w, generic)
 	}
 	if !c.cli.JSON {
 		var buf bytes.Buffer

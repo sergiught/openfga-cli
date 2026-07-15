@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	lipgloss "charm.land/lipgloss/v2"
+	"gopkg.in/yaml.v3"
 
 	"github.com/sergiught/openfga-cli/internal/style"
 )
@@ -38,6 +39,38 @@ func JSON(w io.Writer, v any) error {
 	enc.SetIndent("", "  ")
 	enc.SetEscapeHTML(false)
 	return enc.Encode(v)
+}
+
+// YAML writes v as YAML to w. v is round-tripped through JSON first so field
+// names and shapes match --json exactly (Go struct field names, json tags,
+// and the same nil-slice-to-[] coercion as JSON), rather than diverging to
+// yaml.v3's own default field-naming rules.
+func YAML(w io.Writer, v any) error {
+	if rv := reflect.ValueOf(v); rv.Kind() == reflect.Slice && rv.IsNil() {
+		v = reflect.MakeSlice(rv.Type(), 0, 0).Interface()
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	var generic any
+	if err := json.Unmarshal(raw, &generic); err != nil {
+		return err
+	}
+	enc := yaml.NewEncoder(w)
+	enc.SetIndent(2)
+	defer func() { _ = enc.Close() }()
+	return enc.Encode(generic)
+}
+
+// Emit writes v as YAML when asYAML is set, otherwise as JSON. Commands that
+// support --json also support the parallel --output yaml (or -o yaml) via
+// this helper, so the two structured formats never need separate branches.
+func Emit(w io.Writer, asYAML bool, v any) error {
+	if asYAML {
+		return YAML(w, v)
+	}
+	return JSON(w, v)
 }
 
 // Table renders a simple, aligned table with a styled header. Columns are

@@ -78,8 +78,8 @@ func (c *Command) writeCmd() *cobra.Command {
 					return err
 				}
 				if dryRun {
-					if c.cli.JSON {
-						return output.JSON(cmd.OutOrStdout(), map[string]any{"dry_run": true, "would_write": len(keys)})
+					if c.cli.JSON || c.cli.YAML {
+						return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{"dry_run": true, "would_write": len(keys)})
 					}
 					output.Infof(cmd.ErrOrStderr(), "would write %d tuple(s)", len(keys))
 					return nil
@@ -91,8 +91,8 @@ func (c *Command) writeCmd() *cobra.Command {
 				if err := writeInBatches(cmd.Context(), cl, keys, false); err != nil {
 					return err
 				}
-				if c.cli.JSON {
-					return output.JSON(cmd.OutOrStdout(), map[string]int{"written": len(keys)})
+				if c.cli.JSON || c.cli.YAML {
+					return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]int{"written": len(keys)})
 				}
 				output.Successf(cmd.ErrOrStderr(), "wrote %d tuple(s)", len(keys))
 				return nil
@@ -106,8 +106,8 @@ func (c *Command) writeCmd() *cobra.Command {
 				return clierr.WithCode(clierr.CodeUsage, err)
 			}
 			if dryRun {
-				if c.cli.JSON {
-					return output.JSON(cmd.OutOrStdout(), map[string]any{"dry_run": true, "would_write": 1})
+				if c.cli.JSON || c.cli.YAML {
+					return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{"dry_run": true, "would_write": 1})
 				}
 				output.Infof(cmd.ErrOrStderr(), "would write %s", style.Bold.Render(fga.FormatTuple(key)))
 				return nil
@@ -120,8 +120,8 @@ func (c *Command) writeCmd() *cobra.Command {
 			if err := cl.Tuples.Write(cmd.Context(), req); err != nil {
 				return err
 			}
-			if c.cli.JSON {
-				return output.JSON(cmd.OutOrStdout(), map[string]int{"written": 1})
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]int{"written": 1})
 			}
 			output.Successf(cmd.ErrOrStderr(), "wrote %s", style.Bold.Render(fga.FormatTuple(key)))
 			return nil
@@ -157,8 +157,8 @@ func (c *Command) deleteCmd() *cobra.Command {
 					return err
 				}
 				if dryRun {
-					if c.cli.JSON {
-						return output.JSON(cmd.OutOrStdout(), map[string]any{"dry_run": true, "would_delete": len(keys)})
+					if c.cli.JSON || c.cli.YAML {
+						return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{"dry_run": true, "would_delete": len(keys)})
 					}
 					output.Infof(cmd.ErrOrStderr(), "would delete %d tuple(s)", len(keys))
 					return nil
@@ -174,8 +174,8 @@ func (c *Command) deleteCmd() *cobra.Command {
 				if err := writeInBatches(cmd.Context(), cl, keys, true); err != nil {
 					return err
 				}
-				if c.cli.JSON {
-					return output.JSON(cmd.OutOrStdout(), map[string]int{"deleted": len(keys)})
+				if c.cli.JSON || c.cli.YAML {
+					return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]int{"deleted": len(keys)})
 				}
 				output.Successf(cmd.ErrOrStderr(), "deleted %d tuple(s)", len(keys))
 				return nil
@@ -189,8 +189,8 @@ func (c *Command) deleteCmd() *cobra.Command {
 				return clierr.WithCode(clierr.CodeUsage, err)
 			}
 			if dryRun {
-				if c.cli.JSON {
-					return output.JSON(cmd.OutOrStdout(), map[string]any{"dry_run": true, "would_delete": 1})
+				if c.cli.JSON || c.cli.YAML {
+					return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{"dry_run": true, "would_delete": 1})
 				}
 				output.Infof(cmd.ErrOrStderr(), "would delete %s", style.Bold.Render(fga.FormatTuple(key)))
 				return nil
@@ -207,8 +207,8 @@ func (c *Command) deleteCmd() *cobra.Command {
 			if err := cl.Tuples.Write(cmd.Context(), req); err != nil {
 				return err
 			}
-			if c.cli.JSON {
-				return output.JSON(cmd.OutOrStdout(), map[string]int{"deleted": 1})
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]int{"deleted": 1})
 			}
 			output.Successf(cmd.ErrOrStderr(), "deleted %s", style.Bold.Render(fga.FormatTuple(key)))
 			return nil
@@ -258,8 +258,8 @@ func (c *Command) readCmd() *cobra.Command {
 					break
 				}
 			}
-			if c.cli.JSON {
-				return output.JSON(cmd.OutOrStdout(), tuples)
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, tuples)
 			}
 			if len(tuples) == 0 {
 				output.Infof(cmd.ErrOrStderr(), "no tuples found")
@@ -317,8 +317,8 @@ func (c *Command) changesCmd() *cobra.Command {
 					break
 				}
 			}
-			if c.cli.JSON {
-				return output.JSON(cmd.OutOrStdout(), changes)
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, changes)
 			}
 			if len(changes) == 0 {
 				output.Infof(cmd.ErrOrStderr(), "no changes found")

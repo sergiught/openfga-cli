@@ -56,6 +56,53 @@ func TestJSONNilSliceSerializesAsEmptyArray(t *testing.T) {
 	}
 }
 
+func TestYAMLMatchesJSONFieldNamesAndCoercesNilSlice(t *testing.T) {
+	type payload struct {
+		StoreID string `json:"store_id"`
+		Count   int    `json:"count"`
+	}
+
+	var b bytes.Buffer
+	if err := YAML(&b, payload{StoreID: "01ABC", Count: 3}); err != nil {
+		t.Fatal(err)
+	}
+	got := b.String()
+	if !strings.Contains(got, "store_id: 01ABC") || !strings.Contains(got, "count: 3") {
+		t.Fatalf("YAML should use the json struct tag names, got %q", got)
+	}
+
+	// A typed nil slice serializes as an empty YAML sequence, matching JSON's
+	// [] coercion, rather than YAML's `null`/`~`.
+	b.Reset()
+	var empty []string
+	if err := YAML(&b, empty); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(b.String()); got != "[]" {
+		t.Fatalf("nil slice should serialize as [], got %q", got)
+	}
+}
+
+func TestEmitPicksJSONOrYAML(t *testing.T) {
+	v := map[string]string{"k": "v"}
+
+	var jb bytes.Buffer
+	if err := Emit(&jb, false, v); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(jb.String(), `"k": "v"`) {
+		t.Fatalf("Emit(false, …) should produce JSON, got %q", jb.String())
+	}
+
+	var yb bytes.Buffer
+	if err := Emit(&yb, true, v); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(yb.String()) != "k: v" {
+		t.Fatalf("Emit(true, …) should produce YAML, got %q", yb.String())
+	}
+}
+
 func TestErrorfNotSuppressedByQuiet(t *testing.T) {
 	Plain = false
 	Quiet = true

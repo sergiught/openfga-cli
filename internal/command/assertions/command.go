@@ -80,8 +80,8 @@ func (c *Command) readCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if c.cli.JSON {
-				return output.JSON(cmd.OutOrStdout(), res)
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, res)
 			}
 			if len(res.Assertions) == 0 {
 				output.Infof(cmd.ErrOrStderr(), "no assertions defined for model %s", modelID)
@@ -124,8 +124,8 @@ func (c *Command) writeCmd() *cobra.Command {
 				return err
 			}
 			if dryRun {
-				if c.cli.JSON {
-					return output.JSON(cmd.OutOrStdout(), map[string]any{"dry_run": true, "would_write": len(assertionsList)})
+				if c.cli.JSON || c.cli.YAML {
+					return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{"dry_run": true, "would_write": len(assertionsList)})
 				}
 				output.Infof(cmd.ErrOrStderr(), "would write %d assertion(s)", len(assertionsList))
 				return nil
@@ -142,8 +142,8 @@ func (c *Command) writeCmd() *cobra.Command {
 			if err := cl.Assertions.Write(cmd.Context(), id, req, openfga.WithStore(r.StoreID)); err != nil {
 				return err
 			}
-			if c.cli.JSON {
-				return output.JSON(cmd.OutOrStdout(), map[string]int{"written": len(assertionsList)})
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]int{"written": len(assertionsList)})
 			}
 			output.Successf(cmd.ErrOrStderr(), "wrote %d assertion(s) to model %s", len(assertionsList), id)
 			return nil
@@ -217,8 +217,8 @@ func (c *Command) testCmd() *cobra.Command {
 				})
 			}
 
-			if c.cli.JSON {
-				if err := output.JSON(cmd.OutOrStdout(), map[string]any{
+			if c.cli.JSON || c.cli.YAML {
+				if err := output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{
 					"authorization_model_id": modelID, "passed": passed, "total": len(results), "results": results,
 				}); err != nil {
 					return err

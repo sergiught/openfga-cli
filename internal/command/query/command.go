@@ -132,8 +132,8 @@ func (c *Command) checkCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if c.cli.JSON {
-				return output.JSON(cmd.OutOrStdout(), res)
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, res)
 			}
 			if output.Plain {
 				fmt.Fprintln(cmd.OutOrStdout(), allowedWord(res.Allowed))
@@ -187,8 +187,8 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if c.cli.JSON {
-				return output.JSON(cmd.OutOrStdout(), res)
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, res)
 			}
 			for i, item := range items {
 				r := res.Result[item.CorrelationID]
@@ -223,12 +223,13 @@ func (c *Command) expandCmd() *cobra.Command {
 				return err
 			}
 			// --plain renders the userset tree as an indented text outline;
-			// otherwise (default and --json) it is emitted as JSON.
-			if output.Plain && !c.cli.JSON {
+			// otherwise (default, --json, and --output yaml) it is emitted
+			// structured via output.Emit.
+			if output.Plain && !c.cli.JSON && !c.cli.YAML {
 				writeTreePlain(cmd.OutOrStdout(), res.Tree, 0)
 				return nil
 			}
-			return output.JSON(cmd.OutOrStdout(), res.Tree)
+			return output.Emit(cmd.OutOrStdout(), c.cli.YAML, res.Tree)
 		},
 	}
 }
@@ -255,8 +256,8 @@ func (c *Command) listObjectsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if c.cli.JSON {
-				return output.JSON(cmd.OutOrStdout(), res.Objects)
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, res.Objects)
 			}
 			if len(res.Objects) == 0 {
 				output.Infof(cmd.ErrOrStderr(), "no objects")
@@ -306,8 +307,8 @@ func (c *Command) listUsersCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if c.cli.JSON {
-				return output.JSON(cmd.OutOrStdout(), res.Users)
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, res.Users)
 			}
 			if len(res.Users) == 0 {
 				output.Infof(cmd.ErrOrStderr(), "no users")

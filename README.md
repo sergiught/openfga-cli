@@ -267,6 +267,7 @@ Completion is **dynamic**: `--profile`, `--store`, and `--model` (and the matchi
 `ofga` is built to compose:
 
 - `--json` on every read command emits clean, machine-readable JSON (secrets omitted) for `jq`.
+- `-o yaml` (or `--output yaml`) emits the same structured data as YAML, for tools that prefer it (e.g. diffing against a YAML-based config).
 - `--plain` emits unstyled, tab-separated rows for `grep`/`awk`; `query check --plain` prints `allowed`/`denied`.
 - Meaningful **exit codes**: `0` success, `1` generic failure, `2` usage error, `3` failed `assertions test`, `4` network error.
 - `--dry-run` on every server mutation previews the change without applying it.

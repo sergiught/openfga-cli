@@ -19,11 +19,16 @@ type CLI struct {
 	Config    *config.Config
 	Overrides config.Overrides // populated from persistent flags before Execute
 
-	// Output is the -o/--output mode (json|plain|table); it is the primary
-	// form, with --json/--plain kept as aliases that set JSON/Plain directly.
+	// Output is the -o/--output mode (json|yaml|plain|table); it is the
+	// primary form, with --json/--plain kept as aliases that set JSON/Plain
+	// directly.
 	Output string
 	// JSON toggles machine-readable output across commands.
 	JSON bool
+	// YAML toggles machine-readable YAML output across commands (-o yaml).
+	// It parallels JSON: any command that supports --json also supports YAML
+	// via output.Emit, without a separate --yaml boolean flag.
+	YAML bool
 	// Quiet suppresses incidental success/info output.
 	Quiet bool
 	// Plain renders unstyled, tab-separated tables.

@@ -136,7 +136,7 @@ ofga api GET /stores`,
 	pf.StringVar(&cli.Overrides.StoreID, "store", "", "store ID (overrides profile/env)")
 	pf.StringVar(&cli.Overrides.ModelID, "model", "", "authorization model ID (overrides profile/env)")
 	pf.String("config", "", "path to the config file (overrides OPENFGA_CONFIG)")
-	pf.StringVarP(&cli.Output, "output", "o", "", "output format: json, plain or table")
+	pf.StringVarP(&cli.Output, "output", "o", "", "output format: json, yaml, plain or table")
 	pf.BoolVar(&cli.JSON, "json", false, "output machine-readable JSON (alias for --output json)")
 	pf.BoolVar(&cli.Plain, "plain", false, "output unstyled, tab-separated rows (alias for --output plain)")
 	pf.BoolVarP(&cli.Quiet, "quiet", "q", false, "suppress incidental output")
@@ -151,7 +151,7 @@ ofga api GET /stores`,
 	_ = c.cmd.RegisterFlagCompletionFunc("store", c.completeStores)
 	_ = c.cmd.RegisterFlagCompletionFunc("model", c.completeModels)
 	_ = c.cmd.RegisterFlagCompletionFunc("output", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-		return []string{"json", "plain", "table"}, cobra.ShellCompDirectiveNoFileComp
+		return []string{"json", "yaml", "plain", "table"}, cobra.ShellCompDirectiveNoFileComp
 	})
 
 	c.RegisterSubCommands()
@@ -160,9 +160,10 @@ ofga api GET /stores`,
 
 // applyEnvironment resolves the color profile, theme, and output toggles from
 // flags, environment (NO_COLOR, FORCE_COLOR, TERM=dumb) and config.
-// resolveOutput maps the -o/--output flag onto the JSON/Plain toggles. When set
-// it is authoritative (so `-o table` overrides a stray --json), which removes
-// the "what if both?" ambiguity. An unset -o leaves --json/--plain as parsed.
+// resolveOutput maps the -o/--output flag onto the JSON/YAML/Plain toggles.
+// When set it is authoritative (so `-o table` overrides a stray --json), which
+// removes the "what if both?" ambiguity. An unset -o leaves --json/--plain as
+// parsed (there is no --yaml boolean; -o yaml is the only way to select it).
 func (c *Command) resolveOutput() error {
 	switch c.cli.Output {
 	case "":
@@ -170,17 +171,19 @@ func (c *Command) resolveOutput() error {
 		// Passing both is contradictory, so reject it rather than silently
 		// letting one win.
 		if c.cli.JSON && c.cli.Plain {
-			return fmt.Errorf("cannot use --json and --plain together; pick one (or use -o json|plain|table)")
+			return fmt.Errorf("cannot use --json and --plain together; pick one (or use -o json|yaml|plain|table)")
 		}
 		return nil
 	case "json":
-		c.cli.JSON, c.cli.Plain = true, false
+		c.cli.JSON, c.cli.YAML, c.cli.Plain = true, false, false
+	case "yaml":
+		c.cli.JSON, c.cli.YAML, c.cli.Plain = false, true, false
 	case "plain":
-		c.cli.JSON, c.cli.Plain = false, true
+		c.cli.JSON, c.cli.YAML, c.cli.Plain = false, false, true
 	case "table":
-		c.cli.JSON, c.cli.Plain = false, false
+		c.cli.JSON, c.cli.YAML, c.cli.Plain = false, false, false
 	default:
-		return fmt.Errorf("invalid --output %q: want json, plain or table", c.cli.Output)
+		return fmt.Errorf("invalid --output %q: want json, yaml, plain or table", c.cli.Output)
 	}
 	return nil
 }
@@ -275,8 +278,8 @@ func (c *Command) versionCmd() *cobra.Command {
 		Args:    cobra.NoArgs,
 		Example: "  ofga version",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if c.cli.JSON {
-				return output.JSON(cmd.OutOrStdout(), map[string]string{
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]string{
 					"version": version.Resolved(),
 					"commit":  version.Commit,
 					"built":   version.Date,

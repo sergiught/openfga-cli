@@ -81,8 +81,8 @@ func (c *Command) createCmd() *cobra.Command {
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if dryRun {
-				if c.cli.JSON {
-					return output.JSON(cmd.OutOrStdout(), map[string]any{"dry_run": true, "would_create": args[0]})
+				if c.cli.JSON || c.cli.YAML {
+					return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{"dry_run": true, "would_create": args[0]})
 				}
 				output.Infof(cmd.ErrOrStderr(), "would create store %s", style.Bold.Render(args[0]))
 				return nil
@@ -108,8 +108,8 @@ func (c *Command) createCmd() *cobra.Command {
 					}
 				}
 			}
-			if c.cli.JSON {
-				return output.JSON(cmd.OutOrStdout(), st)
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, st)
 			}
 			output.Successf(cmd.ErrOrStderr(), "created store %s", style.Bold.Render(st.Name))
 			output.KeyValues(cmd.OutOrStdout(), [][2]string{
@@ -152,8 +152,8 @@ func (c *Command) listCmd() *cobra.Command {
 					break
 				}
 			}
-			if c.cli.JSON {
-				return output.JSON(cmd.OutOrStdout(), stores)
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, stores)
 			}
 			if len(stores) == 0 {
 				output.Infof(cmd.ErrOrStderr(), "no stores found")
@@ -189,8 +189,8 @@ func (c *Command) getCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if c.cli.JSON {
-				return output.JSON(cmd.OutOrStdout(), st)
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, st)
 			}
 			output.KeyValues(cmd.OutOrStdout(), [][2]string{
 				{"id", st.ID},
@@ -218,8 +218,8 @@ func (c *Command) deleteCmd() *cobra.Command {
 		Args:              cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if dryRun {
-				if c.cli.JSON {
-					return output.JSON(cmd.OutOrStdout(), map[string]any{"dry_run": true, "would_delete": args[0]})
+				if c.cli.JSON || c.cli.YAML {
+					return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{"dry_run": true, "would_delete": args[0]})
 				}
 				output.Infof(cmd.ErrOrStderr(), "would delete store %s", style.Bold.Render(args[0]))
 				return nil
@@ -238,8 +238,8 @@ func (c *Command) deleteCmd() *cobra.Command {
 			if err := cl.Stores.Delete(cmd.Context(), args[0]); err != nil {
 				return err
 			}
-			if c.cli.JSON {
-				return output.JSON(cmd.OutOrStdout(), map[string]string{"deleted": args[0]})
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]string{"deleted": args[0]})
 			}
 			output.Successf(cmd.ErrOrStderr(), "deleted store %s", style.Bold.Render(args[0]))
 			return nil
