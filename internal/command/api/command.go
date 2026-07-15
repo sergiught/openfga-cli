@@ -69,8 +69,9 @@ func (c *Command) run(cmd *cobra.Command, args []string) error {
 	}
 	if err != nil {
 		// Non-2xx: the error carries the method/URL, status and API code+message.
-		// Under --json, also emit the server error as a JSON object on stdout so
-		// scripts can capture it (curl-like), in addition to the non-zero exit.
+		// Under a structured output mode, also emit the server error object on
+		// stdout so scripts can capture it (curl-like), in addition to the
+		// non-zero exit.
 		if c.cli.JSON || c.cli.YAML {
 			var er *openfga.ErrorResponse
 			if errors.As(err, &er) {

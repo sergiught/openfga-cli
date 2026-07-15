@@ -138,6 +138,7 @@ ofga api GET /stores`,
 	pf.String("config", "", "path to the config file (overrides OPENFGA_CONFIG)")
 	pf.StringVarP(&cli.Output, "output", "o", "", "output format: json, yaml, plain or table")
 	pf.BoolVar(&cli.JSON, "json", false, "output machine-readable JSON (alias for --output json)")
+	pf.BoolVar(&cli.YAML, "yaml", false, "output machine-readable YAML (alias for --output yaml)")
 	pf.BoolVar(&cli.Plain, "plain", false, "output unstyled, tab-separated rows (alias for --output plain)")
 	pf.BoolVarP(&cli.Quiet, "quiet", "q", false, "suppress incidental output")
 	pf.BoolVar(&cli.NoColor, "no-color", false, "disable colored output")
@@ -162,16 +163,22 @@ ofga api GET /stores`,
 // flags, environment (NO_COLOR, FORCE_COLOR, TERM=dumb) and config.
 // resolveOutput maps the -o/--output flag onto the JSON/YAML/Plain toggles.
 // When set it is authoritative (so `-o table` overrides a stray --json), which
-// removes the "what if both?" ambiguity. An unset -o leaves --json/--plain as
-// parsed (there is no --yaml boolean; -o yaml is the only way to select it).
+// removes the "what if both?" ambiguity. An unset -o leaves the boolean output
+// aliases as parsed.
 func (c *Command) resolveOutput() error {
 	switch c.cli.Output {
 	case "":
-		// With no authoritative -o, the --json/--plain booleans stand as parsed.
-		// Passing both is contradictory, so reject it rather than silently
-		// letting one win.
-		if c.cli.JSON && c.cli.Plain {
-			return fmt.Errorf("cannot use --json and --plain together; pick one (or use -o json|yaml|plain|table)")
+		// With no authoritative -o, the boolean aliases stand as parsed.
+		// Multiple aliases are contradictory, so reject them rather than
+		// silently letting one win.
+		selected := 0
+		for _, enabled := range []bool{c.cli.JSON, c.cli.YAML, c.cli.Plain} {
+			if enabled {
+				selected++
+			}
+		}
+		if selected > 1 {
+			return fmt.Errorf("cannot combine --json, --yaml, and --plain; pick one (or use -o json|yaml|plain|table)")
 		}
 		return nil
 	case "json":
@@ -270,7 +277,7 @@ func (c *Command) ErrWriter() *colorprofile.Writer { return c.errW }
 func (c *Command) RanCommand() bool { return c.ranCommand }
 
 // versionCmd prints the full build info (version, commit, date). Under --json
-// it emits a machine-readable object so scripts can parse the build.
+// or --yaml it emits a machine-readable object so scripts can parse the build.
 func (c *Command) versionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "version",

@@ -42,7 +42,7 @@ Manage stores, authorization models, relationship tuples, and run checks from yo
 
 `ofga` is a single, dependency-free binary that gives you two ways to work with an OpenFGA server:
 
-- 🧰 **A scriptable CLI** — create stores, write and inspect authorization models, manage relationship tuples, run `check`/`list-objects`/`list-users`, and run assertion suites. Every read command speaks `--json` (for `jq`) and `--plain` (for `grep`/`awk`), returns meaningful exit codes, and confirms destructive actions.
+- 🧰 **A scriptable CLI** — create stores, write and inspect authorization models, manage relationship tuples, run `check`/`list-objects`/`list-users`, and run assertion suites. Every read command speaks `--json` (for `jq`), `--yaml`, and `--plain` (for `grep`/`awk`), returns meaningful exit codes, and confirms destructive actions.
 - 🖥 **A full-screen TUI** — launch it by running `ofga` with no arguments. Browse stores, visualize a model as a colored relation graph, edit tuples, run queries and expand their resolution trees, and manage assertions — all with the keyboard **or the mouse**.
 
 It talks to any OpenFGA-compatible server and reuses your connection **profiles** so you can switch between local, staging, and production in one flag.
@@ -267,7 +267,7 @@ Completion is **dynamic**: `--profile`, `--store-id`, and `--model-id` (and the 
 `ofga` is built to compose:
 
 - `--json` on every read command emits clean, machine-readable JSON (secrets omitted) for `jq`.
-- `-o yaml` (or `--output yaml`) emits the same structured data as YAML, for tools that prefer it (e.g. diffing against a YAML-based config).
+- `--yaml` (or `-o yaml` / `--output yaml`) emits the same structured data as YAML, for tools that prefer it (e.g. diffing against a YAML-based config).
 - `--plain` emits unstyled, tab-separated rows for `grep`/`awk`; `query check --plain` prints `allowed`/`denied`.
 - Meaningful **exit codes**: `0` success, `1` generic failure, `2` usage error, `3` failed `assertions test`, `4` network error.
 - `--dry-run` on every server mutation previews the change without applying it.
