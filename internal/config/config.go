@@ -390,6 +390,24 @@ func firstEnv(names ...string) string {
 	return ""
 }
 
+// secretEnvOverride returns the environment value that would override a
+// keyring-managed secret field, or "" if none is set. It mirrors the env
+// blocks in Resolve so that, for a sentinel field, an env override bypasses
+// the keyring entirely. private_key's non-keyring path is key_file, so it
+// maps to OPENFGA_KEY_FILE.
+func secretEnvOverride(field string) string {
+	switch field {
+	case "token":
+		return firstEnv("OPENFGA_API_TOKEN", "FGA_API_TOKEN")
+	case "client_secret":
+		return firstEnv("OPENFGA_CLIENT_SECRET", "FGA_CLIENT_SECRET")
+	case "private_key":
+		return firstEnv("OPENFGA_KEY_FILE", "FGA_KEY_FILE")
+	default:
+		return ""
+	}
+}
+
 // splitScopes parses an OPENFGA_SCOPES value, which may be space- or
 // comma-separated.
 func splitScopes(s string) []string {
@@ -434,6 +452,15 @@ func (c *Config) Resolve(o Overrides) (Resolved, error) {
 	// (which still win). name is the resolved profile name.
 	for _, sf := range r.Auth.secretFields() {
 		if *sf.ptr != keyringSentinel {
+			continue
+		}
+		// An env override for this secret bypasses the keyring entirely (the
+		// headless/CI escape hatch). Clear the sentinel so the env block below
+		// fills it; clearing to "" — not leaving the sentinel — matters for
+		// private_key, whose non-empty value would otherwise be parsed as
+		// literal PEM by client.go's signingKeyPEM.
+		if secretEnvOverride(sf.name) != "" {
+			*sf.ptr = ""
 			continue
 		}
 		if !secretsAvailable() {

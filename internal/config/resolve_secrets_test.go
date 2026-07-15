@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -42,6 +43,36 @@ func TestEnvOverridesKeyring(t *testing.T) {
 	r, _ := c.Resolve(Overrides{})
 	if r.Auth.ClientSecret != "FROM-ENV" {
 		t.Fatalf("env should win, got %q", r.Auth.ClientSecret)
+	}
+}
+
+func TestEnvBypassesUnavailableKeyring(t *testing.T) {
+	// Sentinel on disk but no keyring here (headless server); the env override
+	// must bypass the keyring entirely instead of hard-erroring.
+	keyring.MockInitWithError(errors.New("no keyring"))
+	t.Setenv("OPENFGA_CLIENT_SECRET", "FROM-ENV")
+	c := buildResolvable(t)
+	r, err := c.Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("env should bypass the unavailable keyring, got error: %v", err)
+	}
+	if r.Auth.ClientSecret != "FROM-ENV" {
+		t.Fatalf("resolved secret = %q, want FROM-ENV", r.Auth.ClientSecret)
+	}
+}
+
+func TestEnvBypassesMissingKeyringEntry(t *testing.T) {
+	// Keyring available but the entry is missing; the env override must still
+	// bypass the keyring rather than erroring on the absent entry.
+	keyring.MockInit()
+	t.Setenv("OPENFGA_CLIENT_SECRET", "FROM-ENV")
+	c := buildResolvable(t)
+	r, err := c.Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("env should bypass the missing keyring entry, got error: %v", err)
+	}
+	if r.Auth.ClientSecret != "FROM-ENV" {
+		t.Fatalf("resolved secret = %q, want FROM-ENV", r.Auth.ClientSecret)
 	}
 }
 
