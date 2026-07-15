@@ -53,7 +53,11 @@ func TestSaveHardErrorsWhenKeyringUnavailable(t *testing.T) {
 }
 
 func TestSaveLeavesSentinelUntouched(t *testing.T) {
-	keyring.MockInit()
+	// The keyring is unavailable here on purpose: an all-sentinel profile must
+	// still Save without error because the loop skips sentinel fields before
+	// ever probing the keyring. If the skip were broken, secretsAvailable()
+	// would be false and Save would hard-error, so this proves the skip works.
+	keyring.MockInitWithError(errors.New("unavailable"))
 	c := newSavable(t)
 	c.Profiles = map[string]Profile{"dev": {APIURL: "http://x", Auth: Auth{Method: AuthClientCredentials, ClientSecret: keyringSentinel}}}
 	c.Active = "dev"

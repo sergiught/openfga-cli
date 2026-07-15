@@ -342,6 +342,12 @@ func (c *Config) Remove(name string) error {
 		return fmt.Errorf("cannot remove the active profile %q; switch first", name)
 	}
 	delete(c.Profiles, name)
+
+	// Best-effort: drop the profile's secrets from the keyring so they don't
+	// linger. Deletion of an absent entry is a no-op.
+	for _, field := range []string{"token", "client_secret", "private_key"} {
+		_ = secretDelete(name, field)
+	}
 	return nil
 }
 
@@ -422,6 +428,24 @@ func (c *Config) Resolve(o Overrides) (Resolved, error) {
 		StoreID: p.StoreID,
 		ModelID: p.ModelID,
 		Auth:    p.ResolvedAuth(),
+	}
+
+	// Replace keyring sentinels with the real values before env overrides
+	// (which still win). name is the resolved profile name.
+	for _, sf := range r.Auth.secretFields() {
+		if *sf.ptr != keyringSentinel {
+			continue
+		}
+		if !secretsAvailable() {
+			return Resolved{}, fmt.Errorf("%s for profile %q is stored in the OS keyring, which is unavailable here; "+
+				"set OPENFGA_API_TOKEN / OPENFGA_CLIENT_SECRET (or key_file) instead", sf.name, name)
+		}
+		v, err := secretGet(name, sf.name)
+		if err != nil {
+			return Resolved{}, fmt.Errorf("%s for profile %q is not in this machine's keyring; re-set it with "+
+				"`ofga profiles set %s` or provide it via the environment", sf.name, name, sf.name)
+		}
+		*sf.ptr = v
 	}
 
 	// Environment overrides.
