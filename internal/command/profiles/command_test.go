@@ -9,6 +9,7 @@ import (
 
 	charmlog "github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
+	"github.com/zalando/go-keyring"
 
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/config"
@@ -46,6 +47,44 @@ func TestProfilesSetValidation(t *testing.T) {
 	}
 	if err := run(cmd, []string{"client_secret", "sekret"}); err == nil {
 		t.Error("client_secret as a literal argument should be refused")
+	}
+	if err := run(cmd, []string{"private_key", "-----BEGIN PRIVATE KEY-----"}); err == nil {
+		t.Error("private_key as a literal argument should be refused")
+	}
+}
+
+// TestSetPrivateKeyStoresInKeyring drives `profiles set private_key --value-stdin`
+// against an isolated on-disk config and asserts the PEM lands in the (mocked) OS
+// keyring, never on disk.
+func TestSetPrivateKeyStoresInKeyring(t *testing.T) {
+	keyring.MockInit()
+	path := filepath.Join(t.TempDir(), "config.toml")
+	cfg, err := config.LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := cli.New(charmlog.New(io.Discard), cfg, "test")
+	set := subCmd(t, c, "set")
+	if err := set.Flags().Set("value-stdin", "true"); err != nil {
+		t.Fatal(err)
+	}
+	const pem = "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n"
+	set.SetIn(strings.NewReader(pem))
+	if err := set.RunE(set, []string{"private_key"}); err != nil {
+		t.Fatalf("set private_key: %v", err)
+	}
+
+	got, err := keyring.Get("openfga-cli", "default.private_key")
+	if err != nil || got != strings.TrimSpace(pem) {
+		t.Fatalf("private_key not stored in keyring: got %q, err %v", got, err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "BEGIN PRIVATE KEY") {
+		t.Fatalf("private key must not be written to disk:\n%s", data)
 	}
 }
 

@@ -230,13 +230,15 @@ func (c *Command) setCmd() *cobra.Command {
 			"Connection: api_url, store_id, model_id.\n" +
 			"Auth: auth_method (none|api_token|client_credentials|private_key_jwt), token,\n" +
 			"client_id, client_secret, token_url, audience, api_audience, key_file,\n" +
-			"signing_method, key_id, scopes (space-separated).\n\n" +
-			"For secrets (token, client_secret) prefer --value-file or --value-stdin so\n" +
-			"the value never appears in `ps` output or your shell history.",
+			"private_key, signing_method, key_id, scopes (space-separated).\n\n" +
+			"For secrets (token, client_secret, private_key) prefer --value-file or\n" +
+			"--value-stdin so the value never appears in `ps` output or your shell\n" +
+			"history. token, client_secret, and private_key are stored in the OS keyring.",
 		Example: `  ofga profiles set api_url http://localhost:8080
   ofga profiles set auth_method api_token
   ofga profiles set token --value-stdin < token.txt
-  ofga profiles set client_secret --value-file ./secret`,
+  ofga profiles set client_secret --value-file ./secret
+  ofga profiles set private_key --value-file ./key.pem`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := c.cli.Config.Active
@@ -249,7 +251,7 @@ func (c *Command) setCmd() *cobra.Command {
 			}
 			var literal string
 			if len(args) == 2 {
-				if k := strings.ToLower(args[0]); k == "token" || k == "api_token" || k == "client_secret" {
+				if k := strings.ToLower(args[0]); k == "token" || k == "api_token" || k == "client_secret" || k == "private_key" {
 					return fmt.Errorf("refusing to read %s from the command line (it would leak to `ps` and shell history); use --value-file or --value-stdin", k)
 				}
 				literal = args[1]
@@ -289,6 +291,8 @@ func (c *Command) setCmd() *cobra.Command {
 				p.Auth.APIAudience = val
 			case "key_file":
 				p.Auth.KeyFile = val
+			case "private_key":
+				p.Auth.PrivateKey = val
 			case "signing_method":
 				p.Auth.SigningMethod = val
 			case "key_id":
