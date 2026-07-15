@@ -69,7 +69,7 @@ func (cli *CLI) ClientWithStore() (*openfga.Client, config.Resolved, error) {
 		return nil, config.Resolved{}, err
 	}
 	if r.StoreID == "" {
-		return nil, r, errors.New("no store selected: pass --store, set OPENFGA_STORE_ID, or run `ofga profiles set store_id <id>`")
+		return nil, r, errors.New("no store selected: pass --store-id, set OPENFGA_STORE_ID, or run `ofga profiles set store_id <id>`")
 	}
 	c, err := client.New(r)
 	if err != nil {

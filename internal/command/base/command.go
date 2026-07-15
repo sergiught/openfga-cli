@@ -133,8 +133,8 @@ ofga api GET /stores`,
 	pf := c.cmd.PersistentFlags()
 	pf.StringVarP(&cli.Overrides.Profile, "profile", "p", "", "configuration profile to use")
 	pf.StringVar(&cli.Overrides.APIURL, "api-url", "", "OpenFGA API URL (overrides profile/env)")
-	pf.StringVar(&cli.Overrides.StoreID, "store", "", "store ID (overrides profile/env)")
-	pf.StringVar(&cli.Overrides.ModelID, "model", "", "authorization model ID (overrides profile/env)")
+	pf.StringVar(&cli.Overrides.StoreID, "store-id", "", "store ID (overrides profile/env)")
+	pf.StringVar(&cli.Overrides.ModelID, "model-id", "", "authorization model ID (overrides profile/env)")
 	pf.String("config", "", "path to the config file (overrides OPENFGA_CONFIG)")
 	pf.StringVarP(&cli.Output, "output", "o", "", "output format: json, yaml, plain or table")
 	pf.BoolVar(&cli.JSON, "json", false, "output machine-readable JSON (alias for --output json)")
@@ -148,8 +148,8 @@ ofga api GET /stores`,
 	pf.BoolP("verbose", "v", false, "enable debug logging")
 
 	_ = c.cmd.RegisterFlagCompletionFunc("profile", c.completeProfiles)
-	_ = c.cmd.RegisterFlagCompletionFunc("store", c.completeStores)
-	_ = c.cmd.RegisterFlagCompletionFunc("model", c.completeModels)
+	_ = c.cmd.RegisterFlagCompletionFunc("store-id", c.completeStores)
+	_ = c.cmd.RegisterFlagCompletionFunc("model-id", c.completeModels)
 	_ = c.cmd.RegisterFlagCompletionFunc("output", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 		return []string{"json", "yaml", "plain", "table"}, cobra.ShellCompDirectiveNoFileComp
 	})

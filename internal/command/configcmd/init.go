@@ -27,10 +27,7 @@ func NewInit(c *cli.CLI) *cobra.Command {
 		Short: "Set up a connection profile (guided)",
 		Long: "Create or update a connection profile and make it active. On a terminal " +
 			"it prompts for any values not given as flags; non-interactively it uses the " +
-			"flags and defaults, so it is safe in CI.\n\n" +
-			"Note: --store-id persists into the profile; it's named differently from " +
-			"the global --store (which overrides the active store for a single " +
-			"invocation) so the two don't shadow each other.",
+			"flags and defaults, so it is safe in CI.",
 		Example: `  ofga init
   ofga init prod --api-url https://fga.example.com --token-stdin < token.txt`,
 		Args: cobra.MaximumNArgs(1),
@@ -94,9 +91,7 @@ func NewInit(c *cli.CLI) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	// Profile-scoped names matching `profiles add` (these persist into the
-	// profile). --store-id in particular avoids clashing with the root's
-	// runtime-override --store, which means the opposite.
+	// Profile-scoped names matching the global override names and `profiles add`.
 	f.StringVar(&apiURL, "api-url", "", "API URL to save in the profile (default "+config.DefaultAPIURL+")")
 	f.StringVar(&storeID, "store-id", "", "store ID to save in the profile")
 	f.StringVar(&token, "token", "", "API token (prefer --token-stdin)")

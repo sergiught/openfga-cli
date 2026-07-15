@@ -151,7 +151,7 @@ func TestUsageErrorVsRuntimeError(t *testing.T) {
 
 func TestDryRunAndValidation(t *testing.T) {
 	home := t.TempDir()
-	store := []string{"--store", "01ARZ3NDEKTSV4RRFFQ69G5FAV", "--api-url", "http://127.0.0.1:0"}
+	store := []string{"--store-id", "01ARZ3NDEKTSV4RRFFQ69G5FAV", "--api-url", "http://127.0.0.1:0"}
 
 	// dry-run writes nothing and needs no server. The preview is a status line,
 	// so it goes to stderr (stdout stays a clean data stream).

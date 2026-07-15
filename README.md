@@ -195,8 +195,6 @@ ofga profiles show                # resolved active config (secrets masked)
 ofga --profile staging stores list
 ```
 
-> **Flag naming:** the global `--store`/`--model` flags are a *runtime override* for the current invocation only (e.g. `ofga --store 01ABC query check …`). `--store-id`/`--model-id` on `ofga profiles add|set` and `ofga init` *persist* a value into a profile. They're named differently on purpose — `--store-id` on those commands would otherwise be shadowed by the global `--store` override — but they resolve the same store/model ID either way (see [Precedence](#precedence)).
-
 ### Precedence
 
 Values are resolved in increasing order of precedence:
@@ -260,7 +258,7 @@ ofga completion zsh > "${fpath[1]}/_ofga"
 ofga completion fish | source
 ```
 
-Completion is **dynamic**: `--profile`, `--store`, and `--model` (and the matching positional args) complete real profile names, store IDs, and model IDs from your server. Network-backed completions are bounded by a short timeout so they never hang your shell.
+Completion is **dynamic**: `--profile`, `--store-id`, and `--model-id` (and the matching positional args) complete real profile names, store IDs, and model IDs from your server. Network-backed completions are bounded by a short timeout so they never hang your shell.
 
 ---
 

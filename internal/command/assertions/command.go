@@ -109,9 +109,9 @@ func (c *Command) writeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "write --file <assertions.json>",
 		Short: "Replace the assertions for a model from a JSON file",
-		Long:  "Replace a model's assertions (the active --model, or the latest). The file is a JSON array of assertions or an object {\"assertions\": [...]}, each: {\"tuple_key\":{\"user\",\"relation\",\"object\"},\"expectation\":true}.",
+		Long:  "Replace a model's assertions (the active --model-id, or the latest). The file is a JSON array of assertions or an object {\"assertions\": [...]}, each: {\"tuple_key\":{\"user\",\"relation\",\"object\"},\"expectation\":true}.",
 		Example: `  ofga assertions write --file assertions.json
-  ofga assertions write --model 01H… --file assertions.json
+  ofga assertions write --model-id 01H… --file assertions.json
   cat assertions.json | ofga assertions write --file -`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {

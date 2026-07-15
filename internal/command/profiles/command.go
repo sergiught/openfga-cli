@@ -335,10 +335,7 @@ func (c *Command) addCmd() *cobra.Command {
 		Short:   "Create a new profile",
 		Long: "Create a named connection profile. The auth method defaults to a bearer\n" +
 			"token when --token* is given, otherwise none. For OAuth flows pass\n" +
-			"--auth-method client_credentials or private_key_jwt with their fields.\n\n" +
-			"Note: --store-id/--model-id persist into the profile; they're named\n" +
-			"differently from the global --store/--model (which override the active\n" +
-			"store/model for a single invocation) so the two don't shadow each other.",
+			"--auth-method client_credentials or private_key_jwt with their fields.",
 		Example: `  ofga profiles add dev --api-url http://localhost:8080 --use
   ofga profiles add prod --api-url https://fga.example.com --token-stdin < token.txt
   ofga profiles add ci --auth-method client_credentials \
@@ -410,8 +407,6 @@ func (c *Command) addCmd() *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringVar(&apiURL, "api-url", "", "API URL (default "+config.DefaultAPIURL+")")
-	// Named --store-id/--model-id (not --store/--model) so they don't shadow the
-	// global persistent --store/--model overrides on this command.
 	f.StringVar(&storeID, "store-id", "", "store ID to save in the profile")
 	f.StringVar(&modelID, "model-id", "", "authorization model ID to save in the profile")
 	f.StringVar(&authMethod, "auth-method", "", "none | api_token | client_credentials | private_key_jwt")
