@@ -98,8 +98,7 @@ Enter Sleep 300ms
 Type "repo:acme/vhs-demo" Sleep 300ms
 Enter Sleep 300ms
 Enter Sleep 1800ms
-Escape Sleep 800ms
-Type "r" Sleep 3s
+Ctrl+R Sleep 3s
 
 # quit cleanly
 Ctrl+C
