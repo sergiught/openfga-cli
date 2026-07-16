@@ -30,7 +30,7 @@ Show
 Sleep 1s
 Type "ofga store create demo --use" Sleep 400ms Enter
 Sleep 2s
-Type "ofga model write --file model.json" Sleep 400ms Enter
+Type "ofga model write --file model.fga" Sleep 400ms Enter
 Sleep 2s
 Type "ofga tuple write user:anne writer repo:openfga/openfga" Sleep 400ms Enter
 Sleep 2s

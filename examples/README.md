@@ -20,5 +20,8 @@ make demo-down   # tear the stack down
 ````
 
 `make gifs` builds `bin/ofga`, checks the demo stack is reachable on
-`localhost:8080`, then runs `vhs` on each `.tape`. The tapes isolate
+`localhost:8080`, then runs `vhs` on each tape in `tapes/`. The tapes isolate
 `XDG_CONFIG_HOME` to a temp dir so recording never touches your real config.
+
+The recordings write the shared model from `model.fga` (the `.fga` DSL, which
+`ofga model write` transforms to JSON automatically).

@@ -26,7 +26,7 @@ Type "printf 'demo-secret' | ofga profiles set client_secret --value-stdin" Ente
 Type "ofga profiles set token_url http://localhost:3000/oauth/token" Enter
 Type "ofga profiles set audience https://api.openfga.local/" Enter
 Type "ofga store create playground --use" Enter Sleep 1s
-Type "ofga model write --file examples/model.json" Enter Sleep 1s
+Type "ofga model write --file examples/model.fga" Enter Sleep 1s
 Type "ofga tuple write user:anne admin repo:acme/backend" Enter Sleep 400ms
 Type "ofga tuple write user:bob writer repo:acme/backend" Enter Sleep 400ms
 Type "ofga tuple write user:carol reader repo:acme/frontend" Enter Sleep 400ms
