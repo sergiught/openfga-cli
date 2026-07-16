@@ -250,6 +250,13 @@ func (c *Command) getCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if c.cli.Plain || c.cli.Output == "table" {
+				return output.KeyValues(cmd.OutOrStdout(), [][2]string{
+					{"model_id", m.ID},
+					{"schema", m.SchemaVersion},
+					{"types", fmt.Sprintf("%d", len(m.TypeDefinitions))},
+				})
+			}
 			return output.Emit(cmd.OutOrStdout(), c.cli.YAML, m)
 		},
 	}

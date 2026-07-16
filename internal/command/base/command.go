@@ -152,7 +152,7 @@ source <(ofga completion bash)`,
 	pf.StringVar(&cli.APITokenFile, "auth-token-file", "", "read the process-scoped API token from a file")
 	pf.StringVar(&cli.ClientSecretFile, "auth-client-secret-file", "", "read the process-scoped OAuth client secret from a file")
 	pf.StringVar(&cli.PrivateKeyFile, "auth-private-key-file", "", "read the process-scoped private-key JWT signing key from a file")
-	pf.StringVarP(&cli.Output, "output", "o", "", "output format: json, yaml, plain or table")
+	pf.StringVarP(&cli.Output, "output", "o", "", "output format: json, yaml, plain or table (takes precedence over --json/--yaml/--plain)")
 	pf.BoolVar(&cli.JSON, "json", false, "output machine-readable JSON (alias for --output json)")
 	pf.BoolVar(&cli.YAML, "yaml", false, "output machine-readable YAML (alias for --output yaml)")
 	pf.BoolVar(&cli.Plain, "plain", cli.Plain, "output unstyled, tab-separated rows (alias for --output plain)")
@@ -342,6 +342,13 @@ func (c *Command) versionCmd() *cobra.Command {
 					"version": version.Resolved(),
 					"commit":  version.Commit,
 					"built":   version.Date,
+				})
+			}
+			if c.cli.Plain || c.cli.Output == "table" {
+				return output.KeyValues(cmd.OutOrStdout(), [][2]string{
+					{"version", version.Resolved()},
+					{"commit", version.Commit},
+					{"built", version.Date},
 				})
 			}
 			_, err := fmt.Fprintln(cmd.OutOrStdout(), "ofga "+version.String())
