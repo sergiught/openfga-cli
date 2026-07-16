@@ -119,6 +119,14 @@ demo: ## Bootstrap a seeded OpenFGA + auth0-mock demo stack (see test/oauth)
 demo-down: ## Tear down the demo stack
 	@$(MAKE) -C test/oauth down
 
+.PHONY: gifs
+gifs: build ## Record example GIFs from examples/*.tape (run `make demo` first)
+	@command -v vhs >/dev/null 2>&1 || { echo "vhs not found — install charmbracelet/vhs and ttyd"; exit 1; }
+	@curl -sf http://localhost:8080/healthz >/dev/null 2>&1 || { echo "demo stack not reachable on :8080 — run 'make demo' first"; exit 1; }
+	@PATH="$(CURDIR)/bin:$$PATH" vhs examples/quickstart.tape
+	@PATH="$(CURDIR)/bin:$$PATH" vhs examples/playground.tape
+	@echo "✓ wrote examples/quickstart.gif and examples/playground.gif"
+
 #-----------------------------------------------------------------------------------------------------------------------
 # Clean
 #-----------------------------------------------------------------------------------------------------------------------
