@@ -57,10 +57,7 @@ func (m Model) apiLogOriginLabel(e apilog.Entry) string {
 	if m.cli == nil {
 		return origin
 	}
-	name := m.cli.Config.Active
-	if m.cli.Overrides.Profile != "" {
-		name = m.cli.Overrides.Profile
-	}
+	name := m.cli.Config.ActiveName(m.cli.Overrides)
 	p, ok := m.cli.Config.Get(name)
 	if !ok {
 		return origin

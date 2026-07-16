@@ -62,6 +62,26 @@ func TestSaveWritesSecretsWithRestrictivePerms(t *testing.T) {
 	}
 }
 
+func TestActiveName(t *testing.T) {
+	cfg := &Config{Active: "ondisk", Profiles: map[string]Profile{}}
+
+	if got := cfg.ActiveName(Overrides{}); got != "ondisk" {
+		t.Errorf("default: got %q, want ondisk", got)
+	}
+	t.Run("env profile beats on-disk active", func(t *testing.T) {
+		t.Setenv("OPENFGA_PROFILE", "fromenv")
+		if got := cfg.ActiveName(Overrides{}); got != "fromenv" {
+			t.Errorf("got %q, want fromenv", got)
+		}
+	})
+	t.Run("flag beats env", func(t *testing.T) {
+		t.Setenv("OPENFGA_PROFILE", "fromenv")
+		if got := cfg.ActiveName(Overrides{Profile: "fromflag"}); got != "fromflag" {
+			t.Errorf("got %q, want fromflag", got)
+		}
+	})
+}
+
 func TestResolveProfileAndOverrides(t *testing.T) {
 	cfg := &Config{
 		Active: "dev",

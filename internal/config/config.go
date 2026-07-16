@@ -848,6 +848,22 @@ func splitScopes(s string) []string {
 	return fields
 }
 
+// ActiveName returns the profile name selected by the standard precedence:
+// the --profile override, else OPENFGA_PROFILE/FGA_PROFILE, else the active
+// profile on disk. It does not check that the profile exists. Callers that need
+// the label of the connection Resolve() actually made must use this so the two
+// never drift.
+func (c *Config) ActiveName(o Overrides) string {
+	name := c.Active
+	if v := firstEnv("OPENFGA_PROFILE", "FGA_PROFILE"); v != "" {
+		name = v
+	}
+	if o.Profile != "" {
+		name = o.Profile
+	}
+	return name
+}
+
 // Resolve merges, in increasing order of precedence: profile values, OPENFGA_*
 // (or FGA_*) environment variables, then flag overrides.
 func (c *Config) Resolve(o Overrides) (Resolved, error) {
@@ -856,13 +872,7 @@ func (c *Config) Resolve(o Overrides) (Resolved, error) {
 	if c.loadErr != nil {
 		return Resolved{}, c.loadErr
 	}
-	name := c.Active
-	if v := firstEnv("OPENFGA_PROFILE", "FGA_PROFILE"); v != "" {
-		name = v
-	}
-	if o.Profile != "" {
-		name = o.Profile
-	}
+	name := c.ActiveName(o)
 	p, ok := c.Profiles[name]
 	if !ok {
 		return Resolved{}, c.noProfileErr(name)
