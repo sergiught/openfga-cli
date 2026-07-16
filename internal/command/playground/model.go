@@ -219,12 +219,16 @@ type Model struct {
 	modelApplying     bool
 	tupleMutating     bool
 	assertionsWriting bool
-	queryPendingGen   int
-	storeCreateGen    int
-	storeDeleteGen    int
-	modelApplyGen     int
-	tupleMutationGen  int
-	assertionWriteGen int
+	// pendingTupleSelect/pendingAssertionSelect hold the id of a row just written,
+	// so the reload that follows re-selects it instead of jumping to the top.
+	pendingTupleSelect     string
+	pendingAssertionSelect string
+	queryPendingGen        int
+	storeCreateGen         int
+	storeDeleteGen         int
+	modelApplyGen          int
+	tupleMutationGen       int
+	assertionWriteGen      int
 
 	toasts toast.Model
 
@@ -666,11 +670,16 @@ func (m *Model) populateTuples() {
 			TitleText: title,
 			DescText:  desc,
 			Filter:    safeText(fga.FormatTuple(t.Key)),
+			ID:        fga.FormatTuple(t.Key),
 			Index:     i,
 		}
 	}
 	m.tuplesList.SetCompact(m.compact)
 	m.tuplesList.SetItems(items)
+	if m.pendingTupleSelect != "" {
+		m.tuplesList.SelectID(m.pendingTupleSelect)
+		m.pendingTupleSelect = ""
+	}
 }
 
 func (m *Model) populateModels() {
@@ -734,10 +743,14 @@ func (m *Model) populateAssertions() {
 			title = desc + "  " + title
 			desc = ""
 		}
-		items[i] = uilist.Item{TitleText: title, DescText: desc, Filter: filter, Index: i}
+		items[i] = uilist.Item{TitleText: title, DescText: desc, Filter: filter, ID: filter, Index: i}
 	}
 	m.assertionsList.SetCompact(m.compact)
 	m.assertionsList.SetItems(items)
+	if m.pendingAssertionSelect != "" {
+		m.assertionsList.SelectID(m.pendingAssertionSelect)
+		m.pendingAssertionSelect = ""
+	}
 }
 
 // assertHasResults reports whether any assertion has been run (and thus has a

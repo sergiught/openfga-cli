@@ -143,6 +143,7 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.beginLoad()
 			m.tupleMutating = true
 			m.tupleMutationGen++
+			m.pendingTupleSelect = fga.FormatTuple(key)
 			m.mutationStatus = "writing tuple " + fga.FormatTuple(key) + "…"
 			m.status = m.mutationStatus
 			return m, writeTupleCmd(m.ctx, m.client,
@@ -175,6 +176,7 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.beginLoad()
 			m.assertionsWriting = true
 			m.assertionWriteGen++
+			m.pendingAssertionSelect = a.TupleKey.User + " " + a.TupleKey.Relation + " " + a.TupleKey.Object
 			m.mutationStatus = "writing assertions…"
 			m.status = m.mutationStatus
 			return m, writeAssertionsCmd(m.ctx, m.client,
