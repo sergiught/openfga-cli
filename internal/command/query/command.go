@@ -244,8 +244,8 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 func (c *Command) expandCmd() *cobra.Command {
 	var fRel, fObj string
 	cmd := &cobra.Command{
-		Use:     "expand [relation] [object]",
-		Short:   "Expand the userset tree that grants a relation (JSON)",
+		Use:   "expand [relation] [object]",
+		Short: "Expand the userset tree that grants a relation (JSON)",
 		Example: "  ofga query expand --relation viewer --object document:roadmap\n" +
 			"  ofga query expand viewer document:roadmap",
 		Args: cobra.MaximumNArgs(2),
