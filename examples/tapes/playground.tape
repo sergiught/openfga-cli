@@ -88,6 +88,19 @@ Type "j" Sleep 600ms
 Sleep 1500ms
 Escape Sleep 800ms
 
+# Tuple Queries: run a check that's allowed, then open its resolution
+Type "6" Sleep 1200ms
+Enter Sleep 800ms
+Type "user:vhs" Sleep 300ms
+Enter Sleep 300ms
+Type "reader" Sleep 300ms
+Enter Sleep 300ms
+Type "repo:acme/vhs-demo" Sleep 300ms
+Enter Sleep 300ms
+Enter Sleep 1800ms
+Escape Sleep 800ms
+Type "r" Sleep 3s
+
 # quit cleanly
 Ctrl+C
 Sleep 1s
