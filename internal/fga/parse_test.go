@@ -39,6 +39,30 @@ func TestTriple(t *testing.T) {
 	}
 }
 
+func TestValidateUserRef(t *testing.T) {
+	for _, ok := range []string{"user:anne", "team:eng#member", "user:*"} {
+		if err := ValidateUserRef(ok); err != nil {
+			t.Errorf("ValidateUserRef(%q) = %v, want nil", ok, err)
+		}
+	}
+	for _, bad := range []string{"", "anne", "document"} {
+		if ValidateUserRef(bad) == nil {
+			t.Errorf("ValidateUserRef(%q) = nil, want error", bad)
+		}
+	}
+}
+
+func TestValidateObjectRef(t *testing.T) {
+	if err := ValidateObjectRef("document:roadmap"); err != nil {
+		t.Errorf("ValidateObjectRef(document:roadmap) = %v, want nil", err)
+	}
+	for _, bad := range []string{"", "document", "document:*", "document:1#viewer"} {
+		if ValidateObjectRef(bad) == nil {
+			t.Errorf("ValidateObjectRef(%q) = nil, want error", bad)
+		}
+	}
+}
+
 func TestParseTuple(t *testing.T) {
 	tests := []struct {
 		name                   string

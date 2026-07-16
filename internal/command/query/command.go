@@ -242,17 +242,27 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 }
 
 func (c *Command) expandCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:     "expand <relation> <object>",
+	var fRel, fObj string
+	cmd := &cobra.Command{
+		Use:     "expand [relation] [object]",
 		Short:   "Expand the userset tree that grants a relation (JSON)",
-		Example: "  ofga query expand viewer document:roadmap",
-		Args:    cobra.ExactArgs(2),
+		Example: "  ofga query expand --relation viewer --object document:roadmap\n" +
+			"  ofga query expand viewer document:roadmap",
+		Args: cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			values, err := resolveArgs(args, []string{fRel, fObj}, []string{"relation", "object"})
+			if err != nil {
+				return clierr.WithCode(clierr.CodeUsage, err)
+			}
+			relation, object := values[0], values[1]
+			if err := fga.ValidateObjectRef(object); err != nil {
+				return clierr.WithCode(clierr.CodeUsage, err)
+			}
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
 			}
-			req := &openfga.ExpandRequest{TupleKey: openfga.CheckRequestTupleKey{Relation: args[0], Object: args[1]}}
+			req := &openfga.ExpandRequest{TupleKey: openfga.CheckRequestTupleKey{Relation: relation, Object: object}}
 			res, err := cl.Relationships.Expand(cmd.Context(), req)
 			if err != nil {
 				return err
@@ -266,6 +276,9 @@ func (c *Command) expandCmd() *cobra.Command {
 			return output.Emit(cmd.OutOrStdout(), c.cli.YAML, res.Tree)
 		},
 	}
+	cmd.Flags().StringVar(&fRel, "relation", "", "relation (alternative to the positional arg)")
+	cmd.Flags().StringVar(&fObj, "object", "", "object (alternative to the positional arg)")
+	return cmd
 }
 
 func (c *Command) listObjectsCmd() *cobra.Command {
@@ -285,6 +298,9 @@ func (c *Command) listObjectsCmd() *cobra.Command {
 				[]string{objectType, rel, user},
 				[]string{"type", "relation", "user"})
 			if err != nil {
+				return clierr.WithCode(clierr.CodeUsage, err)
+			}
+			if err := fga.ValidateUserRef(values[2]); err != nil {
 				return clierr.WithCode(clierr.CodeUsage, err)
 			}
 			cl, _, err := c.cli.ClientWithStore()
@@ -346,6 +362,9 @@ func (c *Command) listUsersCmd() *cobra.Command {
 				[]string{object, rel},
 				[]string{"object", "relation"})
 			if err != nil {
+				return clierr.WithCode(clierr.CodeUsage, err)
+			}
+			if err := fga.ValidateObjectRef(values[0]); err != nil {
 				return clierr.WithCode(clierr.CodeUsage, err)
 			}
 			cl, _, err := c.cli.ClientWithStore()

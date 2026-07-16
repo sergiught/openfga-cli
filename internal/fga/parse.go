@@ -139,3 +139,34 @@ func SplitObject(object string) (typ, id string) {
 	typ, id, _ = strings.Cut(object, ":")
 	return typ, id
 }
+
+// ValidateUserRef checks that user is a "type:id", a wildcard "type:*", or a
+// userset "type:id#relation" — the same shape ParseTuple accepts for the user
+// position — so a swapped argument yields a friendly hint, not a raw 400.
+func ValidateUserRef(user string) error {
+	user = strings.TrimSpace(user)
+	if user == "" {
+		return fmt.Errorf("user is required")
+	}
+	if !strings.Contains(user, ":") {
+		return fmt.Errorf("user %q must be in the form type:id (e.g. user:anne, or a userset like team:eng#member) — did you swap the arguments?", user)
+	}
+	return nil
+}
+
+// ValidateObjectRef checks that object is a concrete "type:id" (no wildcard, no
+// userset), matching ParseTuple's object rules.
+func ValidateObjectRef(object string) error {
+	object = strings.TrimSpace(object)
+	if object == "" {
+		return fmt.Errorf("object is required")
+	}
+	typ, id := SplitObject(object)
+	if typ == "" || id == "" {
+		return fmt.Errorf("object %q must be in the form type:id (e.g. document:roadmap) — did you swap the arguments?", object)
+	}
+	if id == "*" || strings.Contains(object, "#") {
+		return fmt.Errorf("object %q must be a concrete type:id, not a wildcard or userset", object)
+	}
+	return nil
+}
