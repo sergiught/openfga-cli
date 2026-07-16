@@ -690,6 +690,7 @@ func authRows(a config.Auth) [][2]string {
 			[2]string{"audience", orDash(a.Audience)},
 			[2]string{"api_audience", orDash(a.APIAudience)},
 			[2]string{"key_file", orDash(a.KeyFile)},
+			[2]string{"private_key", tokenState(a.PrivateKey)},
 			[2]string{"signing_method", orDash(a.SigningMethod)},
 		)
 		if a.KeyID != "" {
