@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" role="img"
+     aria-label="openfga-cli — a modern CLI and TUI for OpenFGA">
+  <defs>
+    <!-- wordmark gradient: magenta -> violet -> cyan -->
+    <linearGradient id="wm" x1="0" y1="0" x2="1" y2="0.35">
+      <stop offset="0"    stop-color="#ff2bd6"/>
+      <stop offset="0.5"  stop-color="#8a63ff"/>
+      <stop offset="1"    stop-color="#23e8ff"/>
+    </linearGradient>
+    <!-- ambient corner glows -->
+    <radialGradient id="glowR" cx="0.82" cy="0.38" r="0.6">
+      <stop offset="0"   stop-color="#23e8ff" stop-opacity="0.20"/>
+      <stop offset="0.5" stop-color="#8a63ff" stop-opacity="0.06"/>
+      <stop offset="1"   stop-color="#0a0e1a" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowL" cx="0.08" cy="0.55" r="0.5">
+      <stop offset="0" stop-color="#ff2bd6" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#0a0e1a" stop-opacity="0"/>
+    </radialGradient>
+    <!-- vignette -->
+    <radialGradient id="vig" cx="0.5" cy="0.5" r="0.75">
+      <stop offset="0.55" stop-color="#0a0e1a" stop-opacity="0"/>
+      <stop offset="1"    stop-color="#000000" stop-opacity="0.55"/>
+    </radialGradient>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="4"/>
+    </filter>
+    <filter id="softwide" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="8"/>
+    </filter>
+  </defs>
+
+  <!-- base -->
+  <rect width="1200" height="300" fill="#0a0e1a"/>
+  <rect width="1200" height="300" fill="url(#glowR)"/>
+  <rect width="1200" height="300" fill="url(#glowL)"/>
+
+  <!-- perspective grid floor -->
+  <g stroke="#23e8ff" stroke-opacity="0.10" stroke-width="1">
+    <line x1="-200" y1="300" x2="480" y2="196"/>
+    <line x1="60"   y1="300" x2="520" y2="196"/>
+    <line x1="320"  y1="300" x2="560" y2="196"/>
+    <line x1="600"  y1="300" x2="600" y2="196"/>
+    <line x1="880"  y1="300" x2="640" y2="196"/>
+    <line x1="1140" y1="300" x2="680" y2="196"/>
+    <line x1="1400" y1="300" x2="720" y2="196"/>
+    <line x1="0" y1="300" x2="1200" y2="300"/>
+    <line x1="120" y1="258" x2="1080" y2="258"/>
+    <line x1="215" y1="228" x2="985" y2="228"/>
+    <line x1="285" y1="208" x2="915" y2="208"/>
+  </g>
+
+  <!-- terminal-window motif: a check that returns allowed (the CLI's job) -->
+  <g>
+    <!-- soft glow behind the window -->
+    <rect x="806" y="60" width="352" height="184" rx="16"
+          fill="#23e8ff" fill-opacity="0.06" filter="url(#softwide)"/>
+    <!-- window -->
+    <rect x="812" y="66" width="340" height="172" rx="12"
+          fill="#0d1526" stroke="#2a3550" stroke-width="1.5"/>
+    <!-- title bar traffic lights, in the wordmark palette -->
+    <circle cx="834" cy="88" r="5" fill="#ff2bd6"/>
+    <circle cx="852" cy="88" r="5" fill="#8a63ff"/>
+    <circle cx="870" cy="88" r="5" fill="#23e8ff"/>
+    <line x1="812" y1="107" x2="1152" y2="107" stroke="#2a3550" stroke-width="1"/>
+    <!-- prompt + check + result -->
+    <g font-family="ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace"
+       font-size="15">
+      <text x="834" y="142"><tspan fill="#23e8ff">❯</tspan> <tspan fill="#d3e2f2">ofga</tspan> <tspan fill="#9fb2c8">check</tspan></text>
+      <text x="834" y="166" fill="#7189a6">  user:anne writer</text>
+      <text x="834" y="186" fill="#7189a6">  repo:openfga/cli</text>
+      <rect x="834" y="200" width="108" height="24" rx="6" fill="#35d29a"/>
+      <text x="849" y="217" fill="#05231a" font-weight="700">✓ ALLOWED</text>
+    </g>
+  </g>
+
+  <!-- wordmark -->
+  <g font-family="'Segoe UI', 'Helvetica Neue', Arial, system-ui, sans-serif">
+    <text x="72" y="150" font-size="84" font-weight="800" letter-spacing="-2"
+          fill="url(#wm)" filter="url(#soft)" opacity="0.55">openfga-cli</text>
+    <text x="72" y="150" font-size="84" font-weight="800" letter-spacing="-2"
+          fill="url(#wm)">openfga-cli</text>
+    <!-- tagline (single line, monospace, kept clear of the terminal motif) -->
+    <text x="75" y="206" font-size="23" font-weight="500" fill="#8fb6c9" letter-spacing="0.3"
+          font-family="ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace">
+      a CLI &amp; TUI for <tspan fill="#c98fd6">OpenFGA</tspan>
+    </text>
+  </g>
+
+  <!-- vignette on top -->
+  <rect width="1200" height="300" fill="url(#vig)"/>
+</svg>

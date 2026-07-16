@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/assets/banner.svg" alt="openfga-cli — a modern CLI &amp; TUI for OpenFGA" width="100%">
+
 # ofga
 
 **A modern CLI & TUI for [OpenFGA](https://openfga.dev).**
