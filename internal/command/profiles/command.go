@@ -631,12 +631,27 @@ func (c *Command) removeCmd() *cobra.Command {
 }
 
 func (c *Command) cleanupCredentialsCmd() *cobra.Command {
-	return &cobra.Command{
+	var purge, force bool
+	cmd := &cobra.Command{
 		Use:     "cleanup-credentials",
-		Short:   "Retry pending OS-keyring cleanup",
-		Example: "  ofga profiles cleanup-credentials",
+		Short:   "Retry pending OS-keyring cleanup (or --purge all ofga secrets)",
+		Example: "  ofga profiles cleanup-credentials\n  ofga profiles cleanup-credentials --purge",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if purge {
+				if err := prompt.Confirm(cmd,
+					"delete ALL ofga credentials from the OS keyring (including any orphaned by a deleted config)", force); err != nil {
+					return err
+				}
+				if err := config.PurgeAllSecrets(); err != nil {
+					return err
+				}
+				if c.cli.JSON || c.cli.YAML {
+					return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]bool{"purged": true})
+				}
+				output.Successf(cmd.ErrOrStderr(), "purged all ofga OS-keyring credentials")
+				return nil
+			}
 			remaining, err := c.cli.RetrySecretCleanup()
 			if err != nil {
 				return err
@@ -651,6 +666,9 @@ func (c *Command) cleanupCredentialsCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&purge, "purge", false, "delete ALL ofga secrets from the OS keyring, including orphans from deleted configs")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "skip the confirmation prompt (with --purge)")
+	return cmd
 }
 
 func orDash(s string) string {

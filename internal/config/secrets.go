@@ -59,6 +59,19 @@ func secretsAvailable() bool {
 	return err == nil || errors.Is(err, keyring.ErrNotFound)
 }
 
+// PurgeAllSecrets deletes every secret this CLI stored in the OS keyring. It is
+// the only way to reclaim entries orphaned by a hand-deleted config: go-keyring
+// can't enumerate accounts, so per-profile reconciliation can't find them once
+// the config naming them is gone. This is all-or-nothing across every profile
+// and config on this machine.
+func PurgeAllSecrets() error {
+	err := keyring.DeleteAll(keyringService)
+	if errors.Is(err, keyring.ErrNotFound) {
+		return nil
+	}
+	return err
+}
+
 func scopedSecretGet(configPath, profile, field string) (string, error) {
 	account, err := secretAccount(configPath, profile, field)
 	if err != nil {
