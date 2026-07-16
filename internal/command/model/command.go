@@ -3,11 +3,15 @@
 package model
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
 
+	transformer "github.com/openfga/language/pkg/go/transformer"
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/go-openfga/openfga"
@@ -79,12 +83,13 @@ func (c *Command) writeCmd() *cobra.Command {
 		dryRun bool
 	)
 	cmd := &cobra.Command{
-		Use:     "write --file <model.json>",
+		Use:     "write --file <model>",
 		Aliases: []string{"create"},
-		Short:   "Write a new authorization model from a JSON file",
+		Short:   "Write a new authorization model from a JSON or DSL (.fga) file",
 		Example: `  ofga model write --file model.json
-  cat model.json | ofga model write --file -`,
-		Long: "Write a new authorization model. The file must be the model JSON with schema_version and type_definitions (the format produced by `fga model transform` or the OpenFGA API).",
+  ofga model write --file model.fga
+  cat model.fga | ofga model write --file -`,
+		Long: "Write a new authorization model. The file may be the model JSON (schema_version and type_definitions, as produced by `fga model transform` or the OpenFGA API) or the `.fga` DSL, which is transformed to JSON automatically. The format is chosen by file extension (.json/.fga), falling back to content sniffing for stdin.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var data []byte
@@ -97,9 +102,13 @@ func (c *Command) writeCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("read model: %w", err)
 			}
+			jsonData, err := modelInputToJSON(data, file)
+			if err != nil {
+				return err
+			}
 			var req openfga.WriteAuthorizationModelRequest
-			if err := json.Unmarshal(data, &req); err != nil {
-				return fmt.Errorf("parse model JSON: %w", err)
+			if err := json.Unmarshal(jsonData, &req); err != nil {
+				return fmt.Errorf("parse model: %w", err)
 			}
 			if req.SchemaVersion == "" {
 				req.SchemaVersion = "1.1"
@@ -136,10 +145,34 @@ func (c *Command) writeCmd() *cobra.Command {
 			return output.KeyValues(cmd.OutOrStdout(), [][2]string{{"model_id", res.AuthorizationModelID}})
 		},
 	}
-	cmd.Flags().StringVarP(&file, "file", "f", "", "path to the model JSON file")
+	cmd.Flags().StringVarP(&file, "file", "f", "", "path to the model file — JSON or .fga DSL ('-' for stdin)")
 	_ = cmd.MarkFlagRequired("file")
 	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "validate the file and show what would be written without writing it")
 	return cmd
+}
+
+// modelInputToJSON returns the model as OpenFGA JSON, accepting either the JSON
+// format or the .fga DSL. The format is chosen by file extension; extensionless
+// or stdin input is sniffed by its first non-space byte ('{' => JSON, else DSL).
+func modelInputToJSON(data []byte, path string) ([]byte, error) {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".json":
+		return data, nil
+	case ".fga":
+		return dslToJSON(data)
+	}
+	if t := bytes.TrimSpace(data); len(t) > 0 && t[0] == '{' {
+		return data, nil
+	}
+	return dslToJSON(data)
+}
+
+func dslToJSON(data []byte) ([]byte, error) {
+	js, err := transformer.TransformDSLToJSON(string(data))
+	if err != nil {
+		return nil, fmt.Errorf("transform model DSL: %w", err)
+	}
+	return []byte(js), nil
 }
 
 func (c *Command) listCmd() *cobra.Command {
