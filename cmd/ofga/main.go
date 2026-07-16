@@ -7,9 +7,11 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/log"
@@ -23,6 +25,18 @@ import (
 	"github.com/sergiught/openfga-cli/internal/ui/icons"
 	"github.com/sergiught/openfga-cli/internal/version"
 )
+
+// ignoreBrokenPipeSignal makes writes to a closed stdout pipe return EPIPE on
+// Unix instead of terminating the process. Keep this in main.go so the
+// documented `go run cmd/ofga/main.go` invocation compiles that file alone.
+func ignoreBrokenPipeSignal() {
+	switch runtime.GOOS {
+	case "windows", "plan9", "js", "wasip1":
+		return
+	default:
+		signal.Ignore(syscall.Signal(13)) // SIGPIPE on Unix.
+	}
+}
 
 func main() {
 	ignoreBrokenPipeSignal()

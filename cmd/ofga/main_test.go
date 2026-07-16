@@ -1,7 +1,12 @@
 package main
 
 import (
+	"context"
+	"os"
+	"os/exec"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/log"
 )
@@ -45,5 +50,19 @@ func TestDebugFlagsEnableDebugLogging(t *testing.T) {
 		if got := logLevel([]string{flag}); got != log.DebugLevel {
 			t.Fatalf("logLevel(%q) = %v, want debug", flag, got)
 		}
+	}
+}
+
+func TestMainFileRunsStandalone(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "go", "run", "main.go", "--help")
+	cmd.Env = append(os.Environ(), "NO_COLOR=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go run main.go --help: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "USAGE") {
+		t.Fatalf("standalone help missing usage:\n%s", out)
 	}
 }
