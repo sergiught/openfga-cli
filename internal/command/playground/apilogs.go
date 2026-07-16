@@ -221,9 +221,11 @@ func apiLogRow(e apilog.Entry, width, hscroll int) string {
 	path := safeText(urlPath(e.URL))
 	// The latency lives in the detail pane; the list shows just the status (plus
 	// a compact retry marker) so the URL gets as much room as possible.
+	// The retry marker sits before the status so the status column stays
+	// right-aligned down the list regardless of whether a row retried.
 	right := statusLabel(e)
 	if e.Attempt > 1 {
-		right += style.Faint.Render(fmt.Sprintf(" ×%d", e.Attempt))
+		right = style.Faint.Render(fmt.Sprintf("×%d ", e.Attempt)) + right
 	}
 	prefix := style.Faint.Render(e.Time.Format("15:04:05")) + " " + safeText(e.Method) + " "
 
