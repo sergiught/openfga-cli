@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/openfga-cli/internal/cli"
+	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/prompt"
@@ -214,7 +215,7 @@ func (c *Command) useCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			prev := c.cli.Config.Active
 			if err := c.cli.Config.Use(args[0]); err != nil {
-				return err
+				return clierr.WithCode(clierr.CodeUsage, err)
 			}
 			if err := c.cli.SaveConfig(); err != nil {
 				_ = c.cli.Config.Use(prev)
@@ -287,7 +288,7 @@ func (c *Command) setCmd() *cobra.Command {
 				switch val {
 				case config.AuthNone, config.AuthAPIToken, config.AuthClientCredentials, config.AuthPrivateKeyJWT:
 				default:
-					return fmt.Errorf("invalid auth_method %q (use none, api_token, client_credentials or private_key_jwt)", val)
+					return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("invalid auth_method %q (use none, api_token, client_credentials or private_key_jwt)", val))
 				}
 				cleanupFields = p.Auth.ConfiguredSecretFields()
 				p.Auth = authForMethod(p.Auth, val)
@@ -519,7 +520,7 @@ func (c *Command) addCmd() *cobra.Command {
 					Audience: audience, APIAudience: apiAudience, KeyFile: keyFile,
 					SigningMethod: signingMethod, KeyID: keyID}
 			default:
-				return fmt.Errorf("invalid auth_method %q (use none, api_token, client_credentials or private_key_jwt)", method)
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("invalid auth_method %q (use none, api_token, client_credentials or private_key_jwt)", method))
 			}
 			if err := p.Auth.Validate(); err != nil {
 				return err

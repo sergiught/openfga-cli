@@ -108,7 +108,7 @@ func (c *Command) writeCmd() *cobra.Command {
 			}
 			var req openfga.WriteAuthorizationModelRequest
 			if err := json.Unmarshal(jsonData, &req); err != nil {
-				return fmt.Errorf("parse model: %w", err)
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("parse model: %w", err))
 			}
 			if req.SchemaVersion == "" {
 				req.SchemaVersion = "1.1"
@@ -170,7 +170,7 @@ func modelInputToJSON(data []byte, path string) ([]byte, error) {
 func dslToJSON(data []byte) ([]byte, error) {
 	js, err := transformer.TransformDSLToJSON(string(data))
 	if err != nil {
-		return nil, fmt.Errorf("transform model DSL: %w", err)
+		return nil, clierr.WithCode(clierr.CodeUsage, fmt.Errorf("transform model DSL: %w", err))
 	}
 	return []byte(js), nil
 }

@@ -319,7 +319,7 @@ func parseAssertions(data []byte) ([]openfga.Assertion, error) {
 	}
 	var list []openfga.Assertion
 	if err := json.Unmarshal(data, &list); err != nil {
-		return nil, fmt.Errorf("parse assertions JSON: %w", err)
+		return nil, clierr.WithCode(clierr.CodeUsage, fmt.Errorf("parse assertions JSON: %w", err))
 	}
 	return list, nil
 }

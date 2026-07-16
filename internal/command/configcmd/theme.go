@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/openfga-cli/internal/cli"
+	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/theme"
@@ -45,7 +46,7 @@ func NewTheme(c *cli.CLI) *cobra.Command {
 			}
 			name := args[0]
 			if !style.SetTheme(name) {
-				return fmt.Errorf("unknown theme %q (available: %s)", name, strings.Join(theme.Names(), ", "))
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("unknown theme %q (available: %s)", name, strings.Join(theme.Names(), ", ")))
 			}
 			previous := cfg.Theme
 			cfg.Theme = name
