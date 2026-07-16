@@ -20,6 +20,10 @@ Manage stores, authorization models, relationship tuples, and run checks from yo
 [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-fa6673.svg)](https://www.conventionalcommits.org)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
+<p align="center">
+  <img src="examples/playground.gif" alt="ofga playground TUI demo" width="800">
+</p>
+
 ---
 
 ## 📑 Table of contents
@@ -54,6 +58,8 @@ It talks to any OpenFGA-compatible server and reuses your connection **profiles*
 ---
 
 ## 🚀 Quick start
+
+![ofga CLI quickstart: create a store, write a model, write a tuple, check access](examples/quickstart.gif)
 
 ```bash
 # 1. Start a local OpenFGA server in another terminal
