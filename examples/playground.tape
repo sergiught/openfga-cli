@@ -13,7 +13,10 @@ Set Padding 20
 Set TypingSpeed 80ms
 Set Theme "Catppuccin Mocha"
 
-# --- hidden setup: isolate config + point at the `make demo` stack ---
+# --- hidden setup: isolate config, point at the `make demo` stack, and seed a
+# fresh store (model + a few tuples, zero assertions) so the add flows below
+# have headroom (the seeded dev/staging/prod stores are already at the 100
+# assertion limit). ---
 Hide
 Type "export XDG_CONFIG_HOME=$(mktemp -d)" Enter
 Type "ofga profiles add local --api-url http://localhost:8080 && ofga profiles use local" Enter
@@ -22,32 +25,67 @@ Type "ofga profiles set client_id demo" Enter
 Type "printf 'demo-secret' | ofga profiles set client_secret --value-stdin" Enter
 Type "ofga profiles set token_url http://localhost:3000/oauth/token" Enter
 Type "ofga profiles set audience https://api.openfga.local/" Enter
+Type "ofga store create playground --use" Enter Sleep 1s
+Type "ofga model write --file examples/model.json" Enter Sleep 1s
+Type "ofga tuple write user:anne admin repo:acme/backend" Enter Sleep 400ms
+Type "ofga tuple write user:bob writer repo:acme/backend" Enter Sleep 400ms
+Type "ofga tuple write user:carol reader repo:acme/frontend" Enter Sleep 400ms
+Type "ofga tuple write user:dave maintainer repo:acme/frontend" Enter Sleep 400ms
+Type "ofga tuple write user:erin triager repo:acme/backend" Enter Sleep 800ms
 Type "clear" Enter
 Show
 
-# --- launch the TUI and walk the sections ---
+# --- launch the TUI (starts on the fresh 'playground' store) ---
 Type "ofga" Enter
 Sleep 2s
 
-# Stores: descend, pick the first store, back out
-Type "2" Sleep 1200ms
-Enter Sleep 1500ms
-Enter Sleep 1500ms
+# Scroll down through the tabs: Profiles -> Stores -> Model -> Tuples
+Type "1" Sleep 1400ms
+Down Sleep 1400ms
+Down Sleep 1400ms
+Down Sleep 1400ms
+
+# At Tuples: add one
+Type "a" Sleep 1s
+Type "user:vhs" Sleep 300ms
+Enter Sleep 300ms
+Type "writer" Sleep 300ms
+Enter Sleep 300ms
+Type "repo:acme/vhs-demo" Sleep 300ms
+Enter Sleep 300ms
+Enter Sleep 300ms
+Enter Sleep 1800ms
 Escape Sleep 1s
 
-# Model
-Type "3" Sleep 1200ms
-Enter Sleep 2s
+# Keep scrolling: Changes -> Tuple Queries -> Assertions
+Down Sleep 1400ms
+Down Sleep 1400ms
+Down Sleep 1400ms
+
+# At Assertions: add one
+Type "a" Sleep 1s
+Type "user:vhs" Sleep 300ms
+Enter Sleep 300ms
+Type "reader" Sleep 300ms
+Enter Sleep 300ms
+Type "repo:acme/vhs-demo" Sleep 300ms
+Enter Sleep 300ms
+Enter Sleep 300ms
+Enter Sleep 300ms
+Enter Sleep 1800ms
 Escape Sleep 1s
 
-# Tuples
-Type "4" Sleep 1200ms
-Enter Sleep 2s
-Escape Sleep 1s
-
-# API Logs — live request/response
-Type "8" Sleep 1200ms
-Enter Sleep 3s
+# API Logs: scroll through a request and its response
+Down Sleep 1400ms
+Enter Sleep 1s
+Tab Sleep 900ms
+Type "j" Sleep 400ms
+Type "j" Sleep 600ms
+Tab Sleep 900ms
+Tab Sleep 900ms
+Type "j" Sleep 400ms
+Type "j" Sleep 600ms
+Sleep 1500ms
 Escape Sleep 800ms
 
 # quit cleanly
