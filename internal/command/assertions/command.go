@@ -132,6 +132,9 @@ func (c *Command) writeCmd() *cobra.Command {
 				if c.cli.JSON || c.cli.YAML {
 					return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{"dry_run": true, "would_write": len(assertionsList)})
 				}
+				if output.Plain {
+					return output.KeyValues(cmd.OutOrStdout(), [][2]string{{"dry_run", "true"}, {"would_write", fmt.Sprint(len(assertionsList))}})
+				}
 				output.Infof(cmd.ErrOrStderr(), "would write %d assertion(s)", len(assertionsList))
 				return nil
 			}
@@ -155,13 +158,16 @@ func (c *Command) writeCmd() *cobra.Command {
 			if c.cli.JSON || c.cli.YAML {
 				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]int{"written": len(assertionsList)})
 			}
+			if output.Plain {
+				return output.KeyValues(cmd.OutOrStdout(), [][2]string{{"written", fmt.Sprint(len(assertionsList))}})
+			}
 			output.Successf(cmd.ErrOrStderr(), "wrote %d assertion(s) to model %s", len(assertionsList), id)
 			return nil
 		},
 	}
 	cmd.Flags().StringVarP(&file, "file", "f", "", "assertions JSON file ('-' for stdin)")
 	_ = cmd.MarkFlagRequired("file")
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate the file and show what would be written without writing it")
+	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "validate the file and show what would be written without writing it")
 	cmd.Flags().BoolVar(&force, "force", false, "replace assertions without prompting")
 	return cmd
 }
@@ -229,18 +235,32 @@ func (c *Command) testCmd() *cobra.Command {
 				})
 			}
 
+			var assertionErr error
+			if passed != len(results) {
+				assertionErr = clierr.WithCode(clierr.CodeTestFailed,
+					fmt.Errorf("%d assertion(s) failed", len(results)-passed))
+			}
+			outputErr := func(err error) error {
+				return preferAssertionFailure(err, assertionErr)
+			}
+
 			if c.cli.JSON || c.cli.YAML {
 				if err := output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{
 					"authorization_model_id": modelID, "passed": passed, "total": len(results), "results": results,
 				}); err != nil {
-					return err
+					return outputErr(err)
 				}
-				// Machine mode must still fail the process when assertions
-				// failed, or CI gating on --json silently passes.
-				if passed != len(results) {
-					return clierr.WithCode(clierr.CodeTestFailed, fmt.Errorf("%d assertion(s) failed", len(results)-passed))
+				return assertionErr
+			}
+			if output.Plain {
+				for _, res := range results {
+					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%t\t%s\t%t\t%t\n",
+						res.Pass, output.PlainField(res.Assertion), res.Expected, res.Got); err != nil {
+						return outputErr(err)
+					}
 				}
-				return nil
+
+				return assertionErr
 			}
 			for _, res := range results {
 				mark := style.Success.Render(style.IconCheck)
@@ -250,11 +270,11 @@ func (c *Command) testCmd() *cobra.Command {
 				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s\n", mark,
 					style.Value.Render(output.SanitizeField(res.Assertion)),
 					style.Faint.Render(fmt.Sprintf("(expected %v, got %v)", res.Expected, res.Got))); err != nil {
-					return err
+					return outputErr(err)
 				}
 			}
 			if _, err := fmt.Fprintln(cmd.OutOrStdout()); err != nil {
-				return err
+				return outputErr(err)
 			}
 			summary := fmt.Sprintf("%d/%d passed", passed, len(results))
 			if passed == len(results) {
@@ -262,16 +282,21 @@ func (c *Command) testCmd() *cobra.Command {
 				return err
 			}
 			if _, err := fmt.Fprintln(cmd.OutOrStdout(), style.Failure.Render(style.IconCross+" "+summary)); err != nil {
-				return err
+				return outputErr(err)
 			}
-			// A dedicated exit code lets CI tell "assertions ran and failed"
-			// apart from the tool erroring for another reason.
-			return clierr.WithCode(clierr.CodeTestFailed, fmt.Errorf("%d assertion(s) failed", len(results)-passed))
+			return assertionErr
 		},
 	}
 }
 
 // --- helpers ---
+
+func preferAssertionFailure(outputErr, assertionErr error) error {
+	if outputErr != nil && assertionErr != nil {
+		return assertionErr
+	}
+	return outputErr
+}
 
 func toTupleKey(k openfga.CheckRequestTupleKey) openfga.TupleKey {
 	return openfga.TupleKey{User: k.User, Relation: k.Relation, Object: k.Object}

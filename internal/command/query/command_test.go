@@ -1,10 +1,12 @@
 package query
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
 	"github.com/sergiught/go-openfga/openfga"
+	"github.com/sergiught/openfga-cli/internal/clierr"
 )
 
 func TestAllowedWord(t *testing.T) {
@@ -13,6 +15,25 @@ func TestAllowedWord(t *testing.T) {
 	}
 	if allowedWord(false) != "denied" {
 		t.Error("allowedWord(false) should be denied")
+	}
+}
+
+func TestPlainBatchLabelCannotInjectRecords(t *testing.T) {
+	var out bytes.Buffer
+	if err := writePlainBatchResult(&out, true, "user:anne viewer\nadmin\tdoc:1\x1b[31m"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := out.String(), "allowed\tuser:anne viewer admin doc:1\n"; got != want {
+		t.Fatalf("plain batch result = %q, want %q", got, want)
+	}
+}
+
+func TestBatchCheckValidatesInputBeforeClientCreation(t *testing.T) {
+	cmd := (&Command{}).batchCheckCmd()
+	cmd.SetArgs([]string{"--check", "anne,viewer,doc:1"})
+	err := cmd.Execute()
+	if got := clierr.Code(err); got != clierr.CodeUsage {
+		t.Fatalf("exit code = %d, want usage; err=%v", got, err)
 	}
 }
 

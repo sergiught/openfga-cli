@@ -1,9 +1,12 @@
 package assertions
 
 import (
+	"errors"
+	"syscall"
 	"testing"
 
 	"github.com/sergiught/go-openfga/openfga"
+	"github.com/sergiught/openfga-cli/internal/clierr"
 )
 
 func TestParseAssertions(t *testing.T) {
@@ -18,6 +21,7 @@ func TestParseAssertions(t *testing.T) {
 		{name: "empty array", data: `[]`, wantN: 0},
 		{name: "invalid json", data: `{not json`, wantErr: true},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := parseAssertions([]byte(tt.data))
@@ -28,6 +32,26 @@ func TestParseAssertions(t *testing.T) {
 				t.Errorf("parseAssertions returned %d assertions, want %d", len(got), tt.wantN)
 			}
 		})
+	}
+}
+
+func TestAssertionFailureOutranksBrokenPipe(t *testing.T) {
+	failed := clierr.WithCode(clierr.CodeTestFailed, errors.New("assertion failed"))
+	if got := preferAssertionFailure(syscall.EPIPE, failed); clierr.Code(got) != clierr.CodeTestFailed {
+		t.Fatalf("error code = %d, want %d", clierr.Code(got), clierr.CodeTestFailed)
+	}
+}
+
+func TestOutputFailureReturnedWhenAssertionsPass(t *testing.T) {
+	if got := preferAssertionFailure(syscall.EPIPE, nil); !errors.Is(got, syscall.EPIPE) {
+		t.Fatalf("preferAssertionFailure() = %v, want EPIPE", got)
+	}
+}
+
+func TestAssertionsDryRunShorthand(t *testing.T) {
+	cmd := (&Command{}).writeCmd()
+	if got := cmd.Flags().Lookup("dry-run").Shorthand; got != "n" {
+		t.Fatalf("--dry-run shorthand = %q, want n", got)
 	}
 }
 

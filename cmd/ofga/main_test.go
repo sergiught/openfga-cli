@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/charmbracelet/log"
+)
 
 func TestRawGlobalFlagParsing(t *testing.T) {
 	if !boolFlagFromArgs([]string{"stores", "list", "--no-color"}, "--no-color") {
@@ -33,5 +37,13 @@ func TestNoColorFromArgsOverridesForcedColor(t *testing.T) {
 	}
 	if !noColorFromArgs([]string{"--help"}, "mono") {
 		t.Fatal("configured mono theme should disable terminal probing")
+	}
+}
+
+func TestDebugFlagsEnableDebugLogging(t *testing.T) {
+	for _, flag := range []string{"--debug", "--debug=true", "-d", "--verbose", "-v"} {
+		if got := logLevel([]string{flag}); got != log.DebugLevel {
+			t.Fatalf("logLevel(%q) = %v, want debug", flag, got)
+		}
 	}
 }

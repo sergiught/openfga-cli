@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"strings"
 
@@ -15,6 +16,7 @@ import (
 
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/cli"
+	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/readlimit"
 )
@@ -35,6 +37,8 @@ func New(cli *cli.CLI) *Command {
 			"URL and authentication (token, client-credentials or private-key JWT).\n\n" +
 			"The path is relative to the profile's API URL (e.g. /stores). A JSON body may " +
 			"be passed as the third argument, or read from stdin by passing `-` as the body.\n\n" +
+			"With --plain, successful response bytes are copied unchanged (with only a final " +
+			"newline added when absent), preserving compact JSON for machine pipelines.\n\n" +
 			"This is an expert escape hatch: mutating methods are sent directly without " +
 			"confirmation or dry-run support.",
 		Example: "  ofga api GET /stores\n" +
@@ -52,6 +56,9 @@ func (c *Command) Command() *cobra.Command { return c.cmd }
 
 func (c *Command) run(cmd *cobra.Command, args []string) error {
 	method := strings.ToUpper(args[0])
+	if err := validateMethod(method); err != nil {
+		return err
+	}
 	path := args[1]
 	if err := validatePath(path); err != nil {
 		return err
@@ -115,25 +122,34 @@ func requestBody(args []string, stdin io.Reader) (any, error) {
 		return nil, nil
 	}
 	if !json.Valid(raw) {
-		return nil, fmt.Errorf("request body is not valid JSON")
+		return nil, clierr.WithCode(clierr.CodeUsage, fmt.Errorf("request body is not valid JSON"))
 	}
 	return json.RawMessage(raw), nil
+}
+
+func validateMethod(method string) error {
+	if _, err := http.NewRequest(method, "http://localhost", nil); err != nil {
+		return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("invalid HTTP method: %w", err))
+	}
+	return nil
 }
 
 func validatePath(path string) error {
 	parsed, err := url.Parse(path)
 	if err != nil {
-		return fmt.Errorf("invalid API path: %w", err)
+		return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("invalid API path: %w", err))
 	}
 	if !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") ||
 		parsed.IsAbs() || parsed.Host != "" {
-		return errors.New("API path must be relative to the configured server and begin with a single '/'")
+		return clierr.WithCode(clierr.CodeUsage,
+			errors.New("API path must be relative to the configured server and begin with a single '/'"))
 	}
 	return nil
 }
 
-// write emits the response body: raw under --json (for piping), converted to
-// YAML under --output yaml, pretty-printed JSON otherwise.
+// write emits the response body: raw under --json and --plain (for stable,
+// machine-safe piping), converted to YAML under --output yaml, and
+// pretty-printed JSON for the default human presentation.
 func (c *Command) write(w io.Writer, data []byte) error {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil
@@ -149,7 +165,7 @@ func (c *Command) write(w io.Writer, data []byte) error {
 		}
 		return output.YAML(w, generic)
 	}
-	if !c.cli.JSON {
+	if !c.cli.JSON && !c.cli.Plain {
 		var buf bytes.Buffer
 		if json.Indent(&buf, data, "", "  ") == nil {
 			data = buf.Bytes()

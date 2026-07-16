@@ -16,6 +16,7 @@ func TestPlainTableUnchangedAndStyledFramed(t *testing.T) {
 	if err := Table(&b, []string{"A"}, [][]string{{"x"}}); err != nil {
 		t.Fatal(err)
 	}
+
 	if b.String() != "x\n" {
 		t.Fatalf("plain output changed: %q", b.String())
 	}
@@ -42,6 +43,51 @@ func TestPlainTableUnchangedAndStyledFramed(t *testing.T) {
 	}
 	if strings.Contains(b.String(), "─") {
 		t.Fatalf("piped table should not contain box-drawing: %q", b.String())
+	}
+}
+
+func TestPlainKeyValuesAreTabSeparated(t *testing.T) {
+	defer func() { Plain = false }()
+	Plain = true
+	var b bytes.Buffer
+	if err := KeyValues(&b, [][2]string{{"profile", "prod"}, {"store", "one\ttwo"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := b.String(), "profile\tprod\nstore\tone two\n"; got != want {
+		t.Fatalf("plain key-values = %q, want %q", got, want)
+	}
+}
+
+func TestPlainTableFieldsCannotInjectRecords(t *testing.T) {
+	defer func() { Plain = false }()
+	Plain = true
+	var b bytes.Buffer
+	rows := [][]string{{"user:anne", "line one\nline two", "tab\tvalue", "esc\x1b[31mred"}}
+	if err := Table(&b, []string{"A", "B", "C", "D"}, rows); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := b.String(), "user:anne\tline one line two\ttab value\tescred\n"; got != want {
+		t.Fatalf("plain table = %q, want one sanitized record %q", got, want)
+	}
+}
+
+func TestHumanBlankLineDoesNotCreatePlainRecord(t *testing.T) {
+	defer func() { Plain = false }()
+	var b bytes.Buffer
+	Plain = true
+	if err := HumanBlankLine(&b); err != nil {
+		t.Fatal(err)
+	}
+	if b.Len() != 0 {
+		t.Fatalf("plain spacer created a record: %q", b.String())
+	}
+
+	Plain = false
+	if err := HumanBlankLine(&b); err != nil {
+		t.Fatal(err)
+	}
+	if got := b.String(); got != "\n" {
+		t.Fatalf("human spacer = %q, want a blank line", got)
 	}
 }
 

@@ -160,12 +160,60 @@ func TestDryRunAndValidation(t *testing.T) {
 	if code != 0 || !strings.Contains(errb, "would write") || out != "" {
 		t.Errorf("dry-run should preview on stderr without calling the API: code=%d out=%q err=%q", code, out, errb)
 	}
+	out, errb, code = runOfga(t, home, "", nil,
+		append([]string{"tuples", "write", "user:anne", "viewer", "doc:1", "--dry-run", "--plain"}, store...)...)
+	if code != 0 || errb != "" || out != "dry_run\ttrue\nwould_write\t1\n" {
+		t.Errorf("plain dry-run should emit stable TSV: code=%d out=%q err=%q", code, out, errb)
+	}
 
 	// swapped/invalid tuple is rejected locally (before any network call).
 	_, errb, code = runOfga(t, home, "", nil,
 		append([]string{"tuples", "write", "anne", "viewer", "doc:1", "--dry-run"}, store...)...)
 	if code == 0 || !strings.Contains(errb, "type:id") {
 		t.Errorf("invalid user should be rejected locally: code=%d err=%q", code, errb)
+	}
+}
+
+func TestNonInteractiveRootAndPlayground(t *testing.T) {
+	home := t.TempDir()
+	out, errb, code := runOfga(t, home, "", nil)
+	if code != 0 || errb != "" || !strings.Contains(out, "Run \"ofga --help\"") {
+		t.Fatalf("bare non-TTY invocation should print concise guidance: code=%d out=%q err=%q", code, out, errb)
+	}
+	if strings.Contains(out, "Environment:") {
+		t.Fatalf("bare non-TTY invocation printed the full help reference: %q", out)
+	}
+
+	out, errb, code = runOfga(t, home, "", nil, "playground")
+	if code != 2 || out != "" || !strings.Contains(errb, "requires an interactive terminal") {
+		t.Fatalf("explicit non-TTY playground should fail: code=%d out=%q err=%q", code, out, errb)
+	}
+}
+
+func TestStructuredMutationResults(t *testing.T) {
+	home := t.TempDir()
+	for _, tc := range []struct {
+		name string
+		args []string
+		key  string
+	}{
+		{"init", []string{"init", "--no-input", "--json"}, "profile"},
+		{"profile add", []string{"profiles", "add", "dev", "--json"}, "created"},
+		{"theme", []string{"theme", "nord", "--json"}, "theme"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, errb, code := runOfga(t, home, "", nil, tc.args...)
+			if code != 0 {
+				t.Fatalf("mutation failed: code=%d stderr=%q", code, errb)
+			}
+			var got map[string]any
+			if err := json.Unmarshal([]byte(out), &got); err != nil {
+				t.Fatalf("mutation output is not JSON: %q: %v", out, err)
+			}
+			if _, ok := got[tc.key]; !ok {
+				t.Fatalf("mutation output missing %q: %v", tc.key, got)
+			}
+		})
 	}
 }
 

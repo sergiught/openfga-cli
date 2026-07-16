@@ -105,6 +105,18 @@ func (c *Command) writeCmd() *cobra.Command {
 				req.SchemaVersion = "1.1"
 			}
 			if dryRun {
+				if c.cli.JSON || c.cli.YAML {
+					return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{
+						"dry_run": true, "schema_version": req.SchemaVersion, "type_definitions": len(req.TypeDefinitions),
+					})
+				}
+				if output.Plain {
+					return output.KeyValues(cmd.OutOrStdout(), [][2]string{
+						{"dry_run", "true"},
+						{"schema_version", req.SchemaVersion},
+						{"type_definitions", fmt.Sprint(len(req.TypeDefinitions))},
+					})
+				}
 				output.Infof(cmd.ErrOrStderr(), "would write authorization model (schema %s, %d type definitions)",
 					req.SchemaVersion, len(req.TypeDefinitions))
 				return nil
@@ -126,7 +138,7 @@ func (c *Command) writeCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVarP(&file, "file", "f", "", "path to the model JSON file")
 	_ = cmd.MarkFlagRequired("file")
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate the file and show what would be written without writing it")
+	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "validate the file and show what would be written without writing it")
 	return cmd
 }
 

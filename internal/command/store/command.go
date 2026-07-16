@@ -85,6 +85,9 @@ func (c *Command) createCmd() *cobra.Command {
 				if c.cli.JSON || c.cli.YAML {
 					return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{"dry_run": true, "would_create": args[0]})
 				}
+				if output.Plain {
+					return output.KeyValues(cmd.OutOrStdout(), [][2]string{{"dry_run", "true"}, {"would_create", args[0]}})
+				}
 				output.Infof(cmd.ErrOrStderr(), "would create store %s", style.Bold.Render(args[0]))
 				return nil
 			}
@@ -127,7 +130,7 @@ func (c *Command) createCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&use, "use", false, "save the new store ID to the active profile")
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be created without creating it")
+	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "show what would be created without creating it")
 	return cmd
 }
 
@@ -177,7 +180,7 @@ func (c *Command) listCmd() *cobra.Command {
 			if err := output.Table(cmd.OutOrStdout(), []string{"ID", "NAME", "CREATED"}, rows); err != nil {
 				return err
 			}
-			if _, err := fmt.Fprintln(cmd.OutOrStdout()); err != nil {
+			if err := output.HumanBlankLine(cmd.OutOrStdout()); err != nil {
 				return err
 			}
 			output.Infof(cmd.ErrOrStderr(), "%d store(s)", len(stores))
@@ -236,6 +239,9 @@ func (c *Command) deleteCmd() *cobra.Command {
 				if c.cli.JSON || c.cli.YAML {
 					return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{"dry_run": true, "would_delete": args[0]})
 				}
+				if output.Plain {
+					return output.KeyValues(cmd.OutOrStdout(), [][2]string{{"dry_run", "true"}, {"would_delete", args[0]}})
+				}
 				output.Infof(cmd.ErrOrStderr(), "would delete store %s", style.Bold.Render(args[0]))
 				return nil
 			}
@@ -256,12 +262,15 @@ func (c *Command) deleteCmd() *cobra.Command {
 			if c.cli.JSON || c.cli.YAML {
 				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]string{"deleted": args[0]})
 			}
+			if output.Plain {
+				return output.KeyValues(cmd.OutOrStdout(), [][2]string{{"deleted", args[0]}})
+			}
 			output.Successf(cmd.ErrOrStderr(), "deleted store %s", style.Bold.Render(args[0]))
 			return nil
 		},
 	}
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "skip the confirmation prompt")
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be deleted without deleting")
+	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "show what would be deleted without deleting")
 	cmd.Flags().BoolVar(&yes, "yes", false, "deprecated: use --force")
 	_ = cmd.Flags().MarkDeprecated("yes", "use --force")
 	return cmd

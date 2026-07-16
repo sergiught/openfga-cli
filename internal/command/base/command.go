@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/openfga-cli/internal/cli"
+	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/command/api"
 	"github.com/sergiught/openfga-cli/internal/command/assertions"
 	"github.com/sergiught/openfga-cli/internal/command/configcmd"
@@ -22,6 +23,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/command/store"
 	"github.com/sergiught/openfga-cli/internal/command/tuple"
 	"github.com/sergiught/openfga-cli/internal/output"
+	"github.com/sergiught/openfga-cli/internal/readlimit"
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/theme"
 	"github.com/sergiught/openfga-cli/internal/version"
@@ -61,7 +63,10 @@ ofga query check user:anne viewer document:roadmap
 ofga model graph
 
 # Send a raw API request using the active profile's auth
-ofga api GET /stores`,
+ofga api GET /stores
+
+# Enable shell completion for this Bash session
+source <(ofga completion bash)`,
 		// Silence cobra's own usage dump and error line: it resolves usage to
 		// stdout (SetOut below), leaking a 50-line help block into scripts that
 		// capture stdout on failure. main prints the error to stderr instead, and
@@ -80,15 +85,7 @@ ofga api GET /stores`,
 				// a future Args override silently routing typos into the TUI.
 				return fmt.Errorf("unknown command %q for %q", args[0], cmd.CommandPath())
 			}
-			if cli.NoInput {
-				return cmd.Help()
-			}
-			// The TUI needs an interactive terminal; without one (piped, CI, no
-			// TTY) print help instead of launching and hanging.
-			if !term.IsTerminal(os.Stdin.Fd()) || !term.IsTerminal(os.Stdout.Fd()) {
-				return cmd.Help()
-			}
-			return playground.Run(cmd.Context(), cli)
+			return c.runPlayground(cmd, args)
 		},
 		// Resolve color + theme + output mode before any command renders.
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
@@ -103,6 +100,9 @@ ofga api GET /stores`,
 			// Reaching here means flag/arg validation passed, so any later error
 			// is a runtime failure rather than a bad invocation.
 			c.ranCommand = true
+			if err := c.applySecretFiles(); err != nil {
+				return err
+			}
 			c.applyEnvironment()
 			return nil
 		},
@@ -149,6 +149,9 @@ ofga api GET /stores`,
 	pf.StringVar(&cli.Overrides.StoreID, "store-id", "", "store ID (overrides profile/env)")
 	pf.StringVar(&cli.Overrides.ModelID, "model-id", "", "authorization model ID (overrides profile/env)")
 	pf.String("config", "", "path to the config file (overrides OPENFGA_CONFIG)")
+	pf.StringVar(&cli.APITokenFile, "auth-token-file", "", "read the process-scoped API token from a file")
+	pf.StringVar(&cli.ClientSecretFile, "auth-client-secret-file", "", "read the process-scoped OAuth client secret from a file")
+	pf.StringVar(&cli.PrivateKeyFile, "auth-private-key-file", "", "read the process-scoped private-key JWT signing key from a file")
 	pf.StringVarP(&cli.Output, "output", "o", "", "output format: json, yaml, plain or table")
 	pf.BoolVar(&cli.JSON, "json", false, "output machine-readable JSON (alias for --output json)")
 	pf.BoolVar(&cli.YAML, "yaml", false, "output machine-readable YAML (alias for --output yaml)")
@@ -158,10 +161,11 @@ ofga api GET /stores`,
 	pf.BoolVar(&cli.NoColor, "no-color", cli.NoColor, "disable colored output")
 	pf.StringVar(&cli.ThemeName, "theme", cli.ThemeName, "color theme ("+themeList()+")")
 	pf.DurationVar(&cli.RequestTimeout, "timeout", cli.RequestTimeout, "per-request timeout (0 disables)")
-	// Registered so `--verbose`/`-v` is a known flag and appears in help; its
+	// Registered so debug flags are known and appear in help; their values are
 	// value is read from os.Args in main.logLevel, which must set the log level
 	// before cobra parses (to cover errors during early config loading).
-	pf.BoolP("verbose", "v", false, "enable debug logging")
+	pf.BoolP("debug", "d", false, "enable debug logging")
+	pf.BoolP("verbose", "v", false, "alias for --debug")
 
 	_ = c.cmd.RegisterFlagCompletionFunc("profile", c.completeProfiles)
 	_ = c.cmd.RegisterFlagCompletionFunc("store-id", c.completeStores)
@@ -255,6 +259,37 @@ func (c *Command) applyEnvironment() {
 	}
 }
 
+func (c *Command) applySecretFiles() error {
+	read := func(path, label string) (string, error) {
+		if path == "" {
+			return "", nil
+		}
+		data, err := readlimit.File(path, readlimit.Secret, label)
+		if err != nil {
+			return "", err
+		}
+		if warning := readlimit.SecretPermissionWarning(path, label); warning != "" {
+			fmt.Fprintln(c.cmd.ErrOrStderr(), warning)
+		}
+		value := strings.TrimSpace(string(data))
+		if value == "" {
+			return "", fmt.Errorf("%s is empty", label)
+		}
+		return value, nil
+	}
+	var err error
+	if c.cli.Overrides.APIToken, err = read(c.cli.APITokenFile, "API token file"); err != nil {
+		return err
+	}
+	if c.cli.Overrides.ClientSecret, err = read(c.cli.ClientSecretFile, "client secret file"); err != nil {
+		return err
+	}
+	if c.cli.Overrides.PrivateKey, err = read(c.cli.PrivateKeyFile, "private key file"); err != nil {
+		return err
+	}
+	return nil
+}
+
 // ForceColor and ForceMono interpret the documented FORCE_COLOR variable, which
 // colorprofile's writers ignore (they honor only CLICOLOR_FORCE). Following the
 // widely-adopted convention (npm/chalk/supports-color), FORCE_COLOR=0/false/no/off
@@ -328,8 +363,49 @@ func (c *Command) RegisterSubCommands() {
 		configcmd.New(c.cli).Command(),
 		configcmd.NewInit(c.cli),
 		configcmd.NewTheme(c.cli),
+		c.playgroundCmd(),
 		c.versionCmd(),
 	)
+}
+
+func (c *Command) playgroundCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "playground",
+		Short: "Launch the interactive playground",
+		Args:  cobra.NoArgs,
+		RunE:  c.runPlayground,
+	}
+}
+
+func (c *Command) runPlayground(cmd *cobra.Command, _ []string) error {
+	// The TUI needs an interactive terminal; without one (piped, CI, no TTY)
+	// bare `ofga` prints concise guidance instead of launching and hanging.
+	// The explicit `ofga playground` command fails so automation cannot mistake
+	// "the TUI never ran" for success.
+	if c.cli.NoInput || !term.IsTerminal(os.Stdin.Fd()) || !term.IsTerminal(os.Stdout.Fd()) {
+		if cmd.Name() == "playground" {
+			return clierr.WithCode(clierr.CodeUsage,
+				fmt.Errorf("playground requires an interactive terminal and cannot be used with --no-input"))
+		}
+		return c.conciseHelp(cmd)
+	}
+	return playground.Run(cmd.Context(), c.cli)
+}
+
+func (c *Command) conciseHelp(cmd *cobra.Command) error {
+	_, err := fmt.Fprintf(cmd.OutOrStdout(), `%s
+
+Usage:
+  ofga [command] [flags]
+
+Examples:
+  ofga init
+  ofga stores list
+  ofga query check user:anne viewer document:roadmap
+
+Run "ofga --help" for the full command and environment reference.
+`, cmd.Short)
+	return err
 }
 
 func themeList() string {

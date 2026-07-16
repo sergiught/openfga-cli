@@ -80,6 +80,9 @@ func (c *Command) writeCmd() *cobra.Command {
 					if c.cli.JSON || c.cli.YAML {
 						return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{"dry_run": true, "would_write": len(keys)})
 					}
+					if output.Plain {
+						return output.KeyValues(cmd.OutOrStdout(), [][2]string{{"dry_run", "true"}, {"would_write", fmt.Sprint(len(keys))}})
+					}
 					output.Infof(cmd.ErrOrStderr(), "would write %d tuple(s)", len(keys))
 					return nil
 				}
@@ -87,11 +90,16 @@ func (c *Command) writeCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if err := writeInBatches(cmd.Context(), cl, keys, false); err != nil {
+				written, err := writeInBatches(cmd.Context(), cl, keys, false)
+				if err != nil {
+					_ = emitBatchResult(cmd, c.cli, "written", written, len(keys), false)
 					return err
 				}
 				if c.cli.JSON || c.cli.YAML {
 					return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]int{"written": len(keys)})
+				}
+				if output.Plain {
+					return output.KeyValues(cmd.OutOrStdout(), [][2]string{{"written", fmt.Sprint(len(keys))}})
 				}
 				output.Successf(cmd.ErrOrStderr(), "wrote %d tuple(s)", len(keys))
 				return nil
@@ -108,6 +116,9 @@ func (c *Command) writeCmd() *cobra.Command {
 				if c.cli.JSON || c.cli.YAML {
 					return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{"dry_run": true, "would_write": 1})
 				}
+				if output.Plain {
+					return output.KeyValues(cmd.OutOrStdout(), [][2]string{{"dry_run", "true"}, {"would_write", "1"}})
+				}
 				output.Infof(cmd.ErrOrStderr(), "would write %s", style.Bold.Render(fga.FormatTuple(key)))
 				return nil
 			}
@@ -122,11 +133,14 @@ func (c *Command) writeCmd() *cobra.Command {
 			if c.cli.JSON || c.cli.YAML {
 				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]int{"written": 1})
 			}
+			if output.Plain {
+				return output.KeyValues(cmd.OutOrStdout(), [][2]string{{"written", "1"}})
+			}
 			output.Successf(cmd.ErrOrStderr(), "wrote %s", style.Bold.Render(fga.FormatTuple(key)))
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show the tuple that would be written without writing it")
+	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "show the tuple that would be written without writing it")
 	cmd.Flags().StringVar(&file, "file", "", "JSON file of tuples to write in bulk ('-' for stdin)")
 	cmd.Flags().StringVar(&fUser, "user", "", "user (alternative to the positional arg)")
 	cmd.Flags().StringVar(&fRel, "relation", "", "relation (alternative to the positional arg)")
@@ -159,6 +173,9 @@ func (c *Command) deleteCmd() *cobra.Command {
 					if c.cli.JSON || c.cli.YAML {
 						return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{"dry_run": true, "would_delete": len(keys)})
 					}
+					if output.Plain {
+						return output.KeyValues(cmd.OutOrStdout(), [][2]string{{"dry_run", "true"}, {"would_delete", fmt.Sprint(len(keys))}})
+					}
 					output.Infof(cmd.ErrOrStderr(), "would delete %d tuple(s)", len(keys))
 					return nil
 				}
@@ -170,11 +187,16 @@ func (c *Command) deleteCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if err := writeInBatches(cmd.Context(), cl, keys, true); err != nil {
+				deleted, err := writeInBatches(cmd.Context(), cl, keys, true)
+				if err != nil {
+					_ = emitBatchResult(cmd, c.cli, "deleted", deleted, len(keys), false)
 					return err
 				}
 				if c.cli.JSON || c.cli.YAML {
 					return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]int{"deleted": len(keys)})
+				}
+				if output.Plain {
+					return output.KeyValues(cmd.OutOrStdout(), [][2]string{{"deleted", fmt.Sprint(len(keys))}})
 				}
 				output.Successf(cmd.ErrOrStderr(), "deleted %d tuple(s)", len(keys))
 				return nil
@@ -190,6 +212,9 @@ func (c *Command) deleteCmd() *cobra.Command {
 			if dryRun {
 				if c.cli.JSON || c.cli.YAML {
 					return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{"dry_run": true, "would_delete": 1})
+				}
+				if output.Plain {
+					return output.KeyValues(cmd.OutOrStdout(), [][2]string{{"dry_run", "true"}, {"would_delete", "1"}})
 				}
 				output.Infof(cmd.ErrOrStderr(), "would delete %s", style.Bold.Render(fga.FormatTuple(key)))
 				return nil
@@ -209,12 +234,15 @@ func (c *Command) deleteCmd() *cobra.Command {
 			if c.cli.JSON || c.cli.YAML {
 				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]int{"deleted": 1})
 			}
+			if output.Plain {
+				return output.KeyValues(cmd.OutOrStdout(), [][2]string{{"deleted", "1"}})
+			}
 			output.Successf(cmd.ErrOrStderr(), "deleted %s", style.Bold.Render(fga.FormatTuple(key)))
 			return nil
 		},
 	}
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "skip the confirmation prompt")
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show the tuple that would be deleted without deleting it")
+	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "show the tuple that would be deleted without deleting it")
 	cmd.Flags().StringVar(&file, "file", "", "JSON file of tuples to delete in bulk ('-' for stdin)")
 	cmd.Flags().StringVar(&fUser, "user", "", "user (alternative to the positional arg)")
 	cmd.Flags().StringVar(&fRel, "relation", "", "relation (alternative to the positional arg)")
@@ -241,6 +269,9 @@ func (c *Command) readCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if maxResults < 0 {
 				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--max-results must be non-negative"))
+			}
+			if pageSize < 0 {
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--page-size must be non-negative"))
 			}
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
@@ -285,7 +316,7 @@ func (c *Command) readCmd() *cobra.Command {
 			if err := output.Table(cmd.OutOrStdout(), []string{"USER", "RELATION", "OBJECT", "CONDITION", "WRITTEN"}, rows); err != nil {
 				return err
 			}
-			if _, err := fmt.Fprintln(cmd.OutOrStdout()); err != nil {
+			if err := output.HumanBlankLine(cmd.OutOrStdout()); err != nil {
 				return err
 			}
 			output.Infof(cmd.ErrOrStderr(), "%d tuple(s)", len(tuples))
@@ -296,7 +327,7 @@ func (c *Command) readCmd() *cobra.Command {
 	f.StringVar(&user, "user", "", "filter by user")
 	f.StringVar(&relation, "relation", "", "filter by relation")
 	f.StringVar(&object, "object", "", "filter by object")
-	f.IntVar(&pageSize, "page-size", 50, "per-request page size (wire knob, not a total cap)")
+	f.IntVar(&pageSize, "page-size", 50, "per-request page size (0 = server default; not a total cap)")
 	f.IntVar(&maxResults, "max-results", 0, "cap the total number of tuples returned (0 = unbounded)")
 	f.IntVar(&maxResults, "limit", 0, "alias for --max-results")
 	return cmd
@@ -304,29 +335,39 @@ func (c *Command) readCmd() *cobra.Command {
 
 func (c *Command) changesCmd() *cobra.Command {
 	var (
-		typ       string
-		startTime string
-		limit     int
+		typ        string
+		startTime  string
+		pageSize   int
+		maxResults int
 	)
 	cmd := &cobra.Command{
 		Use:   "changes",
 		Short: "Show the tuple changelog (writes and deletes)",
 		Example: `  ofga tuples changes
-  ofga tuples changes --type document`,
+  ofga tuples changes --type document
+  ofga tuples changes --max-results 100`,
+		Long: "Show tuple changes. By default all currently available changes are returned (the CLI auto-pages); " +
+			"--max-results (alias --limit) caps the total returned. --page-size only tunes the per-request page.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if maxResults < 0 {
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--max-results must be non-negative"))
+			}
+			if pageSize < 0 {
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--page-size must be non-negative"))
+			}
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
 			}
-			opts := &openfga.ReadChangesOptions{Type: typ, StartTime: startTime}
+			opts := &openfga.ReadChangesOptions{Type: typ, StartTime: startTime, PageSize: pageSize}
 			var changes []openfga.TupleChange
 			for ch, err := range cl.Tuples.ChangesAll(cmd.Context(), opts) {
 				if err != nil {
 					return err
 				}
 				changes = append(changes, ch)
-				if limit > 0 && len(changes) >= limit {
+				if maxResults > 0 && len(changes) >= maxResults {
 					break
 				}
 			}
@@ -355,7 +396,9 @@ func (c *Command) changesCmd() *cobra.Command {
 	f := cmd.Flags()
 	f.StringVar(&typ, "type", "", "filter changes by object type")
 	f.StringVar(&startTime, "start-time", "", "only changes at/after this RFC3339 time")
-	f.IntVar(&limit, "limit", 100, "maximum number of changes to display (0 for all)")
+	f.IntVar(&pageSize, "page-size", 50, "per-request page size (0 = server default; not a total cap)")
+	f.IntVar(&maxResults, "max-results", 0, "cap the total number of changes returned (0 = unbounded)")
+	f.IntVar(&maxResults, "limit", 0, "alias for --max-results")
 	return cmd
 }
 
@@ -373,7 +416,8 @@ type tupleInput struct {
 // and the --user/--relation/--object flags.
 func bulkTuples(cmd *cobra.Command, file string, args []string, fUser, fRel, fObj string) ([]openfga.TupleKey, error) {
 	if len(args) > 0 || fUser != "" || fRel != "" || fObj != "" {
-		return nil, fmt.Errorf("--file cannot be combined with positional args or --user/--relation/--object")
+		return nil, clierr.WithCode(clierr.CodeUsage,
+			fmt.Errorf("--file cannot be combined with positional args or --user/--relation/--object"))
 	}
 	var data []byte
 	var err error
@@ -392,16 +436,16 @@ func bulkTuples(cmd *cobra.Command, file string, args []string, fUser, fRel, fOb
 	if err := json.Unmarshal(data, &wrapper); err == nil && wrapper.Tuples != nil {
 		raw = wrapper.Tuples
 	} else if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("parse tuples file: %w", err)
+		return nil, clierr.WithCode(clierr.CodeUsage, fmt.Errorf("parse tuples file: %w", err))
 	}
 	if len(raw) == 0 {
-		return nil, fmt.Errorf("no tuples in %s", file)
+		return nil, clierr.WithCode(clierr.CodeUsage, fmt.Errorf("no tuples in %s", file))
 	}
 	keys := make([]openfga.TupleKey, 0, len(raw))
 	for i, t := range raw {
 		key, err := fga.ParseTuple(t.User, t.Relation, t.Object)
 		if err != nil {
-			return nil, fmt.Errorf("tuple %d: %w", i+1, err)
+			return nil, clierr.WithCode(clierr.CodeUsage, fmt.Errorf("tuple %d: %w", i+1, err))
 		}
 		keys = append(keys, key)
 	}
@@ -410,7 +454,8 @@ func bulkTuples(cmd *cobra.Command, file string, args []string, fUser, fRel, fOb
 
 // writeInBatches writes (or deletes, when del is true) keys in chunks that stay
 // under OpenFGA's per-request limit.
-func writeInBatches(ctx context.Context, cl *openfga.Client, keys []openfga.TupleKey, del bool) error {
+func writeInBatches(ctx context.Context, cl *openfga.Client, keys []openfga.TupleKey, del bool) (int, error) {
+	completed := 0
 	for i := 0; i < len(keys); i += maxTuplesPerWrite {
 		end := min(i+maxTuplesPerWrite, len(keys))
 		chunk := keys[i:end]
@@ -421,8 +466,26 @@ func writeInBatches(ctx context.Context, cl *openfga.Client, keys []openfga.Tupl
 			req.Writes = &openfga.WriteRequestTuples{TupleKeys: chunk}
 		}
 		if err := cl.Tuples.Write(ctx, req); err != nil {
-			return fmt.Errorf("tuples %d-%d: %w", i+1, end, err)
+			return completed, fmt.Errorf("tuples %d-%d failed after %d of %d tuple(s) were committed: %w",
+				i+1, end, completed, len(keys), err)
 		}
+		completed = end
+	}
+	return completed, nil
+}
+
+func emitBatchResult(cmd *cobra.Command, c *cli.CLI, field string, completed, total int, complete bool) error {
+	if c.JSON || c.YAML {
+		return output.Emit(cmd.OutOrStdout(), c.YAML, map[string]any{
+			field: completed, "total": total, "complete": complete,
+		})
+	}
+	if output.Plain {
+		return output.KeyValues(cmd.OutOrStdout(), [][2]string{
+			{field, fmt.Sprint(completed)},
+			{"total", fmt.Sprint(total)},
+			{"complete", fmt.Sprint(complete)},
+		})
 	}
 	return nil
 }

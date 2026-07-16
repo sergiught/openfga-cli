@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"syscall"
 	"testing"
@@ -21,6 +22,7 @@ func TestCode(t *testing.T) {
 		{name: "wrapped explicit code", err: fmt.Errorf("ctx: %w", WithCode(CodeUsage, errors.New("x"))), want: CodeUsage},
 		{name: "connection error", err: errors.New(`Get "http://x": dial tcp: connect: connection refused`), want: CodeNetwork},
 		{name: "net.Error", err: &net.OpError{Op: "dial", Err: errors.New("refused")}, want: CodeNetwork},
+		{name: "local file error", err: &os.PathError{Op: "open", Path: "missing", Err: syscall.ENOENT}, want: CodeError},
 		{name: "broken pipe is not a server failure", err: fmt.Errorf("write stdout: %w", syscall.EPIPE), want: CodeError},
 	}
 
@@ -42,6 +44,12 @@ func TestIsBrokenPipe(t *testing.T) {
 	}
 	if IsBrokenPipe(errors.New("server returned: broken pipe")) {
 		t.Fatal("an API message must not be mistaken for a local stdout pipe closure")
+	}
+	if !IsIgnorableBrokenPipe(fmt.Errorf("write: %w", syscall.EPIPE)) {
+		t.Fatal("plain EPIPE should be ignorable")
+	}
+	if IsIgnorableBrokenPipe(WithCode(CodeTestFailed, syscall.EPIPE)) {
+		t.Fatal("an explicit failure code must outrank EPIPE")
 	}
 }
 

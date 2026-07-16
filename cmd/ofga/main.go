@@ -25,6 +25,8 @@ import (
 )
 
 func main() {
+	ignoreBrokenPipeSignal()
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
@@ -69,7 +71,7 @@ func main() {
 	rootCmd.SetContext(ctx)
 	cmd, err := rootCmd.ExecuteC()
 	if err != nil {
-		if clierr.IsBrokenPipe(err) {
+		if clierr.IsIgnorableBrokenPipe(err) {
 			return
 		}
 		logger.Debugf("command failed: %+v", err)
@@ -93,9 +95,10 @@ func main() {
 			code = clierr.CodeUsage
 			output.Hintf(root.ErrWriter(), "run '%s --help' for usage", cmd.CommandPath())
 		} else if !errors.Is(err, prompt.ErrAborted) && logger.GetLevel() > log.DebugLevel {
-			// A deliberate abort has nothing more to show under -v; only hint for
+			// A deliberate abort has nothing more to show under debug logging;
+			// only hint for
 			// genuine failures where extra detail could help.
-			output.Hintf(root.ErrWriter(), "run with -v for more detail")
+			output.Hintf(root.ErrWriter(), "run with -d/--debug for more detail")
 		}
 		os.Exit(code)
 	}
@@ -172,9 +175,11 @@ func configPathFromArgs(args []string) string {
 	return ""
 }
 
-// logLevel raises verbosity when --verbose or -v is present.
+// logLevel raises verbosity when the preferred debug flag or its legacy
+// verbose alias is present.
 func logLevel(args []string) log.Level {
-	if slices.Contains(args, "--verbose") || slices.Contains(args, "-v") {
+	if boolFlagFromArgs(args, "--debug") || boolFlagFromArgs(args, "--verbose") ||
+		slices.Contains(args, "-d") || slices.Contains(args, "-v") {
 		return log.DebugLevel
 	}
 	return log.WarnLevel

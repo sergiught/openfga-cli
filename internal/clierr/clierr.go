@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
 	"strings"
 	"syscall"
 
@@ -72,6 +73,17 @@ func IsBrokenPipe(err error) bool {
 	return errors.Is(err, syscall.EPIPE)
 }
 
+// IsIgnorableBrokenPipe reports a plain stdout EPIPE that may be treated as a
+// successful short read by a downstream consumer. Explicitly coded failures
+// still win even if an output write also encountered EPIPE.
+func IsIgnorableBrokenPipe(err error) bool {
+	if !IsBrokenPipe(err) {
+		return false
+	}
+	var coded *Coded
+	return !errors.As(err, &coded)
+}
+
 // IsUsageErr reports whether err is one of cobra's flag/argument validation
 // failures, which it returns as plain errors (missing required flag, unknown
 // flag/command, wrong arg count). These are bad invocations, not runtime
@@ -128,6 +140,13 @@ func IsConnErr(err error) bool {
 		return false
 	}
 	if IsBrokenPipe(err) {
+		return false
+	}
+	// Local filesystem failures can implement net.Error through their wrapped
+	// syscall on some platforms; they are runtime failures, not API transport
+	// failures.
+	var pathErr *os.PathError
+	if errors.As(err, &pathErr) {
 		return false
 	}
 	var ne net.Error

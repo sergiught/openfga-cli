@@ -72,6 +72,10 @@ func (c *Command) helpFunc(cmd *cobra.Command, _ []string) {
 	if !cmd.HasParent() {
 		b.WriteString(sectionHead("Environment"))
 		b.WriteString(envList())
+	}
+	b.WriteString(sectionHead("Documentation"))
+	b.WriteString("    https://github.com/sergiught/openfga-cli#readme\n")
+	if !cmd.HasParent() {
 		b.WriteString(sectionHead("Support"))
 		b.WriteString("    https://github.com/sergiught/openfga-cli/issues\n")
 	}
@@ -91,9 +95,9 @@ func envList() string {
 		{"OPENFGA_API_URL", "OpenFGA API URL (alias: FGA_API_URL)"},
 		{"OPENFGA_STORE_ID", "active store ID (alias: FGA_STORE_ID)"},
 		{"OPENFGA_MODEL_ID", "authorization model ID (aliases: OPENFGA_AUTHORIZATION_MODEL_ID, FGA_MODEL_ID, FGA_AUTHORIZATION_MODEL_ID)"},
-		{"OPENFGA_API_TOKEN", "API bearer token (alias: FGA_API_TOKEN)"},
+		{"OPENFGA_API_TOKEN", "API bearer token compatibility fallback; prefer --auth-token-file (alias: FGA_API_TOKEN)"},
 		{"OPENFGA_CLIENT_ID", "OAuth client ID for client_credentials (alias: FGA_CLIENT_ID)"},
-		{"OPENFGA_CLIENT_SECRET", "OAuth client secret for client_credentials (alias: FGA_CLIENT_SECRET)"},
+		{"OPENFGA_CLIENT_SECRET", "OAuth secret compatibility fallback; prefer --auth-client-secret-file (alias: FGA_CLIENT_SECRET)"},
 		{"OPENFGA_TOKEN_URL", "OAuth token endpoint for client_credentials (alias: FGA_TOKEN_URL)"},
 		{"OPENFGA_API_AUDIENCE", "OAuth audience for client_credentials (alias: FGA_API_AUDIENCE)"},
 		{"OPENFGA_SCOPES", "OAuth scopes for client_credentials (alias: FGA_SCOPES)"},

@@ -15,14 +15,9 @@ func TestOutputAliasFlags(t *testing.T) {
 	a := cli.New(log.New(io.Discard), config.New(), "test")
 	root := New(a).Command()
 
-	for _, name := range []string{"json", "yaml", "plain"} {
+	for _, name := range []string{"json", "yaml", "plain", "no-input", "timeout", "debug", "verbose"} {
 		if root.PersistentFlags().Lookup(name) == nil {
 			t.Errorf("expected global --%s flag", name)
-		}
-		for _, name := range []string{"no-input", "timeout"} {
-			if root.PersistentFlags().Lookup(name) == nil {
-				t.Errorf("expected global --%s flag", name)
-			}
 		}
 	}
 }

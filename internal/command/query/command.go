@@ -119,8 +119,8 @@ func (c *Command) checkCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "check [user] [relation] [object]",
 		Short: "Check whether a user has a relation on an object",
-		Example: `  ofga query check user:anne viewer document:roadmap
-  ofga query check --user user:anne --relation viewer --object document:roadmap`,
+		Example: `  ofga query check --user user:anne --relation viewer --object document:roadmap
+  ofga query check user:anne viewer document:roadmap`,
 		Args: cobra.MaximumNArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			user, relation, object, err := fga.Triple(args, fUser, fRel, fObj)
@@ -188,10 +188,6 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 			if len(checks) == 0 {
 				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("provide at least one --check user,relation,object"))
 			}
-			cl, _, err := c.cli.ClientWithStore()
-			if err != nil {
-				return err
-			}
 			items := make([]openfga.BatchCheckItem, 0, len(checks))
 			labels := make([]string, 0, len(checks))
 			for i, raw := range checks {
@@ -199,12 +195,24 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 				if len(parts) != 3 {
 					return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--check %q must be user,relation,object", raw))
 				}
+				key, err := fga.ParseTuple(
+					strings.TrimSpace(parts[0]),
+					strings.TrimSpace(parts[1]),
+					strings.TrimSpace(parts[2]),
+				)
+				if err != nil {
+					return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--check %q: %w", raw, err))
+				}
 				id := fmt.Sprintf("c%d", i)
 				items = append(items, openfga.BatchCheckItem{
-					TupleKey:      openfga.CheckRequestTupleKey{User: strings.TrimSpace(parts[0]), Relation: strings.TrimSpace(parts[1]), Object: strings.TrimSpace(parts[2])},
+					TupleKey:      openfga.CheckRequestTupleKey{User: key.User, Relation: key.Relation, Object: key.Object},
 					CorrelationID: id,
 				})
-				labels = append(labels, fmt.Sprintf("%s %s %s", strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), strings.TrimSpace(parts[2])))
+				labels = append(labels, fmt.Sprintf("%s %s %s", key.User, key.Relation, key.Object))
+			}
+			cl, _, err := c.cli.ClientWithStore()
+			if err != nil {
+				return err
 			}
 			res, err := cl.Relationships.BatchCheck(cmd.Context(), &openfga.BatchCheckRequest{Checks: items})
 			if err != nil {
@@ -216,7 +224,7 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 			for i, item := range items {
 				r := res.Result[item.CorrelationID]
 				if output.Plain {
-					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\n", allowedWord(r.Allowed), labels[i]); err != nil {
+					if err := writePlainBatchResult(cmd.OutOrStdout(), r.Allowed, labels[i]); err != nil {
 						return err
 					}
 				} else {
@@ -269,8 +277,8 @@ func (c *Command) listObjectsCmd() *cobra.Command {
 		Use:     "list-objects [type] [relation] [user]",
 		Aliases: []string{"objects"},
 		Short:   "List objects of a type a user has a relation with",
-		Example: "  ofga query list-objects document viewer user:anne\n" +
-			"  ofga query list-objects --type document --relation viewer --user user:anne",
+		Example: "  ofga query list-objects --type document --relation viewer --user user:anne\n" +
+			"  ofga query list-objects document viewer user:anne",
 		Args: cobra.MaximumNArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			values, err := resolveArgs(args,
@@ -330,8 +338,8 @@ func (c *Command) listUsersCmd() *cobra.Command {
 		Use:     "list-users [object] [relation] --type <user-type>",
 		Aliases: []string{"users"},
 		Short:   "List users that have a relation on an object",
-		Example: "  ofga query list-users document:roadmap viewer --type user\n" +
-			"  ofga query list-users --object document:roadmap --relation viewer --type user",
+		Example: "  ofga query list-users --object document:roadmap --relation viewer --type user\n" +
+			"  ofga query list-users document:roadmap viewer --type user",
 		Args: cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			values, err := resolveArgs(args,
@@ -388,6 +396,11 @@ func (c *Command) listUsersCmd() *cobra.Command {
 	cmd.Flags().StringVar(&rel, "relation", "", "relation")
 	_ = cmd.MarkFlagRequired("type")
 	return cmd
+}
+
+func writePlainBatchResult(w io.Writer, allowed bool, label string) error {
+	_, err := fmt.Fprintf(w, "%s\t%s\n", allowedWord(allowed), output.PlainField(label))
+	return err
 }
 
 // writeTreePlain renders an untyped expand tree (map[string]any) as an indented

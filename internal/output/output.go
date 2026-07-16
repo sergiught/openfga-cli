@@ -136,7 +136,11 @@ func Emit(w io.Writer, asYAML bool, v any) error {
 func Table(w io.Writer, headers []string, rows [][]string) error {
 	if Plain {
 		for _, row := range rows {
-			if _, err := fmt.Fprintln(w, strings.Join(row, "\t")); err != nil {
+			fields := make([]string, len(row))
+			for i, field := range row {
+				fields[i] = PlainField(field)
+			}
+			if _, err := fmt.Fprintln(w, strings.Join(fields, "\t")); err != nil {
 				return err
 			}
 		}
@@ -220,6 +224,14 @@ func Table(w io.Writer, headers []string, rows [][]string) error {
 
 // KeyValues renders an aligned key/value block (used for "get" style output).
 func KeyValues(w io.Writer, pairs [][2]string) error {
+	if Plain {
+		for _, p := range pairs {
+			if _, err := fmt.Fprintf(w, "%s\t%s\n", PlainField(p[0]), PlainField(p[1])); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	width := 0
 	for _, p := range pairs {
 		if lipgloss.Width(p[0]) > width {
@@ -234,6 +246,25 @@ func KeyValues(w io.Writer, pairs [][2]string) error {
 		}
 	}
 	return nil
+}
+
+// PlainField makes one value safe to embed in a tab-separated, newline-delimited
+// plain-output record without changing structured JSON or YAML data.
+func PlainField(s string) string {
+	s = strings.ReplaceAll(s, "\t", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	return SanitizeField(s)
+}
+
+// HumanBlankLine preserves a visual separator in human output without
+// introducing an empty record in --plain output.
+func HumanBlankLine(w io.Writer) error {
+	if Plain {
+		return nil
+	}
+	_, err := fmt.Fprintln(w)
+	return err
 }
 
 // Successf prints a success line with a green dot (suppressed in Quiet/Plain).

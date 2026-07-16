@@ -47,9 +47,17 @@ func NewTheme(c *cli.CLI) *cobra.Command {
 			if !style.SetTheme(name) {
 				return fmt.Errorf("unknown theme %q (available: %s)", name, strings.Join(theme.Names(), ", "))
 			}
+			previous := cfg.Theme
 			cfg.Theme = name
 			if err := c.SaveConfig(); err != nil {
+				cfg.Theme = previous
 				return err
+			}
+			if c.JSON || c.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.YAML, map[string]string{"theme": name})
+			}
+			if output.Plain {
+				return output.KeyValues(cmd.OutOrStdout(), [][2]string{{"theme", name}})
 			}
 			output.Successf(cmd.ErrOrStderr(), "theme set to %s", style.Bold.Render(name))
 			return nil
