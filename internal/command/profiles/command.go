@@ -165,7 +165,7 @@ func (c *Command) showCmd() *cobra.Command {
 			if len(args) == 1 {
 				p, ok := c.cli.Config.Get(args[0])
 				if !ok {
-					return fmt.Errorf("%w: %q", config.ErrNoProfile, args[0])
+					return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("%w: %q", config.ErrNoProfile, args[0]))
 				}
 				if c.cli.JSON || c.cli.YAML {
 					return output.Emit(cmd.OutOrStdout(), c.cli.YAML, p)
@@ -259,7 +259,7 @@ func (c *Command) setCmd() *cobra.Command {
 			name := c.activeProfile()
 			p, ok := c.cli.Config.Get(name)
 			if !ok {
-				return fmt.Errorf("%w: %q", config.ErrNoProfile, name)
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("%w: %q", config.ErrNoProfile, name))
 			}
 			var literal string
 			if len(args) == 2 {
@@ -323,7 +323,7 @@ func (c *Command) setCmd() *cobra.Command {
 			case "scopes":
 				p.Auth.Scopes = strings.Fields(val)
 			default:
-				return fmt.Errorf("unknown key %q (see `ofga profiles set --help`)", args[0])
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("unknown key %q (see `ofga profiles set --help`)", args[0]))
 			}
 			c.cli.Config.Set(name, p)
 			if len(cleanupFields) > 0 {
@@ -376,16 +376,21 @@ func authForMethod(a config.Auth, method string) config.Auth {
 }
 
 func (c *Command) unsetCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:     "unset <key>",
-		Short:   "Clear a field on a profile",
-		Example: "  ofga profiles unset store_id\n  ofga profiles unset auth",
+	var force bool
+	cmd := &cobra.Command{
+		Use:   "unset <key>",
+		Short: "Clear a field on a profile",
+		Long: "Clear a field on the active profile (or --profile).\n\n" +
+			"`auth` (alias `auth_method`) clears the ENTIRE auth config — method, client_id,\n" +
+			"token_url, audience and any keyring-stored secrets — not just the method. It\n" +
+			"prompts for confirmation unless --force is given.",
+		Example: "  ofga profiles unset store_id\n  ofga profiles unset auth --force",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := c.activeProfile()
 			p, ok := c.cli.Config.Get(name)
 			if !ok {
-				return fmt.Errorf("%w: %q", config.ErrNoProfile, name)
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("%w: %q", config.ErrNoProfile, name))
 			}
 			previous := p
 			key := strings.ToLower(args[0])
@@ -398,6 +403,10 @@ func (c *Command) unsetCmd() *cobra.Command {
 			case "model_id", "model":
 				p.ModelID = ""
 			case "auth", "auth_method":
+				if err := prompt.Confirm(cmd,
+					fmt.Sprintf("clear the entire auth config for profile %s (method, ids, and any keyring secrets)", name), force); err != nil {
+					return err
+				}
 				secretFields = p.Auth.ConfiguredSecretFields()
 				p.Auth = config.Auth{}
 			case "api_token", "token":
@@ -432,7 +441,7 @@ func (c *Command) unsetCmd() *cobra.Command {
 			case "scopes":
 				p.Auth.Scopes = nil
 			default:
-				return fmt.Errorf("unknown key %q (see `ofga profiles unset --help`)", args[0])
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("unknown key %q (see `ofga profiles unset --help`)", args[0]))
 			}
 			c.cli.Config.Set(name, p)
 			saved, err := c.cli.SaveConfigWithSecretCleanup(name, false, secretFields...)
@@ -452,6 +461,8 @@ func (c *Command) unsetCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "skip the confirmation prompt when clearing auth")
+	return cmd
 }
 
 func (c *Command) addCmd() *cobra.Command {
@@ -593,7 +604,7 @@ func (c *Command) removeCmd() *cobra.Command {
 		Args:              cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if _, ok := c.cli.Config.Get(args[0]); !ok {
-				return fmt.Errorf("%w: %q", config.ErrNoProfile, args[0])
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("%w: %q", config.ErrNoProfile, args[0]))
 			}
 			// Config.Remove guards the file's active_profile; also refuse the
 			// profile selected via --profile or OPENFGA_PROFILE, which would
