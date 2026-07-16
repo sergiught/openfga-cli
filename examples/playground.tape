@@ -5,9 +5,10 @@ Output examples/playground.gif
 Require ofga
 
 Set Shell "bash"
+Set FontFamily "MesloLGM Nerd Font Mono"
 Set FontSize 20
-Set Width 1200
-Set Height 800
+Set Width 2400
+Set Height 1600
 Set Padding 20
 Set TypingSpeed 80ms
 Set Theme "Catppuccin Mocha"
