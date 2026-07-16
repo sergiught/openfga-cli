@@ -94,6 +94,8 @@ cat > model.json <<'JSON'
 }
 JSON
 ofga model write --file model.json
+# Prefer the DSL? `ofga model write` also accepts a `.fga` file (or `-` for stdin)
+# and transforms it to JSON for you: `ofga model write --file model.fga`
 
 # 5. Add a relationship tuple
 ofga tuples write user:anne viewer document:roadmap
@@ -226,7 +228,7 @@ in its footer and subsequent actions.
 | `ofga` | Launch the interactive TUI |
 | `ofga init` | Guided first-run setup (creates a connection profile) |
 | `ofga stores` | Create, list, inspect and delete stores |
-| `ofga model` | Write, list, inspect, and **visualize** authorization models (`model graph`) |
+| `ofga model` | Write (from JSON **or `.fga` DSL**), list, inspect, and **visualize** authorization models (`model graph`) |
 | `ofga tuples` | Write, delete, read relationship tuples and follow the changelog |
 | `ofga query` | Ask authorization questions: `check`, `batch-check`, `expand`, `list-objects`, `list-users` |
 | `ofga assertions` | Read, write, and **run** a model's assertion test-suite |
