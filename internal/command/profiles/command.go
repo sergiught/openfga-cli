@@ -281,6 +281,12 @@ func (c *Command) setCmd() *cobra.Command {
 			case "api_url", "url":
 				p.APIURL = val
 			case "store_id", "store":
+				if val != p.StoreID {
+					// A different store invalidates any model id pinned for the old
+					// one; leaving it stale makes the TUI 404 and falsely report the
+					// new store has no model (mirrors the TUI's own persistStore).
+					p.ModelID = ""
+				}
 				p.StoreID = val
 			case "model_id", "model":
 				p.ModelID = val

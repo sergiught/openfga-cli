@@ -167,6 +167,17 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.err != nil {
+			// A pinned model id the store doesn't have (e.g. the store was switched
+			// via `ofga profiles set store` without clearing model_id, or a config
+			// was hand-edited) must not strand the Model view claiming the store has
+			// no model. Drop the stale pin and load the store's latest model once;
+			// if that also fails the pin is already cleared, so this can't loop.
+			if m.modelID != "" && strings.Contains(msg.err.Error(), "authorization_model_not_found") {
+				m.modelID = ""
+				m.beginLoad()
+				m.modelGen++
+				return m, loadModelCmd(m.ctx, m.client, m.storeID, m.modelGen)
+			}
 			cmd := m.toastErr("model", msg.err)
 			if !m.connLost {
 				m.graph = fga.Graph{}
