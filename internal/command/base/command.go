@@ -180,6 +180,32 @@ source <(ofga completion bash)`,
 
 // applyEnvironment resolves the color profile, theme, and output toggles from
 // flags, environment (NO_COLOR, FORCE_COLOR, TERM=dumb) and config.
+// FirstUnknownFlag returns the first token in args that looks like a flag but is
+// not defined on cmd's flag set (long name or shorthand), or "" if none. Used
+// only on the error path to disambiguate pflag swallowing an unknown flag's
+// following token as its value (a mistyped global flag before a subcommand path
+// otherwise surfaces as a misleading "unknown command").
+func FirstUnknownFlag(cmd *cobra.Command, args []string) string {
+	fs := cmd.Flags()
+	for _, a := range args {
+		switch {
+		case a == "--":
+			return "" // everything after -- is positional
+		case strings.HasPrefix(a, "--"):
+			name, _, _ := strings.Cut(strings.TrimPrefix(a, "--"), "=")
+			if name != "" && fs.Lookup(name) == nil {
+				return "--" + name
+			}
+		case strings.HasPrefix(a, "-") && a != "-":
+			name, _, _ := strings.Cut(strings.TrimPrefix(a, "-"), "=")
+			if name != "" && fs.ShorthandLookup(name[:1]) == nil {
+				return a
+			}
+		}
+	}
+	return ""
+}
+
 // resolveOutput maps the -o/--output flag onto the JSON/YAML/Plain toggles.
 // When set it is authoritative (so `-o table` overrides a stray --json), which
 // removes the "what if both?" ambiguity. An unset -o leaves the boolean output

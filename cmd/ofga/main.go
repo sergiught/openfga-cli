@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/signal"
@@ -87,6 +88,15 @@ func main() {
 	if err != nil {
 		if clierr.IsIgnorableBrokenPipe(err) {
 			return
+		}
+		// pflag swallows the token after an unknown long flag as its value, so a
+		// mistyped global flag before a subcommand path (`ofga --debu stores list`)
+		// surfaces as a misleading "unknown command". If an unrecognized flag
+		// actually preceded it, report that instead.
+		if strings.HasPrefix(err.Error(), "unknown command") {
+			if flag := base.FirstUnknownFlag(rootCmd, os.Args[1:]); flag != "" {
+				err = clierr.WithCode(clierr.CodeUsage, fmt.Errorf("unknown flag: %s", flag))
+			}
 		}
 		logger.Debugf("command failed: %+v", err)
 		if ctx.Err() != nil {
