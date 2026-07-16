@@ -312,6 +312,50 @@ func apiLogTabStrip(active int) string {
 	return strings.Join(segs, "  ")
 }
 
+// apiLogTabAt maps a click position to a detail sub-section tab index. It
+// returns false when the click is not on the tab strip: the wrong row, an error
+// entry (which renders no strip), or a layout too narrow to show the detail
+// pane. The strip sits at by+3 — the base-URL header (1), the detail section
+// title (1) and the status line (1) precede it — and starts at the detail
+// pane's left edge (list width + the one-column gap from masterDetailW).
+func (m Model) apiLogTabAt(x, y int) (int, bool) {
+	if m.recorder == nil {
+		return 0, false
+	}
+	entries := m.recorder.Snapshot()
+	if len(entries) == 0 {
+		return 0, false
+	}
+	sel := m.apiLogSel
+	if sel > len(entries)-1 {
+		sel = len(entries) - 1
+	}
+	if sel < 0 {
+		sel = 0
+	}
+	if entries[len(entries)-1-sel].Err != "" {
+		return 0, false
+	}
+	w, _ := m.contentSize()
+	lw := apiLogListWidth(w)
+	if w-lw-2 < 10 {
+		return 0, false
+	}
+	bx, by := m.sh.MainBodyOrigin()
+	if y != by+3 {
+		return 0, false
+	}
+	cur := bx + lw + 1
+	for i, name := range apiLogTabs {
+		segW := lipgloss.Width(name)
+		if x >= cur && x < cur+segW {
+			return i, true
+		}
+		cur += segW + 2 // the two-space separator between labels
+	}
+	return 0, false
+}
+
 // apiLogDetailHeader is the fixed header above the scrollable section content:
 // the status line and (for a non-error entry) the sub-section tab strip.
 func apiLogDetailHeader(e apilog.Entry, tab int) string {

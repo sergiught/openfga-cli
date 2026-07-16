@@ -16,6 +16,30 @@ import (
 	"github.com/sergiught/openfga-cli/internal/ui/shell"
 )
 
+func TestAPILogTabAtMapsClickToTab(t *testing.T) {
+	m := apiLogModel(sampleEntry())
+	bx, by := m.sh.MainBodyOrigin()
+	w, _ := m.contentSize()
+	rx := bx + apiLogListWidth(w) + 1
+	y := by + 3 // base-URL header + section title + status line precede the strip
+
+	if i, ok := m.apiLogTabAt(rx, y); !ok || i != 0 {
+		t.Fatalf("click on first tab = (%d,%v), want (0,true)", i, ok)
+	}
+	// Third tab ("Resp Headers") sits past "Req Headers" and "Req Body" and their
+	// two-space separators.
+	x3 := rx + len("Req Headers") + 2 + len("Req Body") + 2
+	if i, ok := m.apiLogTabAt(x3, y); !ok || i != 2 {
+		t.Fatalf("click on third tab = (%d,%v), want (2,true)", i, ok)
+	}
+	if _, ok := m.apiLogTabAt(rx, y-1); ok {
+		t.Fatal("a click above the strip must not hit a tab")
+	}
+	if _, ok := m.apiLogTabAt(bx, y); ok {
+		t.Fatal("a click over the list pane must not hit a tab")
+	}
+}
+
 func TestAPILogOriginLabelShowsActiveProfileOnly(t *testing.T) {
 	m := apiLogModel()
 	m.cli = &cli.CLI{Config: &config.Config{

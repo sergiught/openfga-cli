@@ -86,6 +86,16 @@ func (m Model) handleClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
+	// Click an API Logs detail sub-section tab (Req/Resp headers/body) to switch
+	// it, mirroring the Tab key.
+	if m.section == secAPILogs {
+		if i, ok := m.apiLogTabAt(msg.X, msg.Y); ok {
+			m.apiLogTab = i
+			m.refreshAPILogVP()
+			m.focus = shell.FocusPanel
+			return m, nil
+		}
+	}
 	// Inline query editing (not a dialog) ignores other stray clicks.
 	if m.editing {
 		return m, nil
