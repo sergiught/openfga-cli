@@ -38,3 +38,14 @@ func File(path string, max int64, label string) ([]byte, error) {
 	defer func() { _ = file.Close() }()
 	return All(file, max, label)
 }
+
+// SecretPermissionWarning reports a regular secret file that is readable or
+// writable by group/other users. It is advisory because mounted container
+// secrets do not always permit chmod.
+func SecretPermissionWarning(path, label string) string {
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 == 0 {
+		return ""
+	}
+	return fmt.Sprintf("warning: %s %s is accessible by other users; restrict it with chmod 600", label, path)
+}

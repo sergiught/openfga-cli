@@ -5,8 +5,10 @@
 package config
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	gap "github.com/muesli/go-app-paths"
+	"github.com/zalando/go-keyring"
 
 	"github.com/sergiught/openfga-cli/internal/readlimit"
 )
@@ -63,6 +66,40 @@ type Auth struct {
 	PrivateKey string `toml:"private_key,omitempty" json:"-"` // secret; never serialized to JSON output
 }
 
+// Validate reports incomplete authentication settings before the SDK turns
+// them into a remote token-exchange failure or silently sends no credential.
+func (a Auth) Validate() error {
+	switch a.Method {
+	case "", AuthNone:
+		return nil
+	case AuthAPIToken:
+		if a.Token == "" {
+			return errors.New("api_token authentication requires a token")
+		}
+	case AuthClientCredentials:
+		switch {
+		case a.ClientID == "":
+			return errors.New("client_credentials authentication requires client_id")
+		case a.ClientSecret == "":
+			return errors.New("client_credentials authentication requires client_secret")
+		case a.TokenURL == "":
+			return errors.New("client_credentials authentication requires token_url")
+		}
+	case AuthPrivateKeyJWT:
+		switch {
+		case a.ClientID == "":
+			return errors.New("private_key_jwt authentication requires client_id")
+		case a.TokenURL == "":
+			return errors.New("private_key_jwt authentication requires token_url")
+		case a.PrivateKey == "" && a.KeyFile == "":
+			return errors.New("private_key_jwt authentication requires private_key or key_file")
+		}
+	default:
+		return fmt.Errorf("unknown auth method %q (use none, api_token, client_credentials or private_key_jwt)", a.Method)
+	}
+	return nil
+}
+
 // Profile is a single named connection context.
 type Profile struct {
 	APIURL  string `toml:"api_url" json:"api_url"`
@@ -84,21 +121,59 @@ func (a *Auth) secretFields() []secretField {
 	}
 }
 
+// activeSecretFields returns only the keyring fields used by the selected auth
+// method. Stale fields from an older method must never make an otherwise valid
+// profile depend on an unavailable keyring.
+func (a *Auth) activeSecretFields() []secretField {
+	switch a.Method {
+	case AuthAPIToken:
+		return []secretField{{"token", &a.Token}}
+	case AuthClientCredentials:
+		return []secretField{{"client_secret", &a.ClientSecret}}
+	case AuthPrivateKeyJWT:
+		return []secretField{{"private_key", &a.PrivateKey}}
+	default:
+		return nil
+	}
+}
+
+// ConfiguredSecretFields lists keyring-managed fields present on the profile.
+func (a Auth) ConfiguredSecretFields() []string {
+	var fields []string
+	for _, sf := range a.secretFields() {
+		if *sf.ptr != "" {
+			fields = append(fields, sf.name)
+		}
+	}
+	return fields
+}
+
 // Config is the on-disk configuration document.
 // SchemaVersion is the current on-disk config format version, written on Save
 // and available to gate future migrations.
 const SchemaVersion = 1
 
 type Config struct {
-	Version  int                `toml:"version"`
-	Active   string             `toml:"active_profile"`
-	Theme    string             `toml:"theme,omitempty"`
-	Icons    string             `toml:"icons,omitempty"`
-	Profiles map[string]Profile `toml:"profiles"`
+	Version                   int                 `toml:"version"`
+	Active                    string              `toml:"active_profile"`
+	Theme                     string              `toml:"theme,omitempty"`
+	Icons                     string              `toml:"icons,omitempty"`
+	PendingCredentialCleanups []CredentialCleanup `toml:"pending_credential_cleanup,omitempty" json:"-"`
+	Profiles                  map[string]Profile  `toml:"profiles"`
 
 	path    string // resolved file path; not serialized
 	existed bool   // whether the config was read from an existing file
 	loadErr error  // a deferred parse/version error; nil when the file loaded cleanly
+
+	fingerprint    [sha256.Size]byte
+	fingerprintSet bool
+}
+
+// CredentialCleanup is a durable, config-scoped request to remove obsolete
+// keyring fields. It makes a failed post-save cleanup explicitly retryable.
+type CredentialCleanup struct {
+	Profile string   `toml:"profile"`
+	Fields  []string `toml:"fields"`
 }
 
 // Resolved is the fully merged, ready-to-use connection configuration after
@@ -198,6 +273,11 @@ func LoadFrom(path string) (*Config, error) {
 			return nil, err
 		}
 	}
+	var err error
+	path, err = canonicalConfigPath(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve config path: %w", err)
+	}
 
 	cfg := New()
 	cfg.path = path
@@ -209,6 +289,8 @@ func LoadFrom(path string) (*Config, error) {
 		}
 		return nil, fmt.Errorf("read config: %w", err)
 	}
+	cfg.fingerprint = sha256.Sum256(data)
+	cfg.fingerprintSet = true
 
 	// Reset profiles so the file is authoritative, then decode.
 	cfg.Profiles = map[string]Profile{}
@@ -216,6 +298,8 @@ func LoadFrom(path string) (*Config, error) {
 		broken := New()
 		broken.path = path
 		broken.existed = true
+		broken.fingerprint = cfg.fingerprint
+		broken.fingerprintSet = true
 		broken.loadErr = fmt.Errorf("parse config %s: %w", path, err)
 		return broken, nil
 	}
@@ -241,26 +325,239 @@ func LoadFrom(path string) (*Config, error) {
 // permissions (dir 0700) via a temp file + atomic rename, ensuring the secrets
 // are never world-readable even briefly and never left truncated on error.
 func (c *Config) Save() error {
+	unlock, err := c.lockForSave()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return c.saveLocked()
+}
+
+// SaveWithSecretCleanup saves the config and removes the named profile's
+// credentials before releasing the same cross-process lock. saved reports
+// whether the config was durably replaced when cleanup itself fails.
+func (c *Config) SaveWithSecretCleanup(profile string, all bool, expected ...string) (saved bool, err error) {
+	unlock, err := c.lockForSave()
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
+	previousPending := append([]CredentialCleanup(nil), c.PendingCredentialCleanups...)
+	fields, err := cleanupFields(all, expected)
+	if err != nil {
+		return false, err
+	}
+	c.queueCredentialCleanup(profile, fields)
+	if err := c.saveLocked(); err != nil {
+		if saveWasCommitted(err) {
+			return true, err
+		}
+		c.PendingCredentialCleanups = previousPending
+		return false, err
+	}
+	if len(fields) == 0 {
+		return true, nil
+	}
+	if _, err := c.retryCredentialCleanupLocked(); err != nil {
+		return true, err
+	}
+	return true, nil
+}
+
+// RetryCredentialCleanup retries all durable cleanup requests while holding
+// the same cross-process lock used for config writes.
+func (c *Config) RetryCredentialCleanup() (int, error) {
+	unlock, err := c.lockForSave()
+	if err != nil {
+		return len(c.PendingCredentialCleanups), err
+	}
+	defer unlock()
+	if len(c.PendingCredentialCleanups) == 0 {
+		return 0, nil
+	}
+	// Verify the file fingerprint under the lock before deleting anything.
+	// Another process may have reintroduced this profile/field since load.
+	if err := c.saveLocked(); err != nil {
+		return len(c.PendingCredentialCleanups), err
+	}
+	return c.retryCredentialCleanupLocked()
+}
+
+func cleanupFields(all bool, expected []string) ([]string, error) {
+	if all {
+		expected = secretFieldNames
+	}
+	seen := make(map[string]bool, len(expected))
+	fields := make([]string, 0, len(expected))
+	for _, field := range expected {
+		if !isSecretField(field) {
+			return nil, fmt.Errorf("unknown secret field %q", field)
+		}
+		if !seen[field] {
+			seen[field] = true
+			fields = append(fields, field)
+		}
+	}
+	return fields, nil
+}
+
+func isSecretField(field string) bool {
+	for _, candidate := range secretFieldNames {
+		if field == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *Config) queueCredentialCleanup(profile string, fields []string) {
+	if len(fields) == 0 {
+		return
+	}
+	for i := range c.PendingCredentialCleanups {
+		pending := &c.PendingCredentialCleanups[i]
+		if pending.Profile != profile {
+			continue
+		}
+		merged, _ := cleanupFields(false, append(pending.Fields, fields...))
+		pending.Fields = merged
+		return
+	}
+	c.PendingCredentialCleanups = append(c.PendingCredentialCleanups, CredentialCleanup{
+		Profile: profile,
+		Fields:  append([]string(nil), fields...),
+	})
+}
+
+func (c *Config) retryCredentialCleanupLocked() (int, error) {
+	original := c.PendingCredentialCleanups
+	var (
+		remaining []CredentialCleanup
+		errs      []error
+	)
+	for _, pending := range c.PendingCredentialCleanups {
+		fields, err := cleanupFields(false, pending.Fields)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("cleanup profile %q: %w", pending.Profile, err))
+			remaining = append(remaining, pending)
+			continue
+		}
+		var retryFields []string
+		for _, field := range fields {
+			if c.profileUsesSecret(pending.Profile, field) {
+				continue
+			}
+			if err := c.deleteSecret(pending.Profile, field); err != nil {
+				errs = append(errs, fmt.Errorf("delete %s for profile %q: %w", field, pending.Profile, err))
+				retryFields = append(retryFields, field)
+			}
+		}
+		if len(retryFields) > 0 {
+			remaining = append(remaining, CredentialCleanup{Profile: pending.Profile, Fields: retryFields})
+		}
+	}
+
+	changed := len(remaining) != len(c.PendingCredentialCleanups)
+	if !changed {
+		for i := range remaining {
+			if remaining[i].Profile != c.PendingCredentialCleanups[i].Profile ||
+				!equalStrings(remaining[i].Fields, c.PendingCredentialCleanups[i].Fields) {
+				changed = true
+				break
+			}
+		}
+	}
+	c.PendingCredentialCleanups = remaining
+	if changed {
+		if err := c.saveLocked(); err != nil {
+			errs = append(errs, fmt.Errorf("record credential cleanup progress: %w", err))
+			if !saveWasCommitted(err) {
+				c.PendingCredentialCleanups = original
+				return len(original), errors.Join(errs...)
+			}
+			return len(remaining), errors.Join(errs...)
+		}
+	}
+	return len(remaining), errors.Join(errs...)
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func (c *Config) profileUsesSecret(profile, field string) bool {
+	p, ok := c.Profiles[profile]
+	if !ok {
+		return false
+	}
+	for _, sf := range p.Auth.secretFields() {
+		if sf.name == field {
+			return *sf.ptr != ""
+		}
+	}
+	return false
+}
+
+func (c *Config) lockForSave() (func(), error) {
 	// Refuse to overwrite a file we could not parse (or that a newer ofga
 	// wrote): replacing it with the in-memory defaults would destroy the user's
 	// real config. Callers surface this instead of silently clobbering.
 	if c.loadErr != nil {
-		return c.loadErr
+		return nil, c.loadErr
 	}
 	if c.path == "" {
 		p, err := resolvePath()
 		if err != nil {
-			return err
+			return nil, err
 		}
-		c.path = p
+		c.path, err = canonicalConfigPath(p)
+		if err != nil {
+			return nil, fmt.Errorf("resolve config path: %w", err)
+		}
 	}
 	if c.Version == 0 {
 		c.Version = SchemaVersion
+	}
+	if err := os.MkdirAll(filepath.Dir(c.path), 0o700); err != nil {
+		return nil, fmt.Errorf("create config dir: %w", err)
+	}
+	unlock, err := lockConfig(c.path)
+	if err != nil {
+		return nil, err
+	}
+	return unlock, nil
+}
+
+func (c *Config) saveLocked() error {
+	if c.existed && c.fingerprintSet {
+		current, err := readlimit.File(c.path, readlimit.Config, "config file")
+		if err != nil {
+			return fmt.Errorf("check config before save: %w", err)
+		}
+		if sha256.Sum256(current) != c.fingerprint {
+			return fmt.Errorf("config %s changed on disk since it was loaded; reload it and retry", c.path)
+		}
+	} else if info, err := os.Stat(c.path); err == nil && info.Mode().IsRegular() {
+		return fmt.Errorf("config %s was created by another process since this command started; reload it and retry", c.path)
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("check config before save: %w", err)
 	}
 
 	// Move any real secret values into the OS keyring, leaving only the
 	// sentinel in the file. A value already equal to the sentinel came from
 	// disk and is left alone.
+	var staged []stagedSecret
+	fail := func(err error) error {
+		return c.rollbackStagedSecrets(staged, err)
+	}
 	for name, p := range c.Profiles {
 		auth := p.Auth
 		for _, sf := range auth.secretFields() {
@@ -268,47 +565,127 @@ func (c *Config) Save() error {
 				continue
 			}
 			if !secretsAvailable() {
-				return fmt.Errorf("cannot store %s for profile %q securely: the OS keyring is unavailable. "+
-					"Provide the secret via the environment (OPENFGA_API_TOKEN / OPENFGA_CLIENT_SECRET) instead, "+
-					"or use key_file for private_key_jwt", sf.name, name)
+				return fail(fmt.Errorf("cannot store %s for profile %q securely: the OS keyring is unavailable. "+
+					"Use the matching process-scoped --auth-*-file flag instead, "+
+					"or use key_file for private_key_jwt", sf.name, name))
 			}
-			if err := secretSet(name, sf.name, *sf.ptr); err != nil {
-				return fmt.Errorf("store %s for profile %q in keyring: %w", sf.name, name, err)
+			old, getErr := scopedSecretGet(c.path, name, sf.name)
+			hadOld := getErr == nil
+			if getErr != nil && !errors.Is(getErr, keyring.ErrNotFound) {
+				return fail(fmt.Errorf("read existing %s for profile %q from keyring: %w", sf.name, name, getErr))
 			}
+			original := *sf.ptr
+			if err := scopedSecretSet(c.path, name, sf.name, *sf.ptr); err != nil {
+				return fail(fmt.Errorf("store %s for profile %q in keyring: %w", sf.name, name, err))
+			}
+			staged = append(staged, stagedSecret{
+				profile: name, field: sf.name, original: original, old: old, hadOld: hadOld,
+			})
 			*sf.ptr = keyringSentinel
 		}
 		p.Auth = auth
 		c.Profiles[name] = p
 	}
 
-	if err := os.MkdirAll(filepath.Dir(c.path), 0o700); err != nil {
-		return fmt.Errorf("create config dir: %w", err)
-	}
-
 	tmp, err := os.CreateTemp(filepath.Dir(c.path), configFileName+".*.tmp")
 	if err != nil {
-		return fmt.Errorf("create config file: %w", err)
+		return fail(fmt.Errorf("create config file: %w", err))
 	}
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName) // no-op after a successful rename
 
 	if err := tmp.Chmod(0o600); err != nil {
 		tmp.Close()
-		return fmt.Errorf("secure config file: %w", err)
+		return fail(fmt.Errorf("secure config file: %w", err))
 	}
-	enc := toml.NewEncoder(tmp)
+	digest := sha256.New()
+	enc := toml.NewEncoder(io.MultiWriter(tmp, digest))
 	enc.Indent = "  "
 	if err := enc.Encode(c); err != nil {
 		tmp.Close()
-		return fmt.Errorf("encode config: %w", err)
+		return fail(fmt.Errorf("encode config: %w", err))
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fail(fmt.Errorf("sync config file: %w", err))
 	}
 	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("write config file: %w", err)
+		return fail(fmt.Errorf("write config file: %w", err))
 	}
 	if err := os.Rename(tmpName, c.path); err != nil {
-		return fmt.Errorf("write config file: %w", err)
+		return fail(fmt.Errorf("write config file: %w", err))
+	}
+	copy(c.fingerprint[:], digest.Sum(nil))
+	c.fingerprintSet = true
+	c.existed = true
+	if err := syncConfigDir(filepath.Dir(c.path)); err != nil {
+		// The atomic replacement happened, so rolling keyring entries back
+		// would make the new sentinel-bearing file reference old credentials.
+		// Mark this distinctly so cleanup callers never delete credentials
+		// when the directory entry's crash durability is uncertain.
+		return &committedSaveError{err: fmt.Errorf("sync config directory: %w", err)}
 	}
 	return nil
+}
+
+type committedSaveError struct{ err error }
+
+func (e *committedSaveError) Error() string { return e.err.Error() }
+func (e *committedSaveError) Unwrap() error { return e.err }
+
+func saveWasCommitted(err error) bool {
+	var committed *committedSaveError
+	return errors.As(err, &committed)
+}
+
+// SaveWasCommitted reports whether Save replaced the config before a
+// post-rename durability sync failed. Callers must retain their in-memory
+// changes in this case rather than rolling back over the replaced file.
+func SaveWasCommitted(err error) bool { return saveWasCommitted(err) }
+
+type stagedSecret struct {
+	profile  string
+	field    string
+	original string
+	old      string
+	hadOld   bool
+}
+
+func (c *Config) rollbackStagedSecrets(staged []stagedSecret, cause error) error {
+	var rollbackErrs []error
+	for i := len(staged) - 1; i >= 0; i-- {
+		s := staged[i]
+		var err error
+		if s.hadOld {
+			err = scopedSecretSet(c.path, s.profile, s.field, s.old)
+		} else {
+			err = scopedSecretDelete(c.path, s.profile, s.field)
+		}
+		if err != nil {
+			rollbackErrs = append(rollbackErrs,
+				fmt.Errorf("restore %s for profile %q in keyring: %w", s.field, s.profile, err))
+		}
+		p, ok := c.Profiles[s.profile]
+		if ok {
+			setSecretField(&p.Auth, s.field, s.original)
+			c.Profiles[s.profile] = p
+		}
+	}
+	if len(rollbackErrs) == 0 {
+		return cause
+	}
+	return errors.Join(append([]error{cause}, rollbackErrs...)...)
+}
+
+func setSecretField(a *Auth, field, value string) {
+	switch field {
+	case "token":
+		a.Token = value
+	case "client_secret":
+		a.ClientSecret = value
+	case "private_key":
+		a.PrivateKey = value
+	}
 }
 
 // ProfileNames returns the profile names sorted alphabetically.
@@ -344,13 +721,46 @@ func (c *Config) Remove(name string) error {
 		return fmt.Errorf("cannot remove the active profile %q; switch first", name)
 	}
 	delete(c.Profiles, name)
-
-	// Best-effort: drop the profile's secrets from the keyring so they don't
-	// linger. Deletion of an absent entry is a no-op.
-	for _, field := range []string{"token", "client_secret", "private_key"} {
-		_ = secretDelete(name, field)
-	}
 	return nil
+}
+
+func (c *Config) deleteSecret(profile, field string) error {
+	if !isSecretField(field) {
+		return fmt.Errorf("unknown secret field %q", field)
+	}
+	path, err := c.secretPath()
+	if err != nil {
+		return err
+	}
+	return scopedSecretDelete(path, profile, field)
+}
+
+func (c *Config) secretPath() (string, error) {
+	if c.path != "" {
+		return c.path, nil
+	}
+	return resolvePath()
+}
+
+func (c *Config) readSecret(profile, field string) (string, error) {
+	path, err := c.secretPath()
+	if err != nil {
+		return "", err
+	}
+	value, err := scopedSecretGet(path, profile, field)
+	if err == nil || !errors.Is(err, keyring.ErrNotFound) {
+		return value, err
+	}
+
+	// Old releases used profile.field for every config. Copy a legacy value
+	// into this config's namespace on first read, but never delete the shared
+	// entry: another --config file may still depend on it.
+	value, err = legacySecretGet(profile, field)
+	if err != nil {
+		return "", err
+	}
+	_ = scopedSecretSet(path, profile, field, value)
+	return value, nil
 }
 
 // Use sets the active profile.
@@ -374,10 +784,13 @@ func (c *Config) noProfileErr(name string) error {
 // Overrides carries flag-supplied values that take precedence over everything.
 // An empty string means "not set".
 type Overrides struct {
-	Profile string
-	APIURL  string
-	StoreID string
-	ModelID string
+	Profile      string
+	APIURL       string
+	StoreID      string
+	ModelID      string
+	APIToken     string
+	ClientSecret string
+	PrivateKey   string
 }
 
 // firstEnv returns the first non-empty value among the named environment
@@ -405,6 +818,19 @@ func secretEnvOverride(field string) string {
 		return firstEnv("OPENFGA_CLIENT_SECRET", "FGA_CLIENT_SECRET")
 	case "private_key":
 		return firstEnv("OPENFGA_KEY_FILE", "FGA_KEY_FILE")
+	default:
+		return ""
+	}
+}
+
+func secretRuntimeOverride(o Overrides, field string) string {
+	switch field {
+	case "token":
+		return o.APIToken
+	case "client_secret":
+		return o.ClientSecret
+	case "private_key":
+		return o.PrivateKey
 	default:
 		return ""
 	}
@@ -452,7 +878,14 @@ func (c *Config) Resolve(o Overrides) (Resolved, error) {
 
 	// Replace keyring sentinels with the real values before env overrides
 	// (which still win). name is the resolved profile name.
-	for _, sf := range r.Auth.secretFields() {
+	secretFields := r.Auth.activeSecretFields()
+	if o.APIToken != "" {
+		// A process-scoped bearer token replaces the entire auth flow, so none
+		// of the profile's now-irrelevant keyring entries should be required.
+		r.Auth = Auth{}
+		secretFields = nil
+	}
+	for _, sf := range secretFields {
 		if *sf.ptr != keyringSentinel {
 			continue
 		}
@@ -461,18 +894,18 @@ func (c *Config) Resolve(o Overrides) (Resolved, error) {
 		// fills it; clearing to "" — not leaving the sentinel — matters for
 		// private_key, whose non-empty value would otherwise be parsed as
 		// literal PEM by client.go's signingKeyPEM.
-		if secretEnvOverride(sf.name) != "" {
+		if secretRuntimeOverride(o, sf.name) != "" || secretEnvOverride(sf.name) != "" {
 			*sf.ptr = ""
 			continue
 		}
 		if !secretsAvailable() {
 			return Resolved{}, fmt.Errorf("%s for profile %q is stored in the OS keyring, which is unavailable here; "+
-				"set OPENFGA_API_TOKEN / OPENFGA_CLIENT_SECRET (or key_file) instead", sf.name, name)
+				"use the matching --auth-*-file flag or compatibility environment variable instead", sf.name, name)
 		}
-		v, err := secretGet(name, sf.name)
+		v, err := c.readSecret(name, sf.name)
 		if err != nil {
 			return Resolved{}, fmt.Errorf("%s for profile %q is not in this machine's keyring; re-set it with "+
-				"`ofga profiles set %s` or provide it via the environment", sf.name, name, sf.name)
+				"`ofga profiles set %s` or use the matching --auth-*-file flag", sf.name, name, sf.name)
 		}
 		*sf.ptr = v
 	}
@@ -512,6 +945,9 @@ func (c *Config) Resolve(o Overrides) (Resolved, error) {
 	if pm := p.ResolvedAuth().Method; pm == "" || pm == AuthClientCredentials {
 		clientID := firstEnv("OPENFGA_CLIENT_ID", "FGA_CLIENT_ID")
 		clientSecret := firstEnv("OPENFGA_CLIENT_SECRET", "FGA_CLIENT_SECRET")
+		if clientSecret == "" {
+			clientSecret = o.ClientSecret
+		}
 		tokenURL := firstEnv("OPENFGA_TOKEN_URL", "FGA_TOKEN_URL")
 		if clientID == "" {
 			clientID = r.Auth.ClientID
@@ -551,6 +987,22 @@ func (c *Config) Resolve(o Overrides) (Resolved, error) {
 	}
 	if o.ModelID != "" {
 		r.ModelID = o.ModelID
+	}
+	if o.APIToken != "" {
+		r.Auth = Auth{Method: AuthAPIToken, Token: o.APIToken}
+	}
+	if o.ClientSecret != "" {
+		if r.Auth.Method != AuthClientCredentials {
+			return Resolved{}, fmt.Errorf("--auth-client-secret-file requires a client_credentials profile or environment configuration")
+		}
+		r.Auth.ClientSecret = o.ClientSecret
+	}
+	if o.PrivateKey != "" {
+		if r.Auth.Method != AuthPrivateKeyJWT {
+			return Resolved{}, fmt.Errorf("--auth-private-key-file requires a private_key_jwt profile")
+		}
+		r.Auth.PrivateKey = o.PrivateKey
+		r.Auth.KeyFile = ""
 	}
 
 	if r.APIURL == "" {

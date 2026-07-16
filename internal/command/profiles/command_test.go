@@ -63,6 +63,13 @@ func TestSetPrivateKeyStoresInKeyring(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	p, _ := cfg.Get("default")
+	p.Auth = config.Auth{
+		Method:   config.AuthPrivateKeyJWT,
+		ClientID: "client",
+		TokenURL: "https://issuer.example/token",
+	}
+	cfg.Set("default", p)
 	c := cli.New(charmlog.New(io.Discard), cfg, "test")
 	set := subCmd(t, c, "set")
 	if err := set.Flags().Set("value-stdin", "true"); err != nil {
@@ -74,9 +81,9 @@ func TestSetPrivateKeyStoresInKeyring(t *testing.T) {
 		t.Fatalf("set private_key: %v", err)
 	}
 
-	got, err := keyring.Get("openfga-cli", "default.private_key")
-	if err != nil || got != strings.TrimSpace(pem) {
-		t.Fatalf("private_key not stored in keyring: got %q, err %v", got, err)
+	resolved, err := cfg.Resolve(config.Overrides{})
+	if err != nil || resolved.Auth.PrivateKey != strings.TrimSpace(pem) {
+		t.Fatalf("private_key not resolved from keyring: got %q, err %v", resolved.Auth.PrivateKey, err)
 	}
 
 	data, err := os.ReadFile(path)
@@ -138,6 +145,170 @@ func TestProfilesRemoveRefusesEnvActiveProfile(t *testing.T) {
 	t.Setenv("OPENFGA_PROFILE", "prod")
 	if err := remove.RunE(remove, []string{"prod"}); err == nil {
 		t.Error("removing the env-selected active profile should be refused")
+	}
+
+}
+
+func TestProfilesCurrentFailsForMissingEffectiveProfile(t *testing.T) {
+	c := cli.New(charmlog.New(io.Discard), config.New(), "test")
+	current := subCmd(t, c, "current")
+	t.Setenv("OPENFGA_PROFILE", "missing")
+	if err := current.RunE(current, nil); err == nil {
+		t.Fatal("a missing effective profile must return a non-zero command error")
+	}
+}
+
+func TestProfilesSetUsesEnvironmentSelectedProfile(t *testing.T) {
+	for _, env := range []string{"OPENFGA_PROFILE", "FGA_PROFILE"} {
+		t.Run(env, func(t *testing.T) {
+			keyring.MockInit()
+			cfg, err := config.LoadFrom(filepath.Join(t.TempDir(), "config.toml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg.Set("prod", config.Profile{APIURL: "https://old.example"})
+			t.Setenv("OPENFGA_PROFILE", "")
+			t.Setenv("FGA_PROFILE", "")
+			t.Setenv(env, "prod")
+			set := subCmd(t, cli.New(charmlog.New(io.Discard), cfg, "test"), "set")
+			if err := set.RunE(set, []string{"api_url", "https://new.example"}); err != nil {
+				t.Fatal(err)
+			}
+			prod, _ := cfg.Get("prod")
+			def, _ := cfg.Get("default")
+			if prod.APIURL != "https://new.example" || def.APIURL != config.DefaultAPIURL {
+				t.Fatalf("set targeted wrong profile: prod=%q default=%q", prod.APIURL, def.APIURL)
+			}
+		})
+	}
+}
+
+func TestProfilesUnsetDeletesSecretAfterSave(t *testing.T) {
+	keyring.MockInit()
+	path := filepath.Join(t.TempDir(), "config.toml")
+	cfg, err := config.LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, _ := cfg.Get("default")
+	p.Auth = config.Auth{Method: config.AuthAPIToken, Token: "secret"}
+	cfg.Set("default", p)
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	c := cli.New(charmlog.New(io.Discard), cfg, "test")
+	unset := subCmd(t, c, "unset")
+	if err := unset.RunE(unset, []string{"token"}); err != nil {
+		t.Fatal(err)
+	}
+	p, _ = cfg.Get("default")
+	p.Auth = config.Auth{Method: config.AuthAPIToken, Token: "keyring:managed"}
+	cfg.Set("default", p)
+	if _, err := cfg.Resolve(config.Overrides{}); err == nil {
+		t.Fatal("unset token should delete the durable keyring entry")
+	}
+}
+
+func TestProfilesSetAuthMethodCleansObsoleteSecret(t *testing.T) {
+	keyring.MockInit()
+	path := filepath.Join(t.TempDir(), "config.toml")
+	cfg, err := config.LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, _ := cfg.Get("default")
+	p.Auth = config.Auth{Method: config.AuthAPIToken, Token: "secret"}
+	cfg.Set("default", p)
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	set := subCmd(t, cli.New(charmlog.New(io.Discard), cfg, "test"), "set")
+	if err := set.RunE(set, []string{"auth_method", config.AuthNone}); err != nil {
+		t.Fatal(err)
+	}
+	p, _ = cfg.Get("default")
+	if p.Auth.Method != config.AuthNone || p.Auth.Token != "" {
+		t.Fatalf("obsolete token retained after disabling auth: %+v", p.Auth)
+	}
+
+	// Reintroducing a stale sentinel must not resolve: the scoped entry was
+	// deleted durably when the method changed.
+	p.Auth = config.Auth{Method: config.AuthAPIToken, Token: "keyring:managed"}
+	cfg.Set("default", p)
+	if _, err := cfg.Resolve(config.Overrides{}); err == nil {
+		t.Fatal("obsolete token remained in the keyring")
+	}
+}
+
+func TestProfilesCleanupFailureNamesRetryCommand(t *testing.T) {
+	keyring.MockInit()
+	path := filepath.Join(t.TempDir(), "config.toml")
+	cfg, err := config.LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, _ := cfg.Get("default")
+	p.Auth = config.Auth{Method: config.AuthAPIToken, Token: "secret"}
+	cfg.Set("default", p)
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	keyring.MockInitWithError(io.ErrClosedPipe)
+	c := cli.New(charmlog.New(io.Discard), cfg, "test")
+	unset := subCmd(t, c, "unset")
+	err = unset.RunE(unset, []string{"token"})
+	if err == nil || !strings.Contains(err.Error(), "ofga profiles cleanup-credentials") {
+		t.Fatalf("cleanup error must name retry command, got %v", err)
+	}
+
+	keyring.MockInit()
+	reloaded, err := config.LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanup := subCmd(t, cli.New(charmlog.New(io.Discard), reloaded, "test"), "cleanup-credentials")
+	if err := cleanup.RunE(cleanup, nil); err != nil {
+		t.Fatalf("retry command failed: %v", err)
+	}
+}
+
+func TestProfilesAddSaveFailurePreservesExistingKeyringEntry(t *testing.T) {
+	keyring.MockInit()
+	if err := keyring.Set("openfga-cli", "dev.token", "old-secret"); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "config-target")
+	cfg, err := config.LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	tokenFile := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(tokenFile, []byte("new-secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	c := cli.New(charmlog.New(io.Discard), cfg, "test")
+	add := subCmd(t, c, "add")
+	if err := add.Flags().Set("auth-method", config.AuthAPIToken); err != nil {
+		t.Fatal(err)
+	}
+	if err := add.Flags().Set("token-file", tokenFile); err != nil {
+		t.Fatal(err)
+	}
+	if err := add.RunE(add, []string{"dev"}); err == nil {
+		t.Fatal("save should fail when the config target is a directory")
+	}
+	if got, err := keyring.Get("openfga-cli", "dev.token"); err != nil || got != "old-secret" {
+		t.Fatalf("keyring entry after rollback = %q, %v; want old-secret", got, err)
+	}
+	if _, ok := cfg.Get("dev"); ok {
+		t.Fatal("failed profile creation should be rolled back in memory")
 	}
 }
 

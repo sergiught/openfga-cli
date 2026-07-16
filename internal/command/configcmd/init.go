@@ -41,6 +41,8 @@ func NewInit(c *cli.CLI) *cobra.Command {
 			if token != "" {
 				return fmt.Errorf("refusing to read the token from --token (it would leak to `ps` and shell history); use --token-stdin")
 			}
+			previous, previousExists := c.Config.Get(name)
+			previousActive := c.Config.Active
 			// Only guard against overwrite when the profile came from a real
 			// on-disk config, not the default synthesized on first run.
 			if _, exists := c.Config.Get(name); exists && c.Config.Existed() && !force {
@@ -81,10 +83,31 @@ func NewInit(c *cli.CLI) *cobra.Command {
 			}
 			c.Config.Set(name, p)
 			_ = c.Config.Use(name)
-			if err := c.SaveConfig(); err != nil {
+			var obsoleteSecrets []string
+			if previousExists {
+				obsoleteSecrets = previous.Auth.ConfiguredSecretFields()
+			}
+			saved, err := c.SaveConfigWithSecretCleanup(name, false, obsoleteSecrets...)
+			if err != nil {
+				if !saved {
+					_ = c.Config.Use(previousActive)
+					if previousExists {
+						c.Config.Set(name, previous)
+					} else {
+						c.Config.Active = ""
+						_ = c.Config.Remove(name)
+					}
+					c.Config.Active = previousActive
+				}
 				return err
 			}
 
+			if c.JSON || c.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.YAML, map[string]any{"profile": name, "active": true})
+			}
+			if output.Plain {
+				return output.KeyValues(cmd.OutOrStdout(), [][2]string{{"profile", name}, {"active", "true"}})
+			}
 			output.Successf(cmd.ErrOrStderr(), "configured profile %s (now active)", style.Bold.Render(name))
 			output.Infof(cmd.ErrOrStderr(), "next: run `ofga stores list` to check the connection")
 			return nil

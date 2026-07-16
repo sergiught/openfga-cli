@@ -1,9 +1,11 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/zalando/go-keyring"
@@ -112,6 +114,161 @@ func TestResolveProfileAndOverrides(t *testing.T) {
 			t.Errorf("flag api-url should win: got %q", r.APIURL)
 		}
 	})
+}
+
+func TestResolveRuntimeSecretOverrides(t *testing.T) {
+	cfg := &Config{
+		Active: "api",
+		Profiles: map[string]Profile{
+			"api":   {APIURL: DefaultAPIURL, Auth: Auth{Method: AuthAPIToken, Token: "stored"}},
+			"oauth": {APIURL: DefaultAPIURL, Auth: Auth{Method: AuthClientCredentials, ClientID: "id", ClientSecret: "stored", TokenURL: "https://issuer/token"}},
+			"jwt":   {APIURL: DefaultAPIURL, Auth: Auth{Method: AuthPrivateKeyJWT, ClientID: "id", TokenURL: "https://issuer/token", KeyFile: "/stored.pem"}},
+		},
+	}
+
+	r, err := cfg.Resolve(Overrides{APIToken: "runtime"})
+	if err != nil || r.Auth.Token != "runtime" {
+		t.Fatalf("runtime token: auth=%+v err=%v", r.Auth, err)
+	}
+	r, err = cfg.Resolve(Overrides{Profile: "oauth", ClientSecret: "runtime"})
+	if err != nil || r.Auth.ClientSecret != "runtime" {
+		t.Fatalf("runtime client secret: auth=%+v err=%v", r.Auth, err)
+	}
+	r, err = cfg.Resolve(Overrides{Profile: "jwt", PrivateKey: "PEM"})
+	if err != nil || r.Auth.PrivateKey != "PEM" || r.Auth.KeyFile != "" {
+		t.Fatalf("runtime private key: auth=%+v err=%v", r.Auth, err)
+	}
+	if _, err := cfg.Resolve(Overrides{ClientSecret: "wrong-flow"}); err == nil {
+		t.Fatal("client secret override on a non-client_credentials profile should fail")
+	}
+}
+
+func TestSaveRejectsConcurrentConfigChange(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	initial, err := LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := initial.Save(); err != nil {
+		t.Fatal(err)
+	}
+	first, _ := LoadFrom(path)
+	second, _ := LoadFrom(path)
+	first.Theme = "nord"
+	if err := first.Save(); err != nil {
+		t.Fatal(err)
+	}
+	second.Theme = "dracula"
+	if err := second.Save(); err == nil || !strings.Contains(err.Error(), "changed on disk") {
+		t.Fatalf("stale save should fail clearly, got %v", err)
+	}
+}
+
+func TestConcurrentInitialSaveAllowsOnlyOneCreator(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	first, err := LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for _, cfg := range []*Config{first, second} {
+		go func(c *Config) {
+			<-start
+			results <- c.Save()
+		}(cfg)
+	}
+	close(start)
+	var succeeded, failed int
+	for range 2 {
+		if err := <-results; err == nil {
+			succeeded++
+		} else {
+			failed++
+		}
+	}
+	if succeeded != 1 || failed != 1 {
+		t.Fatalf("concurrent initial saves: %d succeeded, %d failed; want one each", succeeded, failed)
+	}
+}
+
+func TestLoadFromSymlinkSavesCanonicalConfig(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "config.toml")
+	cfg, err := LoadFrom(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(dir, "config-link.toml")
+	if err := os.Symlink(target, alias); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	throughAlias, err := LoadFrom(alias)
+	if err != nil {
+		t.Fatal(err)
+	}
+	throughAlias.Theme = "nord"
+	if err := throughAlias.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if throughAlias.Path() != target {
+		t.Fatalf("config path = %q, want canonical target %q", throughAlias.Path(), target)
+	}
+	if info, err := os.Lstat(alias); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("save replaced config symlink: info=%v err=%v", info, err)
+	}
+	reloaded, err := LoadFrom(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Theme != "nord" {
+		t.Fatalf("canonical target was not updated: theme=%q", reloaded.Theme)
+	}
+}
+
+func TestAuthValidateRejectsIncompleteMethods(t *testing.T) {
+	tests := []struct {
+		name string
+		auth Auth
+		want string
+	}{
+		{"api token", Auth{Method: AuthAPIToken}, "requires a token"},
+		{"client id", Auth{Method: AuthClientCredentials}, "requires client_id"},
+		{"client secret", Auth{Method: AuthClientCredentials, ClientID: "id"}, "requires client_secret"},
+		{"token URL", Auth{Method: AuthClientCredentials, ClientID: "id", ClientSecret: "secret"}, "requires token_url"},
+		{"private key", Auth{Method: AuthPrivateKeyJWT, ClientID: "id", TokenURL: "https://issuer/token"}, "requires private_key or key_file"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.auth.Validate(); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Validate() = %v, want error containing %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestResolveIgnoresSecretsFromInactiveAuthMethod(t *testing.T) {
+	keyring.MockInitWithError(errors.New("keyring unavailable"))
+	cfg := New()
+	p, _ := cfg.Get("default")
+	p.Auth = Auth{Method: AuthNone, Token: keyringSentinel}
+	cfg.Set("default", p)
+
+	resolved, err := cfg.Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("inactive token must not require the keyring: %v", err)
+	}
+	if resolved.Auth.Method != AuthNone {
+		t.Fatalf("resolved auth method = %q", resolved.Auth.Method)
+	}
 }
 
 func TestSaveRefusesToOverwriteUnparseableFile(t *testing.T) {

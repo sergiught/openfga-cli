@@ -33,7 +33,7 @@ func New(cli *cli.CLI) *Command {
 		Aliases: []string{"profile"},
 		RunE:    cli.GroupRunE,
 		Short:   "Manage connection profiles",
-		Long:    "Manage named connection profiles. Each profile stores an API URL, optional store and authorization-model IDs, and an optional API token.",
+		Long:    "Manage named connection profiles. Each profile stores an API URL, optional store and authorization-model IDs, and optional authentication settings.",
 	}
 	c.RegisterSubCommands()
 	return c
@@ -83,8 +83,10 @@ func (c *Command) RegisterSubCommands() {
 		c.showCmd(),
 		c.useCmd(),
 		c.setCmd(),
+		c.unsetCmd(),
 		c.addCmd(),
 		c.removeCmd(),
+		c.cleanupCredentialsCmd(),
 	)
 }
 
@@ -136,8 +138,7 @@ func (c *Command) currentCmd() *cobra.Command {
 			warnLoadErr(cmd, c.cli.Config)
 			active := c.activeProfile()
 			if _, ok := c.cli.Config.Get(active); !ok {
-				output.Errorf(cmd.ErrOrStderr(),
-					"active profile %q does not exist (set via --profile or OPENFGA_PROFILE?)", active)
+				return fmt.Errorf("active profile %q does not exist (set via --profile or OPENFGA_PROFILE?)", active)
 			}
 			if c.cli.JSON || c.cli.YAML {
 				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]string{"active": active})
@@ -211,11 +212,19 @@ func (c *Command) useCmd() *cobra.Command {
 		Example:           "  ofga profiles use prod",
 		Args:              cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			prev := c.cli.Config.Active
 			if err := c.cli.Config.Use(args[0]); err != nil {
 				return err
 			}
 			if err := c.cli.SaveConfig(); err != nil {
+				_ = c.cli.Config.Use(prev)
 				return err
+			}
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]string{"active": args[0]})
+			}
+			if output.Plain {
+				return output.KeyValues(cmd.OutOrStdout(), [][2]string{{"active", args[0]}})
 			}
 			output.Successf(cmd.ErrOrStderr(), "switched to profile %s", style.Bold.Render(args[0]))
 			return nil
@@ -246,10 +255,7 @@ func (c *Command) setCmd() *cobra.Command {
   ofga profiles set private_key --value-file ./key.pem`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			name := c.cli.Config.Active
-			if c.cli.Overrides.Profile != "" {
-				name = c.cli.Overrides.Profile
-			}
+			name := c.activeProfile()
 			p, ok := c.cli.Config.Get(name)
 			if !ok {
 				return fmt.Errorf("%w: %q", config.ErrNoProfile, name)
@@ -268,6 +274,8 @@ func (c *Command) setCmd() *cobra.Command {
 				return err
 			}
 			key := strings.ToLower(args[0])
+			previous := p
+			var cleanupFields []string
 			switch key {
 			case "api_url", "url":
 				p.APIURL = val
@@ -281,9 +289,12 @@ func (c *Command) setCmd() *cobra.Command {
 				default:
 					return fmt.Errorf("invalid auth_method %q (use none, api_token, client_credentials or private_key_jwt)", val)
 				}
-				p.Auth.Method = val
+				cleanupFields = p.Auth.ConfiguredSecretFields()
+				p.Auth = authForMethod(p.Auth, val)
 			case "api_token", "token":
-				p.Auth.Method, p.Auth.Token = config.AuthAPIToken, val
+				cleanupFields = p.Auth.ConfiguredSecretFields()
+				p.Auth = authForMethod(p.Auth, config.AuthAPIToken)
+				p.Auth.Token = val
 			case "client_id":
 				p.Auth.ClientID = val
 			case "client_secret":
@@ -308,8 +319,23 @@ func (c *Command) setCmd() *cobra.Command {
 				return fmt.Errorf("unknown key %q (see `ofga profiles set --help`)", args[0])
 			}
 			c.cli.Config.Set(name, p)
-			if err := c.cli.SaveConfig(); err != nil {
+			if len(cleanupFields) > 0 {
+				saved, err := c.cli.SaveConfigWithSecretCleanup(name, false, cleanupFields...)
+				if err != nil {
+					if !saved {
+						c.cli.Config.Set(name, previous)
+					}
+					return err
+				}
+			} else if err := c.cli.SaveConfig(); err != nil {
+				c.cli.Config.Set(name, previous)
 				return err
+			}
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]string{"profile": name, "set": key})
+			}
+			if output.Plain {
+				return output.KeyValues(cmd.OutOrStdout(), [][2]string{{"profile", name}, {"set", key}})
 			}
 			output.Successf(cmd.ErrOrStderr(), "set %s on profile %s", style.Key.Render(key), style.Bold.Render(name))
 			return nil
@@ -319,6 +345,106 @@ func (c *Command) setCmd() *cobra.Command {
 	f.StringVar(&valueFile, "value-file", "", "read the value from a file instead of an argument")
 	f.BoolVar(&valueStdin, "value-stdin", false, "read the value from stdin instead of an argument")
 	return cmd
+}
+
+func authForMethod(a config.Auth, method string) config.Auth {
+	switch method {
+	case config.AuthAPIToken:
+		return config.Auth{Method: method, Token: a.Token}
+	case config.AuthClientCredentials:
+		return config.Auth{
+			Method: method, ClientID: a.ClientID, ClientSecret: a.ClientSecret,
+			TokenURL: a.TokenURL, Audience: a.Audience, Scopes: a.Scopes,
+		}
+	case config.AuthPrivateKeyJWT:
+		return config.Auth{
+			Method: method, ClientID: a.ClientID, TokenURL: a.TokenURL,
+			Audience: a.Audience, APIAudience: a.APIAudience, Scopes: a.Scopes,
+			KeyFile: a.KeyFile, PrivateKey: a.PrivateKey,
+			SigningMethod: a.SigningMethod, KeyID: a.KeyID,
+		}
+	default:
+		return config.Auth{Method: config.AuthNone}
+	}
+}
+
+func (c *Command) unsetCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "unset <key>",
+		Short:   "Clear a field on a profile",
+		Example: "  ofga profiles unset store_id\n  ofga profiles unset auth",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := c.activeProfile()
+			p, ok := c.cli.Config.Get(name)
+			if !ok {
+				return fmt.Errorf("%w: %q", config.ErrNoProfile, name)
+			}
+			previous := p
+			key := strings.ToLower(args[0])
+			var secretFields []string
+			switch key {
+			case "api_url", "url":
+				p.APIURL = config.DefaultAPIURL
+			case "store_id", "store":
+				p.StoreID = ""
+			case "model_id", "model":
+				p.ModelID = ""
+			case "auth", "auth_method":
+				secretFields = p.Auth.ConfiguredSecretFields()
+				p.Auth = config.Auth{}
+			case "api_token", "token":
+				if p.Auth.Token != "" {
+					secretFields = []string{"token"}
+				}
+				p.Auth.Token = ""
+			case "client_id":
+				p.Auth.ClientID = ""
+			case "client_secret":
+				if p.Auth.ClientSecret != "" {
+					secretFields = []string{"client_secret"}
+				}
+				p.Auth.ClientSecret = ""
+			case "token_url":
+				p.Auth.TokenURL = ""
+			case "audience":
+				p.Auth.Audience = ""
+			case "api_audience":
+				p.Auth.APIAudience = ""
+			case "key_file":
+				p.Auth.KeyFile = ""
+			case "private_key":
+				if p.Auth.PrivateKey != "" {
+					secretFields = []string{"private_key"}
+				}
+				p.Auth.PrivateKey = ""
+			case "signing_method":
+				p.Auth.SigningMethod = ""
+			case "key_id":
+				p.Auth.KeyID = ""
+			case "scopes":
+				p.Auth.Scopes = nil
+			default:
+				return fmt.Errorf("unknown key %q (see `ofga profiles unset --help`)", args[0])
+			}
+			c.cli.Config.Set(name, p)
+			saved, err := c.cli.SaveConfigWithSecretCleanup(name, false, secretFields...)
+			if err != nil {
+				if !saved {
+					c.cli.Config.Set(name, previous)
+				}
+				return err
+			}
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]string{"profile": name, "unset": key})
+			}
+			if output.Plain {
+				return output.KeyValues(cmd.OutOrStdout(), [][2]string{{"profile", name}, {"unset", key}})
+			}
+			output.Successf(cmd.ErrOrStderr(), "cleared %s on profile %s", style.Key.Render(key), style.Bold.Render(name))
+			return nil
+		},
+	}
 }
 
 func (c *Command) addCmd() *cobra.Command {
@@ -395,13 +521,26 @@ func (c *Command) addCmd() *cobra.Command {
 			default:
 				return fmt.Errorf("invalid auth_method %q (use none, api_token, client_credentials or private_key_jwt)", method)
 			}
+			if err := p.Auth.Validate(); err != nil {
+				return err
+			}
 
+			prevActive := c.cli.Config.Active
 			c.cli.Config.Set(name, p)
 			if activate {
 				_ = c.cli.Config.Use(name)
 			}
 			if err := c.cli.SaveConfig(); err != nil {
+				c.cli.Config.Active = ""
+				_ = c.cli.Config.Remove(name)
+				c.cli.Config.Active = prevActive
 				return err
+			}
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{"created": name, "active": activate})
+			}
+			if output.Plain {
+				return output.KeyValues(cmd.OutOrStdout(), [][2]string{{"created", name}, {"active", fmt.Sprint(activate)}})
 			}
 			output.Successf(cmd.ErrOrStderr(), "created profile %s", style.Bold.Render(name))
 			if activate {
@@ -459,11 +598,22 @@ func (c *Command) removeCmd() *cobra.Command {
 				fmt.Sprintf("remove profile %s and its saved credentials", args[0]), force); err != nil {
 				return err
 			}
+			previous, _ := c.cli.Config.Get(args[0])
 			if err := c.cli.Config.Remove(args[0]); err != nil {
 				return err
 			}
-			if err := c.cli.SaveConfig(); err != nil {
+			saved, err := c.cli.SaveConfigWithSecretCleanup(args[0], true, previous.Auth.ConfiguredSecretFields()...)
+			if err != nil {
+				if !saved {
+					c.cli.Config.Set(args[0], previous)
+				}
 				return err
+			}
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]string{"removed": args[0]})
+			}
+			if output.Plain {
+				return output.KeyValues(cmd.OutOrStdout(), [][2]string{{"removed", args[0]}})
 			}
 			output.Successf(cmd.ErrOrStderr(), "removed profile %s", style.Bold.Render(args[0]))
 			return nil
@@ -471,6 +621,29 @@ func (c *Command) removeCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "skip the confirmation prompt")
 	return cmd
+}
+
+func (c *Command) cleanupCredentialsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "cleanup-credentials",
+		Short:   "Retry pending OS-keyring cleanup",
+		Example: "  ofga profiles cleanup-credentials",
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			remaining, err := c.cli.RetrySecretCleanup()
+			if err != nil {
+				return err
+			}
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]int{"pending": remaining})
+			}
+			if output.Plain {
+				return output.KeyValues(cmd.OutOrStdout(), [][2]string{{"pending", fmt.Sprint(remaining)}})
+			}
+			output.Successf(cmd.ErrOrStderr(), "credential cleanup complete")
+			return nil
+		},
+	}
 }
 
 func orDash(s string) string {

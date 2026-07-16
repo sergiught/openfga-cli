@@ -9,9 +9,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/apilog"
 	"github.com/sergiught/openfga-cli/internal/config"
 )
@@ -39,6 +41,7 @@ func TestPlaintextCredentialWarning(t *testing.T) {
 		// endpoint, so a cleartext token_url must warn even when the API is https.
 		{"https api, http token_url client secret", "https://api.example.com", config.Auth{Method: config.AuthClientCredentials, ClientSecret: "s", TokenURL: "http://issuer.example.com/oauth/token"}, true},
 		{"https api, http token_url private key", "https://api.example.com", config.Auth{Method: config.AuthPrivateKeyJWT, KeyFile: "/k.pem", TokenURL: "http://issuer.example.com/oauth/token"}, true},
+		{"https api, http token_url keyring private key", "https://api.example.com", config.Auth{Method: config.AuthPrivateKeyJWT, PrivateKey: "PEM", TokenURL: "http://issuer.example.com/oauth/token"}, true},
 		{"https api and https token_url", "https://api.example.com", config.Auth{Method: config.AuthClientCredentials, ClientSecret: "s", TokenURL: "https://issuer.example.com/oauth/token"}, false},
 		{"http api, https token_url still warns on bearer", "http://api.example.com", config.Auth{Method: config.AuthClientCredentials, ClientSecret: "s", TokenURL: "https://issuer.example.com/oauth/token"}, true},
 		{"client credentials no secret", "https://api.example.com", config.Auth{Method: config.AuthClientCredentials, TokenURL: "http://issuer.example.com/oauth/token"}, false},
@@ -160,4 +163,117 @@ func TestWithTimeoutBoundsResponseBody(t *testing.T) {
 		return
 	}
 	t.Fatal("expected request to time out")
+}
+
+func TestAPITokenRedirectIsRejectedBeforeCredentialForwarding(t *testing.T) {
+	var destinationCalls atomic.Int32
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		destinationCalls.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer destination.Close()
+
+	var sourceSawToken atomic.Bool
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sourceSawToken.Store(r.Header.Get("Authorization") == "Bearer secret")
+		http.Redirect(w, r, destination.URL+r.URL.Path, http.StatusTemporaryRedirect)
+	}))
+	defer source.Close()
+
+	c, err := New(config.Resolved{
+		APIURL: source.URL,
+		Auth:   config.Auth{Method: config.AuthAPIToken, Token: "secret"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestErr := firstStoresError(c)
+	if requestErr == nil || !strings.Contains(requestErr.Error(), "redirects are disabled") {
+		t.Fatalf("request error = %v, want actionable redirect rejection", requestErr)
+	}
+	if !sourceSawToken.Load() {
+		t.Fatal("test did not exercise an authenticated API request")
+	}
+	if destinationCalls.Load() != 0 {
+		t.Fatal("API token was forwarded to the redirect destination")
+	}
+}
+
+func TestHTTPSDowngradeRedirectIsRejected(t *testing.T) {
+	rt := &rejectRedirectTransport{base: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusTemporaryRedirect,
+			Header:     http.Header{"Location": []string{"http://api.example/stores"}},
+		}, nil
+	})}
+	req, err := http.NewRequest(http.MethodGet, "https://api.example/stores", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.RoundTrip(req); err == nil || !strings.Contains(err.Error(), "redirects are disabled") {
+		t.Fatalf("downgrade redirect error = %v", err)
+	}
+}
+
+func TestOAuthTokenRedirectIsRejectedBeforeCredentialForwarding(t *testing.T) {
+	var destinationCalls atomic.Int32
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		destinationCalls.Add(1)
+		_, _ = w.Write([]byte(`{"access_token":"forwarded","token_type":"Bearer"}`))
+	}))
+	defer destination.Close()
+
+	var sourceSawCredentials atomic.Bool
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, pass, ok := r.BasicAuth()
+		_ = r.ParseForm()
+		if (ok && user == "client" && pass == "secret") ||
+			(r.Form.Get("client_id") == "client" && r.Form.Get("client_secret") == "secret") {
+			sourceSawCredentials.Store(true)
+		}
+		http.Redirect(w, r, destination.URL, http.StatusTemporaryRedirect)
+	}))
+	defer source.Close()
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"stores":[]}`))
+	}))
+	defer api.Close()
+
+	c, err := New(config.Resolved{
+		APIURL: api.URL,
+		Auth: config.Auth{
+			Method:       config.AuthClientCredentials,
+			ClientID:     "client",
+			ClientSecret: "secret",
+			TokenURL:     source.URL,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestErr := firstStoresError(c)
+	if requestErr == nil || !strings.Contains(requestErr.Error(), "redirects are disabled") {
+		t.Fatalf("request error = %v, want actionable token redirect rejection", requestErr)
+	}
+	if !sourceSawCredentials.Load() {
+		t.Fatal("test did not exercise an authenticated OAuth token fetch")
+	}
+	if destinationCalls.Load() != 0 {
+		t.Fatal("OAuth credentials were forwarded to the redirect destination")
+	}
+}
+
+func firstStoresError(c *openfga.Client) error {
+	for _, err := range c.Stores.All(context.Background(), nil) {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }

@@ -40,6 +40,11 @@ type CLI struct {
 	ThemeName string
 	// RequestTimeout bounds each HTTP exchange; zero disables the deadline.
 	RequestTimeout time.Duration
+	// Runtime secret files provide process-scoped credentials without exposing
+	// their contents in argv or environment variables.
+	APITokenFile     string
+	ClientSecretFile string
+	PrivateKeyFile   string
 
 	// Version is the build version, injected from main.
 	Version string
@@ -89,8 +94,36 @@ func (cli *CLI) ClientWithStore() (*openfga.Client, config.Resolved, error) {
 // SaveConfig persists the config and logs the location at debug level.
 func (cli *CLI) SaveConfig() error {
 	if err := cli.Config.Save(); err != nil {
+		if config.SaveWasCommitted(err) {
+			cli.Logger.Warn("config replaced, but its directory could not be synced; the change may not survive a system crash", "path", cli.Config.Path(), "error", err)
+			return nil
+		}
 		return fmt.Errorf("save config: %w", err)
 	}
 	cli.Logger.Debug("config saved", "path", cli.Config.Path())
 	return nil
+}
+
+// SaveConfigWithSecretCleanup persists a profile removal/unset and deletes its
+// keyring entries under the same cross-process config lock.
+func (cli *CLI) SaveConfigWithSecretCleanup(profile string, all bool, fields ...string) (bool, error) {
+	saved, err := cli.Config.SaveWithSecretCleanup(profile, all, fields...)
+	if err != nil {
+		if saved {
+			return true, fmt.Errorf("config saved, but credential cleanup failed: %w; retry safely with `ofga profiles cleanup-credentials`", err)
+		}
+		return saved, fmt.Errorf("save config: %w", err)
+	}
+	cli.Logger.Debug("config saved", "path", cli.Config.Path())
+	return true, nil
+}
+
+// RetrySecretCleanup retries cleanup work durably recorded in the config.
+func (cli *CLI) RetrySecretCleanup() (int, error) {
+	remaining, err := cli.Config.RetryCredentialCleanup()
+	if err != nil {
+		return remaining, fmt.Errorf("credential cleanup failed: %w; retry with `ofga profiles cleanup-credentials`", err)
+	}
+	cli.Logger.Debug("credential cleanup completed", "path", cli.Config.Path())
+	return remaining, nil
 }

@@ -30,10 +30,11 @@ const DefaultRequestTimeout = 30 * time.Second
 func baseTransport(timeout time.Duration) http.RoundTripper {
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.ResponseHeaderTimeout = timeout
+	base := http.RoundTripper(&rejectRedirectTransport{base: t})
 	if timeout <= 0 {
-		return t
+		return base
 	}
-	return &timeoutTransport{base: t, timeout: timeout}
+	return &timeoutTransport{base: base, timeout: timeout}
 }
 
 // Option configures optional client behavior layered on top of the resolved
@@ -60,6 +61,30 @@ func WithTimeout(timeout time.Duration) Option {
 type timeoutTransport struct {
 	base    http.RoundTripper
 	timeout time.Duration
+}
+
+type rejectRedirectTransport struct {
+	base http.RoundTripper
+}
+
+func (t *rejectRedirectTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.base.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+	location := resp.Header.Get("Location")
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 && location != "" {
+		if resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		destination := location
+		if u, err := req.URL.Parse(location); err == nil {
+			destination = u.Redacted()
+		}
+		return nil, fmt.Errorf("refusing HTTP redirect from %s to %s: redirects are disabled to prevent credential forwarding; configure the final API or OAuth token URL",
+			req.URL.Redacted(), destination)
+	}
+	return resp, nil
 }
 
 func (t *timeoutTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -168,7 +193,7 @@ func plaintextCredentialWarning(apiURL string, a config.Auth) string {
 		}
 	case config.AuthClientCredentials, config.AuthPrivateKeyJWT:
 		hasCred := (a.Method == config.AuthClientCredentials && a.ClientSecret != "") ||
-			(a.Method == config.AuthPrivateKeyJWT && a.KeyFile != "")
+			(a.Method == config.AuthPrivateKeyJWT && (a.KeyFile != "" || a.PrivateKey != ""))
 		if hasCred {
 			if host := cleartextHost(a.TokenURL); host != "" {
 				return credentialWarning(host + " (token endpoint)")
@@ -207,13 +232,13 @@ func credentialWarning(host string) string {
 // nil when the profile is unauthenticated. It errors on an unknown method or an
 // unreadable / unparsable signing key.
 func authOption(a config.Auth) (openfga.Option, error) {
+	if err := a.Validate(); err != nil {
+		return nil, err
+	}
 	switch a.Method {
 	case "", config.AuthNone:
 		return nil, nil
 	case config.AuthAPIToken:
-		if a.Token == "" {
-			return nil, nil
-		}
 		return openfga.WithAPIToken(a.Token), nil
 	case config.AuthClientCredentials:
 		return openfga.WithClientCredentials(openfga.ClientCredentialsConfig{
@@ -260,8 +285,8 @@ func signingKeyPEM(a config.Auth) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read signing key %s: %w", a.KeyFile, err)
 	}
-	if info, statErr := os.Stat(a.KeyFile); statErr == nil && info.Mode().Perm()&0o077 != 0 {
-		fmt.Fprintln(os.Stderr, "warning: signing key "+a.KeyFile+" is readable by other users; restrict it with chmod 600")
+	if warning := readlimit.SecretPermissionWarning(a.KeyFile, "signing key"); warning != "" {
+		fmt.Fprintln(os.Stderr, warning)
 	}
 	return pem, nil
 }
