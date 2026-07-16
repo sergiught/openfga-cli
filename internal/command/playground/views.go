@@ -845,7 +845,7 @@ func (m Model) statusKeys() []string {
 	case m.section == secQuery && m.editing:
 		// Enter advances between fields and only runs on the last one; ctrl+s
 		// runs from anywhere. Spell both out so the hint matches reality.
-		return []string{"↑↓ field", "tab mode", "↵ next/run", "ctrl+s run", "esc"}
+		return []string{"↑↓ field", "tab mode", "↵ next/run", "ctrl+s run", "ctrl+r resolve", "esc"}
 	case m.section == secQuery && m.showRes:
 		return []string{"↑↓←→ scroll", "p ACL path", "r close", "esc"}
 	}

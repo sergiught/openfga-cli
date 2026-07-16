@@ -296,6 +296,19 @@ func (m Model) handleQueryForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// digits / resolution live; a second esc returns to the tab selection.
 		m.editing = false
 		return m, nil
+	case "ctrl+r":
+		// Jump straight to the resolution tree for the last check, without first
+		// dropping to the panel (esc then r). Plain "r" can't do this here — it is
+		// a literal character for the query fields.
+		if m.hasResult && m.result.badge {
+			m.editing = false
+			m.beginLoad()
+			m.resGen++
+			return m, expandCmd(m.ctx, m.client, m.storeID, m.modelID,
+				m.result.vals[0], m.result.vals[1], m.result.vals[2], m.resGen)
+		}
+		m.status = "run a check first (ctrl+r shows its resolution)"
+		return m, nil
 	case "tab":
 		// tab keeps shifting modes even mid-edit, landing in the new mode's
 		// first field. Field navigation stays on the arrows and enter.
