@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/url"
 	"os"
 	"strings"
 	"syscall"
@@ -124,11 +125,30 @@ func Friendly(err error) string {
 			"  " + err.Error()
 	}
 	if IsConnErr(err) {
+		if connToTokenEndpoint(err) {
+			return "cannot reach the OAuth token endpoint. Is it running, and is token_url correct?\n" +
+				"  set it with OPENFGA_TOKEN_URL or `ofga profiles set token_url <url>`\n" +
+				"  " + err.Error()
+		}
 		return "cannot reach the OpenFGA server. Is it running, and is the API URL correct?\n" +
 			"  set the URL with OPENFGA_API_URL or `ofga profiles set api_url <url>`\n" +
 			"  " + err.Error()
 	}
 	return err.Error()
+}
+
+// connToTokenEndpoint reports whether a connection failure was to an OAuth token
+// endpoint rather than the API server. Token fetches are POSTs to the configured
+// token_url, so a POST url.Error to a token-ish URL nested inside an API
+// request's failure points the fix at token_url, not api_url.
+func connToTokenEndpoint(err error) bool {
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		var ue *url.Error
+		if errors.As(e, &ue) && strings.EqualFold(ue.Op, "Post") && strings.Contains(ue.URL, "token") {
+			return true
+		}
+	}
+	return false
 }
 
 // IsConnErr reports whether err looks like a network-level failure (refused
