@@ -37,6 +37,10 @@ func New(cli *cli.CLI) *Command {
 		Aliases: []string{"models"},
 		RunE:    cli.GroupRunE,
 		Short:   "Write, inspect and visualize authorization models",
+		// The group itself takes no flags; let unknown ones pass through so a
+		// typo'd subcommand carrying a flag (`model transform --file x`) reports
+		// "unknown command transform" rather than "unknown flag: --file".
+		FParseErrWhitelist: cobra.FParseErrWhitelist{UnknownFlags: true},
 	}
 	c.RegisterSubCommands()
 	return c
