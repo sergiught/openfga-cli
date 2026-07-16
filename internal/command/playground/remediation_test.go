@@ -153,13 +153,13 @@ func TestAddProfileConfigSaveFailureRollsBack(t *testing.T) {
 	for _, r := range "http://example:9090" {
 		m, _ = m.Update(key(string(r)))
 	}
-	for i := 0; i < 3 && m.(Model).formKind != formNone; i++ {
+	for i := 0; i < 6 && m.(Model).formErr == ""; i++ {
 		m, _ = m.Update(key("enter"))
 	}
 
 	mm := m.(Model)
-	if mm.formKind != formNone {
-		t.Fatalf("precondition: expected the add-profile form to submit, still open (kind=%d)", mm.formKind)
+	if mm.formKind != formAddProfile || mm.formErr == "" {
+		t.Fatalf("failed save should reopen the populated add form; kind=%d err=%q", mm.formKind, mm.formErr)
 	}
 	if _, ok := cfg.Get("staging"); ok {
 		t.Fatal("a profile whose save failed must not remain in the in-memory config")
@@ -173,7 +173,7 @@ func TestAddProfileConfigSaveFailureRollsBack(t *testing.T) {
 }
 
 // Editing a profile whose save fails must roll back to the profile's prior
-// values and must not reconnect (reloadActive) or show a success status.
+// values and must not reconnect (activateResolved) or show a success status.
 func TestEditProfileConfigSaveFailureRollsBack(t *testing.T) {
 	cfg := brokenConfig(t)
 	prev, _ := cfg.Get("default")
@@ -188,13 +188,13 @@ func TestEditProfileConfigSaveFailureRollsBack(t *testing.T) {
 		t.Fatalf("precondition: expected the edit-profile form to be open, got kind=%d", m.(Model).formKind)
 	}
 
-	for i := 0; i < 4 && m.(Model).formKind != formNone; i++ {
+	for i := 0; i < 6 && m.(Model).formErr == ""; i++ {
 		m, _ = m.Update(key("enter"))
 	}
 
 	mm := m.(Model)
-	if mm.formKind != formNone {
-		t.Fatalf("precondition: expected the edit-profile form to submit, still open (kind=%d)", mm.formKind)
+	if mm.formKind != formEditProfile || mm.formErr == "" {
+		t.Fatalf("failed save should reopen the populated edit form; kind=%d err=%q", mm.formKind, mm.formErr)
 	}
 	if strings.Contains(mm.status, "updated profile") {
 		t.Fatalf("must not show an updated-profile success status when config save failed, got %q", mm.status)
@@ -235,6 +235,29 @@ func TestRemoveProfileConfigSaveFailureRollsBack(t *testing.T) {
 	}
 	if levels := mm.toasts.Levels(); len(levels) == 0 || levels[len(levels)-1] != toast.Error {
 		t.Fatalf("expected an Error toast for the failed save, got %v", levels)
+	}
+}
+
+func TestCannotRemoveEnvironmentSelectedProfile(t *testing.T) {
+	cfg := config.New()
+	cfg.Set("prod", config.Profile{APIURL: "https://prod.example"})
+	cl, _ := openfga.NewClient("https://prod.example")
+	a := cli.New(log.New(io.Discard), cfg, "test")
+	a.Overrides.Profile = "prod"
+	var m tea.Model = newModel(context.Background(), a, cl, "", "")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
+	m, _ = m.Update(key("enter"))
+	m, _ = m.Update(key("d"))
+
+	mm := m.(Model)
+	if mm.confirm != nil {
+		t.Fatal("the effective active profile must not open a deletion confirmation")
+	}
+	if _, ok := cfg.Get("prod"); !ok {
+		t.Fatal("the effective active profile was removed")
+	}
+	if !strings.Contains(mm.status, "cannot remove the active profile") {
+		t.Fatalf("status = %q, want active-profile refusal", mm.status)
 	}
 }
 
@@ -444,6 +467,7 @@ func TestStoresEmptyStateNKeyOpensCreateForm(t *testing.T) {
 	if len(mm.stores) != 0 {
 		t.Fatalf("precondition: expected no stores loaded (the empty state), got %d", len(mm.stores))
 	}
+	mm.section = secStores
 
 	// Panel focus: pressing n directly in the Stores section's key handler,
 	// matching the empty state's "press n to create one" hint.
@@ -454,7 +478,6 @@ func TestStoresEmptyStateNKeyOpensCreateForm(t *testing.T) {
 
 	// Sidebar focus: the generic CTA replay (n/a/e/d in handleSidebarKey) must
 	// also recognize n and land in the same form.
-	mm.section = secStores
 	nm2, _ := mm.handleSidebarKey("n")
 	if nm2.(Model).formKind != formCreateStore {
 		t.Fatalf("pressing n on the sidebar (replay) should open the create-store form, got formKind %d", nm2.(Model).formKind)
@@ -652,7 +675,7 @@ func TestAssertionsLoadLatestResolutionCheckedAgainstActiveModel(t *testing.T) {
 
 // --- Item 4: connection generation (stores), and tuple/change same-store supersession ---
 
-// reloadActive bumps the connection generation; a stores list dispatched
+// activateResolved bumps the connection generation; a stores list dispatched
 // before the reconnect (from the old profile/connection) must not be able to
 // land afterward and repopulate the list from the wrong server — or, worse,
 // auto-select a store id that may not even exist on the new one.
@@ -741,7 +764,7 @@ func TestStaleChangesReloadDropped(t *testing.T) {
 // profile's (e.g. two profiles both pinned to "store-1"/"model-1" on
 // different servers) must still invalidate an old, still-in-flight request in
 // every async category — including the model list, a query, a resolution
-// tree and an assertion run, none of which reloadActive redispatches itself.
+// tree and an assertion run, none of which activateResolved redispatches itself.
 // Without their own generation bumps, a stale response would pass every
 // storeID/modelID check (identical across profiles) and silently apply data
 // from the wrong server.

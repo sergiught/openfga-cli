@@ -105,6 +105,72 @@ func newTestModel() tea.Model {
 	return m
 }
 
+func TestStartsOnProfilesWithActiveProfileSelected(t *testing.T) {
+	cl, _ := openfga.NewClient("http://localhost:8080")
+	cfg := config.New()
+	cfg.Set("alpha", config.Profile{APIURL: "https://alpha.example"})
+	cfg.Set("zeta", config.Profile{APIURL: "https://zeta.example"})
+	if err := cfg.Use("zeta"); err != nil {
+		t.Fatalf("use profile: %v", err)
+	}
+	a := cli.New(log.New(io.Discard), cfg, "test")
+
+	m := newModel(context.Background(), a, cl, "", "")
+	if m.section != secProfiles {
+		t.Fatalf("initial section = %v, want Profiles", m.section)
+	}
+	selected, ok := m.profilesList.Selected()
+	if !ok {
+		t.Fatal("expected the active profile to be selected")
+	}
+	if selected.ID != "zeta" {
+		t.Fatalf("selected profile = %q, want active profile %q", selected.ID, "zeta")
+	}
+}
+
+func TestStoresListSelectsCurrentStore(t *testing.T) {
+	cl, _ := openfga.NewClient("http://localhost:8080")
+	a := cli.New(log.New(io.Discard), config.New(), "test")
+	m := newModel(context.Background(), a, cl, "store-2", "")
+
+	m.stores = []openfga.Store{
+		{ID: "store-1", Name: "first"},
+		{ID: "store-2", Name: "current"},
+	}
+	m.populateStores()
+
+	selected, ok := m.storesList.Selected()
+	if !ok {
+		t.Fatal("expected the current store to be selected")
+	}
+	if selected.ID != "store-2" {
+		t.Fatalf("selected store = %q, want current store %q", selected.ID, "store-2")
+	}
+}
+
+func TestReenteringStoresReselectsCurrentStore(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(key("2"))     // Stores
+	m, _ = m.Update(key("enter")) // panel focus
+	m, _ = m.Update(key("down"))  // highlight store-2 without selecting it
+	if selected, _ := m.(Model).storesList.Selected(); selected.ID != "store-2" {
+		t.Fatalf("precondition: highlighted store = %q, want %q", selected.ID, "store-2")
+	}
+
+	m, _ = m.Update(key("esc"))
+	m, _ = m.Update(key("1")) // Profiles
+	m, _ = m.Update(key("2")) // Stores
+
+	mod := m.(Model)
+	selected, ok := mod.storesList.Selected()
+	if !ok {
+		t.Fatal("expected the current store to be selected after re-entering Stores")
+	}
+	if selected.ID != mod.storeID {
+		t.Fatalf("selected store = %q, want current store %q", selected.ID, mod.storeID)
+	}
+}
+
 func render(t *testing.T, m tea.Model, ctx string) {
 	t.Helper()
 	if strings.TrimSpace(m.(Model).viewString()) == "" {
@@ -150,13 +216,13 @@ func TestFocusEnterDescendsEscAscends(t *testing.T) {
 // in sidebar focus, while in panel focus tab/arrows never switch sections
 // (strict modes).
 func TestFocusSidebarMovesTabsPanelDoesNot(t *testing.T) {
-	m := newTestModel() // secStores, sidebar focus
+	m := newTestModel() // secProfiles, sidebar focus
 	m, _ = m.Update(key("down"))
-	if m.(Model).section != secModel {
+	if m.(Model).section != secStores {
 		t.Fatal("down in sidebar focus should move to the next tab")
 	}
 	m, _ = m.Update(key("up"))
-	if m.(Model).section != secStores {
+	if m.(Model).section != secProfiles {
 		t.Fatal("up in sidebar focus should move to the previous tab")
 	}
 	m, _ = m.Update(key("enter")) // descend
@@ -175,21 +241,21 @@ func TestFocusSidebarMovesTabsPanelDoesNot(t *testing.T) {
 // TestVimKeysMoveSidebarTabs verifies j/k (and h/l) move the highlighted tab in
 // sidebar focus, like ↑↓ (TUI-8).
 func TestVimKeysMoveSidebarTabs(t *testing.T) {
-	m := newTestModel() // secStores, sidebar focus
+	m := newTestModel() // secProfiles, sidebar focus
 	m, _ = m.Update(key("j"))
-	if m.(Model).section != secModel {
+	if m.(Model).section != secStores {
 		t.Fatal("j in sidebar focus should move to the next tab")
 	}
 	m, _ = m.Update(key("k"))
-	if m.(Model).section != secStores {
+	if m.(Model).section != secProfiles {
 		t.Fatal("k in sidebar focus should move to the previous tab")
 	}
 	m, _ = m.Update(key("l"))
-	if m.(Model).section != secModel {
+	if m.(Model).section != secStores {
 		t.Fatal("l in sidebar focus should move to the next tab")
 	}
 	m, _ = m.Update(key("h"))
-	if m.(Model).section != secStores {
+	if m.(Model).section != secProfiles {
 		t.Fatal("h in sidebar focus should move to the previous tab")
 	}
 }
@@ -199,7 +265,8 @@ func TestVimKeysMoveSidebarTabs(t *testing.T) {
 // instead of being a silent no-op (TUI-1). On the Stores tab, "a" opens the
 // create-store form.
 func TestSidebarCTADescendsAndActs(t *testing.T) {
-	m := newTestModel() // secStores, sidebar focus
+	m := newTestModel()
+	m, _ = m.Update(key("2")) // Stores, sidebar focus
 	m, _ = m.Update(key("a"))
 	mod := m.(Model)
 	if mod.focus != shell.FocusPanel {
@@ -1188,6 +1255,7 @@ func TestMasterDetailRealListContentFits(t *testing.T) {
 // (which padded the hint with many blank rows).
 func TestEmptyStateIsInline(t *testing.T) {
 	mod := newTestModel().(Model)
+	mod.section = secStores
 	mod.stores = nil
 	body := stripANSIView(mod.sectionBody())
 	if strings.Contains(body, "\n\n\n\n\n\n\n\n") {
@@ -1203,12 +1271,12 @@ func TestEmptyStateIsInline(t *testing.T) {
 func TestArrowKeysSwitchSections(t *testing.T) {
 	m := newTestModel()
 	m, _ = m.Update(key("right"))
-	if got := m.(Model).section; got != secModel {
-		t.Fatalf("right arrow: section = %v, want secModel", got)
+	if got := m.(Model).section; got != secStores {
+		t.Fatalf("right arrow: section = %v, want secStores", got)
 	}
 	m, _ = m.Update(key("left"))
-	if got := m.(Model).section; got != secStores {
-		t.Fatalf("left arrow: section = %v, want secStores", got)
+	if got := m.(Model).section; got != secProfiles {
+		t.Fatalf("left arrow: section = %v, want secProfiles", got)
 	}
 	// wraps backward from the first section (Profiles) to the last
 	m, _ = m.Update(key("1")) // jump to Profiles
@@ -1219,8 +1287,7 @@ func TestArrowKeysSwitchSections(t *testing.T) {
 }
 
 // TestArrowKeysSwitchSectionsFromModel verifies left/right arrows cycle
-// sections from a section other than Stores too, matching
-// TestArrowKeysSwitchSections's coverage of the default start section.
+// sections from a section other than the default Profiles tab too.
 func TestArrowKeysSwitchSectionsFromModel(t *testing.T) {
 	m := newTestModel()
 	m, _ = m.Update(key("3")) // Model
@@ -1483,16 +1550,16 @@ func TestProfilesTabAddClientCredentials(t *testing.T) {
 		p.Auth.TokenURL != "https://iss/token" || p.Auth.Audience != "aud" {
 		t.Fatalf("persisted auth wrong: %+v", p.Auth)
 	}
-	if got, err := keyring.Get("openfga-cli", "prod.client_secret"); err != nil || got != "sekret" {
-		t.Fatalf("keyring client_secret = %q, %v; want \"sekret\"", got, err)
+	resolved, err := c.Resolve(config.Overrides{Profile: "prod"})
+	if err != nil || resolved.Auth.ClientSecret != "sekret" {
+		t.Fatalf("resolved client_secret = %q, %v; want \"sekret\"", resolved.Auth.ClientSecret, err)
 	}
 	if p.APIURL != "https://api.fga" {
 		t.Errorf("api_url = %q, want https://api.fga", p.APIURL)
 	}
 }
 
-// TestStoreDeleteConfirmFlow verifies deleting a store requires confirmation:
-// `d` opens a modal, esc cancels, and enter issues the delete.
+// TestStoreDeleteConfirmFlow verifies deleting a store requires typing its ID.
 func TestStoreDeleteConfirmFlow(t *testing.T) {
 	m := newTestModel()
 	m, _ = m.Update(key("2"))     // Stores tab
@@ -1509,21 +1576,85 @@ func TestStoreDeleteConfirmFlow(t *testing.T) {
 	if m.(Model).confirm != nil {
 		t.Fatal("esc should cancel the confirmation")
 	}
-	// enter must NOT confirm a destructive delete (a reflexive Enter should be
-	// safe); it cancels like the CLI's [y/N] default.
+	// Enter with no typed ID must not confirm a destructive delete.
 	m, _ = m.Update(key("d"))
 	m, _ = m.Update(key("enter"))
-	if m.(Model).confirm != nil {
-		t.Fatal("enter should cancel the delete confirmation, not confirm it")
+	if m.(Model).confirm == nil {
+		t.Fatal("enter without the store ID should keep the confirmation open")
 	}
-	// d then explicit y confirms and issues the delete.
-	m, _ = m.Update(key("d"))
-	m, cmd := m.Update(key("y"))
+	storeID := m.(Model).confirm.require
+	for _, r := range storeID {
+		m, _ = m.Update(key(string(r)))
+	}
+	m, cmd := m.Update(key("enter"))
 	if m.(Model).confirm != nil {
 		t.Fatal("confirming should close the modal")
 	}
 	if !m.(Model).loading || cmd == nil {
 		t.Fatal("confirming should issue the delete (loading + command)")
+	}
+}
+
+func TestPreserveProfileSecretsIncludesManagedPrivateKey(t *testing.T) {
+	next := config.Auth{Method: config.AuthPrivateKeyJWT}
+	preserveProfileSecrets(&next, config.Auth{
+		Method:     config.AuthPrivateKeyJWT,
+		PrivateKey: "keyring:managed",
+	})
+	if next.PrivateKey != "keyring:managed" {
+		t.Fatalf("private key = %q, want managed sentinel preserved", next.PrivateKey)
+	}
+	rotated := config.Auth{Method: config.AuthPrivateKeyJWT, KeyFile: "/new/key.pem"}
+	preserveProfileSecrets(&rotated, config.Auth{
+		Method:     config.AuthPrivateKeyJWT,
+		PrivateKey: "keyring:managed",
+	})
+	if rotated.PrivateKey != "" {
+		t.Fatalf("private key = %q, want it cleared when rotating to a key file", rotated.PrivateKey)
+	}
+}
+
+func TestResolvedProfileOwnsTUIPersistence(t *testing.T) {
+	t.Setenv("OPENFGA_PROFILE", "staging")
+	cfg := config.New()
+	cfg.Set("staging", config.Profile{APIURL: "https://staging.example"})
+	cl, _ := openfga.NewClient("https://staging.example")
+	a := cli.New(log.New(io.Discard), cfg, "test")
+	m := newModel(context.Background(), a, cl, "", "")
+
+	if m.profile != "staging" || m.activeAPIURL() != "https://staging.example" {
+		t.Fatalf("resolved identity = %q %q, want staging URL", m.profile, m.activeAPIURL())
+	}
+	m.storeID = "store-staging"
+	if err := m.persistStore(); err != nil {
+		t.Fatal(err)
+	}
+	staging, _ := cfg.Get("staging")
+	def, _ := cfg.Get("default")
+	if staging.StoreID != "store-staging" {
+		t.Fatalf("resolved profile store = %q, want store-staging", staging.StoreID)
+	}
+	if def.StoreID != "" {
+		t.Fatalf("disk-active profile was corrupted with store %q", def.StoreID)
+	}
+}
+
+func TestTUIPSwitchOverridesInitialEnvironmentSelection(t *testing.T) {
+	t.Setenv("OPENFGA_PROFILE", "staging")
+	cfg := config.New()
+	cfg.Set("staging", config.Profile{APIURL: "https://staging.example"})
+	cfg.Set("prod", config.Profile{APIURL: "https://prod.example"})
+	cl, _ := openfga.NewClient("https://staging.example")
+	a := cli.New(log.New(io.Discard), cfg, "test")
+	m := newModel(context.Background(), a, cl, "", "")
+
+	m.switchProfile("prod")
+	r, err := a.Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.profile != "prod" || r.Profile != "prod" || cfg.Active != "prod" {
+		t.Fatalf("profile identity diverged: model=%q resolved=%q saved=%q", m.profile, r.Profile, cfg.Active)
 	}
 }
 
@@ -1784,7 +1915,8 @@ func TestCompactToggleInTuples(t *testing.T) {
 // TestCompactToggleIsNoOpInStores verifies "v" does nothing outside the
 // Tuples/Changes/Assertions sections.
 func TestCompactToggleIsNoOpInStores(t *testing.T) {
-	m := newTestModel() // secStores, sidebar focus
+	m := newTestModel()
+	m, _ = m.Update(key("2")) // Stores, sidebar focus
 	m, _ = m.Update(key("enter"))
 	m, _ = m.Update(key("v"))
 	if m.(Model).compact {

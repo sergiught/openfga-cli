@@ -16,7 +16,18 @@ import (
 // them, rebuilding them per auth method, and advancing/submitting them. Split
 // out of update.go to keep the message dispatch loop readable.
 func (m Model) enterForm(kind formKind) (tea.Model, tea.Cmd) {
-	dw, _ := m.sh.DialogSize()
+	switch {
+	case kind == formCreateStore && m.storeCreating:
+		m.status = "store creation already in progress"
+		return m, nil
+	case kind == formWriteTuple && m.tupleMutating:
+		m.status = "tuple mutation already in progress"
+		return m, nil
+	case kind == formWriteAssertion && m.assertionsWriting:
+		m.status = "assertion write already in progress"
+		return m, nil
+	}
+	dw, dh := m.sh.DialogSize()
 	m.formKind = kind
 	switch kind {
 	case formCreateStore:
@@ -32,6 +43,7 @@ func (m Model) enterForm(kind formKind) (tea.Model, tea.Cmd) {
 		// m.profileAuthMethod is set by the caller from the profile being edited.
 		m.form = buildProfileForm(false, m.profileAuthMethod, dw)
 	}
+	m.form.SetHeight(dh)
 	// Emphasize the active field with the theme highlight; others stay plain.
 	m.form.SetHighlight(style.FieldHighlight())
 	return m, m.form.Init()
@@ -61,8 +73,9 @@ func (m *Model) rebuildProfileForm() tea.Cmd {
 	add := m.formKind == formAddProfile
 	vals := m.form.Values()
 	method := m.profileFormMethod()
-	dw, _ := m.sh.DialogSize()
+	dw, dh := m.sh.DialogSize()
 	m.form = buildProfileForm(add, method, dw)
+	m.form.SetHeight(dh)
 	m.form.SetHighlight(style.FieldHighlight())
 	var pre []string
 	idx := 0
@@ -99,45 +112,53 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		vals := m.form.Values()
 		kind := m.formKind
 		m.formKind = formNone
+		resume := func(message string) (tea.Model, tea.Cmd) {
+			m.formKind = kind
+			m.form.Resume()
+			m.formErr = message
+			return m, nil
+		}
 		switch kind {
 		case formCreateStore:
 			name := strings.TrimSpace(vals[0])
 			if name == "" {
-				m.formErr = "store name required"
-				return m, nil
+				return resume("store name required")
 			}
-			m.status = "creating store " + name + "…"
-			return m, createStoreCmd(m.ctx, m.client, name)
+			m.beginLoad()
+			m.storeCreating = true
+			m.storeCreateGen++
+			m.mutationStatus = "creating store " + name + "…"
+			m.status = m.mutationStatus
+			return m, createStoreCmd(m.ctx, m.client, m.mutationOrigin("", "", m.storeCreateGen), name)
 		case formWriteTuple:
 			key, err := fga.ParseTuple(vals[0], vals[1], vals[2])
 			if err != nil {
-				m.formErr = err.Error()
-				return m, nil
+				return resume(err.Error())
 			}
 			cond, err := parseCondition(vals[3], vals[4])
 			if err != nil {
-				m.formErr = err.Error()
-				return m, nil
+				return resume(err.Error())
 			}
 			key.Condition = cond
-			m.status = "writing " + fga.FormatTuple(key) + "…"
-			return m, writeTupleCmd(m.ctx, m.client, m.storeID, m.modelID, key, false)
+			m.beginLoad()
+			m.tupleMutating = true
+			m.tupleMutationGen++
+			m.mutationStatus = "writing tuple " + fga.FormatTuple(key) + "…"
+			m.status = m.mutationStatus
+			return m, writeTupleCmd(m.ctx, m.client,
+				m.mutationOrigin(m.storeID, m.modelID, m.tupleMutationGen), key, false)
 		case formWriteAssertion:
 			key, err := fga.ParseTuple(vals[0], vals[1], vals[2])
 			if err != nil {
-				// Surface any failure adding an assertion in the modal, not the footer.
-				m.formErr = err.Error()
-				return m, nil
+				return resume(err.Error())
 			}
 			ctxTuples, err := parseContextualTuples(vals[4])
 			if err != nil {
-				m.formErr = err.Error()
-				return m, nil
+				return resume(err.Error())
 			}
 			ctxMap, err := parseContextJSON(vals[5])
 			if err != nil {
-				m.formErr = err.Error()
-				return m, nil
+				return resume(err.Error())
 			}
 			a := openfga.Assertion{
 				TupleKey:         openfga.CheckRequestTupleKey{User: key.User, Relation: key.Relation, Object: key.Object},
@@ -151,25 +172,35 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				list = append(list, a)
 			}
-			m.status = "writing assertions…"
-			return m, writeAssertionsCmd(m.ctx, m.client, m.storeID, m.assertModelID, list)
+			m.beginLoad()
+			m.assertionsWriting = true
+			m.assertionWriteGen++
+			m.mutationStatus = "writing assertions…"
+			m.status = m.mutationStatus
+			return m, writeAssertionsCmd(m.ctx, m.client,
+				m.mutationOrigin(m.storeID, m.assertModelID, m.assertionWriteGen), list)
 		case formAddProfile:
 			name, p := profileFromForm(true, vals)
 			if name == "" {
-				m.status = "profile name required"
-				return m, nil
+				return resume("profile name required")
 			}
 			if _, exists := m.cli.Config.Get(name); exists {
-				m.status = "profile " + name + " already exists"
-				return m, nil
+				return resume("profile " + name + " already exists")
 			}
+			if err := p.Auth.Validate(); err != nil {
+				return resume(err.Error())
+			}
+			previousActive := m.cli.Config.Active
 			m.cli.Config.Set(name, p)
 			if err := m.saveConfig(); err != nil {
-				// The profile only exists in memory now — remove it so the
-				// in-memory config matches what's actually on disk, and don't
-				// claim success. name can't be the active profile (it didn't
-				// exist a moment ago), so Remove can't fail on that guard.
+				// The profile only exists in memory now. Clear the active guard
+				// while removing it, then restore the pre-form active name.
+				m.cli.Config.Active = ""
 				_ = m.cli.Config.Remove(name)
+				m.cli.Config.Active = previousActive
+				m.formKind = kind
+				m.form.Resume()
+				m.formErr = err.Error()
 				return m, m.configSaveErrCmd(err)
 			}
 			m.populateProfiles()
@@ -190,33 +221,72 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// can't smuggle a stale secret across.
 			prevAuth := existing.ResolvedAuth()
 			if p.Auth.Method == prevAuth.Method {
-				if p.Auth.Token == "" {
-					p.Auth.Token = prevAuth.Token
-				}
-				if p.Auth.ClientSecret == "" {
-					p.Auth.ClientSecret = prevAuth.ClientSecret
-				}
+				preserveProfileSecrets(&p.Auth, prevAuth)
+			}
+			if err := p.Auth.Validate(); err != nil {
+				return resume(err.Error())
+			}
+			var cleanupFields []string
+			if p.Auth.Method != prevAuth.Method {
+				cleanupFields = prevAuth.ConfiguredSecretFields()
+			} else if prevAuth.PrivateKey != "" && p.Auth.PrivateKey == "" {
+				cleanupFields = []string{"private_key"}
 			}
 			// Keep the auto-managed store/model; replace connection + auth.
 			existing.APIURL, existing.Auth = p.APIURL, p.Auth
 			m.cli.Config.Set(name, existing)
-			if err := m.saveConfig(); err != nil {
+			var activeResolved config.Resolved
+			var activeClient *openfga.Client
+			if name == m.profile {
+				var err error
+				activeResolved, activeClient, err = m.resolvedClient()
+				if err != nil {
+					m.cli.Config.Set(name, prev)
+					return resume(err.Error())
+				}
+			}
+			saved, err := m.saveConfigWithSecretCleanup(name, false, cleanupFields...)
+			if err != nil {
+				if saved {
+					m.populateProfiles()
+					var reconnect tea.Cmd
+					if name == m.profile {
+						reconnect = m.activateResolved(activeResolved, activeClient, "updated profile "+name)
+					}
+					m.status = "profile updated, but saved credentials could not be deleted: " + err.Error()
+					return m, tea.Batch(reconnect, m.toasts.Push(toast.Error, m.status))
+				}
 				// Roll back to the profile as it was before this edit, so the
 				// in-memory config matches what's actually on disk, and don't
 				// claim success or reconnect with the unsaved edit.
 				m.cli.Config.Set(name, prev)
+				m.formKind = kind
+				m.form.Resume()
+				m.formErr = err.Error()
 				return m, m.configSaveErrCmd(err)
 			}
 			m.populateProfiles()
 			// Editing the active profile changes the live connection — reconnect.
-			if name == m.cli.Config.Active {
-				return m, m.reloadActive("updated profile " + name)
+			if name == m.profile {
+				return m, m.activateResolved(activeResolved, activeClient, "updated profile "+name)
 			}
 			m.status = "updated profile " + name
 			return m, m.toasts.Push(toast.Success, m.status)
 		}
 	}
 	return m, cmd
+}
+
+func preserveProfileSecrets(next *config.Auth, previous config.Auth) {
+	if next.Token == "" {
+		next.Token = previous.Token
+	}
+	if next.ClientSecret == "" {
+		next.ClientSecret = previous.ClientSecret
+	}
+	if next.PrivateKey == "" && (next.KeyFile == "" || next.KeyFile == previous.KeyFile) {
+		next.PrivateKey = previous.PrivateKey
+	}
 }
 
 func (m Model) handleQueryForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -301,6 +371,7 @@ func (m Model) advanceQueryForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.beginLoad()
 		m.queryGen++
 		gen := m.queryGen
+		m.queryPendingGen = gen
 		m.status = "running " + mode + "…"
 		switch mode {
 		case "check":
@@ -333,6 +404,7 @@ func (m Model) rerunHistory(idx int) (tea.Model, tea.Cmd) {
 	m.beginLoad()
 	m.queryGen++
 	gen := m.queryGen
+	m.queryPendingGen = gen
 	m.status = "running " + queryModes[m.qmode] + "…"
 	switch queryModes[m.qmode] {
 	case "check":
@@ -347,6 +419,7 @@ func (m Model) rerunHistory(idx int) (tea.Model, tea.Cmd) {
 			// The load begun above never actually dispatched a request — free
 			// its slot immediately instead of leaving the spinner stuck on it.
 			m.endLoad()
+			m.queryPendingGen = 0
 			m.setQueryError(err.Error())
 			return m, nil
 		}

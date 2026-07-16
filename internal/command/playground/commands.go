@@ -111,8 +111,19 @@ type assertOneMsg struct {
 	err    error
 }
 
+// mutationOrigin identifies the live connection and resource selection that
+// dispatched a mutation. A completion carrying an older origin is ignored.
+type mutationOrigin struct {
+	connGen int
+	gen     int
+	profile string
+	storeID string
+	modelID string
+}
+
 // assertionsWrittenMsg reports the outcome of replacing a model's assertion set.
 type assertionsWrittenMsg struct {
+	origin  mutationOrigin
 	modelID string
 	err     error
 }
@@ -136,21 +147,25 @@ type assertResult struct {
 }
 
 type storeCreatedMsg struct {
-	store openfga.Store
-	err   error
+	origin mutationOrigin
+	store  openfga.Store
+	err    error
 }
 
 type storeDeletedMsg struct {
-	id  string
-	err error
+	origin mutationOrigin
+	id     string
+	err    error
 }
 
 type modelAppliedMsg struct {
+	origin  mutationOrigin
 	modelID string
 	err     error
 }
 
 type tupleWrittenMsg struct {
+	origin  mutationOrigin
 	label   string
 	deleted bool
 	err     error
@@ -348,44 +363,44 @@ func runOneAssertionCmd(ctx context.Context, cl *openfga.Client, storeID, modelI
 
 // writeAssertionsCmd replaces the model's whole assertion set (the OpenFGA API
 // is a full PUT), then the caller reloads to confirm.
-func writeAssertionsCmd(ctx context.Context, cl *openfga.Client, storeID, modelID string, assertions []openfga.Assertion) tea.Cmd {
+func writeAssertionsCmd(ctx context.Context, cl *openfga.Client, origin mutationOrigin, assertions []openfga.Assertion) tea.Cmd {
 	return func() tea.Msg {
-		id := modelID
+		id := origin.modelID
 		if id == "" {
-			m, err := cl.AuthorizationModels.ReadLatest(ctx, openfga.WithStore(storeID))
+			m, err := cl.AuthorizationModels.ReadLatest(ctx, openfga.WithStore(origin.storeID))
 			if err != nil {
-				return assertionsWrittenMsg{err: err}
+				return assertionsWrittenMsg{origin: origin, err: err}
 			}
 			id = m.ID
 		}
 		req := &openfga.WriteAssertionsRequest{Assertions: assertions}
-		if err := cl.Assertions.Write(ctx, id, req, openfga.WithStore(storeID)); err != nil {
-			return assertionsWrittenMsg{modelID: id, err: err}
+		if err := cl.Assertions.Write(ctx, id, req, openfga.WithStore(origin.storeID)); err != nil {
+			return assertionsWrittenMsg{origin: origin, modelID: id, err: err}
 		}
-		return assertionsWrittenMsg{modelID: id}
+		return assertionsWrittenMsg{origin: origin, modelID: id}
 	}
 }
 
-func createStoreCmd(ctx context.Context, cl *openfga.Client, name string) tea.Cmd {
+func createStoreCmd(ctx context.Context, cl *openfga.Client, origin mutationOrigin, name string) tea.Cmd {
 	return func() tea.Msg {
 		st, err := cl.Stores.Create(ctx, &openfga.CreateStoreRequest{Name: name})
 		if err != nil {
-			return storeCreatedMsg{err: err}
+			return storeCreatedMsg{origin: origin, err: err}
 		}
-		return storeCreatedMsg{store: *st}
+		return storeCreatedMsg{origin: origin, store: *st}
 	}
 }
 
-func deleteStoreCmd(ctx context.Context, cl *openfga.Client, id string) tea.Cmd {
+func deleteStoreCmd(ctx context.Context, cl *openfga.Client, origin mutationOrigin, id string) tea.Cmd {
 	return func() tea.Msg {
 		if err := cl.Stores.Delete(ctx, id); err != nil {
-			return storeDeletedMsg{id: id, err: err}
+			return storeDeletedMsg{origin: origin, id: id, err: err}
 		}
-		return storeDeletedMsg{id: id}
+		return storeDeletedMsg{origin: origin, id: id}
 	}
 }
 
-func writeTupleCmd(ctx context.Context, cl *openfga.Client, storeID, modelID string, key openfga.TupleKey, del bool) tea.Cmd {
+func writeTupleCmd(ctx context.Context, cl *openfga.Client, origin mutationOrigin, key openfga.TupleKey, del bool) tea.Cmd {
 	return func() tea.Msg {
 		var req *openfga.WriteRequest
 		if del {
@@ -393,10 +408,10 @@ func writeTupleCmd(ctx context.Context, cl *openfga.Client, storeID, modelID str
 		} else {
 			req = &openfga.WriteRequest{Writes: &openfga.WriteRequestTuples{TupleKeys: []openfga.TupleKey{key}}}
 		}
-		if err := cl.Tuples.Write(ctx, req, openfga.WithStore(storeID), openfga.WithAuthorizationModel(modelID)); err != nil {
-			return tupleWrittenMsg{err: err, deleted: del}
+		if err := cl.Tuples.Write(ctx, req, openfga.WithStore(origin.storeID), openfga.WithAuthorizationModel(origin.modelID)); err != nil {
+			return tupleWrittenMsg{origin: origin, err: err, deleted: del}
 		}
-		return tupleWrittenMsg{label: fga.FormatTuple(key), deleted: del}
+		return tupleWrittenMsg{origin: origin, label: fga.FormatTuple(key), deleted: del}
 	}
 }
 
@@ -588,21 +603,21 @@ func listRelationsCmd(ctx context.Context, cl *openfga.Client, storeID, modelID,
 	}
 }
 
-func applyModelCmd(ctx context.Context, cl *openfga.Client, storeID, dsl string) tea.Cmd {
+func applyModelCmd(ctx context.Context, cl *openfga.Client, origin mutationOrigin, dsl string) tea.Cmd {
 	return func() tea.Msg {
 		jsonStr, err := transformer.TransformDSLToJSON(dsl)
 		if err != nil {
-			return modelAppliedMsg{err: err}
+			return modelAppliedMsg{origin: origin, err: err}
 		}
 		var req openfga.WriteAuthorizationModelRequest
 		if err := json.Unmarshal([]byte(jsonStr), &req); err != nil {
-			return modelAppliedMsg{err: err}
+			return modelAppliedMsg{origin: origin, err: err}
 		}
-		res, err := cl.AuthorizationModels.Write(ctx, &req, openfga.WithStore(storeID))
+		res, err := cl.AuthorizationModels.Write(ctx, &req, openfga.WithStore(origin.storeID))
 		if err != nil {
-			return modelAppliedMsg{err: err}
+			return modelAppliedMsg{origin: origin, err: err}
 		}
-		return modelAppliedMsg{modelID: res.AuthorizationModelID}
+		return modelAppliedMsg{origin: origin, modelID: res.AuthorizationModelID}
 	}
 }
 

@@ -172,6 +172,12 @@ func (l *List) SettingFilter() bool { return l.Model.SettingFilter() }
 // absolute item index, or -1 if the row is past the last visible item. It
 // accounts for the delegate's item height + spacing and the current page.
 func (l *List) IndexAt(row int) int {
+	// The title/filter bar is always rendered above the item viewport. Mouse
+	// rows are relative to the whole list, so remove that persistent row before
+	// mapping into the delegate's compact or regular item stride.
+	if l.Model.ShowTitle() {
+		row--
+	}
 	if row < 0 {
 		return -1
 	}
@@ -193,6 +199,18 @@ func (l *List) IndexAt(row int) int {
 
 // SelectIndex highlights the item at the given absolute index.
 func (l *List) SelectIndex(i int) { l.Model.Select(i) }
+
+// SelectID highlights an item by ID within the currently visible (filtered)
+// rows. It returns false when the filter excludes the item.
+func (l *List) SelectID(id string) bool {
+	for i, row := range l.Model.VisibleItems() {
+		if item, ok := row.(Item); ok && item.ID == id {
+			l.Model.Select(i)
+			return true
+		}
+	}
+	return false
+}
 
 // View renders the list.
 func (l *List) View() string { return l.Model.View() }

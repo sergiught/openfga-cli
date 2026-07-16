@@ -230,14 +230,14 @@ func TestAPILogJKScrollDetail(t *testing.T) {
 	if m.apiLogVP.TotalLineCount() <= m.apiLogVP.Height() {
 		t.Skip("content fits; nothing to scroll")
 	}
-	m = pressAPILog(m, "k") // scroll down
+	m = pressAPILog(m, "j") // scroll down
 	off := m.apiLogVP.YOffset()
 	if off == 0 {
-		t.Fatal("k should scroll the detail down")
+		t.Fatal("j should scroll the detail down")
 	}
-	m = pressAPILog(m, "j") // scroll up
+	m = pressAPILog(m, "k") // scroll up
 	if m.apiLogVP.YOffset() >= off {
-		t.Fatal("j should scroll the detail up")
+		t.Fatal("k should scroll the detail up")
 	}
 }
 
@@ -251,7 +251,7 @@ func TestAPILogHelpAndFooterAdvertiseKeys(t *testing.T) {
 	}
 	m.focus = shell.FocusPanel
 	footer := strings.Join(m.statusKeys(), " ")
-	for _, want := range []string{"tab section", "j/k scroll", "x clear"} {
+	for _, want := range []string{"tab section", "j down/k up", "x clear"} {
 		if !strings.Contains(footer, want) {
 			t.Fatalf("footer should advertise %q: %s", want, footer)
 		}

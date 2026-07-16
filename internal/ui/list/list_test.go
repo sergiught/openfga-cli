@@ -61,6 +61,23 @@ func TestFilterNarrowsAndSelectsMatch(t *testing.T) {
 	}
 }
 
+func TestSelectIDUsesFilteredIndex(t *testing.T) {
+	l := New()
+	l.SetSize(50, 12)
+	l.SetItems([]Item{
+		{TitleText: "dev", Filter: "dev", ID: "dev"},
+		{TitleText: "prod", Filter: "prod", ID: "prod"},
+	})
+	l.Model.SetFilterText("prod")
+	if !l.SelectID("prod") {
+		t.Fatal("visible prod row was not found")
+	}
+	selected, ok := l.Selected()
+	if !ok || selected.ID != "prod" {
+		t.Fatalf("selected = %+v, %t; want prod", selected, ok)
+	}
+}
+
 // The "/" filter is gated behind a keypress and easy to miss, so a populated
 // list advertises it with a faint hint that the filter input replaces once the
 // user starts filtering. An empty list shows no hint (nothing to filter).
@@ -128,6 +145,7 @@ func TestSetCompactHidesDescriptionsButKeepsTitles(t *testing.T) {
 			break
 		}
 	}
+
 	if alphaLine == -1 || alphaLine+1 >= len(lines) || !strings.Contains(lines[alphaLine+1], "beta") {
 		t.Fatalf("compact view should render beta on the line immediately after alpha with no blank line between rows, got:\n%s", compact)
 	}
@@ -136,5 +154,21 @@ func TestSetCompactHidesDescriptionsButKeepsTitles(t *testing.T) {
 	restored := l.View()
 	if !strings.Contains(restored, "first") {
 		t.Fatalf("toggling compact off should restore descriptions, got:\n%s", restored)
+	}
+}
+
+func TestIndexAtAccountsForPersistentTitleRow(t *testing.T) {
+	l := New()
+	l.SetCompact(true)
+	l.SetSize(40, 10)
+	l.SetItems([]Item{{TitleText: "alpha"}, {TitleText: "beta"}})
+	if got := l.IndexAt(0); got != -1 {
+		t.Fatalf("title/filter row mapped to item %d", got)
+	}
+	if got := l.IndexAt(1); got != 0 {
+		t.Fatalf("first compact item row mapped to %d, want 0", got)
+	}
+	if got := l.IndexAt(2); got != 1 {
+		t.Fatalf("second compact item row mapped to %d, want 1", got)
 	}
 }

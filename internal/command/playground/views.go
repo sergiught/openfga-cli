@@ -44,7 +44,7 @@ func (m Model) viewString() string {
 	// Always advertise the help overlay so every binding is discoverable.
 	st := shell.Status{Left: m.sectionStatus(), Keys: append(m.statusKeys(), "? help")}
 	// The active profile leads the footer as the connection identity.
-	st.Profile = "Profile: " + safeText(m.cli.Config.Active)
+	st.Profile = "Profile: " + safeText(m.profile)
 	// Show the selected store's name and the full (untruncated) model id, tagged
 	// "(latest)" when it is the store's newest model.
 	if name := m.currentStoreName(); name != "" {
@@ -114,7 +114,7 @@ func (m Model) helpBody() string {
 		section = [][2]string{
 			{"↑↓", "select request"},
 			{"tab / shift+tab", "cycle detail section"},
-			{"j / k", "scroll section up / down"},
+			{"j / k", "scroll section down / up"},
 			{"pgup/pgdn b/f/space", "page the section"},
 			{"←→", "scroll the URL"},
 			{"c", "readable / compact bodies"},
@@ -173,7 +173,13 @@ func (m Model) dialogContent() (string, string) {
 		if c.detail != "" {
 			body += "\n\n" + style.Faint.Render(safeMultiline(c.detail))
 		}
-		body += "\n\n" + style.Faint.Render("y confirm · n / esc / enter cancel")
+		if c.require != "" {
+			body += "\n\n" + style.Faint.Render("Type "+safeText(c.require)+" to confirm:") +
+				"\n" + style.Value.Render("> "+safeText(c.input)) +
+				"\n\n" + style.Faint.Render("enter confirm · esc cancel")
+		} else {
+			body += "\n\n" + style.Faint.Render("y confirm · n / esc / enter cancel")
+		}
 		return "Confirm", body
 	case m.paletteOpen:
 		return "Command palette", m.paletteList.View() + "\n" + style.Faint.Render("↑↓ choose · enter go · esc close")
@@ -401,7 +407,7 @@ func (m Model) profilePreview() (string, string) {
 		return "", ""
 	}
 	title := safeText(it.ID)
-	if it.ID == m.cli.Config.Active {
+	if it.ID == m.profile {
 		title += "  · active"
 	}
 	rows := [][2]string{
@@ -617,7 +623,7 @@ func (m Model) queryBody() string {
 
 	w, _ := m.contentSize()
 	switch {
-	case m.loading:
+	case m.queryPendingGen != 0:
 		b.WriteString("\n\n" + m.spinner.View() + " running…")
 	case m.hasResult && m.result.err != nil:
 		// Wrap a long error so it stays fully readable instead of running off
@@ -864,7 +870,7 @@ func (m Model) statusKeys() []string {
 	case secAssertions:
 		return []string{"↑↓", "↵ run", "a add", "e edit", "d delete", "t run all", m.compactHint(), "esc"}
 	case secAPILogs:
-		return []string{"↑↓ list", "tab section", "j/k scroll", "←→ url", "c fmt", "x clear", "esc"}
+		return []string{"↑↓ list", "tab section", "j down/k up", "←→ url", "c fmt", "x clear", "esc"}
 	}
 	return nil
 }
@@ -883,6 +889,9 @@ func (m Model) compactHint() string {
 // show no message. Transient feedback (errors, successes) rides on toasts, and
 // the spinner marks in-flight loads.
 func (m Model) sectionStatus() string {
+	if m.mutationStatus != "" {
+		return m.mutationStatus
+	}
 	switch m.section {
 	case secStores:
 		return plural(len(m.stores), "store")

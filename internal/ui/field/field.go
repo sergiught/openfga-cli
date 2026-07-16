@@ -216,6 +216,7 @@ type Form struct {
 	focus     int
 	completed bool
 	width     int         // content width, for the focused row's full-width highlight
+	height    int         // maximum rendered rows; 0 means unconstrained
 	highlight color.Color // focused-row background; nil disables highlighting
 }
 
@@ -251,6 +252,15 @@ func (f *Form) SetWidth(w int) {
 	for _, fl := range f.fields {
 		fl.setWidth(iw)
 	}
+}
+
+// SetHeight clamps the rendered form to a scrolling window. The window follows
+// the focused field, including its inline validation error when possible.
+func (f *Form) SetHeight(h int) {
+	if h < 1 {
+		h = 1
+	}
+	f.height = h
 }
 
 // Init focuses the first field.
@@ -317,20 +327,40 @@ func (f *Form) FocusIndex(i int) tea.Cmd {
 
 func (f *Form) submit() {
 	ok := true
-	for _, fl := range f.fields {
+	firstInvalid := -1
+	for i, fl := range f.fields {
 		fl.err = ""
 		if fl.validate != nil {
 			if err := fl.validate(fl.value()); err != nil {
 				fl.err = err.Error()
 				ok = false
+				if firstInvalid < 0 {
+					firstInvalid = i
+				}
 			}
 		}
 	}
 	f.completed = ok
+	if !ok && firstInvalid >= 0 && firstInvalid != f.focus {
+		f.fields[f.focus].blur()
+		f.focus = firstInvalid
+		if f.fields[f.focus].kind == kindText {
+			f.fields[f.focus].in.Focus()
+		}
+	}
 }
 
 // Completed reports whether a submit passed validation.
 func (f *Form) Completed() bool { return f.completed }
+
+// Resume reopens a completed form without discarding its values, allowing
+// application-level validation errors to be corrected in place.
+func (f *Form) Resume() {
+	f.completed = false
+	if len(f.fields) > 0 {
+		f.fields[f.focus].focus()
+	}
+}
 
 // Values returns every field's current value, in field order (toggles as
 // "true"/"false").
@@ -371,12 +401,12 @@ func (f *Form) Reset() {
 // field's whole row (label + input) is filled with the highlight; the others
 // render plain so only the active field is emphasized.
 func (f *Form) View() string {
-	var b strings.Builder
+	blocks := make([][]string, len(f.fields))
+	starts := make([]int, len(f.fields))
+	var lines []string
 	for i, fl := range f.fields {
 		focused := i == f.focus && !f.completed
-		if i > 0 {
-			b.WriteString("\n")
-		}
+		var b strings.Builder
 		if focused && f.highlight != nil {
 			hl := lipgloss.NewStyle().Background(f.highlight)
 			label := hl.Bold(true).Foreground(style.Primary).Width(f.width).Render(fl.label)
@@ -388,7 +418,46 @@ func (f *Form) View() string {
 		if fl.err != "" {
 			b.WriteString("\n" + lipgloss.NewStyle().Foreground(style.Red).Render("  "+fl.err))
 		}
-		b.WriteString("\n")
+		block := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
+		blocks[i] = block
+		starts[i] = len(lines)
+		if i > 0 {
+			lines = append(lines, "")
+			starts[i]++
+		}
+		lines = append(lines, block...)
 	}
-	return strings.TrimRight(b.String(), "\n")
+	if f.height > 0 && len(lines) > f.height {
+		focusBlock := blocks[f.focus]
+		if f.fields[f.focus].err != "" && len(focusBlock) > f.height {
+			if f.height == 1 {
+				return focusBlock[len(focusBlock)-1]
+			}
+			compact := append([]string(nil), focusBlock[:f.height]...)
+			compact[f.height-1] += "  " + focusBlock[len(focusBlock)-1]
+			return strings.Join(compact, "\n")
+		}
+		start := starts[f.focus]
+		end := start + len(blocks[f.focus])
+		if end-start >= f.height {
+			if f.fields[f.focus].err != "" {
+				start = end - f.height
+			} else {
+				end = start + f.height
+			}
+		} else {
+			padding := (f.height - (end - start)) / 2
+			start -= padding
+			if start < 0 {
+				start = 0
+			}
+			end = start + f.height
+			if end > len(lines) {
+				end = len(lines)
+				start = end - f.height
+			}
+		}
+		lines = lines[start:end]
+	}
+	return strings.Join(lines, "\n")
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sergiught/openfga-cli/internal/apilog"
+	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/style"
 )
 
@@ -38,6 +39,41 @@ func urlPath(raw string) string {
 		return u.Path
 	}
 	return raw
+}
+
+func urlOrigin(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return raw
+	}
+	return u.Scheme + "://" + u.Host
+}
+
+// apiLogOriginLabel describes the selected entry using the URL captured with
+// that request, never the connection that happens to be active now.
+func (m Model) apiLogOriginLabel(e apilog.Entry) string {
+	origin := urlOrigin(e.URL)
+	if m.cli == nil {
+		return origin
+	}
+	var profiles []string
+	for _, name := range m.cli.Config.ProfileNames() {
+		p, ok := m.cli.Config.Get(name)
+		if !ok {
+			continue
+		}
+		apiURL := p.APIURL
+		if apiURL == "" {
+			apiURL = config.DefaultAPIURL
+		}
+		if urlOrigin(apiURL) == origin {
+			profiles = append(profiles, name)
+		}
+	}
+	if len(profiles) == 0 {
+		return origin
+	}
+	return strings.Join(profiles, ", ") + " · " + origin
 }
 
 // apiLogMsg is sent (via Recorder.SetNotify -> program.Send) whenever a new
@@ -98,7 +134,7 @@ func (m Model) apiLogsBody() string {
 	if m.cli != nil {
 		// Indent by 2 so "API" lines up with the list rows' timestamp column
 		// (rows reserve 2 columns for the selection bar / padding).
-		urlHeader = "  " + style.Faint.Render("API  ") + style.Bold.Render(safeText(m.activeAPIURL()))
+		urlHeader = "  " + style.Faint.Render("API  ") + style.Bold.Render(safeText(m.apiLogOriginLabel(e)))
 	}
 	return urlHeader + "\n" + split
 }

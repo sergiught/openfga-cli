@@ -174,3 +174,42 @@ func TestResetClearsState(t *testing.T) {
 		t.Fatal("reset should clear completion and values")
 	}
 }
+
+func TestResumePreservesCompletedValues(t *testing.T) {
+	f := NewForm(New("User", ""))
+	f.SetWidth(40)
+	f.Init()
+	f.Update(key("a"))
+	f.Update(key("enter"))
+	f.Resume()
+	if f.Completed() {
+		t.Fatal("resumed form should accept corrections")
+	}
+	if got := f.Values()[0]; got != "a" {
+		t.Fatalf("resumed value = %q, want preserved input", got)
+	}
+}
+
+func TestFormViewportFollowsFocusAndValidationError(t *testing.T) {
+	fields := []*Field{
+		New("One", ""),
+		New("Two", ""),
+		New("Three", "").WithValidate(func(string) error { return errors.New("three is invalid") }),
+		New("Four", ""),
+	}
+	f := NewForm(fields...)
+	f.SetWidth(30)
+	f.SetHeight(2) // the minimum dialog content budget at a 40x10 terminal
+	f.Init()
+	f.FocusIndex(2)
+	view := ansi.Strip(f.View())
+	if len(strings.Split(view, "\n")) > 2 || !strings.Contains(view, "Three") {
+		t.Fatalf("clamped viewport must show focused field:\n%s", view)
+	}
+	f.Update(key("enter")) // advance
+	f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	view = ansi.Strip(f.View())
+	if len(strings.Split(view, "\n")) > 2 || !strings.Contains(view, "Three") || !strings.Contains(view, "three is invalid") {
+		t.Fatalf("validation should focus and reveal the first error:\n%s", view)
+	}
+}

@@ -1,6 +1,7 @@
 package playground
 
 import (
+	"reflect"
 	"strconv"
 
 	tea "charm.land/bubbletea/v2"
@@ -61,6 +62,10 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 		case "d":
 			if it, ok := m.profilesList.Selected(); ok {
 				id := it.ID
+				if id == m.profile {
+					m.status = "cannot remove the active profile " + id + "; switch first"
+					return m, m.toasts.Push(toast.Error, m.status)
+				}
 				m.confirm = &confirmAction{
 					action:  "Remove profile",
 					subject: id,
@@ -70,7 +75,13 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 						if err := m.cli.Config.Remove(id); err != nil {
 							return m.toastErr("profile", err)
 						}
-						if err := m.saveConfig(); err != nil {
+						saved, err := m.saveConfigWithSecretCleanup(id, true, prev.Auth.ConfiguredSecretFields()...)
+						if err != nil {
+							if saved {
+								m.populateProfiles()
+								m.status = "profile removed, but saved credentials could not be deleted: " + err.Error()
+								return m.toasts.Push(toast.Error, m.status)
+							}
 							// Roll back the in-memory removal so the profile list stays
 							// consistent with what's actually on disk, and don't claim
 							// success.
@@ -103,10 +114,19 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 					action:  "Delete store",
 					subject: s.Name,
 					detail:  "This permanently deletes the store and all its models, tuples and assertions.",
+					require: s.ID,
 					run: func(m *Model) tea.Cmd {
+						if m.storeDeleting {
+							m.status = "store deletion already in progress"
+							return nil
+						}
 						m.beginLoad()
-						m.status = "deleting store…"
-						return deleteStoreCmd(m.ctx, m.client, s.ID)
+						m.storeDeleting = true
+						m.storeDeleteGen++
+						m.mutationStatus = "deleting store " + s.Name + "…"
+						m.status = m.mutationStatus
+						return deleteStoreCmd(m.ctx, m.client,
+							m.mutationOrigin("", "", m.storeDeleteGen), s.ID)
 					},
 				}
 			}
@@ -191,8 +211,17 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 					action:  "Delete tuple",
 					subject: fga.FormatTuple(k),
 					run: func(m *Model) tea.Cmd {
-						m.status = "deleting " + fga.FormatTuple(k) + "…"
-						return writeTupleCmd(m.ctx, m.client, m.storeID, m.modelID, k, true)
+						if m.tupleMutating {
+							m.status = "tuple mutation already in progress"
+							return nil
+						}
+						m.beginLoad()
+						m.tupleMutating = true
+						m.tupleMutationGen++
+						m.mutationStatus = "deleting tuple " + fga.FormatTuple(k) + "…"
+						m.status = m.mutationStatus
+						return writeTupleCmd(m.ctx, m.client,
+							m.mutationOrigin(m.storeID, m.modelID, m.tupleMutationGen), k, true)
 					},
 				}
 			}
@@ -292,8 +321,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			return m, nil
 		case "d":
 			if it, ok := m.assertionsList.Selected(); ok && it.Index < len(m.assertions) {
-				idx := it.Index
-				a := m.assertions[idx]
+				a := m.assertions[it.Index]
 				exp := "expect allow"
 				if !a.Expectation {
 					exp = "expect deny"
@@ -304,10 +332,30 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 					subject: label,
 					detail:  exp,
 					run: func(m *Model) tea.Cmd {
+						if m.assertionsWriting {
+							m.status = "assertion write already in progress"
+							return nil
+						}
+						idx := -1
+						for i := range m.assertions {
+							if reflect.DeepEqual(m.assertions[i], a) {
+								idx = i
+								break
+							}
+						}
+						if idx < 0 {
+							m.status = "assertion changed; nothing deleted"
+							return m.toasts.Push(toast.Error, m.status)
+						}
 						list := append([]openfga.Assertion{}, m.assertions...)
 						list = append(list[:idx], list[idx+1:]...)
-						m.status = "deleting assertion…"
-						return writeAssertionsCmd(m.ctx, m.client, m.storeID, m.assertModelID, list)
+						m.beginLoad()
+						m.assertionsWriting = true
+						m.assertionWriteGen++
+						m.mutationStatus = "deleting assertion…"
+						m.status = m.mutationStatus
+						return writeAssertionsCmd(m.ctx, m.client,
+							m.mutationOrigin(m.storeID, m.assertModelID, m.assertionWriteGen), list)
 					},
 				}
 			}
@@ -380,12 +428,12 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			}
 			return m, nil
 		case "j":
-			// Scroll the detail section up (arrows drive the list, so the body
+			// Scroll the detail section down (arrows drive the list, so the body
 			// gets its own keys).
-			m.apiLogVP.ScrollUp(apiLogScrollStep)
+			m.apiLogVP.ScrollDown(apiLogScrollStep)
 			return m, nil
 		case "k":
-			m.apiLogVP.ScrollDown(apiLogScrollStep)
+			m.apiLogVP.ScrollUp(apiLogScrollStep)
 			return m, nil
 		case "tab":
 			// Cycle the detail sub-section (Req/Resp headers/body); the section

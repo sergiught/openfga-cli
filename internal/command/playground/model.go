@@ -103,6 +103,8 @@ type confirmAction struct {
 	action  string
 	subject string
 	detail  string
+	require string
+	input   string
 	run     func(m *Model) tea.Cmd
 }
 
@@ -140,6 +142,8 @@ type Model struct {
 	storeName     string
 	modelID       string
 	modelIsLatest bool // current model is the store's newest
+	profile       string
+	apiURL        string
 
 	section section
 	focus   shell.Focus // FocusSidebar (tab selection) or FocusPanel (right pane)
@@ -169,7 +173,7 @@ type Model struct {
 	resGen    int
 	assertGen int
 	// storesGen is bumped both on reconnect (a profile switch or an edit to the
-	// active profile's connection, both funneled through reloadActive) and on
+	// active profile's connection, both funneled through activateResolved) and on
 	// every other stores-list dispatch (manual reload, and the refresh after
 	// creating/deleting a store). It is stamped on the stores list load:
 	// unlike every other load, that one has no store id of its own to check
@@ -181,6 +185,10 @@ type Model struct {
 	// manual "r" racing the refresh a create/delete already triggers) could
 	// otherwise land out of order and let the older one win.
 	storesGen int
+	// connGen changes whenever the resolved client/profile connection changes.
+	// Every mutation captures it so an old server's completion cannot mutate
+	// or persist state after a reconnect, even when store/model IDs match.
+	connGen int
 	// modelsGen is bumped each time the model-switcher's list is (re)loaded,
 	// i.e. every time it's opened. Kept separate from modelGen: picking a model
 	// bumps modelGen but must not invalidate an in-flight list request (and
@@ -204,6 +212,19 @@ type Model struct {
 	// forever.
 	spinnerRunning bool
 	status         string
+	mutationStatus string
+
+	storeCreating     bool
+	storeDeleting     bool
+	modelApplying     bool
+	tupleMutating     bool
+	assertionsWriting bool
+	queryPendingGen   int
+	storeCreateGen    int
+	storeDeleteGen    int
+	modelApplyGen     int
+	tupleMutationGen  int
+	assertionWriteGen int
 
 	toasts toast.Model
 
@@ -313,6 +334,13 @@ func newModel(ctx context.Context, cli *cli.CLI, cl *openfga.Client, storeID, mo
 	ta.MaxWidth = editorNoWrapWidth
 	ta.SetWidth(editorNoWrapWidth)
 
+	profile := cli.Config.Active
+	apiURL := config.DefaultAPIURL
+	if r, err := cli.Resolve(); err == nil {
+		profile = r.Profile
+		apiURL = r.APIURL
+	}
+
 	m := Model{
 		cli:            cli,
 		client:         cl,
@@ -322,11 +350,13 @@ func newModel(ctx context.Context, cli *cli.CLI, cl *openfga.Client, storeID, mo
 		entering:       entering,
 		entranceFrac:   entranceFrac,
 		entranceSpring: entranceSpring,
-		section:        secStores,
+		section:        secProfiles,
 		apiLogPretty:   true,
 		version:        cli.Version,
 		storeID:        storeID,
 		modelID:        modelID,
+		profile:        profile,
+		apiURL:         apiURL,
 		graphSpring:    graphSpring,
 		loading:        true,
 		pendingLoads:   initialPendingLoads(storeID),
@@ -340,6 +370,7 @@ func newModel(ctx context.Context, cli *cli.CLI, cl *openfga.Client, storeID, mo
 		resGen:         1,
 		assertGen:      1,
 		storesGen:      1,
+		connGen:        1,
 		modelsGen:      1,
 		tuplesGen:      1,
 		changesGen:     1,
@@ -506,6 +537,11 @@ func (m *Model) resize() {
 	}
 	m.paletteList.SetSize(dw, dh)
 	m.modelsList.SetSize(dw, dh)
+	if m.form != nil {
+		formW, formH := m.sh.DialogSize()
+		m.form.SetWidth(formW)
+		m.form.SetHeight(formH)
+	}
 	if m.graphVP.Width() == 0 {
 		// First time: create the viewport and populate it.
 		m.graphVP = viewport.New(viewport.WithWidth(w), viewport.WithHeight(h))
@@ -584,12 +620,13 @@ func (m *Model) populateProfiles() {
 		p, _ := m.cli.Config.Get(name)
 		safeName := safeText(name)
 		desc := safeText(p.APIURL)
-		if name == m.cli.Config.Active {
+		if name == m.profile {
 			desc = "active · " + desc
 		}
 		items[i] = uilist.Item{TitleText: safeName, DescText: desc, Filter: safeName, ID: name, Index: i}
 	}
 	m.profilesList.SetItems(items)
+	m.profilesList.SelectID(m.profile)
 }
 
 func (m *Model) populateStores() {
@@ -599,6 +636,11 @@ func (m *Model) populateStores() {
 		items[i] = uilist.Item{TitleText: name, DescText: id, Filter: name + " " + id, ID: s.ID, Index: i}
 	}
 	m.storesList.SetItems(items)
+	m.selectCurrentStore()
+}
+
+func (m *Model) selectCurrentStore() {
+	m.storesList.SelectID(m.storeID)
 }
 
 func (m *Model) populateTuples() {
@@ -725,7 +767,7 @@ func (m *Model) populatePalette() {
 }
 
 func (m *Model) rebuildQueryForm() {
-	w, _ := m.contentSize()
+	w, h := m.contentSize()
 	// Leave a small margin for the fields' own focus accent so they don't
 	// touch the panel edge or get clipped.
 	w -= 2
@@ -733,6 +775,7 @@ func (m *Model) rebuildQueryForm() {
 		w = 1
 	}
 	m.qform = buildQueryForm(queryModes[m.qmode], w, m.qShowContext)
+	m.qform.SetHeight(h - 2)
 	m.qform.SetHighlight(style.FieldHighlight())
 	m.qform.Init()
 }
@@ -788,6 +831,7 @@ func (m *Model) pushHistory(h histEntry) {
 // --- store selection ---
 
 func (m *Model) selectStore(s openfga.Store) tea.Cmd {
+	m.clearResourcePending()
 	m.storeID = s.ID
 	m.storeName = s.Name
 	m.modelID = ""
@@ -842,6 +886,32 @@ func (m *Model) selectStore(s openfga.Store) tea.Cmd {
 	)
 }
 
+// clearResourcePending invalidates work tied to the selected store/model while
+// preserving connection-wide store creation/deletion. Late completions retain
+// their origin and are dropped without disturbing newer work.
+func (m *Model) clearResourcePending() {
+	m.modelApplyGen++
+	m.tupleMutationGen++
+	m.assertionWriteGen++
+	m.modelApplying = false
+	m.tupleMutating = false
+	m.assertionsWriting = false
+	m.queryPendingGen = 0
+	if !m.storeCreating && !m.storeDeleting {
+		m.mutationStatus = ""
+	}
+	m.assertions = nil
+	m.assertResults = nil
+	m.assertSummary = ""
+	m.assertModelID = ""
+	m.populateAssertions()
+	m.history = nil
+	m.hasResult = false
+	m.result = queryResultMsg{}
+	m.showRes = false
+	m.resTree = nil
+}
+
 // persistStore records the selected store on the active profile and saves,
 // clearing the profile's model id (a new store invalidates the old model; the
 // model that loads next re-records it). No-op when the profile already reflects
@@ -857,7 +927,7 @@ func (m *Model) persistStore() error {
 		// nonexistent store, so don't persist them.
 		return nil
 	}
-	active := m.cli.Config.Active
+	active := m.profile
 	p, ok := m.cli.Config.Get(active)
 	if !ok {
 		return nil
@@ -888,7 +958,7 @@ func (m *Model) persistModel() error {
 		// saved profile.
 		return nil
 	}
-	active := m.cli.Config.Active
+	active := m.profile
 	p, ok := m.cli.Config.Get(active)
 	if !ok {
 		return nil
@@ -919,6 +989,13 @@ func (m *Model) saveConfig() error {
 	return m.cli.SaveConfig()
 }
 
+func (m *Model) saveConfigWithSecretCleanup(profile string, all bool, fields ...string) (bool, error) {
+	if m.cli.Config.Path() == "" {
+		return true, nil
+	}
+	return m.cli.SaveConfigWithSecretCleanup(profile, all, fields...)
+}
+
 // configSaveErrCmd records a config-save failure as the visible status line
 // and returns a command that also pushes it as an error toast, so a failed
 // persist is never invisible and never quietly overwritten by a
@@ -932,12 +1009,20 @@ func (m *Model) configSaveErrCmd(err error) tea.Cmd {
 
 // switchProfile makes name the active profile and reconnects to it.
 func (m *Model) switchProfile(name string) tea.Cmd {
-	if name == m.cli.Config.Active {
+	if name == m.profile && name == m.cli.Config.Active {
 		m.status = "already on profile " + name
 		return nil
 	}
+	prevOverride := m.cli.Overrides.Profile
+	m.cli.Overrides.Profile = name
+	r, cl, err := m.resolvedClient()
+	if err != nil {
+		m.cli.Overrides.Profile = prevOverride
+		return m.toastErr("profile", err)
+	}
 	prevActive := m.cli.Config.Active
 	if err := m.cli.Config.Use(name); err != nil {
+		m.cli.Overrides.Profile = prevOverride
 		return m.toastErr("profile", err)
 	}
 	if err := m.saveConfig(); err != nil {
@@ -945,27 +1030,37 @@ func (m *Model) switchProfile(name string) tea.Cmd {
 		// disk, and never proceed to reconnect (a success-looking action) on a
 		// failed save.
 		_ = m.cli.Config.Use(prevActive)
+		m.cli.Overrides.Profile = prevOverride
 		return m.configSaveErrCmd(err)
 	}
-	return m.reloadActive("switched to profile " + name)
+	// An explicit in-TUI switch is more recent than the process's initial
+	// --profile/OPENFGA_PROFILE selection. Record it as a session override so
+	// Resolve cannot silently reconnect to the old environment-selected
+	// profile while the UI claims the newly selected profile is active.
+	m.cli.Overrides.Profile = name
+	m.profile = name
+	return m.activateResolved(r, cl, "switched to profile "+name)
 }
 
-// reloadActive repoints the client at the active profile's resolved connection,
-// resets all loaded data, and reloads the stores (plus the profile's store and
-// model, when set). It is used both when switching profiles and when the active
-// profile's connection details are edited. On a client-build failure it keeps
-// the previous client and surfaces a toast, so a broken profile can be fixed.
-func (m *Model) reloadActive(status string) tea.Cmd {
+func (m *Model) resolvedClient() (config.Resolved, *openfga.Client, error) {
 	r, err := m.cli.Resolve()
 	if err != nil {
-		return m.toastErr("profile", err)
+		return config.Resolved{}, nil, err
 	}
 	cl, err := client.New(r, client.WithCapture(m.recorder), client.WithTimeout(m.cli.RequestTimeout))
-	if err != nil {
-		m.populateProfiles()
-		return m.toastErr("profile", err)
-	}
+	return r, cl, err
+}
+
+func (m *Model) activateResolved(r config.Resolved, cl *openfga.Client, status string) tea.Cmd {
+	m.connGen++
+	m.storeCreateGen++
+	m.storeDeleteGen++
+	m.modelApplyGen++
+	m.tupleMutationGen++
+	m.assertionWriteGen++
 	m.client = cl
+	m.profile = r.Profile
+	m.apiURL = r.APIURL
 
 	// Reset every per-connection field, then adopt the profile's store/model.
 	m.storeID = r.StoreID
@@ -986,6 +1081,13 @@ func (m *Model) reloadActive(status string) tea.Cmd {
 	m.showRes = false
 	m.resTree = nil
 	m.connLost = false
+	m.storeCreating = false
+	m.storeDeleting = false
+	m.modelApplying = false
+	m.tupleMutating = false
+	m.assertionsWriting = false
+	m.mutationStatus = ""
+	m.queryPendingGen = 0
 	m.rebuildQueryForm()
 	m.populateProfiles()
 	m.populateStores()
@@ -1087,6 +1189,38 @@ func staleGen(msgGen, current int) bool {
 	return msgGen != 0 && msgGen != current
 }
 
+func (m Model) mutationOrigin(storeID, modelID string, gen ...int) mutationOrigin {
+	mutationGen := 0
+	if len(gen) > 0 {
+		mutationGen = gen[0]
+	}
+	return mutationOrigin{
+		connGen: m.connGen,
+		gen:     mutationGen,
+		profile: m.profile,
+		storeID: storeID,
+		modelID: modelID,
+	}
+}
+
+// staleMutation keeps zero-valued origins accepted for compatibility with
+// direct unit-test messages, while every real command carries full identity.
+func (m Model) staleMutation(origin mutationOrigin, currentGen int) bool {
+	if origin.connGen != 0 && origin.connGen != m.connGen {
+		return true
+	}
+	if origin.gen != 0 && origin.gen != currentGen {
+		return true
+	}
+	if origin.profile != "" && origin.profile != m.profile {
+		return true
+	}
+	if staleStore(origin.storeID, m.storeID) {
+		return true
+	}
+	return staleModelKnown(origin.modelID, m.modelID)
+}
+
 // beginLoad registers one more in-flight async load, keeping the spinner
 // (loading) on until every one of them has completed. Callers that dispatch
 // several concurrent commands as one logical action (e.g. selecting a store
@@ -1113,11 +1247,8 @@ func (m *Model) endLoad() {
 // override if present, otherwise the active profile's saved URL. Used to name
 // the unreachable server in the error empty-state.
 func (m Model) activeAPIURL() string {
-	if m.cli.Overrides.APIURL != "" {
-		return m.cli.Overrides.APIURL
-	}
-	if p, ok := m.cli.Config.Get(m.cli.Config.Active); ok && p.APIURL != "" {
-		return p.APIURL
+	if m.apiURL != "" {
+		return m.apiURL
 	}
 	return config.DefaultAPIURL
 }

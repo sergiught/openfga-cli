@@ -128,7 +128,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case storesLoadedMsg:
 		// A stores list from a connection that's since been replaced (a profile
 		// switch or an edit to the active profile's connection, both of which
-		// go through reloadActive) must be dropped — unlike every other load,
+		// go through activateResolved) must be dropped — unlike every other load,
 		// this one has no store id of its own to check, so it needs its own
 		// generation or it could repopulate the list from the wrong server, or
 		// even auto-select a store id that doesn't exist there.
@@ -175,6 +175,9 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		m.connLost = false
+		if m.modelID != "" && msg.modelID != m.modelID {
+			m.clearResourcePending()
+		}
 		m.modelID = msg.modelID
 		// ReadLatest flags it directly; a picked model is latest only if it is
 		// the newest in the (already loaded) models list.
@@ -193,6 +196,12 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case modelAppliedMsg:
+		m.endLoad()
+		if m.staleMutation(msg.origin, m.modelApplyGen) {
+			return m, nil
+		}
+		m.modelApplying = false
+		m.mutationStatus = ""
 		if msg.err != nil {
 			m.connLost = isConnErr(msg.err)
 			m.editorErr = errStr(msg.err)
@@ -360,6 +369,12 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case assertionsWrittenMsg:
+		m.endLoad()
+		if m.staleMutation(msg.origin, m.assertionWriteGen) {
+			return m, nil
+		}
+		m.assertionsWriting = false
+		m.mutationStatus = ""
 		if msg.err != nil {
 			// Surface the API error as a centered modal (dismissed with
 			// enter/esc), not in the footer.
@@ -400,6 +415,12 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case storeCreatedMsg:
+		m.endLoad()
+		if m.staleMutation(msg.origin, m.storeCreateGen) {
+			return m, nil
+		}
+		m.storeCreating = false
+		m.mutationStatus = ""
 		if msg.err != nil {
 			return m, m.toastErr("create store", msg.err)
 		}
@@ -416,6 +437,11 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case storeDeletedMsg:
 		m.endLoad()
+		if m.staleMutation(msg.origin, m.storeDeleteGen) {
+			return m, nil
+		}
+		m.storeDeleting = false
+		m.mutationStatus = ""
 		if msg.err != nil {
 			return m, m.toastErr("delete store", msg.err)
 		}
@@ -448,6 +474,12 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case tupleWrittenMsg:
+		m.endLoad()
+		if m.staleMutation(msg.origin, m.tupleMutationGen) {
+			return m, nil
+		}
+		m.tupleMutating = false
+		m.mutationStatus = ""
 		if msg.err != nil {
 			return m, m.toastErr("tuple", msg.err)
 		}
@@ -467,6 +499,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if stale {
 			return m, nil // superseded by a newer query submission or rerun
 		}
+		m.queryPendingGen = 0
 		m.hasResult = true
 		m.result = msg
 		// A fresh result invalidates any open resolution tree.
@@ -705,6 +738,29 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// The delete-confirmation modal captures input until answered. Every
 	// destructive action (store, tuple, assertion, profile) routes through here.
 	if m.confirm != nil {
+		if m.confirm.require != "" {
+			switch msg.String() {
+			case "esc":
+				m.confirm = nil
+			case "enter":
+				if m.confirm.input == m.confirm.require {
+					run := m.confirm.run
+					m.confirm = nil
+					return m, run(&m)
+				}
+				m.status = "confirmation did not match"
+			case "backspace":
+				runes := []rune(m.confirm.input)
+				if len(runes) > 0 {
+					m.confirm.input = string(runes[:len(runes)-1])
+				}
+			default:
+				if text := msg.Key().Text; text != "" {
+					m.confirm.input += text
+				}
+			}
+			return m, nil
+		}
 		switch msg.String() {
 		case "y":
 			run := m.confirm.run
@@ -764,9 +820,18 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.editor.Blur()
 			return m, nil
 		case "ctrl+s":
+			if m.modelApplying {
+				m.status = "model apply already in progress"
+				return m, nil
+			}
 			m.editorErr = ""
-			m.status = "applying model…"
-			return m, applyModelCmd(m.ctx, m.client, m.storeID, m.editor.Value())
+			m.beginLoad()
+			m.modelApplying = true
+			m.modelApplyGen++
+			m.mutationStatus = "applying model…"
+			m.status = m.mutationStatus
+			return m, applyModelCmd(m.ctx, m.client,
+				m.mutationOrigin(m.storeID, m.modelID, m.modelApplyGen), m.editor.Value())
 		}
 		var cmd tea.Cmd
 		m.editor, cmd = m.editor.Update(msg)
@@ -883,6 +948,7 @@ func (m Model) handleModelPicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.modelPicking = false
 			id := m.models[it.Index].ID
 			m.status = "loading model " + short(id) + "…"
+			m.clearResourcePending()
 			// A rapid re-pick before the previous one lands must not let the
 			// stale response overwrite the newer pick's graph/DSL.
 			m.beginLoad()
@@ -902,6 +968,8 @@ func (m Model) handleModelPicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m Model) onEnterSection() (tea.Model, tea.Cmd) {
 	m.modelPicking = false
 	switch m.section {
+	case secStores:
+		m.selectCurrentStore()
 	case secChanges:
 		if m.storeID != "" && len(m.changes) == 0 {
 			m.beginLoad()
