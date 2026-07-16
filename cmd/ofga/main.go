@@ -122,7 +122,13 @@ func profileWriter(w io.Writer, noColor bool) *colorprofile.Writer {
 	if noColor {
 		return &colorprofile.Writer{Forward: w, Profile: colorprofile.NoTTY}
 	}
-	return colorprofile.NewWriter(w, os.Environ())
+	pw := colorprofile.NewWriter(w, os.Environ())
+	if base.ForceColor() {
+		// colorprofile's writers only honor CLICOLOR_FORCE; upgrade so FORCE_COLOR
+		// forces color on this early pre-cobra path too, matching base.New.
+		pw.Profile = colorprofile.TrueColor
+	}
+	return pw
 }
 
 func noColorFromArgs(args []string, configuredTheme string) bool {
