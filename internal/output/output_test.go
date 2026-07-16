@@ -5,8 +5,25 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"syscall"
 	"testing"
 )
+
+type epipeWriter struct{}
+
+func (epipeWriter) Write([]byte) (int, error) { return 0, syscall.EPIPE }
+
+// YAML must surface the underlying EPIPE (not yaml.v3's re-stringified copy) so a
+// closed pipe (`| head`) is treated as a clean short read like the JSON path.
+func TestYAMLPropagatesBrokenPipe(t *testing.T) {
+	err := YAML(epipeWriter{}, []map[string]string{{"a": "b"}})
+	if err == nil {
+		t.Fatal("expected an error writing to a broken pipe")
+	}
+	if !errors.Is(err, syscall.EPIPE) {
+		t.Fatalf("error chain must carry syscall.EPIPE, got %v", err)
+	}
+}
 
 func TestPlainTableUnchangedAndStyledFramed(t *testing.T) {
 	defer func() { Plain, Interactive = false, false }()

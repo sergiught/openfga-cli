@@ -66,10 +66,36 @@ func YAML(w io.Writer, v any) error {
 	if err != nil {
 		return err
 	}
-	enc := yaml.NewEncoder(w)
+	// yaml.v3 re-stringifies write errors ("write error: "+err.Error()), dropping
+	// the underlying syscall.EPIPE that clierr.IsIgnorableBrokenPipe relies on to
+	// treat a closed pipe (`| head`) as a clean short read. Capture the real
+	// error off the writer and return that instead, matching the JSON path.
+	cw := &errCapturingWriter{w: w}
+	enc := yaml.NewEncoder(cw)
 	enc.SetIndent(2)
 	defer func() { _ = enc.Close() }()
-	return enc.Encode(node)
+	if err := enc.Encode(node); err != nil {
+		if cw.err != nil {
+			return cw.err
+		}
+		return err
+	}
+	return nil
+}
+
+// errCapturingWriter remembers the first underlying write error so callers can
+// inspect its (un-stringified) error chain.
+type errCapturingWriter struct {
+	w   io.Writer
+	err error
+}
+
+func (e *errCapturingWriter) Write(p []byte) (int, error) {
+	n, err := e.w.Write(p)
+	if err != nil && e.err == nil {
+		e.err = err
+	}
+	return n, err
 }
 
 func yamlNode(v any) (*yaml.Node, error) {
