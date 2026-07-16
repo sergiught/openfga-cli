@@ -50,30 +50,29 @@ func urlOrigin(raw string) string {
 }
 
 // apiLogOriginLabel describes the selected entry using the URL captured with
-// that request, never the connection that happens to be active now.
+// that request. When the active profile points at that origin its name is
+// shown; entries from any other origin fall back to the bare origin.
 func (m Model) apiLogOriginLabel(e apilog.Entry) string {
 	origin := urlOrigin(e.URL)
 	if m.cli == nil {
 		return origin
 	}
-	var profiles []string
-	for _, name := range m.cli.Config.ProfileNames() {
-		p, ok := m.cli.Config.Get(name)
-		if !ok {
-			continue
-		}
-		apiURL := p.APIURL
-		if apiURL == "" {
-			apiURL = config.DefaultAPIURL
-		}
-		if urlOrigin(apiURL) == origin {
-			profiles = append(profiles, name)
-		}
+	name := m.cli.Config.Active
+	if m.cli.Overrides.Profile != "" {
+		name = m.cli.Overrides.Profile
 	}
-	if len(profiles) == 0 {
+	p, ok := m.cli.Config.Get(name)
+	if !ok {
 		return origin
 	}
-	return strings.Join(profiles, ", ") + " · " + origin
+	apiURL := p.APIURL
+	if apiURL == "" {
+		apiURL = config.DefaultAPIURL
+	}
+	if urlOrigin(apiURL) == origin {
+		return name + " · " + origin
+	}
+	return origin
 }
 
 // apiLogMsg is sent (via Recorder.SetNotify -> program.Send) whenever a new

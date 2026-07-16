@@ -10,9 +10,31 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sergiught/openfga-cli/internal/apilog"
+	"github.com/sergiught/openfga-cli/internal/cli"
+	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/shell"
 )
+
+func TestAPILogOriginLabelShowsActiveProfileOnly(t *testing.T) {
+	m := apiLogModel()
+	m.cli = &cli.CLI{Config: &config.Config{
+		Active: "local",
+		Profiles: map[string]config.Profile{
+			"default": {APIURL: "http://localhost:8080"},
+			"local":   {APIURL: "http://localhost:8080"},
+		},
+	}}
+
+	label := m.apiLogOriginLabel(apilog.Entry{URL: "http://localhost:8080/stores/1/check"})
+
+	if strings.Contains(label, "default") {
+		t.Fatalf("label %q should not include other profiles that share the origin", label)
+	}
+	if !strings.Contains(label, "local") {
+		t.Fatalf("label %q should name the active profile", label)
+	}
+}
 
 func TestAPILogsSectionRegistered(t *testing.T) {
 	if int(secAPILogs) != int(secAssertions)+1 {
