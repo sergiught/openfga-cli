@@ -74,28 +74,19 @@ ofga init
 ofga stores create demo --use
 
 # 4. Write an authorization model
-cat > model.json <<'JSON'
-{
-  "schema_version": "1.1",
-  "type_definitions": [
-    {"type": "user"},
-    {
-      "type": "document",
-      "relations": {"viewer": {"this": {}}},
-      "metadata": {
-        "relations": {
-          "viewer": {
-            "directly_related_user_types": [{"type": "user"}]
-          }
-        }
-      }
-    }
-  ]
-}
-JSON
-ofga model write --file model.json
-# Prefer the DSL? `ofga model write` also accepts a `.fga` file (or `-` for stdin)
-# and transforms it to JSON for you: `ofga model write --file model.fga`
+cat > model.fga <<'FGA'
+model
+  schema 1.1
+
+type user
+
+type document
+  relations
+    define viewer: [user]
+FGA
+ofga model write --file model.fga
+# `.fga` DSL is transformed to JSON for you. `--file` also takes a `.json`
+# model, or `-` to read from stdin.
 
 # 5. Add a relationship tuple
 ofga tuples write user:anne viewer document:roadmap

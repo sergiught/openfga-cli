@@ -39,13 +39,21 @@ Show
 Type "ofga" Enter
 Sleep 2s
 
-# Scroll down through the tabs: Profiles -> Stores -> Model -> Tuples
-Type "1" Sleep 1400ms
-Down Sleep 1400ms
-Down Sleep 1400ms
-Down Sleep 1400ms
+# Walk the tabs top to bottom, pausing at each to show what it does.
+# Profiles and Stores just pass through — nothing to demo there.
+Type "1" Sleep 1200ms
+Down Sleep 1200ms
 
-# At Tuples: add one
+# Model: descend into the panel and scroll the colored relation graph.
+Down Sleep 1s
+Enter Sleep 1s
+Down Sleep 700ms
+Down Sleep 700ms
+Down Sleep 900ms
+Escape Sleep 1s
+
+# Tuples: add one.
+Down Sleep 1200ms
 Type "a" Sleep 1s
 Type "user:vhs" Sleep 300ms
 Enter Sleep 300ms
@@ -57,12 +65,27 @@ Enter Sleep 300ms
 Enter Sleep 1800ms
 Escape Sleep 1s
 
-# Keep scrolling: Changes -> Tuple Queries -> Assertions
-Down Sleep 1400ms
-Down Sleep 1400ms
-Down Sleep 1400ms
+# Changes: the write we just made shows at the top of the changelog.
+Down Sleep 1200ms
+Enter Sleep 1800ms
+Escape Sleep 1s
 
-# At Assertions: add one
+# Tuple Queries: run a check that's allowed, then open its resolution.
+Down Sleep 1200ms
+Enter Sleep 800ms
+Type "user:vhs" Sleep 300ms
+Enter Sleep 300ms
+Type "reader" Sleep 300ms
+Enter Sleep 300ms
+Type "repo:acme/vhs-demo" Sleep 300ms
+Enter Sleep 300ms
+Enter Sleep 1800ms
+Ctrl+R Sleep 2500ms
+Escape Sleep 600ms
+Escape Sleep 1s
+
+# Assertions: add one.
+Down Sleep 1200ms
 Type "a" Sleep 1s
 Type "user:vhs" Sleep 300ms
 Enter Sleep 300ms
@@ -75,8 +98,8 @@ Enter Sleep 300ms
 Enter Sleep 1800ms
 Escape Sleep 1s
 
-# API Logs: scroll through a request and its response
-Down Sleep 1400ms
+# API Logs: scroll through a request and its response.
+Down Sleep 1200ms
 Enter Sleep 1s
 Tab Sleep 900ms
 Type "j" Sleep 400ms
@@ -84,21 +107,8 @@ Type "j" Sleep 600ms
 Tab Sleep 900ms
 Tab Sleep 900ms
 Type "j" Sleep 400ms
-Type "j" Sleep 600ms
-Sleep 1500ms
+Type "j" Sleep 900ms
 Escape Sleep 800ms
-
-# Tuple Queries: run a check that's allowed, then open its resolution
-Type "6" Sleep 1200ms
-Enter Sleep 800ms
-Type "user:vhs" Sleep 300ms
-Enter Sleep 300ms
-Type "reader" Sleep 300ms
-Enter Sleep 300ms
-Type "repo:acme/vhs-demo" Sleep 300ms
-Enter Sleep 300ms
-Enter Sleep 1800ms
-Ctrl+R Sleep 3s
 
 # quit cleanly
 Ctrl+C
