@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.263.1](https://github.com/sergiught/openfga-cli/compare/v0.263.0...v0.263.1) (2026-07-17)
+
+
+### Bug fixes
+
+* **release:** use .Env for the Homebrew tap token ([b251d5b](https://github.com/sergiught/openfga-cli/commit/b251d5b46bddea1f5d775793134f033be0567f32))
+
 ## 0.263.0 (2026-07-17)
 
 
