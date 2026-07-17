@@ -46,6 +46,22 @@ sboms:
   - id: archives
     artifacts: archive
 
+# Detached, keyless cosign signature (+ certificate) of checksums.txt, so
+# `curl | tar` installs can `cosign verify-blob`. Uses the release job's OIDC
+# identity (Sigstore); skipped by goreleaser in snapshot builds.
+signs:
+  - cmd: cosign
+    artifacts: checksum
+    output: true
+    certificate: '${artifact}.pem'
+    signature: '${artifact}.sig'
+    args:
+      - sign-blob
+      - '--yes'
+      - '--output-signature=${signature}'
+      - '--output-certificate=${certificate}'
+      - '${artifact}'
+
 # Linux packages.
 nfpms:
   - id: packages
@@ -93,7 +109,9 @@ aurs:
       install -Dm644 "./LICENSE" "${pkgdir}/usr/share/licenses/ofga-bin/LICENSE"
 
 # Container images (multi-arch), published to GHCR and Docker Hub. GHCR is
-# pushed with GITHUB_TOKEN; Docker Hub with DOCKERHUB_USERNAME/DOCKERHUB_TOKEN.
+# pushed with GITHUB_TOKEN (always present). The docker.io tags/manifests are
+# only emitted when DOCKERHUB_TOKEN is set, so releases still succeed before the
+# Docker Hub secrets are wired up (mirrors the brews/aurs skip pattern above).
 dockers:
   - id: ghcr-amd64
     use: buildx
@@ -102,7 +120,7 @@ dockers:
     dockerfile: Dockerfile.release
     image_templates:
       - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-amd64'
-      - 'docker.io/sergiught/openfga-cli:{{ .Version }}-amd64'
+      - '{{ if ne (envOrDefault "DOCKERHUB_TOKEN" "") "" }}docker.io/sergiught/openfga-cli:{{ .Version }}-amd64{{ end }}'
     build_flag_templates:
       - '--platform=linux/amd64'
       - '--label=org.opencontainers.image.title={{ .ProjectName }}'
@@ -122,7 +140,7 @@ dockers:
     dockerfile: Dockerfile.release
     image_templates:
       - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-arm64'
-      - 'docker.io/sergiught/openfga-cli:{{ .Version }}-arm64'
+      - '{{ if ne (envOrDefault "DOCKERHUB_TOKEN" "") "" }}docker.io/sergiught/openfga-cli:{{ .Version }}-arm64{{ end }}'
     build_flag_templates:
       - '--platform=linux/arm64'
       - '--label=org.opencontainers.image.title={{ .ProjectName }}'
@@ -146,13 +164,27 @@ docker_manifests:
       - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-amd64'
       - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-arm64'
   - name_template: 'docker.io/sergiught/openfga-cli:{{ .Version }}'
+    skip_push: '{{ if eq (envOrDefault "DOCKERHUB_TOKEN" "") "" }}true{{ else }}false{{ end }}'
     image_templates:
       - 'docker.io/sergiught/openfga-cli:{{ .Version }}-amd64'
       - 'docker.io/sergiught/openfga-cli:{{ .Version }}-arm64'
   - name_template: 'docker.io/sergiught/openfga-cli:latest'
+    skip_push: '{{ if eq (envOrDefault "DOCKERHUB_TOKEN" "") "" }}true{{ else }}false{{ end }}'
     image_templates:
       - 'docker.io/sergiught/openfga-cli:{{ .Version }}-amd64'
       - 'docker.io/sergiught/openfga-cli:{{ .Version }}-arm64'
+
+# Keyless cosign signatures for the pushed multi-arch manifests, so consumers
+# can `cosign verify` the images. Uses the release job's OIDC identity
+# (Sigstore); skipped by goreleaser in snapshot builds.
+docker_signs:
+  - cmd: cosign
+    artifacts: manifests
+    output: true
+    args:
+      - sign
+      - '--yes'
+      - '${artifact}@${digest}'
 
 snapshot:
   version_template: '{{ incpatch .Version }}-next'
