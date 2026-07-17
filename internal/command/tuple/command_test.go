@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/log"
+	"charm.land/log/v2"
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/spf13/cobra"
 
