@@ -92,7 +92,8 @@ aurs:
       install -Dm755 "./ofga" "${pkgdir}/usr/bin/ofga"
       install -Dm644 "./LICENSE" "${pkgdir}/usr/share/licenses/ofga-bin/LICENSE"
 
-# GHCR container images (multi-arch). Pushed with GITHUB_TOKEN.
+# Container images (multi-arch), published to GHCR and Docker Hub. GHCR is
+# pushed with GITHUB_TOKEN; Docker Hub with DOCKERHUB_USERNAME/DOCKERHUB_TOKEN.
 dockers:
   - id: ghcr-amd64
     use: buildx
@@ -100,7 +101,8 @@ dockers:
     goarch: amd64
     dockerfile: Dockerfile.release
     image_templates:
-      - 'ghcr.io/sergiught/ofga:{{ .Version }}-amd64'
+      - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-amd64'
+      - 'docker.io/sergiught/openfga-cli:{{ .Version }}-amd64'
     build_flag_templates:
       - '--platform=linux/amd64'
       - '--label=org.opencontainers.image.title={{ .ProjectName }}'
@@ -119,7 +121,8 @@ dockers:
     goarch: arm64
     dockerfile: Dockerfile.release
     image_templates:
-      - 'ghcr.io/sergiught/ofga:{{ .Version }}-arm64'
+      - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-arm64'
+      - 'docker.io/sergiught/openfga-cli:{{ .Version }}-arm64'
     build_flag_templates:
       - '--platform=linux/arm64'
       - '--label=org.opencontainers.image.title={{ .ProjectName }}'
@@ -134,14 +137,22 @@ dockers:
       - LICENSE
 
 docker_manifests:
-  - name_template: 'ghcr.io/sergiught/ofga:{{ .Version }}'
+  - name_template: 'ghcr.io/sergiught/openfga-cli:{{ .Version }}'
     image_templates:
-      - 'ghcr.io/sergiught/ofga:{{ .Version }}-amd64'
-      - 'ghcr.io/sergiught/ofga:{{ .Version }}-arm64'
-  - name_template: 'ghcr.io/sergiught/ofga:latest'
+      - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-amd64'
+      - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-arm64'
+  - name_template: 'ghcr.io/sergiught/openfga-cli:latest'
     image_templates:
-      - 'ghcr.io/sergiught/ofga:{{ .Version }}-amd64'
-      - 'ghcr.io/sergiught/ofga:{{ .Version }}-arm64'
+      - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-amd64'
+      - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-arm64'
+  - name_template: 'docker.io/sergiught/openfga-cli:{{ .Version }}'
+    image_templates:
+      - 'docker.io/sergiught/openfga-cli:{{ .Version }}-amd64'
+      - 'docker.io/sergiught/openfga-cli:{{ .Version }}-arm64'
+  - name_template: 'docker.io/sergiught/openfga-cli:latest'
+    image_templates:
+      - 'docker.io/sergiught/openfga-cli:{{ .Version }}-amd64'
+      - 'docker.io/sergiught/openfga-cli:{{ .Version }}-arm64'
 
 snapshot:
   version_template: '{{ incpatch .Version }}-next'
