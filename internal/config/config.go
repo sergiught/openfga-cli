@@ -184,6 +184,11 @@ type Resolved struct {
 	StoreID string
 	ModelID string
 	Auth    Auth
+
+	// Notices holds non-fatal advisories gathered during resolution (e.g. an
+	// environment token ignored under an OAuth profile, or an incomplete env
+	// grant). The caller surfaces them on stderr; they never change the auth.
+	Notices []string
 }
 
 // APIToken returns the pre-shared token when the resolved auth uses one, for
@@ -935,9 +940,10 @@ func (c *Config) Resolve(o Overrides) (Resolved, error) {
 	// the profile isn't using an OAuth flow (client_credentials/private_key_jwt).
 	// Silently swapping a configured OAuth flow for a bare token would disable
 	// the profile's real auth without any signal; switch profiles for that.
-	if v := firstEnv("OPENFGA_API_TOKEN", "FGA_API_TOKEN"); v != "" {
+	envToken := firstEnv("OPENFGA_API_TOKEN", "FGA_API_TOKEN")
+	if envToken != "" {
 		if r.Auth.Method == "" || r.Auth.Method == AuthNone || r.Auth.Method == AuthAPIToken {
-			r.Auth = Auth{Method: AuthAPIToken, Token: v}
+			r.Auth = Auth{Method: AuthAPIToken, Token: envToken}
 		}
 	}
 	// OAuth secrets from the environment, so CI need not persist them in the
@@ -952,13 +958,17 @@ func (c *Config) Resolve(o Overrides) (Resolved, error) {
 	// profile. Only when the profile isn't already using a different flow, and
 	// only when the full grant (id + secret + token URL) is present in the
 	// environment; individual fields fall back to any stored profile values.
+	var partialGrantMissing []string
 	if pm := p.ResolvedAuth().Method; pm == "" || pm == AuthClientCredentials {
-		clientID := firstEnv("OPENFGA_CLIENT_ID", "FGA_CLIENT_ID")
-		clientSecret := firstEnv("OPENFGA_CLIENT_SECRET", "FGA_CLIENT_SECRET")
+		envClientID := firstEnv("OPENFGA_CLIENT_ID", "FGA_CLIENT_ID")
+		envClientSecret := firstEnv("OPENFGA_CLIENT_SECRET", "FGA_CLIENT_SECRET")
+		envTokenURL := firstEnv("OPENFGA_TOKEN_URL", "FGA_TOKEN_URL")
+		clientID := envClientID
+		clientSecret := envClientSecret
 		if clientSecret == "" {
 			clientSecret = o.ClientSecret
 		}
-		tokenURL := firstEnv("OPENFGA_TOKEN_URL", "FGA_TOKEN_URL")
+		tokenURL := envTokenURL
 		if clientID == "" {
 			clientID = r.Auth.ClientID
 		}
@@ -984,6 +994,19 @@ func (c *Config) Resolve(o Overrides) (Resolved, error) {
 				TokenURL:     tokenURL,
 				Audience:     audience,
 				Scopes:       scopes,
+			}
+		} else if envClientID != "" || envClientSecret != "" || envTokenURL != "" {
+			// At least one env grant field is set but the trio is incomplete, so
+			// the grant is dropped. Record which fields are missing so the caller
+			// can warn instead of failing later with a bare 401.
+			if clientID == "" {
+				partialGrantMissing = append(partialGrantMissing, "OPENFGA_CLIENT_ID")
+			}
+			if clientSecret == "" {
+				partialGrantMissing = append(partialGrantMissing, "OPENFGA_CLIENT_SECRET")
+			}
+			if tokenURL == "" {
+				partialGrantMissing = append(partialGrantMissing, "OPENFGA_TOKEN_URL")
 			}
 		}
 	}
@@ -1018,5 +1041,26 @@ func (c *Config) Resolve(o Overrides) (Resolved, error) {
 	if r.APIURL == "" {
 		r.APIURL = DefaultAPIURL
 	}
+
+	// Non-fatal advisories, surfaced by the caller on stderr. An env token under
+	// an OAuth profile was ignored above; an incomplete env grant left auth off.
+	if envToken != "" && (r.Auth.Method == AuthClientCredentials || r.Auth.Method == AuthPrivateKeyJWT) {
+		r.Notices = append(r.Notices, fmt.Sprintf(
+			"note: OPENFGA_API_TOKEN is set but profile %q uses %s auth; the token was ignored", r.Profile, r.Auth.Method))
+	}
+	if len(partialGrantMissing) > 0 && (r.Auth.Method == "" || r.Auth.Method == AuthNone) {
+		r.Notices = append(r.Notices, fmt.Sprintf(
+			"note: partial OAuth env grant — %s; falling back to no authentication", missingVarsPhrase(partialGrantMissing)))
+	}
 	return r, nil
+}
+
+// missingVarsPhrase renders one or more environment variable names as a short
+// clause, e.g. "OPENFGA_CLIENT_SECRET is not set" or "OPENFGA_CLIENT_ID and
+// OPENFGA_TOKEN_URL are not set".
+func missingVarsPhrase(names []string) string {
+	if len(names) == 1 {
+		return names[0] + " is not set"
+	}
+	return strings.Join(names, " and ") + " are not set"
 }

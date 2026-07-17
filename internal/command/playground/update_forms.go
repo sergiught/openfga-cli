@@ -312,7 +312,7 @@ func (m Model) handleQueryForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				m.result.vals[0], m.result.vals[1], m.result.vals[2], m.resGen)
 		}
 		m.status = "run a check first (ctrl+r shows its resolution)"
-		return m, nil
+		return m, m.toasts.Push(toast.Info, m.status)
 	case "tab":
 		// tab keeps shifting modes even mid-edit, landing in the new mode's
 		// first field. Field navigation stays on the arrows and enter.

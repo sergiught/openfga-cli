@@ -432,3 +432,105 @@ func TestResolveEnvTokenRespectsAuthMethod(t *testing.T) {
 		})
 	}
 }
+
+func hasNotice(notices []string, substr string) bool {
+	for _, n := range notices {
+		if strings.Contains(n, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestResolveNoticesEnvTokenIgnored(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		wantNotice bool
+	}{
+		{name: "client_credentials profile", method: AuthClientCredentials, wantNotice: true},
+		{name: "private_key_jwt profile", method: AuthPrivateKeyJWT, wantNotice: true},
+		{name: "api_token profile", method: AuthAPIToken, wantNotice: false},
+		{name: "none profile", method: AuthNone, wantNotice: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("OPENFGA_API_TOKEN", "envtoken")
+			c := &Config{
+				Active:   "p",
+				Profiles: map[string]Profile{"p": {APIURL: DefaultAPIURL, Auth: Auth{Method: tt.method}}},
+			}
+			r, err := c.Resolve(Overrides{})
+			if err != nil {
+				t.Fatalf("Resolve() error = %v", err)
+			}
+			got := hasNotice(r.Notices, "OPENFGA_API_TOKEN is set but profile")
+			if got != tt.wantNotice {
+				t.Errorf("token-ignored notice = %v, want %v (notices: %v)", got, tt.wantNotice, r.Notices)
+			}
+			if tt.wantNotice && !hasNotice(r.Notices, tt.method) {
+				t.Errorf("notice should name the auth method %q: %v", tt.method, r.Notices)
+			}
+		})
+	}
+}
+
+func TestResolveNoticesNoneWhenNoEnvToken(t *testing.T) {
+	c := &Config{
+		Active:   "p",
+		Profiles: map[string]Profile{"p": {APIURL: DefaultAPIURL, Auth: Auth{Method: AuthClientCredentials}}},
+	}
+	r, err := c.Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if len(r.Notices) != 0 {
+		t.Errorf("expected no notices, got %v", r.Notices)
+	}
+}
+
+func TestResolveNoticesPartialGrantNamesMissing(t *testing.T) {
+	// Client ID + token URL set, but the secret is missing: the grant is dropped
+	// and the notice must name the missing variable.
+	t.Setenv("OPENFGA_CLIENT_ID", "cid")
+	t.Setenv("OPENFGA_TOKEN_URL", "https://issuer/oauth/token")
+
+	c := &Config{
+		Active:   "p",
+		Profiles: map[string]Profile{"p": {APIURL: DefaultAPIURL}},
+	}
+	r, err := c.Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if r.Auth.Method == AuthClientCredentials {
+		t.Fatalf("incomplete grant should not authenticate: %+v", r.Auth)
+	}
+	if !hasNotice(r.Notices, "partial OAuth env grant") {
+		t.Fatalf("expected partial-grant notice, got %v", r.Notices)
+	}
+	if !hasNotice(r.Notices, "OPENFGA_CLIENT_SECRET is not set") {
+		t.Errorf("notice should name the missing secret: %v", r.Notices)
+	}
+}
+
+func TestResolveNoticesCompleteEnvGrantIsQuiet(t *testing.T) {
+	t.Setenv("OPENFGA_CLIENT_ID", "cid")
+	t.Setenv("OPENFGA_CLIENT_SECRET", "csecret")
+	t.Setenv("OPENFGA_TOKEN_URL", "https://issuer/oauth/token")
+
+	c := &Config{
+		Active:   "p",
+		Profiles: map[string]Profile{"p": {APIURL: DefaultAPIURL}},
+	}
+	r, err := c.Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if r.Auth.Method != AuthClientCredentials {
+		t.Fatalf("Auth.Method = %q, want %q", r.Auth.Method, AuthClientCredentials)
+	}
+	if len(r.Notices) != 0 {
+		t.Errorf("complete grant should produce no notices, got %v", r.Notices)
+	}
+}

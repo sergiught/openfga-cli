@@ -1,12 +1,22 @@
 package assertions
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"syscall"
 	"testing"
 
+	"charm.land/log/v2"
 	"github.com/sergiught/go-openfga/openfga"
+
+	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/config"
 )
 
 func TestParseAssertions(t *testing.T) {
@@ -66,5 +76,37 @@ func TestWriteHasExplicitReplacementGate(t *testing.T) {
 	cmd := (&Command{}).writeCmd()
 	if cmd.Flags().Lookup("force") == nil {
 		t.Fatal("assertions write must expose --force for non-interactive replacement")
+	}
+}
+
+func TestReadPrintsCountFooterOnStderr(t *testing.T) {
+	const modelID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(openfga.ReadAssertionsResponse{
+			AuthorizationModelID: modelID,
+			Assertions: []openfga.Assertion{
+				{TupleKey: openfga.CheckRequestTupleKey{User: "user:anne", Relation: "viewer", Object: "doc:1"}, Expectation: true},
+				{TupleKey: openfga.CheckRequestTupleKey{User: "user:bob", Relation: "editor", Object: "doc:2"}, Expectation: false},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	cfg := config.New()
+	cfg.Set("default", config.Profile{APIURL: srv.URL, StoreID: modelID})
+	cmd := New(cli.New(log.New(io.Discard), cfg, "test")).readCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	// Pass the model-id explicitly so no latest-model lookup is needed.
+	cmd.SetArgs([]string{modelID})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(errOut.String(), "2 assertion(s)") {
+		t.Errorf("stderr = %q, want it to contain %q", errOut.String(), "2 assertion(s)")
+	}
+	if strings.Contains(out.String(), "assertion(s)") {
+		t.Errorf("count footer leaked onto stdout:\n%s", out.String())
 	}
 }

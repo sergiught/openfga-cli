@@ -217,6 +217,7 @@ in its footer and subsequent actions.
 | Command | What it does |
 | --- | --- |
 | `ofga` | Launch the interactive TUI |
+| `ofga playground` | Explicit subcommand form of bare `ofga`; launches the interactive TUI |
 | `ofga init` | Guided first-run setup (creates a connection profile) |
 | `ofga stores` | Create, list, inspect and delete stores |
 | `ofga model` | Write (from JSON **or `.fga` DSL**), list, inspect, and **visualize** authorization models (`model graph`) |
@@ -361,6 +362,10 @@ These flags avoid both argv secret values and environment inheritance. Secret
 environment variables remain available for compatibility and CI systems that
 cannot mount secret files. Use `ofga profiles unset token` (or
 `client_secret`/`private_key`) to remove a saved credential from the keyring.
+To delete **all** ofga-managed secrets from the OS keyring at once — every
+profile's credentials plus orphans left by deleted configs — run
+`ofga profiles cleanup-credentials --purge` (it prompts for confirmation;
+`--force` skips it).
 Authentication settings are checked before a request, so incomplete profiles
 fail locally with an actionable error. Secret files should be mode `0600`;
 `ofga` warns when they are accessible by other users.
