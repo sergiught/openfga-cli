@@ -105,7 +105,7 @@ func (g Graph) buildBoxes() []*nodeBox {
 // colored markers for each of its resolution edges.
 func relationRow(r Relation) []scell {
 	gr, gc := r.heatGlyph()
-	cells := []scell{{r: gr, fg: gc}}
+	cells := []scell{{r: gr, fg: gc}, {r: ' '}}
 	cells = append(cells, styledRunes(r.Name, style.Cyan)...)
 	for _, e := range r.Edges {
 		cells = append(cells, scell{r: ' '})
