@@ -40,7 +40,7 @@ $(BINARIES_DIR)/govulncheck:
 
 $(BINARIES_DIR)/commitlint:
 	@echo "==> Installing commitlint into $(BINARIES_DIR)"
-	@GOBIN=$(BINARIES_DIR) go install github.com/conventionalcommit/commitlint@e9a606ce7074ac884ea091765be1651be18356d4 # v0.10.1
+	@GOBIN=$(BINARIES_DIR) go install github.com/conventionalcommit/commitlint@cbc379cadff4bf80bdb621b556e617cca39e1029 # v0.12.0
 
 #-----------------------------------------------------------------------------------------------------------------------
 # Build & run
