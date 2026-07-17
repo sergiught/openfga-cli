@@ -119,7 +119,7 @@ func (c *Command) createCmd() *cobra.Command {
 			if err := output.KeyValues(cmd.OutOrStdout(), [][2]string{
 				{"id", st.ID},
 				{"name", st.Name},
-				{"created_at", st.CreatedAt.Format("2006-01-02 15:04:05")},
+				{"created_at", st.CreatedAt.Format(time.RFC3339)},
 			}); err != nil {
 				return err
 			}
@@ -174,7 +174,7 @@ func (c *Command) listCmd() *cobra.Command {
 				rows = append(rows, []string{
 					output.SanitizeField(st.ID),
 					output.SanitizeField(st.Name),
-					st.CreatedAt.Format("2006-01-02 15:04"),
+					st.CreatedAt.Format(time.RFC3339),
 				})
 			}
 			if err := output.Table(cmd.OutOrStdout(), []string{"ID", "NAME", "CREATED"}, rows); err != nil {
@@ -214,8 +214,8 @@ func (c *Command) getCmd() *cobra.Command {
 			return output.KeyValues(cmd.OutOrStdout(), [][2]string{
 				{"id", st.ID},
 				{"name", st.Name},
-				{"created_at", st.CreatedAt.Format("2006-01-02 15:04:05")},
-				{"updated_at", st.UpdatedAt.Format("2006-01-02 15:04:05")},
+				{"created_at", st.CreatedAt.Format(time.RFC3339)},
+				{"updated_at", st.UpdatedAt.Format(time.RFC3339)},
 			})
 		},
 	}
