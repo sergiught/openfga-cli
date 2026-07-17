@@ -24,6 +24,10 @@ const (
 
 // --- async messages ---
 
+// bootNoticeMsg carries a one-time startup notice to the Update loop, where the
+// toast can actually be pushed (Init's receiver mutations are discarded).
+type bootNoticeMsg struct{ text string }
+
 type storesLoadedMsg struct {
 	gen int // stores-list generation the load ran under, to drop a response
 	// superseded by a newer stores dispatch — a reconnect (profile switch or
