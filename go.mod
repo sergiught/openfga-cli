@@ -10,7 +10,7 @@ require (
 	github.com/antlr4-go/antlr/v4 v4.13.1
 	github.com/charmbracelet/colorprofile v0.4.3
 	github.com/charmbracelet/harmonica v0.2.0
-	github.com/charmbracelet/log v0.4.2
+	github.com/charmbracelet/log/v2 v2.0.0
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/charmbracelet/x/term v0.2.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
