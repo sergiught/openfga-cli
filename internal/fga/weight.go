@@ -1,14 +1,23 @@
 package fga
 
 import (
+	"image/color"
 	"strings"
 
 	"github.com/sergiught/go-openfga/openfga"
+	"github.com/sergiught/openfga-cli/internal/style"
 )
 
 // weightRecursive marks a relation whose resolution can re-enter itself: its
 // cost is unbounded (∞).
 const weightRecursive = -1
+
+// Cost thresholds separating the display buckets: 1 is cheap, 2..3 moderate,
+// 4+ expensive.
+const (
+	costModerateFloor  = 2
+	costExpensiveFloor = 4
+)
 
 // computeWeights assigns each "type#relation" a worst-case resolution cost by
 // walking the rewrite rules: 1 for a direct edge to a terminal type, +1 per
@@ -120,4 +129,64 @@ func computeWeights(m *openfga.AuthorizationModel) map[string]int {
 		}
 	}
 	return out
+}
+
+type costBucket int
+
+const (
+	bucketCheap costBucket = iota
+	bucketModerate
+	bucketExpensive
+	bucketRecursive
+)
+
+// bucket classifies a relation's resolution cost for the heatmap.
+func (r Relation) bucket() costBucket {
+	switch {
+	case r.Recursive || r.Weight == weightRecursive:
+		return bucketRecursive
+	case r.Weight >= costExpensiveFloor:
+		return bucketExpensive
+	case r.Weight >= costModerateFloor:
+		return bucketModerate
+	default:
+		return bucketCheap
+	}
+}
+
+func bucketColor(b costBucket) color.Color {
+	switch b {
+	case bucketExpensive:
+		return style.Red
+	case bucketModerate:
+		return style.Amber
+	case bucketRecursive:
+		return style.Magenta
+	default:
+		return style.Green
+	}
+}
+
+func bucketGlyph(b costBucket) rune {
+	if b == bucketRecursive {
+		return '∞'
+	}
+	return '●'
+}
+
+// heatGlyph returns the colored cost marker for a relation.
+func (r Relation) heatGlyph() (rune, color.Color) {
+	b := r.bucket()
+	return bucketGlyph(b), bucketColor(b)
+}
+
+// weightLegend labels the heat colors; shared by the tree and diagram headers so
+// the two views describe the same buckets.
+func weightLegend() string {
+	return strings.Join([]string{
+		colorRune('●', style.Green) + " " + style.Faint.Render("cheap"),
+		colorRune('●', style.Amber) + " " + style.Faint.Render("moderate"),
+		colorRune('●', style.Red) + " " + style.Faint.Render("costly"),
+		colorRune('∞', style.Magenta) + " " + style.Faint.Render("recursive"),
+	}, "  ")
 }

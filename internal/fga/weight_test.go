@@ -1,6 +1,7 @@
 package fga
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/sergiught/go-openfga/openfga"
@@ -75,6 +76,40 @@ func TestComputeWeights(t *testing.T) {
 		if r.Weight != c.weight || r.Recursive != c.recursive {
 			t.Errorf("%s#%s: got weight=%d recursive=%v, want weight=%d recursive=%v",
 				c.typ, c.rel, r.Weight, r.Recursive, c.weight, c.recursive)
+		}
+	}
+}
+
+func TestCostBuckets(t *testing.T) {
+	cases := []struct {
+		weight    int
+		recursive bool
+		want      costBucket
+		glyph     rune
+	}{
+		{1, false, bucketCheap, '●'},
+		{2, false, bucketModerate, '●'},
+		{3, false, bucketModerate, '●'},
+		{4, false, bucketExpensive, '●'},
+		{10, false, bucketExpensive, '●'},
+		{-1, true, bucketRecursive, '∞'},
+	}
+	for _, c := range cases {
+		r := Relation{Weight: c.weight, Recursive: c.recursive}
+		if got := r.bucket(); got != c.want {
+			t.Errorf("weight=%d rec=%v: bucket=%d want %d", c.weight, c.recursive, got, c.want)
+		}
+		if gr, _ := r.heatGlyph(); gr != c.glyph {
+			t.Errorf("weight=%d: glyph=%q want %q", c.weight, gr, c.glyph)
+		}
+	}
+}
+
+func TestWeightLegend(t *testing.T) {
+	l := weightLegend()
+	for _, want := range []string{"cheap", "moderate", "costly", "recursive"} {
+		if !strings.Contains(l, want) {
+			t.Errorf("weightLegend() missing %q: %s", want, l)
 		}
 	}
 }
