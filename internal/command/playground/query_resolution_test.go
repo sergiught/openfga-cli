@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/sergiught/openfga-cli/internal/ui/toast"
 )
 
 // Ctrl+R jumps from the query editor straight to the resolution tree for the
@@ -25,19 +27,21 @@ func TestQueryEditCtrlROpensResolution(t *testing.T) {
 	}
 }
 
-// Without a check result, ctrl+r is a no-op hint rather than a resolution load.
+// Without a check result, ctrl+r surfaces a "run a check first" hint toast
+// rather than dispatching a resolution load (TUI-36: the guidance used to be set
+// on m.status but never shown).
 func TestQueryEditCtrlRNoResultIsHint(t *testing.T) {
 	m := newTestModel().(Model)
 	m.section = secQuery
 	m.editing = true
 	m.hasResult = false
 
-	got, cmd := m.handleQueryForm(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	got, _ := m.handleQueryForm(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
 	mm := got.(Model)
-	if cmd != nil {
-		t.Fatal("ctrl+r without a result should not dispatch a resolution load")
-	}
 	if !mm.editing {
-		t.Fatal("ctrl+r without a result should stay in edit mode")
+		t.Fatal("ctrl+r without a result should stay in edit mode (no resolution load)")
+	}
+	if levels := mm.toasts.Levels(); len(levels) == 0 || levels[len(levels)-1] != toast.Info {
+		t.Fatalf("ctrl+r without a result should push an Info hint toast, got %v", levels)
 	}
 }

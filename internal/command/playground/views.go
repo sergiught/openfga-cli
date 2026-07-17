@@ -279,6 +279,12 @@ func (m Model) sectionBody() string {
 			switch {
 			case m.loading:
 				body = m.spinner.View() + " loading stores…"
+			case m.storesForbidden:
+				// Listing stores was rejected for lack of permission — don't imply
+				// the server is simply empty or invite a create that will be denied.
+				body = style.Warn.Render("No permission to manage stores on this server.") + "\n" +
+					style.Faint.Render("Your credentials can't list or create stores — check the profile's\n"+
+						"auth method, or connect with one that has store access.")
 			case m.connLost:
 				// The server is unreachable — don't invite a create that will
 				// just fail; point at retry (r) instead.

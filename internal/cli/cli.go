@@ -6,6 +6,8 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"os"
+	"sync"
 	"time"
 
 	"charm.land/log/v2"
@@ -63,7 +65,29 @@ func New(logger *log.Logger, cfg *config.Config, version string) *CLI {
 
 // Resolve merges profile, env and flag overrides into a usable configuration.
 func (cli *CLI) Resolve() (config.Resolved, error) {
-	return cli.Config.Resolve(cli.Overrides)
+	r, err := cli.Config.Resolve(cli.Overrides)
+	if err == nil {
+		emitNotices(r.Notices)
+	}
+	return r, err
+}
+
+// noticeOnce guards resolution advisories so they print at most once per
+// process, even though Resolve runs for nearly every command (often twice).
+var noticeOnce sync.Once
+
+// emitNotices writes resolution advisories to stderr — never stdout, so machine
+// output (e.g. --json) stays clean — and only for the first resolution that
+// produced any.
+func emitNotices(notices []string) {
+	if len(notices) == 0 {
+		return
+	}
+	noticeOnce.Do(func() {
+		for _, n := range notices {
+			fmt.Fprintln(os.Stderr, n)
+		}
+	})
 }
 
 // Client returns a configured OpenFGA client for the resolved configuration.
