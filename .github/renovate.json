@@ -20,7 +20,9 @@
     {
       "customType": "regex",
       "description": "Track the goreleaser version pinned in the release workflow",
-      "fileMatch": ["^\\.github/workflows/release\\.yml$"],
+      "managerFilePatterns": [
+        "/^\\.github/workflows/release\\.yml$/"
+      ],
       "matchStrings": ["GORELEASER_VERSION:\\s*'?(?<currentValue>v[0-9.]+)'?"],
       "depNameTemplate": "goreleaser/goreleaser",
       "datasourceTemplate": "github-releases"
@@ -28,7 +30,9 @@
     {
       "customType": "regex",
       "description": "Track the Syft version pinned in the release workflow",
-      "fileMatch": ["^\\.github/workflows/release\\.yml$"],
+      "managerFilePatterns": [
+        "/^\\.github/workflows/release\\.yml$/"
+      ],
       "matchStrings": ["syft-version:\\s*(?<currentValue>v[0-9.]+)"],
       "depNameTemplate": "anchore/syft",
       "datasourceTemplate": "github-releases"
@@ -36,7 +40,9 @@
     {
       "customType": "regex",
       "description": "Track the golangci-lint version pinned in the ci workflow",
-      "fileMatch": ["^\\.github/workflows/ci\\.yml$"],
+      "managerFilePatterns": [
+        "/^\\.github/workflows/ci\\.yml$/"
+      ],
       "matchStrings": ["golangci/golangci-lint-action@[0-9a-f]+ # v[0-9.]+\\s+with:\\s+version:\\s*(?<currentValue>v[0-9.]+)"],
       "depNameTemplate": "golangci/golangci-lint",
       "datasourceTemplate": "github-releases"
