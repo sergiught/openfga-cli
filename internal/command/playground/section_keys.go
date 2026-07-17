@@ -55,7 +55,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 				}
 				nm, cmd := m.enterForm(formEditProfile)
 				mm := nm.(Model)
-				mm.form.SetValues(profileFormValues(false, p.APIURL, auth))
+				mm.form.SetValues(profileFormValues(false, p.APIURL, p.StoreID, p.ModelID, auth))
 				return mm, cmd
 			}
 			return m, nil

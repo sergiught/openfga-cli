@@ -109,12 +109,13 @@ func authMethodIndex(m string) int {
 }
 
 // buildProfileForm builds the add/edit-profile form for a given auth method.
-// Store and model stay auto-managed, so they are never fields here. The fields
+// Store ID and Model ID are optional connection fields, so a profile can be
+// pinned to a specific store/model without using the store picker. The fields
 // after the auth-method selector depend on the method; changing the selector
 // rebuilds the form (see rebuildProfileForm). Field order:
 //
-//	add:  [name, api_url, auth_method, <method fields…>]
-//	edit: [api_url, auth_method, <method fields…>]
+//	add:  [name, api_url, store_id, model_id, auth_method, <method fields…>]
+//	edit: [api_url, store_id, model_id, auth_method, <method fields…>]
 func buildProfileForm(add bool, method string, w int) *field.Form {
 	var fields []*field.Field
 	if add {
@@ -122,6 +123,8 @@ func buildProfileForm(add bool, method string, w int) *field.Form {
 	}
 	fields = append(fields,
 		field.New("API URL", config.DefaultAPIURL).WithValidate(vURL),
+		field.New("Store ID", "store id (optional)"),
+		field.New("Model ID", "model id (optional)"),
 		field.NewSelect("Auth method", authMethods, authMethodIndex(method)),
 	)
 	// On edit we never pre-fill stored secrets, so the placeholder tells the
@@ -159,7 +162,7 @@ func buildProfileForm(add bool, method string, w int) *field.Form {
 
 // profileFormValues returns the SetValues slice pre-filling buildProfileForm for
 // the given (existing) profile auth, matching the field order above.
-func profileFormValues(add bool, apiURL string, a config.Auth) []string {
+func profileFormValues(add bool, apiURL, storeID, modelID string, a config.Auth) []string {
 	method := a.Method
 	if method == "" {
 		method = config.AuthNone
@@ -168,7 +171,7 @@ func profileFormValues(add bool, apiURL string, a config.Auth) []string {
 	if add {
 		vals = append(vals, "")
 	}
-	vals = append(vals, apiURL, method)
+	vals = append(vals, apiURL, storeID, modelID, method)
 	// Secrets (token, client secret) are intentionally left blank rather than
 	// pre-filled: they are never surfaced in the form. A blank secret field on
 	// save means "keep the stored secret" (see the edit-profile handler).
@@ -184,7 +187,8 @@ func profileFormValues(add bool, apiURL string, a config.Auth) []string {
 }
 
 // profileFromForm reads a completed profile form's values back into a Profile
-// (auth included). Store/model are not touched here — the caller preserves them.
+// (auth included). Store and model are read from their own fields, alongside
+// api_url and auth.
 func profileFromForm(add bool, vals []string) (name string, p config.Profile) {
 	get := func(i int) string {
 		if i < len(vals) {
@@ -198,6 +202,10 @@ func profileFromForm(add bool, vals []string) (name string, p config.Profile) {
 		i++
 	}
 	p.APIURL = get(i)
+	i++
+	p.StoreID = get(i)
+	i++
+	p.ModelID = get(i)
 	i++
 	method := get(i)
 	i++
