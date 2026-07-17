@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
@@ -103,8 +104,7 @@ source <(ofga completion bash)`,
 			if err := c.applySecretFiles(); err != nil {
 				return err
 			}
-			c.applyEnvironment()
-			return nil
+			return c.applyEnvironment()
 		},
 	}
 
@@ -185,22 +185,61 @@ source <(ofga completion bash)`,
 // only on the error path to disambiguate pflag swallowing an unknown flag's
 // following token as its value (a mistyped global flag before a subcommand path
 // otherwise surfaces as a misleading "unknown command").
+//
+// Scanning stops at the first positional (non-flag) token: that positional is
+// the intended command path, so any flag after it belongs to the (possibly
+// mistyped) subcommand, not the root, and must not override cobra's own
+// "unknown command" diagnosis. Known flags that take a separate value token
+// consume that token so it isn't mistaken for the command positional.
 func FirstUnknownFlag(cmd *cobra.Command, args []string) string {
-	fs := cmd.Flags()
-	for _, a := range args {
+	// Consult persistent flags explicitly: cobra only merges them into Flags()
+	// once ParseFlags has run, so a pre-Execute caller (e.g. a unit test) would
+	// otherwise miss every global flag.
+	fs, pf := cmd.Flags(), cmd.PersistentFlags()
+	lookup := func(name string) *pflag.Flag {
+		if f := fs.Lookup(name); f != nil {
+			return f
+		}
+		return pf.Lookup(name)
+	}
+	shorthand := func(name string) *pflag.Flag {
+		if f := fs.ShorthandLookup(name); f != nil {
+			return f
+		}
+		return pf.ShorthandLookup(name)
+	}
+	for i := 0; i < len(args); i++ {
+		a := args[i]
 		switch {
 		case a == "--":
 			return "" // everything after -- is positional
 		case strings.HasPrefix(a, "--"):
-			name, _, _ := strings.Cut(strings.TrimPrefix(a, "--"), "=")
-			if name != "" && fs.Lookup(name) == nil {
+			name, _, hasValue := strings.Cut(strings.TrimPrefix(a, "--"), "=")
+			if name == "" {
+				return ""
+			}
+			flag := lookup(name)
+			if flag == nil {
 				return "--" + name
 			}
+			if !hasValue && flag.NoOptDefVal == "" {
+				i++ // this flag's value is the next token, not a positional
+			}
 		case strings.HasPrefix(a, "-") && a != "-":
-			name, _, _ := strings.Cut(strings.TrimPrefix(a, "-"), "=")
-			if name != "" && fs.ShorthandLookup(name[:1]) == nil {
+			name, _, hasValue := strings.Cut(strings.TrimPrefix(a, "-"), "=")
+			if name == "" {
+				return ""
+			}
+			flag := shorthand(name[:1])
+			if flag == nil {
 				return a
 			}
+			if !hasValue && len(name) == 1 && flag.NoOptDefVal == "" {
+				i++ // shorthand takes its value from the next token
+			}
+		default:
+			// First positional token is the intended command path.
+			return ""
 		}
 	}
 	return ""
@@ -240,7 +279,7 @@ func (c *Command) resolveOutput() error {
 	return nil
 }
 
-func (c *Command) applyEnvironment() {
+func (c *Command) applyEnvironment() error {
 	a := c.cli
 	output.Quiet = a.Quiet
 	output.Plain = a.Plain
@@ -253,7 +292,7 @@ func (c *Command) applyEnvironment() {
 		style.Apply(theme.Mono())
 		c.outW.Profile = colorprofile.NoTTY
 		c.errW.Profile = colorprofile.NoTTY
-		return
+		return nil
 	}
 
 	noColor := os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb" || ForceMono()
@@ -267,7 +306,7 @@ func (c *Command) applyEnvironment() {
 		// matching the pre-v2 behavior.
 		c.outW.Profile = colorprofile.NoTTY
 		c.errW.Profile = colorprofile.NoTTY
-		return
+		return nil
 	}
 	if force {
 		// Force full-color output even when writing to a pipe (colorprofile
@@ -276,13 +315,23 @@ func (c *Command) applyEnvironment() {
 		c.errW.Profile = colorprofile.TrueColor
 	}
 
-	name := a.Config.Theme
+	// An explicit --theme with an unknown value is a bad invocation, just like
+	// any other invalid flag value, so it fails the same way the `theme`
+	// subcommand does. A theme coming only from the config file keeps the
+	// silent fallback below, so a stale config never blocks the CLI.
 	if a.ThemeName != "" {
-		name = a.ThemeName
+		if !style.SetTheme(a.ThemeName) {
+			style.Apply(theme.Default())
+			return clierr.WithCode(clierr.CodeUsage,
+				fmt.Errorf("unknown theme %q (available: %s)", a.ThemeName, themeList()))
+		}
+		return nil
 	}
+	name := a.Config.Theme
 	if name == "" || !style.SetTheme(name) {
 		style.Apply(theme.Default())
 	}
+	return nil
 }
 
 func (c *Command) applySecretFiles() error {
