@@ -4,7 +4,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/charmbracelet/log"
+	"charm.land/log/v2"
 
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/config"

@@ -16,7 +16,7 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
-	"github.com/charmbracelet/log"
+	"charm.land/log/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/zalando/go-keyring"
 
