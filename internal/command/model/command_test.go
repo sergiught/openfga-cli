@@ -1,10 +1,20 @@
 package model
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"charm.land/log/v2"
+	"github.com/sergiught/go-openfga/openfga"
+
+	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/config"
 )
 
 func TestModelInputToJSON(t *testing.T) {
@@ -65,5 +75,34 @@ func TestModelDryRunShorthand(t *testing.T) {
 	cmd := (&Command{}).writeCmd()
 	if got := cmd.Flags().Lookup("dry-run").Shorthand; got != "n" {
 		t.Fatalf("--dry-run shorthand = %q, want n", got)
+	}
+}
+
+func TestListPrintsCountFooterOnStderr(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(openfga.ListAuthorizationModelsResponse{
+			AuthorizationModels: []openfga.AuthorizationModel{
+				{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", SchemaVersion: "1.1"},
+				{ID: "01ARZ3NDEKTSV4RRFFQ69G5FBW", SchemaVersion: "1.1"},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	cfg := config.New()
+	cfg.Set("default", config.Profile{APIURL: srv.URL, StoreID: "01ARZ3NDEKTSV4RRFFQ69G5FAV"})
+	cmd := New(cli.New(log.New(io.Discard), cfg, "test")).listCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(errOut.String(), "2 model(s)") {
+		t.Errorf("stderr = %q, want it to contain %q", errOut.String(), "2 model(s)")
+	}
+	if strings.Contains(out.String(), "model(s)") {
+		t.Errorf("count footer leaked onto stdout:\n%s", out.String())
 	}
 }

@@ -100,7 +100,14 @@ func (c *Command) readCmd() *cobra.Command {
 					exp,
 				})
 			}
-			return output.Table(cmd.OutOrStdout(), []string{"USER", "RELATION", "OBJECT", "EXPECT"}, rows)
+			if err := output.Table(cmd.OutOrStdout(), []string{"USER", "RELATION", "OBJECT", "EXPECT"}, rows); err != nil {
+				return err
+			}
+			if err := output.HumanBlankLine(cmd.OutOrStdout()); err != nil {
+				return err
+			}
+			output.Infof(cmd.ErrOrStderr(), "%d assertion(s)", len(res.Assertions))
+			return nil
 		},
 	}
 }
