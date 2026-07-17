@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.264.0](https://github.com/sergiught/openfga-cli/compare/v0.263.1...v0.264.0) (2026-07-17)
+
+
+### Features
+
+* **profiles:** pin store_id and model_id on a profile from the TUI form and init ([#11](https://github.com/sergiught/openfga-cli/issues/11)) ([c5e4413](https://github.com/sergiught/openfga-cli/commit/c5e441303bae0199f9cc47ab0db8363764269439))
+
 ## [0.263.1](https://github.com/sergiught/openfga-cli/compare/v0.263.0...v0.263.1) (2026-07-17)
 
 
