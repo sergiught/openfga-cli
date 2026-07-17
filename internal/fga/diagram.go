@@ -43,7 +43,7 @@ func (g Graph) diagramHeader() string {
 		colorRune('─', style.Amber) + " " + style.Faint.Render("inherited (tuple-to-userset)"),
 		style.Faint.Render("↑↓←→ pan"),
 	}, "    ")
-	return style.Subtitle.Render("schema "+style.SanitizeTerminal(g.SchemaVersion)) + "    " + legend
+	return style.Subtitle.Render("schema "+style.SanitizeTerminal(g.SchemaVersion)) + "    " + legend + "\n" + weightLegend()
 }
 
 // --- node boxes ---
@@ -104,7 +104,9 @@ func (g Graph) buildBoxes() []*nodeBox {
 // relationRow renders one relation line: the relation name followed by compact,
 // colored markers for each of its resolution edges.
 func relationRow(r Relation) []scell {
-	cells := styledRunes(r.Name, style.Cyan)
+	gr, gc := r.heatGlyph()
+	cells := []scell{{r: gr, fg: gc}}
+	cells = append(cells, styledRunes(r.Name, style.Cyan)...)
 	for _, e := range r.Edges {
 		cells = append(cells, scell{r: ' '})
 		switch e.Kind {
