@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/sergiught/go-openfga/openfga"
+	"golang.org/x/oauth2"
 )
 
 // Process exit codes. Scripts and CI can branch on these instead of parsing
@@ -124,6 +125,14 @@ func Friendly(err error) string {
 			"  the token may be expired, or the profile's auth method may be wrong.\n" +
 			"  " + err.Error()
 	}
+	// A token-endpoint credential rejection reaches us wrapped inside the API
+	// request's url.Error (which implements net.Error), so it would otherwise be
+	// misreported as an unreachable API server. The endpoint was reached — the
+	// credentials were refused — so point the fix at token_url/client_secret.
+	if isTokenExchangeRejection(err) {
+		return "authentication failed at the OAuth token endpoint — check client_secret, token_url, and audience.\n" +
+			"  " + err.Error()
+	}
 	if IsConnErr(err) {
 		if connToTokenEndpoint(err) {
 			return "cannot reach the OAuth token endpoint. Is it running, and is token_url correct?\n" +
@@ -137,18 +146,52 @@ func Friendly(err error) string {
 	return err.Error()
 }
 
+// isTokenExchangeRejection reports whether the OAuth token exchange itself was
+// rejected by a reachable token endpoint (bad client_secret/audience/token_url),
+// as opposed to the endpoint being unreachable. The SDK surfaces this as an
+// x/oauth2 *RetrieveError (client_credentials) or an "openfga: token endpoint
+// returned N" error, wrapped inside the API request's url.Error.
+func isTokenExchangeRejection(err error) bool {
+	var re *oauth2.RetrieveError
+	if errors.As(err, &re) {
+		return true
+	}
+	return strings.Contains(err.Error(), "token endpoint returned")
+}
+
 // connToTokenEndpoint reports whether a connection failure was to an OAuth token
-// endpoint rather than the API server. Token fetches are POSTs to the configured
-// token_url, so a POST url.Error to a token-ish URL nested inside an API
-// request's failure points the fix at token_url, not api_url.
+// endpoint rather than the API server. While serving an API call the SDK makes
+// one secondary request — the token POST to token_url — so a POST url.Error
+// nested below the outermost (API request) url.Error, targeting a different host,
+// points the fix at token_url rather than api_url.
 func connToTokenEndpoint(err error) bool {
+	apiHost := ""
+	seenAPI := false
 	for e := err; e != nil; e = errors.Unwrap(e) {
-		var ue *url.Error
-		if errors.As(e, &ue) && strings.EqualFold(ue.Op, "Post") && strings.Contains(ue.URL, "token") {
-			return true
+		ue, ok := e.(*url.Error)
+		if !ok {
+			continue
+		}
+		if !seenAPI {
+			apiHost = urlHost(ue.URL) // the outermost url.Error is the API request
+			seenAPI = true
+			continue
+		}
+		if strings.EqualFold(ue.Op, "Post") {
+			if h := urlHost(ue.URL); h != "" && h != apiHost {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// urlHost returns the host:port of a raw URL, or "" if it can't be parsed.
+func urlHost(raw string) string {
+	if u, err := url.Parse(raw); err == nil {
+		return u.Host
+	}
+	return ""
 }
 
 // IsConnErr reports whether err looks like a network-level failure (refused
