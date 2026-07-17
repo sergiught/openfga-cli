@@ -47,6 +47,36 @@
       "matchStrings": ["golangci/golangci-lint-action@[0-9a-f]+ # v[0-9.]+\\s+with:\\s+version:\\s*(?<currentValue>v[0-9.]+)"],
       "depNameTemplate": "golangci/golangci-lint",
       "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "description": "Track the golangci-lint version pinned in the Makefile",
+      "managerFilePatterns": [
+        "/^Makefile$/"
+      ],
+      "matchStrings": ["GOLANGCI_LINT_VERSION\\s*=\\s*(?<currentValue>v[0-9.]+)"],
+      "depNameTemplate": "golangci/golangci-lint",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "description": "Track the govulncheck version pinned in the Makefile",
+      "managerFilePatterns": [
+        "/^Makefile$/"
+      ],
+      "matchStrings": ["GOVULNCHECK_VERSION\\s*=\\s*(?<currentValue>v[0-9.]+)"],
+      "depNameTemplate": "golang.org/x/vuln",
+      "datasourceTemplate": "go"
+    },
+    {
+      "customType": "regex",
+      "description": "Track the commitlint commit pinned in the Makefile",
+      "managerFilePatterns": [
+        "/^Makefile$/"
+      ],
+      "matchStrings": ["go install github\\.com/conventionalcommit/commitlint@(?<currentDigest>[0-9a-f]+) # (?<currentValue>v[0-9.]+)"],
+      "depNameTemplate": "github.com/conventionalcommit/commitlint",
+      "datasourceTemplate": "go"
     }
   ]
 }

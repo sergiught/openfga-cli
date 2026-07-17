@@ -46,6 +46,12 @@ jobs:
       packages: write # push images to ghcr.io
       id-token: write # sign provenance with Sigstore
       attestations: write # publish provenance to GitHub
+    # Mirror the optional Docker Hub secrets into env so steps can gate on their
+    # presence (secrets can't be referenced from a step-level `if:` directly).
+    # goreleaser also reads DOCKERHUB_TOKEN to decide whether to push docker.io.
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -60,6 +66,8 @@ jobs:
         uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
           syft-version: v1.48.0
+      - name: install cosign for keyless signing
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: log in to GitHub Container Registry
         uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
@@ -67,10 +75,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: log in to Docker Hub
+        # Skipped when the Docker Hub secrets are unset, so a release still
+        # succeeds (goreleaser then only pushes to GHCR).
+        if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
         uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           distribution: goreleaser
@@ -85,3 +96,29 @@ jobs:
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4
         with:
           subject-checksums: dist/checksums.txt
+      # SBOM for the pushed container image, attached to it as a keyless cosign
+      # attestation (`cosign verify-attestation --type spdxjson`). Targets the
+      # GHCR manifest (always pushed); Docker Hub is an optional mirror.
+      - name: attest SBOM for the container image
+        env:
+          IMAGE: ghcr.io/sergiught/openfga-cli
+          TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          tag="${TAG_NAME#v}"
+          digest="$(docker buildx imagetools inspect "${IMAGE}:${tag}" --format '{{ .Manifest.Digest }}')"
+          syft "${IMAGE}@${digest}" -o spdx-json=image.sbom.spdx.json
+          cosign attest --yes --type spdxjson \
+            --predicate image.sbom.spdx.json "${IMAGE}@${digest}"
+      # Sync the Docker Hub repository description/README — goreleaser can't do
+      # this. Gated on the Docker Hub credentials, like the login/push above, so
+      # a fork or a Docker-Hub-less release skips it cleanly.
+      - name: update Docker Hub description
+        if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
+          repository: sergiught/openfga-cli
+          short-description: "A modern CLI & TUI for OpenFGA."
+          readme-filepath: ./docs/docker/README.md
