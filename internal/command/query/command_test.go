@@ -2,12 +2,28 @@ package query
 
 import (
 	"bytes"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"charm.land/log/v2"
 	"github.com/sergiught/go-openfga/openfga"
+	"github.com/spf13/cobra"
+
+	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/config"
+	"github.com/sergiught/openfga-cli/internal/output"
 )
+
+func newQueryCLI(t *testing.T, apiURL string) *cli.CLI {
+	t.Helper()
+	cfg := config.New()
+	cfg.Set("default", config.Profile{APIURL: apiURL, StoreID: "01ARZ3NDEKTSV4RRFFQ69G5FAV"})
+	return cli.New(log.New(io.Discard), cfg, "test")
+}
 
 func TestAllowedWord(t *testing.T) {
 	if allowedWord(true) != "allowed" {
@@ -34,6 +50,101 @@ func TestBatchCheckValidatesInputBeforeClientCreation(t *testing.T) {
 	err := cmd.Execute()
 	if got := clierr.Code(err); got != clierr.CodeUsage {
 		t.Fatalf("exit code = %d, want usage; err=%v", got, err)
+	}
+}
+
+func TestContextualFlagsRegistered(t *testing.T) {
+	tests := []struct {
+		name  string
+		cmd   *cobra.Command
+		flags []string
+	}{
+		{"list-objects", (&Command{}).listObjectsCmd(), []string{"context", "contextual-tuple"}},
+		{"list-users", (&Command{}).listUsersCmd(), []string{"context", "contextual-tuple"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, name := range tt.flags {
+				if tt.cmd.Flags().Lookup(name) == nil {
+					t.Errorf("%s missing --%s flag", tt.name, name)
+				}
+			}
+		})
+	}
+}
+
+func TestMalformedContextIsUsageError(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{"check bad context", []string{"user:anne", "viewer", "doc:1", "--context", "not json"}},
+		{"check bad contextual-tuple", []string{"user:anne", "viewer", "doc:1", "--contextual-tuple", "anne,viewer,doc:1"}},
+		{"list-objects bad context", []string{"document", "viewer", "user:anne", "--context", "not json"}},
+		{"list-objects bad contextual-tuple", []string{"document", "viewer", "user:anne", "--contextual-tuple", "anne,viewer,doc:1"}},
+		{"list-users bad context", []string{"document:roadmap", "viewer", "--type", "user", "--context", "not json"}},
+		{"list-users bad contextual-tuple", []string{"document:roadmap", "viewer", "--type", "user", "--contextual-tuple", "anne,viewer,doc:1"}},
+	}
+	cmds := map[string]func() *cobra.Command{
+		"check":        func() *cobra.Command { return (&Command{}).checkCmd() },
+		"list-objects": func() *cobra.Command { return (&Command{}).listObjectsCmd() },
+		"list-users":   func() *cobra.Command { return (&Command{}).listUsersCmd() },
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			key := strings.SplitN(tt.name, " ", 2)[0]
+			cmd := cmds[key]()
+			cmd.SetArgs(tt.args)
+			err := cmd.Execute()
+			if got := clierr.Code(err); got != clierr.CodeUsage {
+				t.Fatalf("exit code = %d, want usage; err=%v", got, err)
+			}
+		})
+	}
+}
+
+func TestCheckPlainEmitsAllowedRow(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"allowed":true}`))
+	}))
+	defer srv.Close()
+
+	output.Plain = true
+	t.Cleanup(func() { output.Plain = false })
+
+	cmd := New(newQueryCLI(t, srv.URL)).checkCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"user:anne", "viewer", "doc:1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := out.String(), "allowed\ttrue\n"; got != want {
+		t.Fatalf("check --plain = %q, want %q", got, want)
+	}
+}
+
+func TestExpandTableRendersTreeNotJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"tree":{"root":"document:roadmap#viewer"}}`))
+	}))
+	defer srv.Close()
+
+	a := newQueryCLI(t, srv.URL)
+	a.Output = "table"
+	cmd := New(a).expandCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"viewer", "document:roadmap"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if strings.Contains(got, "{") {
+		t.Fatalf("expand -o table emitted JSON, want tree outline: %q", got)
+	}
+	if got != "root: document:roadmap#viewer\n" {
+		t.Fatalf("expand -o table = %q", got)
 	}
 }
 

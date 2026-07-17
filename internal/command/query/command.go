@@ -134,15 +134,15 @@ func (c *Command) checkCmd() *cobra.Command {
 			if _, err := fga.ParseTuple(user, relation, object); err != nil {
 				return clierr.WithCode(clierr.CodeUsage, err)
 			}
-			cl, _, err := c.cli.ClientWithStore()
-			if err != nil {
-				return err
-			}
 			cx, err := parseContext(contextJSON)
 			if err != nil {
-				return err
+				return clierr.WithCode(clierr.CodeUsage, err)
 			}
 			ct, err := parseContextualTuples(ctxTuples)
+			if err != nil {
+				return clierr.WithCode(clierr.CodeUsage, err)
+			}
+			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
 			}
@@ -159,7 +159,7 @@ func (c *Command) checkCmd() *cobra.Command {
 				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, res)
 			}
 			if output.Plain {
-				_, err := fmt.Fprintln(cmd.OutOrStdout(), allowedWord(res.Allowed))
+				_, err := fmt.Fprintf(cmd.OutOrStdout(), "allowed\t%t\n", res.Allowed)
 				return err
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s  %s\n",
@@ -267,10 +267,10 @@ func (c *Command) expandCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// --plain renders the userset tree as an indented text outline;
-			// otherwise (default, --json, and --output yaml) it is emitted
-			// structured via output.Emit.
-			if output.Plain && !c.cli.JSON && !c.cli.YAML {
+			// --plain and -o table both render the userset tree as an indented
+			// text outline (expand has no tabular form); --json and -o yaml emit
+			// the structured tree via output.Emit.
+			if (output.Plain || c.cli.Output == "table") && !c.cli.JSON && !c.cli.YAML {
 				return writeTreePlain(cmd.OutOrStdout(), res.Tree, 0)
 			}
 			return output.Emit(cmd.OutOrStdout(), c.cli.YAML, res.Tree)
@@ -284,6 +284,7 @@ func (c *Command) expandCmd() *cobra.Command {
 func (c *Command) listObjectsCmd() *cobra.Command {
 	var (
 		contextJSON           string
+		ctxTuples             []string
 		objectType, rel, user string
 	)
 	cmd := &cobra.Command{
@@ -303,15 +304,19 @@ func (c *Command) listObjectsCmd() *cobra.Command {
 			if err := fga.ValidateUserRef(values[2]); err != nil {
 				return clierr.WithCode(clierr.CodeUsage, err)
 			}
+			cx, err := parseContext(contextJSON)
+			if err != nil {
+				return clierr.WithCode(clierr.CodeUsage, err)
+			}
+			ct, err := parseContextualTuples(ctxTuples)
+			if err != nil {
+				return clierr.WithCode(clierr.CodeUsage, err)
+			}
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
 			}
-			cx, err := parseContext(contextJSON)
-			if err != nil {
-				return err
-			}
-			req := &openfga.ListObjectsRequest{Type: values[0], Relation: values[1], User: values[2], Context: cx}
+			req := &openfga.ListObjectsRequest{Type: values[0], Relation: values[1], User: values[2], Context: cx, ContextualTuples: ct}
 			res, err := cl.Relationships.ListObjects(cmd.Context(), req)
 			if err != nil {
 				return err
@@ -339,6 +344,7 @@ func (c *Command) listObjectsCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&contextJSON, "context", "", "JSON object of condition context")
+	cmd.Flags().StringArrayVar(&ctxTuples, "contextual-tuple", nil, "contextual tuple as user,relation,object (repeatable)")
 	cmd.Flags().StringVar(&objectType, "type", "", "object type")
 	cmd.Flags().StringVar(&rel, "relation", "", "relation")
 	cmd.Flags().StringVar(&user, "user", "", "user")
@@ -347,6 +353,8 @@ func (c *Command) listObjectsCmd() *cobra.Command {
 
 func (c *Command) listUsersCmd() *cobra.Command {
 	var (
+		contextJSON string
+		ctxTuples   []string
 		userTypes   []string
 		object, rel string
 	)
@@ -367,6 +375,14 @@ func (c *Command) listUsersCmd() *cobra.Command {
 			if err := fga.ValidateObjectRef(values[0]); err != nil {
 				return clierr.WithCode(clierr.CodeUsage, err)
 			}
+			cx, err := parseContext(contextJSON)
+			if err != nil {
+				return clierr.WithCode(clierr.CodeUsage, err)
+			}
+			ct, err := parseContextualTuples(ctxTuples)
+			if err != nil {
+				return clierr.WithCode(clierr.CodeUsage, err)
+			}
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
@@ -380,9 +396,11 @@ func (c *Command) listUsersCmd() *cobra.Command {
 				}
 			}
 			req := &openfga.ListUsersRequest{
-				Object:      openfga.FGAObjectRelation{Object: values[0]},
-				Relation:    values[1],
-				UserFilters: filters,
+				Object:           openfga.FGAObjectRelation{Object: values[0]},
+				Relation:         values[1],
+				UserFilters:      filters,
+				Context:          cx,
+				ContextualTuples: ct,
 			}
 			res, err := cl.Relationships.ListUsers(cmd.Context(), req)
 			if err != nil {
@@ -413,6 +431,8 @@ func (c *Command) listUsersCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&userTypes, "type", nil, "user type filter, optionally type#relation (repeatable)")
 	cmd.Flags().StringVar(&object, "object", "", "object")
 	cmd.Flags().StringVar(&rel, "relation", "", "relation")
+	cmd.Flags().StringVar(&contextJSON, "context", "", "JSON object of condition context")
+	cmd.Flags().StringArrayVar(&ctxTuples, "contextual-tuple", nil, "contextual tuple as user,relation,object (repeatable)")
 	_ = cmd.MarkFlagRequired("type")
 	return cmd
 }
