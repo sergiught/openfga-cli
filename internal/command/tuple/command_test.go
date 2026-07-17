@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/config"
+	"github.com/sergiught/openfga-cli/internal/output"
 )
 
 func writeTemp(t *testing.T, content string) string {
@@ -244,4 +246,123 @@ func newChangesTestCommand(t *testing.T, apiURL string) *cobra.Command {
 	a := cli.New(log.New(io.Discard), cfg, "test")
 	a.JSON = true
 	return New(a).changesCmd()
+}
+
+// newHumanTupleCLI builds a CLI that renders human/plain output (not JSON).
+func newHumanTupleCLI(t *testing.T, apiURL string) *cli.CLI {
+	t.Helper()
+	cfg := config.New()
+	cfg.Set("default", config.Profile{APIURL: apiURL, StoreID: "01ARZ3NDEKTSV4RRFFQ69G5FAV"})
+	return cli.New(log.New(io.Discard), cfg, "test")
+}
+
+func TestReadPlainTimestampsAreRFC3339(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(openfga.ReadResponse{
+			Tuples: []openfga.Tuple{{
+				Key:       openfga.TupleKey{User: "user:anne", Relation: "viewer", Object: "doc:1"},
+				Timestamp: time.Unix(1600000000, 0).UTC(),
+			}},
+		})
+	}))
+	defer srv.Close()
+
+	output.Plain = true
+	t.Cleanup(func() { output.Plain = false })
+
+	cmd := New(newHumanTupleCLI(t, srv.URL)).readCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	// WRITTEN is the last (5th) tab-separated column.
+	fields := strings.Split(strings.TrimSpace(out.String()), "\t")
+	if len(fields) != 5 {
+		t.Fatalf("row = %q, want 5 tab-separated columns", out.String())
+	}
+	written := fields[4]
+	if _, err := time.Parse(time.RFC3339, written); err != nil {
+		t.Errorf("WRITTEN = %q, not RFC3339: %v", written, err)
+	}
+}
+
+func TestChangesPlainOpHasNoDecorativeGlyph(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(openfga.ReadChangesResponse{
+			Changes: []openfga.TupleChange{
+				{
+					TupleKey:  openfga.TupleKey{User: "user:anne", Relation: "viewer", Object: "doc:1"},
+					Operation: "TUPLE_OPERATION_WRITE",
+					Timestamp: time.Unix(1600000000, 0).UTC(),
+				},
+				{
+					TupleKey:  openfga.TupleKey{User: "user:bob", Relation: "editor", Object: "doc:2"},
+					Operation: "TUPLE_OPERATION_DELETE",
+					Timestamp: time.Unix(1600000100, 0).UTC(),
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	output.Plain = true
+	t.Cleanup(func() { output.Plain = false })
+
+	cmd := New(newHumanTupleCLI(t, srv.URL)).changesCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if strings.ContainsAny(got, "＋－") {
+		t.Errorf("plain changes output leaks a decorative glyph:\n%s", got)
+	}
+	lines := strings.Split(strings.TrimSpace(got), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d rows, want 2:\n%s", len(lines), got)
+	}
+	wantOps := []string{"write", "delete"}
+	for i, line := range lines {
+		cols := strings.Split(line, "\t")
+		if len(cols) != 3 {
+			t.Fatalf("row %d = %q, want 3 columns", i, line)
+		}
+		if _, err := time.Parse(time.RFC3339, cols[0]); err != nil {
+			t.Errorf("row %d TIMESTAMP = %q, not RFC3339: %v", i, cols[0], err)
+		}
+		if cols[1] != wantOps[i] {
+			t.Errorf("row %d OP = %q, want %q", i, cols[1], wantOps[i])
+		}
+	}
+}
+
+func TestChangesPrintsCountFooterOnStderr(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(openfga.ReadChangesResponse{
+			Changes: []openfga.TupleChange{
+				{TupleKey: openfga.TupleKey{User: "user:anne", Relation: "viewer", Object: "doc:1"}, Operation: "TUPLE_OPERATION_WRITE"},
+				{TupleKey: openfga.TupleKey{User: "user:bob", Relation: "editor", Object: "doc:2"}, Operation: "TUPLE_OPERATION_DELETE"},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	cmd := New(newHumanTupleCLI(t, srv.URL)).changesCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(errOut.String(), "2 change(s)") {
+		t.Errorf("stderr = %q, want it to contain %q", errOut.String(), "2 change(s)")
+	}
+	if strings.Contains(out.String(), "change(s)") {
+		t.Errorf("count footer leaked onto stdout:\n%s", out.String())
+	}
 }

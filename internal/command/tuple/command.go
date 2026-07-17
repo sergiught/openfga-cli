@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -310,7 +311,7 @@ func (c *Command) readCmd() *cobra.Command {
 					output.SanitizeField(t.Key.Relation),
 					output.SanitizeField(t.Key.Object),
 					cond,
-					t.Timestamp.Format("2006-01-02 15:04"),
+					t.Timestamp.Format(time.RFC3339),
 				})
 			}
 			if err := output.Table(cmd.OutOrStdout(), []string{"USER", "RELATION", "OBJECT", "CONDITION", "WRITTEN"}, rows); err != nil {
@@ -380,17 +381,31 @@ func (c *Command) changesCmd() *cobra.Command {
 			}
 			rows := make([][]string, 0, len(changes))
 			for _, ch := range changes {
-				op := style.Success.Render("＋ write")
+				// --plain gets the bare token; the styled table keeps the glyph.
+				op := "write"
 				if ch.Operation == "TUPLE_OPERATION_DELETE" {
-					op = style.Failure.Render("－ delete")
+					op = "delete"
+				}
+				if !output.Plain {
+					op = style.Success.Render("＋ write")
+					if ch.Operation == "TUPLE_OPERATION_DELETE" {
+						op = style.Failure.Render("－ delete")
+					}
 				}
 				rows = append(rows, []string{
-					ch.Timestamp.Format("2006-01-02 15:04:05"),
+					ch.Timestamp.Format(time.RFC3339),
 					op,
 					output.SanitizeField(fga.FormatTuple(ch.TupleKey)),
 				})
 			}
-			return output.Table(cmd.OutOrStdout(), []string{"TIMESTAMP", "OP", "TUPLE"}, rows)
+			if err := output.Table(cmd.OutOrStdout(), []string{"TIMESTAMP", "OP", "TUPLE"}, rows); err != nil {
+				return err
+			}
+			if err := output.HumanBlankLine(cmd.OutOrStdout()); err != nil {
+				return err
+			}
+			output.Infof(cmd.ErrOrStderr(), "%d change(s)", len(changes))
+			return nil
 		},
 	}
 	f := cmd.Flags()

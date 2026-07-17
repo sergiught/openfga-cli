@@ -125,6 +125,9 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 
+	case bootNoticeMsg:
+		return m, m.toasts.Push(toast.Info, msg.text)
+
 	case storesLoadedMsg:
 		// A stores list from a connection that's since been replaced (a profile
 		// switch or an edit to the active profile's connection, both of which
@@ -138,8 +141,22 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.err != nil {
+			if isPermissionErr(msg.err) {
+				// The server rejected listing stores for lack of permission
+				// (401/403). Show a dedicated Stores-panel notice instead of an
+				// empty "no stores" list plus a red error toast, which together
+				// misread as "this server has no stores" when the real cause is a
+				// missing permission to manage them.
+				m.storesForbidden = true
+				m.stores = nil
+				m.populateStores()
+				m.status = "no permission to manage stores on this server"
+				return m, m.toasts.Push(toast.Info, m.status)
+			}
+			m.storesForbidden = false
 			return m, m.toastErr("", msg.err)
 		}
+		m.storesForbidden = false
 		m.connLost = false
 		m.stores = msg.stores
 		for _, s := range m.stores {
