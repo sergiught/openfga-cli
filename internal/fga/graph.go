@@ -22,6 +22,9 @@ type RelationEdge struct {
 type Relation struct {
 	Name  string         `json:"name"`
 	Edges []RelationEdge `json:"edges"`
+	// Weight is the worst-case resolution cost (>=1); -1 when Recursive.
+	Weight    int  `json:"weight"`
+	Recursive bool `json:"recursive"`
 }
 
 // TypeNode is one object type in the model with its relations.
@@ -93,6 +96,19 @@ func ParseModel(m *openfga.AuthorizationModel) Graph {
 			node.Relations = append(node.Relations, rel)
 		}
 		g.Types = append(g.Types, node)
+	}
+
+	weights := computeWeights(m)
+	for ti := range g.Types {
+		for ri := range g.Types[ti].Relations {
+			w := weights[g.Types[ti].Name+"#"+g.Types[ti].Relations[ri].Name]
+			if w == weightRecursive {
+				g.Types[ti].Relations[ri].Weight = weightRecursive
+				g.Types[ti].Relations[ri].Recursive = true
+			} else {
+				g.Types[ti].Relations[ri].Weight = w
+			}
+		}
 	}
 	return g
 }
