@@ -231,7 +231,8 @@ func (g Graph) Render() string {
 		edgeGlyph("computed") + " " + style.Faint.Render("implied by relation"),
 		edgeGlyph("ttu") + " " + style.Faint.Render("inherited (tuple-to-userset)"),
 	}, "    ")
-	b.WriteString(style.Subtitle.Render("schema "+style.SanitizeTerminal(g.SchemaVersion)) + "    " + legend + "    " + weightLegend() + "\n\n")
+	b.WriteString(style.Subtitle.Render("schema "+style.SanitizeTerminal(g.SchemaVersion)) + "    " + legend + "\n")
+	b.WriteString(weightLegend() + "\n\n")
 
 	for ti, t := range g.Types {
 		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(style.Violet).Render(style.SanitizeTerminal(t.Name)))
