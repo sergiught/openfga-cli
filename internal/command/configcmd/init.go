@@ -19,8 +19,8 @@ import (
 // it is safe to run in CI.
 func NewInit(c *cli.CLI) *cobra.Command {
 	var (
-		apiURL, storeID, token string
-		tokenStdin, force      bool
+		apiURL, storeID, modelID, token string
+		tokenStdin, force               bool
 	)
 	cmd := &cobra.Command{
 		Use:   "init [profile]",
@@ -68,6 +68,9 @@ func NewInit(c *cli.CLI) *cobra.Command {
 			if storeID == "" {
 				storeID = prompt.Ask(cmd, "Store ID (optional)", "")
 			}
+			if modelID == "" {
+				modelID = prompt.Ask(cmd, "Authorization Model ID (optional)", "")
+			}
 
 			// init is the recovery path: if the existing file was unparseable or
 			// an unsupported schema version, replacing it is the whole point, so
@@ -77,7 +80,7 @@ func NewInit(c *cli.CLI) *cobra.Command {
 				c.Config.ClearLoadErr()
 			}
 
-			p := config.Profile{APIURL: apiURL, StoreID: storeID}
+			p := config.Profile{APIURL: apiURL, StoreID: storeID, ModelID: modelID}
 			if token != "" {
 				p.Auth = config.Auth{Method: config.AuthAPIToken, Token: token}
 			}
@@ -117,6 +120,7 @@ func NewInit(c *cli.CLI) *cobra.Command {
 	// Profile-scoped names matching the global override names and `profiles add`.
 	f.StringVar(&apiURL, "api-url", "", "API URL to save in the profile (default "+config.DefaultAPIURL+")")
 	f.StringVar(&storeID, "store-id", "", "store ID to save in the profile")
+	f.StringVar(&modelID, "model-id", "", "authorization model ID to save in the profile")
 	f.StringVar(&token, "token", "", "rejected: use --token-stdin")
 	f.BoolVar(&tokenStdin, "token-stdin", false, "read the API token from stdin")
 	f.BoolVarP(&force, "force", "f", false, "overwrite an existing profile without prompting")
