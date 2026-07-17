@@ -51,6 +51,20 @@ type Graph struct {
 	Types         []TypeNode `json:"types"`
 	// Edges are the inter-type dependencies used to draw the node-link diagram.
 	Edges []DiagramEdge `json:"edges"`
+	// src is retained so the weighted-graph view can be built on demand; it is
+	// never serialized.
+	src *openfga.AuthorizationModel
+}
+
+// RenderWeightedDiagram draws the fully-expanded weighted graph (relation,
+// operator, direct-grouping and terminal-type nodes with per-terminal-type
+// weights), in the style of openfga/model-visualizer. It is built lazily so the
+// text and JSON model-graph outputs, which never use it, do not pay for it.
+func (g Graph) RenderWeightedDiagram() string {
+	if g.src == nil {
+		return style.Faint.Render("no authorization model in this store")
+	}
+	return buildWeightedGraph(g.src).render()
 }
 
 // ParseModel converts an authorization model into a Graph by interpreting the
@@ -110,6 +124,7 @@ func ParseModel(m *openfga.AuthorizationModel) Graph {
 			}
 		}
 	}
+	g.src = m
 	return g
 }
 
