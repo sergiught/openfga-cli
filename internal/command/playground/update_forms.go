@@ -50,12 +50,13 @@ func (m Model) enterForm(kind formKind) (tea.Model, tea.Cmd) {
 }
 
 // profileMethodIndex is the form-field index of the auth-method selector:
-// after name+api_url when adding, after api_url when editing.
+// after name+api_url+store_id+model_id when adding, after
+// api_url+store_id+model_id when editing.
 func (m Model) profileMethodIndex() int {
 	if m.formKind == formAddProfile {
-		return 2
+		return 4
 	}
-	return 1
+	return 3
 }
 
 // profileFormMethod reads the auth method currently selected in the profile form.
@@ -83,7 +84,7 @@ func (m *Model) rebuildProfileForm() tea.Cmd {
 		pre = append(pre, vals[0])
 		idx = 1
 	}
-	pre = append(pre, vals[idx], method)
+	pre = append(pre, vals[idx], vals[idx+1], vals[idx+2], method)
 	m.form.SetValues(pre)
 	m.profileAuthMethod = method
 	return m.form.FocusIndex(m.profileMethodIndex())
@@ -234,8 +235,9 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if prevAuth.PrivateKey != "" && p.Auth.PrivateKey == "" {
 				cleanupFields = []string{"private_key"}
 			}
-			// Keep the auto-managed store/model; replace connection + auth.
-			existing.APIURL, existing.Auth = p.APIURL, p.Auth
+			// Replace connection (url + store/model) and auth from the form.
+			existing.APIURL, existing.StoreID, existing.ModelID, existing.Auth =
+				p.APIURL, p.StoreID, p.ModelID, p.Auth
 			m.cli.Config.Set(name, existing)
 			var activeResolved config.Resolved
 			var activeClient *openfga.Client

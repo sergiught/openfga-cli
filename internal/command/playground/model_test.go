@@ -1496,6 +1496,50 @@ func TestFooterStoreNameFromLoadedList(t *testing.T) {
 	}
 }
 
+// TestProfilesTabAddWithStoreAndModel drives the add-profile form and verifies
+// the Store ID and Model ID fields are persisted onto the new profile.
+func TestProfilesTabAddWithStoreAndModel(t *testing.T) {
+	cfg, _ := loadIsolatedConfig(t)
+	a := cli.New(log.New(io.Discard), cfg, "test")
+	cl, _ := openfga.NewClient("http://localhost:8080")
+	mdl := newModel(context.Background(), a, cl, "", "")
+	var m tea.Model = mdl
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
+	m, _ = m.Update(key("1"))     // Profiles
+	m, _ = m.Update(key("enter")) // descend
+	m, _ = m.Update(key("a"))     // add form: [name, api_url, store_id, model_id, auth_method]
+
+	typeIn := func(s string) {
+		for _, r := range s {
+			m, _ = m.Update(key(string(r)))
+		}
+	}
+	typeIn("prod")
+	m, _ = m.Update(key("tab")) // -> api_url
+	typeIn("https://api.example")
+	m, _ = m.Update(key("tab")) // -> store_id
+	typeIn("01STORE")
+	m, _ = m.Update(key("tab")) // -> model_id
+	typeIn("01MODEL")
+	m, _ = m.Update(key("tab"))   // -> auth method (none)
+	m, _ = m.Update(key("enter")) // submit (auth method is the last field for none)
+
+	c, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, ok := c.Get("prod")
+	if !ok {
+		t.Fatal("profile was not created")
+	}
+	if p.StoreID != "01STORE" || p.ModelID != "01MODEL" {
+		t.Fatalf("persisted store/model wrong: store=%q model=%q", p.StoreID, p.ModelID)
+	}
+	if p.APIURL != "https://api.example" {
+		t.Errorf("api_url = %q, want https://api.example", p.APIURL)
+	}
+}
+
 // TestProfilesTabAddClientCredentials drives the add-profile form with the auth
 // selector to create a client_credentials profile and verifies the auth block
 // is persisted.
@@ -1509,7 +1553,7 @@ func TestProfilesTabAddClientCredentials(t *testing.T) {
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
 	m, _ = m.Update(key("1"))     // Profiles
 	m, _ = m.Update(key("enter")) // descend
-	m, _ = m.Update(key("a"))     // add form: [name, api_url, auth method]
+	m, _ = m.Update(key("a"))     // add form: [name, api_url, store_id, model_id, auth method]
 
 	typeIn := func(s string) {
 		for _, r := range s {
@@ -1519,6 +1563,8 @@ func TestProfilesTabAddClientCredentials(t *testing.T) {
 	typeIn("prod")
 	m, _ = m.Update(key("tab")) // -> api_url
 	typeIn("https://api.fga")
+	m, _ = m.Update(key("tab"))   // -> store_id (left blank)
+	m, _ = m.Update(key("tab"))   // -> model_id (left blank)
 	m, _ = m.Update(key("tab"))   // -> auth method
 	m, _ = m.Update(key("right")) // none -> api_token (rebuild)
 	m, _ = m.Update(key("right")) // -> client_credentials (rebuild; focus stays on selector)
@@ -1797,7 +1843,9 @@ func TestProfilesTabAddAndSwitch(t *testing.T) {
 	for _, r := range "http://example:9090" {
 		m, _ = m.Update(key(string(r)))
 	}
-	m, _ = m.Update(key("enter")) // -> token field
+	m, _ = m.Update(key("enter")) // -> store_id (left blank)
+	m, _ = m.Update(key("enter")) // -> model_id (left blank)
+	m, _ = m.Update(key("enter")) // -> auth method (none)
 	m, _ = m.Update(key("enter")) // submit
 
 	c, err := config.Load()
@@ -1921,5 +1969,34 @@ func TestCompactToggleIsNoOpInStores(t *testing.T) {
 	m, _ = m.Update(key("v"))
 	if m.(Model).compact {
 		t.Fatal("v should be a no-op outside Tuples/Changes/Assertions")
+	}
+}
+
+// TestProfilesTabEditStoreAndModel verifies the edit form pre-fills the existing
+// store/model and persists edits to them.
+func TestProfilesTabEditStoreAndModel(t *testing.T) {
+	cfg, _ := loadIsolatedConfig(t)
+	cfg.Set("prod", config.Profile{APIURL: "https://api.example", StoreID: "01OLD", ModelID: "01OLDM"})
+	a := cli.New(log.New(io.Discard), cfg, "test")
+	cl, _ := openfga.NewClient("http://localhost:8080")
+	mdl := newModel(context.Background(), a, cl, "", "")
+	mdl.profileEditName = "prod"
+	mdl.profileAuthMethod = config.AuthNone
+	nm, _ := mdl.enterForm(formEditProfile)
+	mm := nm.(Model)
+	// Seed the edited values directly (no reliable clear key in the field
+	// package to overwrite the pre-filled 01OLD/01OLDM) and submit by pressing
+	// enter through the remaining fields.
+	mm.form.SetValues(profileFormValues(false, "https://api.example", "01NEW", "01NEWM", config.Auth{Method: config.AuthNone}))
+	var m tea.Model = mm
+	m, _ = m.Update(key("enter")) // -> store_id
+	m, _ = m.Update(key("enter")) // -> model_id
+	m, _ = m.Update(key("enter")) // -> auth method
+	m, _ = m.Update(key("enter")) // submit
+
+	c, _ := config.Load()
+	p, _ := c.Get("prod")
+	if p.StoreID != "01NEW" || p.ModelID != "01NEWM" {
+		t.Fatalf("edit did not persist store/model: store=%q model=%q", p.StoreID, p.ModelID)
 	}
 }
