@@ -35,8 +35,17 @@ jobs:
         run: |
           go mod tidy
           git diff --exit-code -- go.mod go.sum
+      # The profiles e2e tests run the real binary, which stores secrets in the
+      # OS keyring and refuses to fall back to plaintext. Headless runners have
+      # no Secret Service, so provide gnome-keyring under a private D-Bus session.
+      - name: install gnome-keyring for secret-store e2e tests
+        run: sudo apt-get update && sudo apt-get install -y gnome-keyring
       - name: test
-        run: go test -race ./...
+        run: |
+          dbus-run-session -- bash -c '
+            echo "" | gnome-keyring-daemon --unlock --components=secrets >/dev/null 2>&1
+            go test -race ./...
+          '
 
   lint:
     runs-on: ubuntu-latest
