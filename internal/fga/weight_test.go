@@ -30,10 +30,12 @@ func weightModel() *openfga.AuthorizationModel {
 				"member": direct("user"),
 			}}},
 			{Type: "doc", Relations: map[string]openfga.Userset{
-				"owner":  openfga.This(),
-				"viewer": openfga.ComputedUserset("owner"),
-				"editor": openfga.ComputedUserset("viewer"),
-				"super":  openfga.ComputedUserset("editor"),
+				"owner":      openfga.This(),
+				"viewer":     openfga.ComputedUserset("owner"),
+				"editor":     openfga.ComputedUserset("viewer"),
+				"super":      openfga.ComputedUserset("editor"),
+				"both":       openfga.Intersection(openfga.ComputedUserset("owner"), openfga.ComputedUserset("editor")),
+				"restricted": openfga.Exclusion(openfga.ComputedUserset("viewer"), openfga.ComputedUserset("owner")),
 			}, Metadata: &openfga.Metadata{Relations: map[string]openfga.RelationMetadata{
 				"owner": direct("user"),
 			}}},
@@ -64,12 +66,14 @@ func TestComputeWeights(t *testing.T) {
 		weight    int
 		recursive bool
 	}{
-		{"doc", "owner", 1, false},    // direct -> user
-		{"doc", "viewer", 2, false},   // computed owner
-		{"doc", "editor", 3, false},   // computed viewer
-		{"doc", "super", 4, false},    // computed editor
-		{"group", "parent", 1, false}, // direct -> group (terminal)
-		{"group", "member", -1, true}, // member -> member via parent (cycle)
+		{"doc", "owner", 1, false},      // direct -> user
+		{"doc", "viewer", 2, false},     // computed owner
+		{"doc", "editor", 3, false},     // computed viewer
+		{"doc", "super", 4, false},      // computed editor
+		{"doc", "both", 4, false},       // intersection(owner=1,editor=3) -> max(inc(1),inc(3))=4
+		{"doc", "restricted", 3, false}, // difference(viewer=2,owner=1) -> max(inc(2),inc(1))=3
+		{"group", "parent", 1, false},   // direct -> group (terminal)
+		{"group", "member", -1, true},   // member -> member via parent (cycle)
 	}
 	for _, c := range cases {
 		r := findRel(t, g, c.typ, c.rel)
