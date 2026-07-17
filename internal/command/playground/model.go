@@ -3,7 +3,9 @@ package playground
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
+	"regexp"
 	"strings"
 
 	"charm.land/bubbles/v2/spinner"
@@ -213,6 +215,14 @@ type Model struct {
 	spinnerRunning bool
 	status         string
 	mutationStatus string
+	// bootNotice, when set, is surfaced as an info toast once on startup (e.g. a
+	// malformed pinned model id was dropped). Delivered via bootNoticeMsg because
+	// Init's receiver mutations are discarded.
+	bootNotice string
+	// storesForbidden is set when listing stores was rejected by the server for
+	// lack of permission (401/403). The Stores panel then shows a "no permission
+	// to manage stores" notice instead of an empty "no stores" state.
+	storesForbidden bool
 
 	storeCreating     bool
 	storeDeleting     bool
@@ -438,6 +448,10 @@ func initialPendingLoads(storeID string) int {
 // Init kicks off initial loads.
 func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.spinner.Tick, loadStoresCmd(m.ctx, m.client, m.storesGen)}
+	if m.bootNotice != "" {
+		notice := m.bootNotice
+		cmds = append(cmds, func() tea.Msg { return bootNoticeMsg{text: notice} })
+	}
 	if m.entering {
 		cmds = append(cmds, entranceTick())
 	}
@@ -471,11 +485,41 @@ func (m Model) startModelCmd() tea.Cmd {
 	return loadModelCmd(m.ctx, m.client, m.storeID, m.modelGen)
 }
 
+// modelIDRE matches a ULID, mirroring the SDK's own authorization-model-id
+// validation so a malformed pin is recognized before it reaches the client.
+var modelIDRE = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$`)
+
+// isPermissionErr reports whether an API error is an authentication/authorization
+// rejection (HTTP 401/403), which the SDK surfaces as *openfga.AuthenticationError.
+func isPermissionErr(err error) bool {
+	var authErr *openfga.AuthenticationError
+	return errors.As(err, &authErr)
+}
+
 // Run launches the playground.
 func Run(ctx context.Context, cli *cli.CLI) error {
 	r, err := cli.Resolve()
 	if err != nil {
 		return err
+	}
+	// A pinned model_id that isn't a valid ULID makes client.New reject it and
+	// abort the TUI before it renders. A stale or hand-edited pin must heal like a
+	// valid-but-absent one: drop it (and clear it on disk) so the client builds and
+	// the Model panel loads the store's latest model, with a one-time notice.
+	bootNotice := ""
+	if r.ModelID != "" && !modelIDRE.MatchString(r.ModelID) {
+		bootNotice = fmt.Sprintf("ignored invalid pinned model id %q — loading the store's latest model", r.ModelID)
+		if cli.Overrides.APIURL == "" {
+			active := cli.Config.ActiveName(cli.Overrides)
+			if p, ok := cli.Config.Get(active); ok && p.ModelID == r.ModelID {
+				p.ModelID = ""
+				cli.Config.Set(active, p)
+				if err := cli.SaveConfig(); err != nil {
+					cli.Logger.Warn("failed to clear invalid pinned model id", "error", err)
+				}
+			}
+		}
+		r.ModelID = ""
 	}
 	rec := apilog.NewRecorder(apiLogHistory)
 	cl, err := client.New(r, client.WithCapture(rec), client.WithTimeout(cli.RequestTimeout))
@@ -495,6 +539,7 @@ func Run(ctx context.Context, cli *cli.CLI) error {
 	}
 	m := newModel(ctx, cli, cl, r.StoreID, r.ModelID)
 	m.recorder = rec
+	m.bootNotice = bootNotice
 	icons.Apply(icons.Parse(cli.Config.IconsMode()))
 	// Bind the program to the interrupt-aware context so Ctrl-C / SIGINT tears
 	// the TUI down cleanly and cancels any in-flight requests it started.

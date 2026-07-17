@@ -81,9 +81,11 @@ func (l *List) Restyle() {
 	}
 	width := l.Model.Width()
 	// Selected rows carry a thick left border (1 col, outside Width in lipgloss
-	// v1), so their content width must be width-1 to keep the rendered row within
-	// the list width — otherwise every row is padded 1 col too wide and gets
-	// clipped by the panel that contains the list.
+	// v1), so cap the rendered row at width-1 to keep it within the list width.
+	// Use MaxWidth (truncate) rather than Width (which forces a wrap): a title the
+	// `/` filter has styled with FilterMatch is ANSI-laden, and wrapping it splits
+	// the highlighted row across several lines and tears the viewport. MaxWidth
+	// keeps the row on one line while preserving the selection border and padding.
 	selWidth := width - 1
 	if selWidth < 0 {
 		selWidth = 0
@@ -95,12 +97,12 @@ func (l *List) Restyle() {
 			Border(lipgloss.ThickBorder(), false, false, false, true).
 			BorderForeground(style.Secondary).
 			Foreground(style.Primary).Bold(true).
-			Padding(0, 0, 0, 1).Width(selWidth),
+			Padding(0, 0, 0, 1).MaxWidth(selWidth),
 		SelectedDesc: lipgloss.NewStyle().
 			Border(lipgloss.ThickBorder(), false, false, false, true).
 			BorderForeground(style.Secondary).
 			Foreground(style.Muted).
-			Padding(0, 0, 0, 1).Width(selWidth),
+			Padding(0, 0, 0, 1).MaxWidth(selWidth),
 		DimmedTitle: lipgloss.NewStyle().Foreground(style.Muted).Padding(0, 0, 0, 2),
 		DimmedDesc:  lipgloss.NewStyle().Foreground(style.Faintc).Padding(0, 0, 0, 2),
 		FilterMatch: lipgloss.NewStyle().Underline(true).Foreground(style.Keyword),
