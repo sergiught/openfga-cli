@@ -29,7 +29,8 @@ func NewInit(c *cli.CLI) *cobra.Command {
 			"it prompts for any values not given as flags; non-interactively it uses the " +
 			"flags and defaults, so it is safe in CI.",
 		Example: `  ofga init
-  ofga init prod --api-url https://fga.example.com --token-stdin < token.txt`,
+  ofga init prod --api-url https://fga.example.com --token-stdin < token.txt
+  ofga init prod --api-url https://fga.example.com --store-id 01STORE --model-id 01MODEL`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := "default"
