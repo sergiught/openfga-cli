@@ -65,7 +65,7 @@ brews:
     repository:
       owner: sergiught
       name: homebrew-tap
-      token: '{{ envOrDefault "HOMEBREW_TAP_GITHUB_TOKEN" "" }}'
+      token: '{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}'
     skip_upload: '{{ if eq (envOrDefault "HOMEBREW_TAP_GITHUB_TOKEN" "") "" }}true{{ else }}false{{ end }}'
     homepage: https://github.com/sergiught/openfga-cli
     description: A modern CLI & TUI for OpenFGA.
