@@ -41,6 +41,10 @@ jobs:
       - name: install gnome-keyring for secret-store e2e tests
         run: sudo apt-get update && sudo apt-get install -y gnome-keyring
       - name: test
+        # OFGA_E2E_REQUIRE_KEYRING makes the keyring-backed e2e tests fail loudly
+        # if this provisioned keyring ever stops working, rather than skipping.
+        env:
+          OFGA_E2E_REQUIRE_KEYRING: '1'
         run: |
           dbus-run-session -- bash -c '
             echo "" | gnome-keyring-daemon --unlock --components=secrets >/dev/null 2>&1

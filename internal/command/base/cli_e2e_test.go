@@ -45,7 +45,18 @@ func ofgaBin(t *testing.T) string {
 func runOfga(t *testing.T, cfgHome string, stdin string, extraEnv []string, args ...string) (string, string, int) {
 	t.Helper()
 	cmd := exec.Command(ofgaBin(t), args...)
-	cmd.Env = append([]string{"XDG_CONFIG_HOME=" + cfgHome, "NO_COLOR=1", "PATH=" + os.Getenv("PATH")}, extraEnv...)
+	// A clean base env keeps the developer's real OpenFGA config and auth out of
+	// the test. But the CLI stores secrets in the OS keyring, which lives behind
+	// the session D-Bus on Linux, so forward the vars that let the child reach
+	// it — without them secretsAvailable() reports the keyring missing and every
+	// secret write fails (fast locally, after a long dbus autolaunch stall in CI).
+	env := []string{"XDG_CONFIG_HOME=" + cfgHome, "NO_COLOR=1", "PATH=" + os.Getenv("PATH")}
+	for _, key := range []string{"DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"} {
+		if v, ok := os.LookupEnv(key); ok {
+			env = append(env, key+"="+v)
+		}
+	}
+	cmd.Env = append(env, extraEnv...)
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)
 	}
@@ -66,10 +77,18 @@ func TestProfilesLifecycle(t *testing.T) {
 	home := t.TempDir()
 
 	// add via --token-stdin: secret must not appear in argv or in output.
-	out, _, code := runOfga(t, home, "s3cr3t-token\n", nil,
+	out, errb, code := runOfga(t, home, "s3cr3t-token\n", nil,
 		"profiles", "add", "prod", "--api-url", "https://fga.example.com", "--token-stdin")
 	if code != 0 {
-		t.Fatalf("add exit=%d out=%q", code, out)
+		// This test writes a real secret, so it needs a writable OS keyring. CI
+		// provisions one and sets OFGA_E2E_REQUIRE_KEYRING so a broken setup
+		// fails loudly; elsewhere, skip rather than fail (and rather than write
+		// to the developer's real keyring) when none is available or unlocked.
+		if os.Getenv("OFGA_E2E_REQUIRE_KEYRING") == "" &&
+			(strings.Contains(errb, "keyring is unavailable") || strings.Contains(errb, "locked collection")) {
+			t.Skipf("no writable OS keyring: %s", strings.TrimSpace(errb))
+		}
+		t.Fatalf("add exit=%d out=%q err=%q", code, out, errb)
 	}
 
 	// show: token is masked, never leaked.
@@ -91,7 +110,7 @@ func TestProfilesLifecycle(t *testing.T) {
 	}
 
 	// remove without --force, non-interactive: refuses, exit 1.
-	_, errb, code := runOfga(t, home, "", nil, "profiles", "remove", "prod")
+	_, errb, code = runOfga(t, home, "", nil, "profiles", "remove", "prod")
 	if code == 0 || !strings.Contains(errb, "--force") {
 		t.Errorf("remove should refuse without --force: code=%d err=%q", code, errb)
 	}
