@@ -1,0 +1,45 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:best-practices", ":semanticCommitTypeAll(chore)"],
+  "labels": ["dependencies"],
+  "prConcurrentLimit": 5,
+  "packageRules": [
+    {
+      "description": "Group minor and patch Go module updates into one PR",
+      "matchManagers": ["gomod"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "go modules"
+    },
+    {
+      "description": "Group all GitHub Actions updates into one PR",
+      "matchManagers": ["github-actions"],
+      "groupName": "github-actions"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Track the goreleaser version pinned in the release workflow",
+      "fileMatch": ["^\\.github/workflows/release\\.yml$"],
+      "matchStrings": ["GORELEASER_VERSION:\\s*'?(?<currentValue>v[0-9.]+)'?"],
+      "depNameTemplate": "goreleaser/goreleaser",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "description": "Track the Syft version pinned in the release workflow",
+      "fileMatch": ["^\\.github/workflows/release\\.yml$"],
+      "matchStrings": ["syft-version:\\s*(?<currentValue>v[0-9.]+)"],
+      "depNameTemplate": "anchore/syft",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "description": "Track the golangci-lint version pinned in the ci workflow",
+      "fileMatch": ["^\\.github/workflows/ci\\.yml$"],
+      "matchStrings": ["golangci/golangci-lint-action@[0-9a-f]+ # v[0-9.]+\\s+with:\\s+version:\\s*(?<currentValue>v[0-9.]+)"],
+      "depNameTemplate": "golangci/golangci-lint",
+      "datasourceTemplate": "github-releases"
+    }
+  ]
+}
