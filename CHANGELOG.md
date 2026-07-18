@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.265.1](https://github.com/sergiught/openfga-cli/compare/v0.265.0...v0.265.1) (2026-07-18)
+
+
+### Bug fixes
+
+* **release:** sign checksums with cosign v3 bundle format ([#26](https://github.com/sergiught/openfga-cli/issues/26)) ([1833685](https://github.com/sergiught/openfga-cli/commit/1833685b9f95a759d6adebea21ed6d1ad4172af3))
+
 ## [0.265.0](https://github.com/sergiught/openfga-cli/compare/v0.264.0...v0.265.0) (2026-07-18)
 
 
