@@ -270,6 +270,9 @@ type Model struct {
 
 	graph   fga.Graph
 	graphVP viewport.Model
+	// graphView selects the model pane renderer: 0 = node-link diagram,
+	// 1 = weighted graph. Toggled with `v`.
+	graphView int
 
 	// graph viewport spring scrolling: graphPos is the animated (fractional)
 	// scroll offset that eases toward graphTarget via graphSpring.
@@ -595,7 +598,7 @@ func (m *Model) resize() {
 		// First time: create the viewport and populate it.
 		m.graphVP = viewport.New(viewport.WithWidth(w), viewport.WithHeight(h))
 		if len(m.graph.Types) > 0 {
-			m.graphVP.SetContent(m.graph.RenderDiagram())
+			m.graphVP.SetContent(m.renderGraph())
 		}
 	} else {
 		// Resize: just update dimensions to preserve scroll offset.

@@ -101,7 +101,7 @@ func (m Model) helpBody() string {
 	case secStores:
 		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"↵", "select store"}, {"a", "add"}, {"d", "delete"}, {"r", "reload"}}
 	case secModel:
-		section = [][2]string{{"↑↓ k/j", "scroll"}, {"←→ h/l", "pan"}, {"pgup/pgdn b/f/space", "page"}, {"g/G home/end", "top/bottom"}, {"e", "edit DSL"}, {"m", "switch model"}, {"r", "reload"}}
+		section = [][2]string{{"↑↓ k/j", "scroll"}, {"←→ h/l", "pan"}, {"pgup/pgdn b/f/space", "page"}, {"g/G home/end", "top/bottom"}, {"v", "weighted graph"}, {"e", "edit DSL"}, {"m", "switch model"}, {"r", "reload"}}
 	case secTuples:
 		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"a", "add"}, {"d", "delete"}, {"r", "reload"}}
 	case secChanges:
@@ -866,7 +866,7 @@ func (m Model) statusKeys() []string {
 	case secStores:
 		return []string{"↑↓", "/ filter", "↵ select", "a add", "d delete", "r reload", "esc"}
 	case secModel:
-		return []string{"↑↓/hjkl pan", "e edit DSL", "m switch", "r reload", "esc"}
+		return []string{"↑↓/hjkl pan", m.graphViewHint(), "e edit DSL", "m switch", "r reload", "esc"}
 	case secTuples:
 		return []string{"↑↓", "/ filter", "a add", "d delete", "r reload", m.compactHint(), "esc"}
 	case secChanges:
@@ -888,6 +888,15 @@ func (m Model) compactHint() string {
 		return "v detail"
 	}
 	return "v compact"
+}
+
+// graphViewHint labels the "v" toggle on the model pane, offering the view you
+// would switch to (the weighted graph, or back to the node-link diagram).
+func (m Model) graphViewHint() string {
+	if m.graphView == 1 {
+		return "v diagram"
+	}
+	return "v weighted"
 }
 
 // sectionStatus is the footer's left-hand message: a count of the current

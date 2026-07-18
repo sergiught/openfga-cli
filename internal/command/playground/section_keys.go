@@ -177,6 +177,19 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 				m.modelGen++
 				return m, loadModelCmd(m.ctx, m.client, m.storeID, m.modelGen)
 			}
+		case "v":
+			if len(m.graph.Types) == 0 {
+				return m, nil
+			}
+			m.graphView = 1 - m.graphView
+			m.graphVP.SetContent(m.renderGraph())
+			m.resetGraphScroll()
+			if m.graphView == 1 {
+				m.status = "weighted graph — v for diagram"
+			} else {
+				m.status = "model diagram — v for weighted graph"
+			}
+			return m, nil
 		case "up", "k", "shift+up":
 			return m.scrollGraph(-graphLineStep)
 		case "down", "j", "shift+down":

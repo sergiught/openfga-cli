@@ -25,6 +25,15 @@ func graphTick() tea.Cmd {
 	})
 }
 
+// renderGraph renders the model pane in the active view: the node-link diagram
+// (default) or the weighted graph (toggled with `v`).
+func (m *Model) renderGraph() string {
+	if m.graphView == 1 {
+		return m.graph.RenderWeightedDiagram()
+	}
+	return m.graph.RenderDiagram()
+}
+
 // resetGraphScroll snaps the graph viewport back to the top-left with no motion.
 func (m *Model) resetGraphScroll() {
 	m.graphPos = 0
