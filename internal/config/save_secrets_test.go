@@ -249,3 +249,51 @@ func TestFailedCleanupIsPersistedAndRetryable(t *testing.T) {
 		t.Fatalf("retry deleted unrelated field: %q, %v", got, err)
 	}
 }
+
+// A locked OS keyring (GNOME Keyring's "Cannot create an item in a locked
+// collection") still answers reads, so secretsAvailable() can't detect it up
+// front; the write is where it surfaces. keyringLocked recognizes it so the CLI
+// can explain how to recover instead of leaking the raw D-Bus string.
+func TestKeyringLocked(t *testing.T) {
+	locked := []string{
+		"Cannot create an item in a locked collection",
+		"The collection is Locked",
+		"org.freedesktop.Secret.Error: collection is locked",
+	}
+	for _, s := range locked {
+		if !keyringLocked(errors.New(s)) {
+			t.Errorf("keyringLocked(%q) = false, want true", s)
+		}
+	}
+	for _, s := range []string{"no keyring", "secret not found", "dbus: connection refused"} {
+		if keyringLocked(errors.New(s)) {
+			t.Errorf("keyringLocked(%q) = true, want false", s)
+		}
+	}
+	if keyringLocked(nil) {
+		t.Error("keyringLocked(nil) = true, want false")
+	}
+	if keyringLocked(keyring.ErrNotFound) {
+		t.Error("keyringLocked(ErrNotFound) = true, want false")
+	}
+}
+
+func TestSecretStoreError(t *testing.T) {
+	locked := secretStoreError("client_secret", "local",
+		errors.New("Cannot create an item in a locked collection")).Error()
+	// The guidance names both escape hatches: the flag and the env var.
+	for _, want := range []string{"locked", "client_secret", "local", "--auth-client-secret-file", "OPENFGA_CLIENT_SECRET"} {
+		if !strings.Contains(locked, want) {
+			t.Errorf("locked-keyring message missing %q: %s", want, locked)
+		}
+	}
+
+	cause := errors.New("some other keyring failure")
+	generic := secretStoreError("token", "prod", cause)
+	if !errors.Is(generic, cause) {
+		t.Error("generic store error should wrap the underlying cause")
+	}
+	if strings.Contains(generic.Error(), "locked") {
+		t.Errorf("generic store error should not mention locked: %s", generic.Error())
+	}
+}

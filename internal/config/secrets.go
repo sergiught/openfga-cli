@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"path/filepath"
+	"strings"
 
 	"github.com/zalando/go-keyring"
 )
@@ -49,6 +50,15 @@ func secretAccount(configPath, profile, field string) (string, error) {
 	}
 	sum := sha256.Sum256([]byte(normalized))
 	return "v2." + hex.EncodeToString(sum[:]) + "." + profile + "." + field, nil
+}
+
+// keyringLocked reports whether err is the OS keyring refusing a write because
+// its collection is locked — e.g. GNOME Keyring's "Cannot create an item in a
+// locked collection". A locked collection still answers reads (searches don't
+// need an unlock), so secretsAvailable's read-probe cannot detect this up front;
+// only the write reveals it.
+func keyringLocked(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "locked")
 }
 
 // secretsAvailable reports whether the OS keyring backend is usable. It probes
