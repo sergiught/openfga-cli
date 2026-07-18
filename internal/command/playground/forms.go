@@ -144,6 +144,7 @@ func buildProfileForm(add bool, method string, w int) *field.Form {
 			field.New("Client secret", secretPlaceholder(add, "client secret")).Secret(),
 			field.New("Token URL", "https://issuer/oauth/token").WithValidate(vURL),
 			field.New("Audience", "https://api.us1.fga.dev/"),
+			field.New("Scopes", "space-separated (optional)"),
 		)
 	case config.AuthPrivateKeyJWT:
 		fields = append(fields,
@@ -179,7 +180,7 @@ func profileFormValues(add bool, apiURL, storeID, modelID string, a config.Auth)
 	case config.AuthAPIToken:
 		vals = append(vals, "")
 	case config.AuthClientCredentials:
-		vals = append(vals, a.ClientID, "", a.TokenURL, a.Audience)
+		vals = append(vals, a.ClientID, "", a.TokenURL, a.Audience, strings.Join(a.Scopes, " "))
 	case config.AuthPrivateKeyJWT:
 		vals = append(vals, a.ClientID, a.TokenURL, a.Audience, a.APIAudience, a.KeyFile, a.SigningMethod)
 	}
@@ -215,6 +216,7 @@ func profileFromForm(add bool, vals []string) (name string, p config.Profile) {
 		p.Auth.Token = get(i)
 	case config.AuthClientCredentials:
 		p.Auth.ClientID, p.Auth.ClientSecret, p.Auth.TokenURL, p.Auth.Audience = get(i), get(i+1), get(i+2), get(i+3)
+		p.Auth.Scopes = strings.Fields(get(i + 4))
 	case config.AuthPrivateKeyJWT:
 		p.Auth.ClientID, p.Auth.TokenURL, p.Auth.Audience = get(i), get(i+1), get(i+2)
 		p.Auth.APIAudience, p.Auth.KeyFile, p.Auth.SigningMethod = get(i+3), get(i+4), get(i+5)
