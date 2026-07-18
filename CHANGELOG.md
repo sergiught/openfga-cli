@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.265.0](https://github.com/sergiught/openfga-cli/compare/v0.264.0...v0.265.0) (2026-07-18)
+
+
+### Features
+
+* **config:** advise when env credentials are ignored or incomplete ([#17](https://github.com/sergiught/openfga-cli/issues/17)) ([ceedd3e](https://github.com/sergiught/openfga-cli/commit/ceedd3ef41432e9e65689d828f8e455152d79ad4))
+* **fga:** weighted-graph resolution-cost heatmap on model graph views ([#23](https://github.com/sergiught/openfga-cli/issues/23)) ([a4e22de](https://github.com/sergiught/openfga-cli/commit/a4e22de19b1b279edd5c75e5219f5785479f5077))
+* **query:** what-if flags on list-objects/list-users; fix exit codes and output ([#15](https://github.com/sergiught/openfga-cli/issues/15)) ([32da485](https://github.com/sergiught/openfga-cli/commit/32da485b3f0e1ec4bfdae3be13cb5e8042a9aba4))
+* **tui:** warn when unauthorized to manage stores; fix filter and pin issues ([#18](https://github.com/sergiught/openfga-cli/issues/18)) ([fe34bf2](https://github.com/sergiught/openfga-cli/commit/fe34bf2df0043c2b8f4069c63fa181507fa2ff39))
+* **tui:** weighted-graph view of the authorization model (toggle with v) ([#24](https://github.com/sergiught/openfga-cli/issues/24)) ([2d92c73](https://github.com/sergiught/openfga-cli/commit/2d92c73c156b8460aef71af2f4a2da50e8a4bc7d))
+
+
+### Bug fixes
+
+* **clierr:** diagnose OAuth token-endpoint failures correctly ([#14](https://github.com/sergiught/openfga-cli/issues/14)) ([cdc1dd2](https://github.com/sergiught/openfga-cli/commit/cdc1dd2557b1de6fe7746a53160ec533112be299))
+* **cli:** restore unknown-command diagnosis and reject an unknown --theme ([#13](https://github.com/sergiught/openfga-cli/issues/13)) ([96df988](https://github.com/sergiught/openfga-cli/commit/96df98831380751d44ae13a417c3c687af38da67))
+* **config:** explain a locked OS keyring instead of leaking the D-Bus error ([#25](https://github.com/sergiught/openfga-cli/issues/25)) ([57f301f](https://github.com/sergiught/openfga-cli/commit/57f301f157874c0e6059e813bebaa4adfe5d2c44))
+* **output:** consistent --plain timestamps, glyphs, and count footers ([#16](https://github.com/sergiught/openfga-cli/issues/16)) ([fb9025e](https://github.com/sergiught/openfga-cli/commit/fb9025eb0fc6422a5349649273baa9e0bae4cc81))
+
+
+### Documentation
+
+* document the playground subcommand and cleanup-credentials --purge ([#19](https://github.com/sergiught/openfga-cli/issues/19)) ([cebc9c9](https://github.com/sergiught/openfga-cli/commit/cebc9c9bc50ac49fe2fe2aaf89c61379154b9dcf))
+
 ## [0.264.0](https://github.com/sergiught/openfga-cli/compare/v0.263.1...v0.264.0) (2026-07-17)
 
 
