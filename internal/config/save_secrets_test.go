@@ -249,3 +249,108 @@ func TestFailedCleanupIsPersistedAndRetryable(t *testing.T) {
 		t.Fatalf("retry deleted unrelated field: %q, %v", got, err)
 	}
 }
+
+// A locked OS keyring (GNOME Keyring's "Cannot create an item in a locked
+// collection") still answers reads, so secretsAvailable() can't detect it up
+// front; the write is where it surfaces. keyringLocked recognizes it so the CLI
+// can explain how to recover instead of leaking the raw D-Bus string.
+func TestKeyringLocked(t *testing.T) {
+	locked := []string{
+		"Cannot create an item in a locked collection",
+		"The collection is Locked",
+		"org.freedesktop.Secret.Error: collection is locked",
+	}
+	for _, s := range locked {
+		if !keyringLocked(errors.New(s)) {
+			t.Errorf("keyringLocked(%q) = false, want true", s)
+		}
+	}
+	for _, s := range []string{"no keyring", "secret not found", "dbus: connection refused"} {
+		if keyringLocked(errors.New(s)) {
+			t.Errorf("keyringLocked(%q) = true, want false", s)
+		}
+	}
+	if keyringLocked(nil) {
+		t.Error("keyringLocked(nil) = true, want false")
+	}
+	if keyringLocked(keyring.ErrNotFound) {
+		t.Error("keyringLocked(ErrNotFound) = true, want false")
+	}
+}
+
+func TestSecretStoreError(t *testing.T) {
+	locked := secretStoreError("client_secret", "local",
+		errors.New("Cannot create an item in a locked collection")).Error()
+	// The guidance names both escape hatches: the flag and the env var.
+	for _, want := range []string{"locked", "client_secret", "local", "--auth-client-secret-file", "OPENFGA_CLIENT_SECRET"} {
+		if !strings.Contains(locked, want) {
+			t.Errorf("locked-keyring message missing %q: %s", want, locked)
+		}
+	}
+
+	cause := errors.New("some other keyring failure")
+	generic := secretStoreError("token", "prod", cause)
+	if !errors.Is(generic, cause) {
+		t.Error("generic store error should wrap the underlying cause")
+	}
+	if strings.Contains(generic.Error(), "locked") {
+		t.Errorf("generic store error should not mention locked: %s", generic.Error())
+	}
+}
+
+// Each (config, profile, field) must map to a distinct keyring account, or one
+// secret would silently overwrite another. The field is always appended as a
+// trailing segment, so even profile names that contain the separator (or look
+// like "<profile>.<field>") cannot collide.
+func TestSecretAccountsNeverCollide(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	profiles := []string{"prod", "prod.token", "a.b", "a", "b.private_key", ""}
+	seen := map[string]string{} // account -> "profile/field" that produced it
+	for _, profile := range profiles {
+		for _, field := range secretFieldNames {
+			account, err := secretAccount(path, profile, field)
+			if err != nil {
+				t.Fatalf("secretAccount(%q, %q): %v", profile, field, err)
+			}
+			key := profile + "/" + field
+			if other, dup := seen[account]; dup {
+				t.Fatalf("account collision: %q and %q both map to %q", other, key, account)
+			}
+			seen[account] = key
+		}
+	}
+
+	// Prove it end-to-end through the store: a value written under one
+	// profile/field is never readable under any other.
+	keyring.MockInit()
+	for _, profile := range profiles {
+		for _, field := range secretFieldNames {
+			if err := scopedSecretSet(path, profile, field, profile+"/"+field); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for _, profile := range profiles {
+		for _, field := range secretFieldNames {
+			got, err := scopedSecretGet(path, profile, field)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := profile + "/" + field; got != want {
+				t.Fatalf("cross-talk: read %q for %q/%q, want %q", got, profile, field, want)
+			}
+		}
+	}
+}
+
+// secretsAvailable probes with a read only; it must never create a __probe__
+// entry that would then linger in the OS keyring as an orphan.
+func TestSecretsAvailableProbeLeavesNoEntry(t *testing.T) {
+	keyring.MockInit()
+	if !secretsAvailable() {
+		t.Fatal("secretsAvailable() = false with a working mock keyring")
+	}
+	if _, err := keyring.Get(keyringService, "__probe__"); !errors.Is(err, keyring.ErrNotFound) {
+		t.Fatalf("probe left a __probe__ entry behind: err = %v", err)
+	}
+}

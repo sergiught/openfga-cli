@@ -581,7 +581,7 @@ func (c *Config) saveLocked() error {
 			}
 			original := *sf.ptr
 			if err := scopedSecretSet(c.path, name, sf.name, *sf.ptr); err != nil {
-				return fail(fmt.Errorf("store %s for profile %q in keyring: %w", sf.name, name, err))
+				return fail(secretStoreError(sf.name, name, err))
 			}
 			staged = append(staged, stagedSecret{
 				profile: name, field: sf.name, original: original, old: old, hadOld: hadOld,
@@ -631,6 +631,46 @@ func (c *Config) saveLocked() error {
 		return &committedSaveError{err: fmt.Errorf("sync config directory: %w", err)}
 	}
 	return nil
+}
+
+// secretStoreError explains a failed OS-keyring write. A locked keyring gets
+// specific, recoverable guidance because its raw driver message ("Cannot create
+// an item in a locked collection") is opaque and secretsAvailable cannot flag it
+// in advance; any other failure keeps the plain wrap (and its cause).
+func secretStoreError(field, profile string, err error) error {
+	if keyringLocked(err) {
+		return fmt.Errorf("cannot store %s for profile %q: the OS login keyring is locked. "+
+			"Unlock it (e.g. via your desktop keyring or Seahorse) and retry, or avoid "+
+			"persisting it with the process-scoped --auth-%s-file flag or the %s env var",
+			field, profile, authFileFlagName(field), authEnvVar(field))
+	}
+	return fmt.Errorf("store %s for profile %q in keyring: %w", field, profile, err)
+}
+
+// authFileFlagName maps a keyring field to its --auth-*-file flag stem so the
+// guidance points at the exact flag (token → --auth-token-file, etc.).
+func authFileFlagName(field string) string {
+	switch field {
+	case "client_secret":
+		return "client-secret"
+	case "private_key":
+		return "private-key"
+	default:
+		return "token"
+	}
+}
+
+// authEnvVar maps a keyring field to the environment variable that supplies it
+// without touching the keyring (mirrors secretEnvOverride).
+func authEnvVar(field string) string {
+	switch field {
+	case "client_secret":
+		return "OPENFGA_CLIENT_SECRET"
+	case "private_key":
+		return "OPENFGA_KEY_FILE"
+	default:
+		return "OPENFGA_API_TOKEN"
+	}
 }
 
 type committedSaveError struct{ err error }
