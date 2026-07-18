@@ -245,9 +245,10 @@ func (c *Command) getCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:               "get <model-id>",
 		ValidArgsFunction: c.completeModelIDs,
-		Short:             "Show an authorization model as JSON",
-		Example:           "  ofga model get 01ARZ3NDEKTSV4RRFFQ69G5FAV",
-		Args:              cobra.ExactArgs(1),
+		Short:             "Show an authorization model as DSL",
+		Example: `  ofga model get 01ARZ3NDEKTSV4RRFFQ69G5FAV
+  ofga model get 01ARZ3NDEKTSV4RRFFQ69G5FAV --json`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
@@ -257,24 +258,18 @@ func (c *Command) getCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if c.cli.Plain || c.cli.Output == "table" {
-				return output.KeyValues(cmd.OutOrStdout(), [][2]string{
-					{"model_id", m.ID},
-					{"schema", m.SchemaVersion},
-					{"types", fmt.Sprintf("%d", len(m.TypeDefinitions))},
-				})
-			}
-			return output.Emit(cmd.OutOrStdout(), c.cli.YAML, m)
+			return c.emitModel(cmd, m)
 		},
 	}
 }
 
 func (c *Command) latestCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:     "latest",
-		Short:   "Show the most recent authorization model",
-		Example: "  ofga model latest",
-		Args:    cobra.NoArgs,
+		Use:   "latest",
+		Short: "Show the most recent authorization model as DSL",
+		Example: `  ofga model latest
+  ofga model latest --json`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
@@ -284,16 +279,50 @@ func (c *Command) latestCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if c.cli.JSON || c.cli.YAML {
-				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, m)
-			}
-			return output.KeyValues(cmd.OutOrStdout(), [][2]string{
-				{"model_id", m.ID},
-				{"schema", m.SchemaVersion},
-				{"types", fmt.Sprintf("%d", len(m.TypeDefinitions))},
-			})
+			return c.emitModel(cmd, m)
 		},
 	}
+}
+
+// emitModel renders a single authorization model. The default human format is
+// the `.fga` DSL, which is what people read and edit; the raw JSON/YAML is
+// emitted only when explicitly requested (--json/--yaml or -o json|yaml), and
+// --plain/-o table prints a compact metadata summary for scripts.
+func (c *Command) emitModel(cmd *cobra.Command, m *openfga.AuthorizationModel) error {
+	switch {
+	case c.cli.JSON || c.cli.YAML:
+		return output.Emit(cmd.OutOrStdout(), c.cli.YAML, m)
+	case c.cli.Plain || c.cli.Output == "table":
+		return output.KeyValues(cmd.OutOrStdout(), [][2]string{
+			{"model_id", m.ID},
+			{"schema", m.SchemaVersion},
+			{"types", fmt.Sprintf("%d", len(m.TypeDefinitions))},
+		})
+	default:
+		dsl, err := modelToDSL(m)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintln(cmd.OutOrStdout(), dsl)
+		return err
+	}
+}
+
+// modelToDSL renders an authorization model as its `.fga` DSL text by
+// round-tripping through the OpenFGA JSON the transformer expects.
+func modelToDSL(m *openfga.AuthorizationModel) (string, error) {
+	jsonBytes, err := json.Marshal(m)
+	if err != nil {
+		return "", fmt.Errorf("encode model: %w", err)
+	}
+	dsl, err := transformer.TransformJSONStringToDSL(string(jsonBytes))
+	if err != nil {
+		return "", clierr.WithCode(clierr.CodeUsage, fmt.Errorf("transform model to DSL: %w", err))
+	}
+	if dsl == nil {
+		return "", fmt.Errorf("transform model to DSL: empty result")
+	}
+	return *dsl, nil
 }
 
 func (c *Command) graphCmd() *cobra.Command {

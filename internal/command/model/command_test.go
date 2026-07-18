@@ -78,6 +78,75 @@ func TestModelDryRunShorthand(t *testing.T) {
 	}
 }
 
+func TestGetAndLatestDefaultToDSL(t *testing.T) {
+	model := openfga.AuthorizationModel{
+		ID:              "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+		SchemaVersion:   "1.1",
+		TypeDefinitions: []openfga.TypeDefinition{{Type: "user"}},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/authorization-models") {
+			_ = json.NewEncoder(w).Encode(openfga.ListAuthorizationModelsResponse{
+				AuthorizationModels: []openfga.AuthorizationModel{model},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"authorization_model": model})
+	}))
+	defer srv.Close()
+
+	run := func(t *testing.T, sub string, mutate func(*cli.CLI)) string {
+		t.Helper()
+		cfg := config.New()
+		cfg.Set("default", config.Profile{APIURL: srv.URL, StoreID: "01ARZ3NDEKTSV4RRFFQ69G5FAV"})
+		a := cli.New(log.New(io.Discard), cfg, "test")
+		if mutate != nil {
+			mutate(a)
+		}
+		c := New(a)
+		var cmd = c.latestCmd()
+		var args []string
+		if sub == "get" {
+			cmd = c.getCmd()
+			args = []string{"01ARZ3NDEKTSV4RRFFQ69G5FAV"}
+		}
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(io.Discard)
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+
+	for _, sub := range []string{"get", "latest"} {
+		t.Run(sub+" defaults to DSL", func(t *testing.T) {
+			got := run(t, sub, nil)
+			if !strings.Contains(got, "type user") || !strings.Contains(got, "schema 1.1") {
+				t.Fatalf("default output is not DSL:\n%s", got)
+			}
+			if strings.Contains(got, "{") {
+				t.Fatalf("default output leaked JSON:\n%s", got)
+			}
+		})
+
+		t.Run(sub+" --json emits JSON", func(t *testing.T) {
+			got := run(t, sub, func(a *cli.CLI) { a.JSON = true })
+			if !strings.Contains(got, `"type_definitions"`) {
+				t.Fatalf("--json output is not JSON:\n%s", got)
+			}
+		})
+
+		t.Run(sub+" --plain emits a metadata summary", func(t *testing.T) {
+			got := run(t, sub, func(a *cli.CLI) { a.Plain = true })
+			if !strings.Contains(got, "model_id") || !strings.Contains(got, "schema") {
+				t.Fatalf("--plain output is not the summary:\n%s", got)
+			}
+		})
+	}
+}
+
 func TestListPrintsCountFooterOnStderr(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(openfga.ListAuthorizationModelsResponse{
