@@ -1576,6 +1576,8 @@ func TestProfilesTabAddClientCredentials(t *testing.T) {
 	typeIn("https://iss/token")
 	m, _ = m.Update(key("tab")) // -> Audience
 	typeIn("aud")
+	m, _ = m.Update(key("tab")) // -> Scopes
+	typeIn("read write")
 	m, _ = m.Update(key("enter")) // submit (last field)
 
 	c, err := config.Load()
@@ -1593,7 +1595,8 @@ func TestProfilesTabAddClientCredentials(t *testing.T) {
 	// feature: Save writes only the sentinel to disk and moves the real
 	// value into the OS keyring, so it is verified there instead.
 	if p.Auth.ClientID != "cid" || p.Auth.ClientSecret != "keyring:managed" ||
-		p.Auth.TokenURL != "https://iss/token" || p.Auth.Audience != "aud" {
+		p.Auth.TokenURL != "https://iss/token" || p.Auth.Audience != "aud" ||
+		strings.Join(p.Auth.Scopes, " ") != "read write" {
 		t.Fatalf("persisted auth wrong: %+v", p.Auth)
 	}
 	resolved, err := c.Resolve(config.Overrides{Profile: "prod"})
