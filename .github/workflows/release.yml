@@ -110,15 +110,3 @@ jobs:
           syft "${IMAGE}@${digest}" -o spdx-json=image.sbom.spdx.json
           cosign attest --yes --type spdxjson \
             --predicate image.sbom.spdx.json "${IMAGE}@${digest}"
-      # Sync the Docker Hub repository description/README — goreleaser can't do
-      # this. Gated on the Docker Hub credentials, like the login/push above, so
-      # a fork or a Docker-Hub-less release skips it cleanly.
-      - name: update Docker Hub description
-        if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
-        with:
-          username: ${{ env.DOCKERHUB_USERNAME }}
-          password: ${{ env.DOCKERHUB_TOKEN }}
-          repository: sergiught/openfga-cli
-          short-description: "A modern CLI & TUI for OpenFGA."
-          readme-filepath: ./docs/docker/README.md
