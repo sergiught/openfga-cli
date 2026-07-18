@@ -46,20 +46,20 @@ sboms:
   - id: archives
     artifacts: archive
 
-# Detached, keyless cosign signature (+ certificate) of checksums.txt, so
-# `curl | tar` installs can `cosign verify-blob`. Uses the release job's OIDC
-# identity (Sigstore); skipped by goreleaser in snapshot builds.
+# Keyless cosign signature bundle of checksums.txt, so `curl | tar` installs can
+# `cosign verify-blob --bundle checksums.txt.cosign.bundle`. cosign v3 defaults
+# sign-blob to the new bundle format (signature + certificate in one file) and
+# no longer honours --output-signature/--output-certificate. Uses the release
+# job's OIDC identity (Sigstore); skipped by goreleaser in snapshot builds.
 signs:
   - cmd: cosign
     artifacts: checksum
     output: true
-    certificate: '${artifact}.pem'
-    signature: '${artifact}.sig'
+    signature: '${artifact}.cosign.bundle'
     args:
       - sign-blob
       - '--yes'
-      - '--output-signature=${signature}'
-      - '--output-certificate=${certificate}'
+      - '--bundle=${signature}'
       - '${artifact}'
 
 # Linux packages.
