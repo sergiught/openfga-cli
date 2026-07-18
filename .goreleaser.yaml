@@ -27,7 +27,7 @@ builds:
 # resolves for the newest release (see the README install one-liner).
 archives:
   - id: default
-    format: tar.gz
+    formats: [tar.gz]
     name_template: >-
       ofga_
       {{- title .Os }}_
