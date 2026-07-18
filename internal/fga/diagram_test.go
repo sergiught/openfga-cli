@@ -82,3 +82,17 @@ func TestRenderDiagramEmpty(t *testing.T) {
 		t.Errorf("empty diagram = %q", got)
 	}
 }
+
+func TestRenderDiagramHeat(t *testing.T) {
+	g := ParseModel(weightModel())
+	out := ansi.Strip(g.RenderDiagram())
+
+	for _, want := range []string{"cheap", "moderate", "costly", "recursive"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("diagram missing heat legend %q", want)
+		}
+	}
+	if !strings.ContainsRune(out, '∞') {
+		t.Error("diagram should show ∞ for recursive relations")
+	}
+}

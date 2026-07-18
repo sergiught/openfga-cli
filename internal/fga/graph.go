@@ -22,6 +22,9 @@ type RelationEdge struct {
 type Relation struct {
 	Name  string         `json:"name"`
 	Edges []RelationEdge `json:"edges"`
+	// Weight is the worst-case resolution cost (>=1); -1 when Recursive.
+	Weight    int  `json:"weight"`
+	Recursive bool `json:"recursive"`
 }
 
 // TypeNode is one object type in the model with its relations.
@@ -93,6 +96,19 @@ func ParseModel(m *openfga.AuthorizationModel) Graph {
 			node.Relations = append(node.Relations, rel)
 		}
 		g.Types = append(g.Types, node)
+	}
+
+	weights := computeWeights(m)
+	for ti := range g.Types {
+		for ri := range g.Types[ti].Relations {
+			w := weights[g.Types[ti].Name+"#"+g.Types[ti].Relations[ri].Name]
+			if w == weightRecursive {
+				g.Types[ti].Relations[ri].Weight = weightRecursive
+				g.Types[ti].Relations[ri].Recursive = true
+			} else {
+				g.Types[ti].Relations[ri].Weight = w
+			}
+		}
 	}
 	return g
 }
@@ -215,7 +231,8 @@ func (g Graph) Render() string {
 		edgeGlyph("computed") + " " + style.Faint.Render("implied by relation"),
 		edgeGlyph("ttu") + " " + style.Faint.Render("inherited (tuple-to-userset)"),
 	}, "    ")
-	b.WriteString(style.Subtitle.Render("schema "+style.SanitizeTerminal(g.SchemaVersion)) + "    " + legend + "\n\n")
+	b.WriteString(style.Subtitle.Render("schema "+style.SanitizeTerminal(g.SchemaVersion)) + "    " + legend + "\n")
+	b.WriteString(weightLegend() + "\n\n")
 
 	for ti, t := range g.Types {
 		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(style.Violet).Render(style.SanitizeTerminal(t.Name)))
@@ -228,7 +245,8 @@ func (g Graph) Render() string {
 				relBranch = "└─"
 				relIndent = "   "
 			}
-			b.WriteString(style.Faint.Render(relBranch) + " " + style.Key.Render(style.SanitizeTerminal(r.Name)) + "\n")
+			glyph, color := r.heatGlyph()
+			b.WriteString(style.Faint.Render(relBranch) + " " + lipgloss.NewStyle().Foreground(color).Render(string(glyph)) + " " + style.Key.Render(style.SanitizeTerminal(r.Name)) + "\n")
 			if len(r.Edges) == 0 {
 				b.WriteString(style.Faint.Render(relIndent+"└─ ") + style.Faint.Render("(no resolutions)") + "\n")
 				continue

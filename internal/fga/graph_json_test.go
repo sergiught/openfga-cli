@@ -48,3 +48,17 @@ func TestGraphJSONEmptySlices(t *testing.T) {
 		t.Errorf("expected empty [] slices, got: %s", out)
 	}
 }
+
+// The weighted-graph heatmap exposes each relation's cost in JSON.
+func TestGraphJSONWeightFields(t *testing.T) {
+	b, err := json.Marshal(ParseModel(githubModel()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(b)
+	for _, key := range []string{`"weight"`, `"recursive"`} {
+		if !strings.Contains(out, key) {
+			t.Errorf("graph JSON missing %s: %s", key, out)
+		}
+	}
+}
