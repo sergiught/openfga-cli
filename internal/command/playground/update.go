@@ -553,6 +553,23 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
+	case testsRanMsg:
+		m.endLoad()
+		m.wb.running = false
+		if msg.err != nil {
+			m.status = "run failed: " + errStr(msg.err)
+			return m, m.toasts.Push(toast.Error, m.status)
+		}
+		m.wb.results = msg.results.Tests
+		m.wb.coverage = msg.results.Coverage
+		m.wb.coverageErr = msg.results.CoverageError
+		m.clampWbTreeSel()
+		m.status = strconv.Itoa(msg.results.Summary.Passed) + "/" + strconv.Itoa(msg.results.Summary.Total) + " passed"
+		return m, nil
+
+	case testFileEditedMsg:
+		return m.handleTestFileEdited(msg)
+
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 
@@ -868,6 +885,29 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	// Workbench "new test file" filename prompt captures all keys until
+	// submitted (enter) or cancelled (esc).
+	if m.wb.newPromptOpen {
+		switch msg.String() {
+		case "esc":
+			m.wb.newPromptOpen = false
+			m.wb.newPromptInput = ""
+			return m, nil
+		case "enter":
+			return m.submitWorkbenchNewPrompt()
+		case "backspace":
+			runes := []rune(m.wb.newPromptInput)
+			if len(runes) > 0 {
+				m.wb.newPromptInput = string(runes[:len(runes)-1])
+			}
+		default:
+			if text := msg.Key().Text; text != "" {
+				m.wb.newPromptInput += text
+			}
+		}
+		return m, nil
+	}
+
 	// Active form takeovers capture all keys.
 	if m.formKind != formNone {
 		return m.handleTakeoverForm(msg)
@@ -915,16 +955,16 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	// Digit section-jumps stay global even with the panel focused — the ?
-	// overlay advertises "1–7 jump to a section" as global. The exception is
+	// overlay advertises "1–9 jump to a section" as global. The exception is
 	// Tuple Queries, where the digits rerun recent history.
-	if m.section != secQuery && len(key) == 1 && key[0] >= '1' && key[0] <= '8' {
+	if m.section != secQuery && len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
 		return m.gotoSection(section(key[0] - '1'))
 	}
 	return m.handleSectionKey(key, msg)
 }
 
 // handleSidebarKey handles keys while the sidebar (tab selection) owns focus:
-// ↑↓ / tab / shift+tab / ←→ move between tabs, digits 1-6 jump, enter descends
+// ↑↓ / tab / shift+tab / ←→ move between tabs, digits 1-9 jump, enter descends
 // into the panel, q quits.
 func (m Model) handleSidebarKey(key string) (tea.Model, tea.Cmd) {
 	n := section(len(sectionNames))
@@ -935,7 +975,7 @@ func (m Model) handleSidebarKey(key string) (tea.Model, tea.Cmd) {
 		return m.gotoSection((m.section + 1) % n)
 	case "up", "shift+tab", "left", "k", "h":
 		return m.gotoSection((m.section + n - 1) % n)
-	case "1", "2", "3", "4", "5", "6", "7", "8":
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 		return m.gotoSection(section(key[0] - '1'))
 	case "enter":
 		m.focus = shell.FocusPanel

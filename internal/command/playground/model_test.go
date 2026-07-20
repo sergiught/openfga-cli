@@ -24,6 +24,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/fga"
+	"github.com/sergiught/openfga-cli/internal/style"
 	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
 	shell "github.com/sergiught/openfga-cli/internal/ui/shell"
 )
@@ -1281,8 +1282,8 @@ func TestArrowKeysSwitchSections(t *testing.T) {
 	// wraps backward from the first section (Profiles) to the last
 	m, _ = m.Update(key("1")) // jump to Profiles
 	m, _ = m.Update(key("left"))
-	if got := m.(Model).section; got != secAPILogs {
-		t.Fatalf("left arrow wrap: section = %v, want secAPILogs", got)
+	if got := m.(Model).section; got != secTestResults {
+		t.Fatalf("left arrow wrap: section = %v, want secTestResults", got)
 	}
 }
 
@@ -1817,6 +1818,115 @@ func TestAutoSelectPersistsStoreAndModel(t *testing.T) {
 	mm.selectStore(openfga.Store{ID: "store-B", Name: "beta"})
 	if p := reload(); p.StoreID != "store-B" || p.ModelID != "" {
 		t.Fatalf("store switch must persist store-B and clear model_id; got store=%q model=%q", p.StoreID, p.ModelID)
+	}
+}
+
+// TestRunSeededDoesNotPersistConfig verifies the fix for the RunSeeded
+// config-clobber bug: a seeded playground run must set cli.Overrides.APIURL
+// (as RunSeeded does) so persistModel's "flag URL override" guard fires and
+// the ephemeral seeded store/model ids are never written onto the active
+// profile's real, on-disk config.toml.
+func TestRunSeededDoesNotPersistConfig(t *testing.T) {
+	cfg, reload := loadIsolatedConfig(t)
+	a := cli.New(log.New(io.Discard), cfg, "test")
+
+	// Seed the active profile with a real, already-persisted store/model, as
+	// if the user had a genuine working profile before running a seeded test.
+	p, _ := a.Config.Get(a.Config.Active)
+	p.StoreID = "real-store"
+	p.ModelID = "real-model"
+	a.Config.Set(a.Config.Active, p)
+	if err := a.Config.Save(); err != nil {
+		t.Fatalf("seed real profile: %v", err)
+	}
+
+	// This is the fix under test: RunSeeded sets the API URL override before
+	// building the model so persistStore/persistModel treat this connection
+	// as ephemeral and refuse to write it back.
+	a.Overrides.APIURL = "http://127.0.0.1:12345"
+
+	cl, _ := openfga.NewClient("http://127.0.0.1:12345")
+	mdl := newModel(context.Background(), a, cl, "seeded-store", "")
+	var m tea.Model = mdl
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
+	m, _ = m.Update(modelLoadedMsg{modelID: "seeded-model-ulid", graph: sampleGraph()})
+
+	got := reload()
+	if got.StoreID != "real-store" || got.ModelID != "real-model" {
+		t.Fatalf("seeded run must not persist ephemeral ids onto the real profile; got store=%q model=%q, want store=%q model=%q",
+			got.StoreID, got.ModelID, "real-store", "real-model")
+	}
+}
+
+// TestRunSeededShowsEphemeralProfile verifies that a seeded `--playground` run
+// presents the seeded connection under a distinct, clearly-labeled EPHEMERAL
+// profile shown as active — so the user isn't misled into thinking their real
+// saved profile is now full of seeded data — while their real profiles stay
+// listed (and switchable), and nothing about the ephemeral profile is ever
+// written to config.toml.
+func TestRunSeededShowsEphemeralProfile(t *testing.T) {
+	cfg, reload := loadIsolatedConfig(t)
+	a := cli.New(log.New(io.Discard), cfg, "test")
+
+	// Give the user a real, saved profile so we can prove it remains listed and
+	// is not the one shown as active.
+	realName := a.Config.Active
+	rp, _ := a.Config.Get(realName)
+	rp.APIURL = "https://real.example.com"
+	a.Config.Set(realName, rp)
+	if err := a.Config.Save(); err != nil {
+		t.Fatalf("seed real profile: %v", err)
+	}
+
+	cl, _ := openfga.NewClient("http://127.0.0.1:12345")
+	m := newSeededModel(context.Background(), a, SeedOptions{
+		Client:   cl,
+		StoreID:  "seeded-store",
+		ModelID:  "seeded-model",
+		Endpoint: "http://127.0.0.1:12345",
+	})
+
+	// The active/shown connection is the ephemeral profile, not the real one.
+	if m.profile != ephemeralProfileName {
+		t.Fatalf("active profile = %q, want ephemeral %q", m.profile, ephemeralProfileName)
+	}
+
+	// The profiles list holds both the (labeled) ephemeral profile and the real
+	// profile; the ephemeral one carries the ✦ badge.
+	var sawEphemeral, sawReal bool
+	for _, li := range m.profilesList.Model.Items() {
+		it := li.(uilist.Item)
+		if it.ID == ephemeralProfileName {
+			sawEphemeral = true
+			if !strings.Contains(it.TitleText, style.IconSpark) {
+				t.Errorf("ephemeral profile title %q missing badge %q", it.TitleText, style.IconSpark)
+			}
+		}
+		if it.ID == realName {
+			sawReal = true
+		}
+	}
+	if !sawEphemeral {
+		t.Errorf("ephemeral profile %q not present in the profiles list", ephemeralProfileName)
+	}
+	if !sawReal {
+		t.Errorf("real profile %q must stay listed (and switchable) during a seeded session", realName)
+	}
+
+	// The ephemeral profile is pure Model state: reloading config from disk must
+	// not turn it up, and the ephemeral store/model ids must not be written onto
+	// the real profile.
+	if got := reload(); got.APIURL != "https://real.example.com" || got.StoreID != "" || got.ModelID != "" {
+		t.Fatalf("real profile on disk was mutated by the seeded run: %+v", got)
+	}
+	on, err := config.Load()
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	for _, name := range on.ProfileNames() {
+		if name == ephemeralProfileName {
+			t.Fatalf("ephemeral profile %q was persisted to config.toml", ephemeralProfileName)
+		}
 	}
 }
 

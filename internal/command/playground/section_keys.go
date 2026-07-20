@@ -1,6 +1,8 @@
 package playground
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 
@@ -9,6 +11,7 @@ import (
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/fga"
+	"github.com/sergiught/openfga-cli/internal/modeltest"
 	"github.com/sergiught/openfga-cli/internal/ui/toast"
 )
 
@@ -46,6 +49,10 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			return m.enterForm(formAddProfile)
 		case "e":
 			if it, ok := m.profilesList.Selected(); ok {
+				if it.ID == m.ephemeralProfile {
+					m.status = "the seeded profile is ephemeral and can't be edited"
+					return m, nil
+				}
 				p, _ := m.cli.Config.Get(it.ID)
 				auth := p.ResolvedAuth()
 				m.profileEditName = it.ID
@@ -200,7 +207,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			return m.panGraph(graphColStep)
 		case "pgup", "b":
 			return m.scrollGraph(-m.graphVP.Height())
-		case "pgdown", "f", " ":
+		case "pgdown", "f", "space":
 			return m.scrollGraph(m.graphVP.Height())
 		case "home", "g":
 			return m.scrollGraphTo(0)
@@ -474,7 +481,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 				m.apiLogHScroll += apiLogHStep
 			}
 			return m, nil
-		case "pgdown", "f", " ":
+		case "pgdown", "f", "space":
 			m.apiLogVP.PageDown()
 			return m, nil
 		case "pgup", "b":
@@ -504,6 +511,124 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			m.apiLogVP.GotoTop()
 			m.status = "cleared API logs"
 			return m, nil
+		}
+		return m, nil
+
+	case secTestResults:
+		return m.handleTestResultsKey(key)
+	}
+	return m, nil
+}
+
+// handleTestResultsKey handles a keypress in the Tests section: file/test
+// navigation and the run/edit/new/delete/coverage/explain actions. Split out of
+// handleSectionKey (and merged from what were two sequential switches) so the
+// whole Tests behavior lives in one place, with one switch. Dead-end feedback
+// rides on toasts, since the Tests footer renders no status text (see wbStatus).
+func (m Model) handleTestResultsKey(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "n":
+		if m.wb.running {
+			return m, m.wbStatus(toast.Info, "tests running…")
+		}
+		return m.openWorkbenchNewPrompt()
+	case "e":
+		if m.wb.running {
+			return m, m.wbStatus(toast.Info, "tests running…")
+		}
+		return m.openWorkbenchEditor()
+	case "r":
+		return m.runSuite("")
+	case "R":
+		tf, _, ok := m.wbSelectedFile()
+		if !ok {
+			return m, nil
+		}
+		return m.runSuite(wbFileStem(tf.Path) + "/*")
+	case "c":
+		if m.wb.coverage == nil {
+			m.wb.showCoverage = false
+			// Distinguish "ran, but coverage couldn't be built" (e.g. a
+			// multi-model workspace) from "not run yet" so the hint is
+			// actionable rather than a misleading "run first".
+			if m.wb.coverageErr != "" {
+				return m, m.wbStatus(toast.Info, "coverage unavailable: "+m.wb.coverageErr)
+			}
+			return m, m.wbStatus(toast.Info, "run tests first (r) to see coverage")
+		}
+		m.wb.showCoverage = !m.wb.showCoverage
+		if m.wb.showCoverage {
+			m.wb.covScroll = 0
+			return m, m.wbStatus(toast.Info, "coverage — c to hide")
+		}
+		return m, m.wbStatus(toast.Info, "coverage hidden")
+	case "v":
+		return m, m.toggleVerbose()
+	case "up", "k":
+		m.wb.treeSel--
+		m.wb.detailScroll = 0
+		m.clampWbTreeSel()
+	case "down", "j":
+		m.wb.treeSel++
+		m.wb.detailScroll = 0
+		m.clampWbTreeSel()
+	case "enter", "space":
+		// On a file node, toggle whether its tests are shown; on a test
+		// node, drill in by toggling its explanation (same as "v").
+		if node, ok := m.wbSelectedNode(); ok {
+			switch node.kind {
+			case wbNodeFile:
+				m.wbToggleCollapse(m.wb.files[node.fileIdx].Path)
+				m.clampWbTreeSel()
+			case wbNodeTest:
+				return m, m.toggleVerbose()
+			}
+		}
+	case "d":
+		if m.wb.running {
+			return m, m.wbStatus(toast.Info, "tests running…")
+		}
+		tf, _, ok := m.wbSelectedFile()
+		if m.wb.workspace == nil || !ok {
+			return m, m.wbStatus(toast.Info, "no test file to delete")
+		}
+		m.confirm = &confirmAction{
+			action:  "Delete test file",
+			subject: filepath.Base(tf.Path),
+			detail:  tf.Path,
+			run: func(m *Model) tea.Cmd {
+				// Path-safety: never remove a file outside the workspace root, even
+				// if tf.Path were somehow tampered with (it always comes from the
+				// loaded workspace, so this is defense-in-depth, mirroring the same
+				// guard on the editor's write path).
+				if m.wb.workspace == nil || !withinRoot(m.wb.workspace.Root, tf.Path) {
+					return m.wbStatus(toast.Error, "refused: path outside workspace")
+				}
+				if err := os.Remove(tf.Path); err != nil {
+					return m.wbStatus(toast.Error, "delete failed: "+err.Error())
+				}
+				// Reload the workspace so the parsed test files reflect the
+				// deletion. A reload failure (e.g. a bare test-file workspace whose
+				// only file was just deleted, leaving no manifest to re-resolve)
+				// must not crash — fall back to an empty file list.
+				if ws, err := modeltest.LoadWorkspace(m.wb.workspace.Root); err == nil {
+					m.wb.workspace = ws
+					m.wb.files = ws.TestFiles
+				} else {
+					m.wb.files = nil
+				}
+				m.clampWbTreeSel()
+				// Confirm the deletion with a visible toast — the Tests footer shows
+				// no status text, so a status-only line would leave no feedback.
+				done := m.wbStatus(toast.Success, "deleted "+filepath.Base(tf.Path))
+				if len(m.wb.files) == 0 {
+					return done
+				}
+				// Re-run the suite so results/coverage no longer reflect the
+				// deleted file.
+				_, cmd := m.runSuite("")
+				return tea.Batch(done, cmd)
+			},
 		}
 		return m, nil
 	}

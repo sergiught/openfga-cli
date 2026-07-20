@@ -13,6 +13,7 @@ import (
 
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/fga"
+	"github.com/sergiught/openfga-cli/internal/modeltest"
 )
 
 // Display caps: the playground loads at most this many rows for the tuples and
@@ -113,6 +114,21 @@ type assertOneMsg struct {
 	idx    int
 	result assertResult
 	err    error
+}
+
+// testsRanMsg carries the outcome of a hermetic Tests-section run (see
+// runSuiteCmd) — the whole workspace, or a single file filtered via its stem.
+type testsRanMsg struct {
+	results *modeltest.Results
+	err     error
+}
+
+// testFileEditedMsg is delivered when the user's external editor (launched via
+// tea.ExecProcess to edit or create a test file) exits. path is the file that
+// was edited; err carries any failure from launching/running the editor.
+type testFileEditedMsg struct {
+	path string
+	err  error
 }
 
 // mutationOrigin identifies the live connection and resource selection that
@@ -362,6 +378,28 @@ func runOneAssertionCmd(ctx context.Context, cl *openfga.Client, storeID, modelI
 			return assertOneMsg{storeID: storeID, modelID: modelID, gen: gen, idx: idx, err: err}
 		}
 		return assertOneMsg{storeID: storeID, modelID: modelID, gen: gen, idx: idx, result: r}
+	}
+}
+
+// runSuiteCmd runs ws's tests (or, with filter set, just those matching it —
+// see modeltest.FileStem) against a fresh embedded OpenFGA engine, hermetic
+// from and independent of the seeded/live server this playground session is
+// otherwise connected to. filter is passed straight through to
+// modeltest.Options.Run.
+func runSuiteCmd(ctx context.Context, ws *modeltest.Workspace, filter string) tea.Cmd {
+	return func() tea.Msg {
+		var serverOpts map[string]any
+		if ws.Manifest != nil {
+			serverOpts = ws.Manifest.Server
+		}
+		eng, err := modeltest.NewEmbeddedEngine(serverOpts)
+		if err != nil {
+			return testsRanMsg{err: err}
+		}
+		defer eng.Close()
+
+		res, err := modeltest.Run(ctx, ws, modeltest.Options{Run: filter, Coverage: true, Engine: eng})
+		return testsRanMsg{results: res, err: err}
 	}
 }
 

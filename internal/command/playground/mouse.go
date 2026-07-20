@@ -10,7 +10,7 @@ import (
 // split out of update.go's message dispatch to keep that file focused.
 func (m Model) handleWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	// Don't scroll under a modal/overlay or while editing text.
-	if m.helpOpen || m.formErr != "" || m.confirm != nil || m.paletteOpen || m.editorOpen || m.editing {
+	if m.helpOpen || m.formErr != "" || m.confirm != nil || m.paletteOpen || m.editorOpen || m.wb.newPromptOpen || m.editing {
 		return m, nil
 	}
 	up := msg.Button == tea.MouseWheelUp
@@ -24,6 +24,39 @@ func (m Model) handleWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.resVP, cmd = m.resVP.Update(msg)
 		return m, cmd
+	case m.section == secTestResults:
+		// The coverage report isn't a cursor list, so the wheel scrolls its
+		// capLines window (clamped) instead of moving a selection.
+		if m.wb.showCoverage && m.wb.coverage != nil {
+			w, h := m.contentSize()
+			m.wb.covScroll = clampScroll(m.wb.covScroll, up, renderWorkbenchCoverage(m.wb.coverage, w), h)
+			return m, nil
+		}
+		// With the verbose detail card open, the wheel scrolls it when it's over
+		// the detail pane below the tree; over the tree it moves the selection.
+		if m.wb.verbose {
+			_, h := m.contentSize()
+			_, card := m.wbDetail()
+			if detailH := wbDetailHeight(card, h); detailH > 0 {
+				_, by := m.sh.MainBodyOrigin()
+				treeH := h - detailH - 1
+				if msg.Y-by >= treeH+1 {
+					m.wb.detailScroll = clampScroll(m.wb.detailScroll, up, card, detailH)
+					return m, nil
+				}
+			}
+		}
+		// Over the tree: move the selection (the render scrolls to keep it in
+		// view), mirroring up/down keys. A selection change resets the detail
+		// scroll since the card then shows a different node.
+		if up {
+			m.wb.treeSel--
+		} else {
+			m.wb.treeSel++
+		}
+		m.wb.detailScroll = 0
+		m.clampWbTreeSel()
+		return m, nil
 	case m.section == secAPILogs:
 		bx, _ := m.sh.MainBodyOrigin()
 		w, _ := m.contentSize()
