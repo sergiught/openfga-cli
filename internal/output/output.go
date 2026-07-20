@@ -236,7 +236,13 @@ func Table(w io.Writer, headers []string, rows [][]string) error {
 	}
 
 	if style.Active.Name == "mono" || !Interactive {
-		_, err := io.WriteString(w, buf.String())
+		// No right border to align to here, so the last column's fill is just
+		// trailing whitespace — strip it per line to keep redirected output clean.
+		lines := strings.Split(buf.String(), "\n")
+		for i, ln := range lines {
+			lines[i] = strings.TrimRight(ln, " ")
+		}
+		_, err := io.WriteString(w, strings.Join(lines, "\n"))
 		return err
 	}
 
@@ -310,6 +316,25 @@ func Infof(w io.Writer, format string, a ...any) {
 	}
 	dot := lipgloss.NewStyle().Foreground(style.Primary).Render(style.IconDot)
 	fmt.Fprintf(w, "%s %s\n", dot, fmt.Sprintf(format, a...))
+}
+
+// Warnf prints a warning line with an amber dot (suppressed in Quiet/Plain).
+func Warnf(w io.Writer, format string, a ...any) {
+	if Quiet || Plain {
+		return
+	}
+	dot := lipgloss.NewStyle().Foreground(style.Amber).Render(style.IconDot)
+	fmt.Fprintf(w, "%s %s\n", dot, fmt.Sprintf(format, a...))
+}
+
+// Notef prints a neutral, faint note line with a faint dot (suppressed in
+// Quiet/Plain).
+func Notef(w io.Writer, format string, a ...any) {
+	if Quiet || Plain {
+		return
+	}
+	dot := lipgloss.NewStyle().Foreground(style.Faintc).Render(style.IconDot)
+	fmt.Fprintf(w, "%s %s\n", dot, style.Faint.Render(fmt.Sprintf(format, a...)))
 }
 
 // Progressf prints transient progress only for an interactive human session,

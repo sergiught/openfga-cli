@@ -206,6 +206,43 @@ func TestEmitPicksJSONOrYAML(t *testing.T) {
 	}
 }
 
+func TestWarnfAndNotefPrintDotAndMessage(t *testing.T) {
+	Plain = false
+	Quiet = false
+
+	for _, tc := range []struct {
+		name string
+		fn   func(*bytes.Buffer)
+	}{
+		{"Warnf", func(b *bytes.Buffer) { Warnf(b, "heads up %d", 2) }},
+		{"Notef", func(b *bytes.Buffer) { Notef(b, "heads up %d", 2) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var b bytes.Buffer
+			tc.fn(&b)
+			if !strings.Contains(b.String(), "heads up 2") {
+				t.Fatalf("%s output missing message: %q", tc.name, b.String())
+			}
+			if !strings.Contains(b.String(), "●") {
+				t.Fatalf("%s output missing dot: %q", tc.name, b.String())
+			}
+		})
+	}
+}
+
+func TestWarnfAndNotefSuppressedByQuiet(t *testing.T) {
+	Plain = false
+	Quiet = true
+	defer func() { Quiet = false }()
+
+	var b bytes.Buffer
+	Warnf(&b, "warn")
+	Notef(&b, "note")
+	if b.Len() != 0 {
+		t.Fatalf("Warnf/Notef should be silent under Quiet, got %q", b.String())
+	}
+}
+
 func TestErrorfNotSuppressedByQuiet(t *testing.T) {
 	Plain = false
 	Quiet = true
