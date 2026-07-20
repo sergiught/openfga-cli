@@ -44,6 +44,14 @@ type ResNode struct {
 type GrantResolver struct {
 	Check    func(user, relation, object string) bool
 	Tupleset func(object, relation string) []string
+	// CheckDirectLeaves, when true, makes a direct-user leaf defer to Check so
+	// tuple conditions are honored; this requires Check to forward the request
+	// context (Context/ContextualTuples) so an ABAC-conditioned direct tuple is
+	// evaluated against the same context the engine used. When false (the
+	// default) direct membership from the Expand tree is trusted as-is — the
+	// cheap, context-free behavior a caller with no context (e.g. the
+	// playground) wants, avoiding a remote Check per direct leaf.
+	CheckDirectLeaves bool
 }
 
 // MarkGranted annotates each node with whether it grants `user`. Direct-user
@@ -128,29 +136,44 @@ type Expander func(object, relation string) *ResNode
 // seeds cycle detection. maxDepth bounds recursion depth and maxNodes bounds
 // the total number of expansions (i.e. extra API calls), so a deep or cyclic
 // model can't fan out unbounded. Call this before MarkGranted.
-func ExpandTree(root *ResNode, rootRef string, expand Expander, tupleset func(object, relation string) []string, maxDepth, maxNodes int) {
+// ExpandTree returns whether it was truncated: an expandable arm (a computed or
+// tuple-to-userset leaf) was left unexpanded because the depth or node budget
+// ran out. A cycle stop does NOT count as truncation (it is correct). A caller
+// computing coverage from the tree should treat a truncated tree as partial —
+// arms below the cut were never evaluated and so can't be credited.
+func ExpandTree(root *ResNode, rootRef string, expand Expander, tupleset func(object, relation string) []string, maxDepth, maxNodes int) bool {
 	if root == nil || expand == nil {
-		return
+		return false
 	}
 	budget := maxNodes
-	expandNode(root, expand, tupleset, maxDepth, map[string]bool{rootRef: true}, &budget)
+	truncated := false
+	expandNode(root, expand, tupleset, maxDepth, map[string]bool{rootRef: true}, &budget, &truncated)
+	return truncated
 }
 
-func expandNode(n *ResNode, expand Expander, tupleset func(string, string) []string, depth int, path map[string]bool, budget *int) {
+func expandNode(n *ResNode, expand Expander, tupleset func(string, string) []string, depth int, path map[string]bool, budget *int, truncated *bool) {
 	if n == nil {
 		return
 	}
 	// Descend into existing structural children (union / intersection / difference).
 	for _, c := range n.Children {
-		expandNode(c, expand, tupleset, depth, path, budget)
+		expandNode(c, expand, tupleset, depth, path, budget, truncated)
 	}
-	// Only an unexpanded leaf gets expanded, and only while depth/budget remain.
-	if n.Op != ResLeaf || len(n.Children) > 0 || depth <= 0 {
+	if n.Op != ResLeaf || len(n.Children) > 0 {
+		return
+	}
+	// Only an unexpanded leaf gets expanded, and only while depth remains. If
+	// depth ran out on a leaf that COULD have expanded, the tree is truncated.
+	expandable := n.Computed != "" || (n.TTUFrom != "" && len(n.TTUTo) > 0 && tupleset != nil)
+	if depth <= 0 {
+		if expandable {
+			*truncated = true
+		}
 		return
 	}
 	switch {
 	case n.Computed != "":
-		attachExpansion(n, n.Computed, expand, tupleset, depth, path, budget)
+		attachExpansion(n, n.Computed, expand, tupleset, depth, path, budget, truncated)
 	case n.TTUFrom != "" && len(n.TTUTo) > 0 && tupleset != nil:
 		tObj, tRel, ok := splitUserset(n.TTUFrom)
 		if !ok {
@@ -162,7 +185,7 @@ func expandNode(n *ResNode, expand Expander, tupleset func(string, string) []str
 				if _, r2, ok := splitUserset(cu); ok {
 					rel = r2
 				}
-				attachExpansion(n, x+"#"+rel, expand, tupleset, depth, path, budget)
+				attachExpansion(n, x+"#"+rel, expand, tupleset, depth, path, budget, truncated)
 			}
 		}
 	}
@@ -170,9 +193,14 @@ func expandNode(n *ResNode, expand Expander, tupleset func(string, string) []str
 
 // attachExpansion expands the object#relation `ref` and, on success, appends its
 // (recursively expanded) subtree as a child of `parent`. It is a no-op on a
-// cycle (ref already on the ancestry path) or an exhausted budget.
-func attachExpansion(parent *ResNode, ref string, expand Expander, tupleset func(string, string) []string, depth int, path map[string]bool, budget *int) {
-	if *budget <= 0 || path[ref] {
+// cycle (ref already on the ancestry path) or an exhausted budget; the latter
+// sets *truncated so the caller knows the tree is partial.
+func attachExpansion(parent *ResNode, ref string, expand Expander, tupleset func(string, string) []string, depth int, path map[string]bool, budget *int, truncated *bool) {
+	if path[ref] {
+		return // cycle — correct termination, not truncation
+	}
+	if *budget <= 0 {
+		*truncated = true
 		return
 	}
 	obj, rel, ok := splitUserset(ref)
@@ -189,21 +217,69 @@ func attachExpansion(parent *ResNode, ref string, expand Expander, tupleset func
 		next[k] = true
 	}
 	next[ref] = true
-	expandNode(sub, expand, tupleset, depth-1, next, budget)
+	expandNode(sub, expand, tupleset, depth-1, next, budget, truncated)
 	parent.Children = append(parent.Children, sub)
 }
 
 func leafGrants(n *ResNode, user string, r GrantResolver) bool {
 	switch {
 	case len(n.Users) > 0:
-		return slices.Contains(n.Users, user)
+		if slices.Contains(n.Users, user) || slices.Contains(n.Users, publicWildcard(user)) {
+			// The user is directly assigned here — either listed literally or
+			// admitted by the typed public wildcard for its type (e.g. "user:*"
+			// admits "user:anne"), mirroring narrator.go isDirectMember and the
+			// engine. Without the wildcard match a concrete query returned false
+			// even though the engine grants, corrupting --explain narration and
+			// --coverage attribution. The assignment may carry
+			// an ABAC condition the Expand tree doesn't evaluate. A resolver that
+			// opts into CheckDirectLeaves (and forwards the request context)
+			// defers to Check so a conditioned direct tuple only grants when the
+			// condition holds against the same context the engine used. A
+			// resolver that does not opt in — the default, e.g. the playground's
+			// context-free callback — trusts the direct membership from the
+			// Expand tree and skips the extra Check, keeping the cheap,
+			// context-free behavior.
+			if r.CheckDirectLeaves && r.Check != nil {
+				if obj, rel, ok := splitUserset(n.Name); ok {
+					return r.Check(user, rel, obj)
+				}
+			}
+			return true
+		}
+		// The user isn't listed literally, but a userset value here
+		// (type:id#relation, e.g. "organization:acme#member") admits every user
+		// that holds that relation on that object. Resolving that membership
+		// needs a live Check, so — like the conditioned direct-leaf deferral
+		// above — it's gated behind CheckDirectLeaves: context-aware callers
+		// (the runner) resolve the arm so intermediate nodes match the engine,
+		// while the context-free default (the playground) keeps its cheap
+		// literal-only matching and never issues a per-leaf Check.
+		if r.CheckDirectLeaves && r.Check != nil {
+			for _, u := range n.Users {
+				obj, rel, ok := splitUserset(u)
+				if !ok || rel == "" {
+					continue // a literal user or public wildcard, not a userset
+				}
+				if r.Check(user, rel, obj) {
+					return true
+				}
+			}
+		}
+		return false
 	case n.Computed != "":
+		// A computed userset can only be resolved by a live Check; without one,
+		// treat the branch as not granting rather than dereferencing a nil Check.
+		if r.Check == nil {
+			return false
+		}
 		if obj, rel, ok := splitUserset(n.Computed); ok {
 			return r.Check(user, rel, obj)
 		}
-	case n.TTUFrom != "" && r.Tupleset != nil:
+	case n.TTUFrom != "" && r.Tupleset != nil && r.Check != nil:
 		// The object relates to some X via the tupleset; the user is granted if
-		// they hold one of the computed relations on any such X.
+		// they hold one of the computed relations on any such X. Needs a live
+		// Check to resolve the computed relation, so a nil Check skips it (not
+		// granted) instead of panicking.
 		tObj, tRel, ok := splitUserset(n.TTUFrom)
 		if !ok {
 			return false
@@ -225,6 +301,15 @@ func leafGrants(n *ResNode, user string, r GrantResolver) bool {
 
 func splitUserset(s string) (object, relation string, ok bool) {
 	return strings.Cut(s, "#")
+}
+
+// publicWildcard returns the typed public wildcard for a user id
+// (e.g. "user:anne" → "user:*"), or "" when user carries no type.
+func publicWildcard(user string) string {
+	if i := strings.IndexByte(user, ':'); i >= 0 {
+		return user[:i] + ":*"
+	}
+	return ""
 }
 
 // ParseResolution builds a ResNode tree from an Expand response's untyped tree
