@@ -230,10 +230,24 @@ func TestWarnfAndNotefPrintDotAndMessage(t *testing.T) {
 	}
 }
 
+func TestTrailingPadStripsSpacesBeforeReset(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"abc   ", "abc"},                             // no ANSI: plain trim
+		{"abc", "abc"},                                // nothing to trim
+		{"abc   \x1b[0m", "abc\x1b[0m"},               // padding before a reset
+		{"\x1b[1mabc   \x1b[0m", "\x1b[1mabc\x1b[0m"}, // styled header cell
+		{"abc \x1b[1m\x1b[0m", "abc\x1b[1m\x1b[0m"},   // multiple trailing sequences
+	} {
+		if got := trailingPad.ReplaceAllString(tc.in, "${1}"); got != tc.want {
+			t.Errorf("trailingPad(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestWarnfAndNotefSuppressedByQuiet(t *testing.T) {
+	defer func(p, q bool) { Plain, Quiet = p, q }(Plain, Quiet)
 	Plain = false
 	Quiet = true
-	defer func() { Quiet = false }()
 
 	var b bytes.Buffer
 	Warnf(&b, "warn")
@@ -244,9 +258,9 @@ func TestWarnfAndNotefSuppressedByQuiet(t *testing.T) {
 }
 
 func TestErrorfNotSuppressedByQuiet(t *testing.T) {
+	defer func(p, q bool) { Plain, Quiet = p, q }(Plain, Quiet)
 	Plain = false
 	Quiet = true
-	defer func() { Quiet = false }()
 
 	var b bytes.Buffer
 	Errorf(&b, "boom %d", 1)
