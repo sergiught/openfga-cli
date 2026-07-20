@@ -100,7 +100,7 @@ func ParseModel(m *openfga.AuthorizationModel) Graph {
 				// A tuple-to-userset edge "target from via" inherits through the
 				// type(s) the tupleset relation `via` points to.
 				if e.Kind == "ttu" {
-					if _, via, ok := splitTTU(e.Label); ok {
+					if _, via, ok := SplitTTU(e.Label); ok {
 						for _, parent := range direct[via] {
 							addEdge(&g, &seen, DiagramEdge{From: td.Type, To: typePart(parent), Kind: "ttu", Via: via})
 						}
@@ -154,8 +154,8 @@ func typePart(label string) string {
 	return label
 }
 
-// splitTTU parses a tuple-to-userset edge label of the form "target from via".
-func splitTTU(label string) (target, via string, ok bool) {
+// SplitTTU parses a tuple-to-userset edge label of the form "target from via".
+func SplitTTU(label string) (target, via string, ok bool) {
 	parts := strings.SplitN(label, " from ", 2)
 	if len(parts) != 2 {
 		return "", "", false

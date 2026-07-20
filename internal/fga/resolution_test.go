@@ -200,15 +200,57 @@ func TestExpandTreeComputed(t *testing.T) {
 		t.Fatalf("owner expansion = %+v, want users leaf [user:alice]", sub)
 	}
 
-	// A Check that always denies proves the grant comes from the spliced subtree,
-	// not the leaf Check fallback.
-	MarkGranted(root, "user:alice", GrantResolver{Check: func(string, string, string) bool { return false }})
+	// The resolver confirms only the genuine membership (alice is owner of
+	// document:roadmap). This proves the grant flows through the spliced owner
+	// subtree — the empty direct-viewers branch and the computed(owner) leaf's
+	// own Check never produce it. With CheckDirectLeaves set, direct leaves are
+	// condition-aware (they defer to this resolver), so an always-deny resolver
+	// would (correctly) deny even a real membership; we assert the resolved-true
+	// path instead.
+	MarkGranted(root, "user:alice", GrantResolver{CheckDirectLeaves: true, Check: func(u, rel, obj string) bool {
+		return u == "user:alice" && rel == "owner" && obj == "document:roadmap"
+	}})
 	if !root.Granted || !owner.Granted || !owner.Children[0].Granted {
 		t.Fatalf("nested owner->user:alice path should grant: root=%v owner=%v sub=%v",
 			root.Granted, owner.Granted, owner.Children[0].Granted)
 	}
 	if root.Children[0].Granted {
 		t.Fatal("empty direct-users branch must not grant")
+	}
+}
+
+func TestExpandTreeReportsTruncation(t *testing.T) {
+	// A viewer union with a computed(owner) leaf that could expand further.
+	newRoot := func() *ResNode {
+		root, _ := ParseResolution(map[string]any{"root": map[string]any{
+			"name": "document:roadmap#viewer",
+			"union": map[string]any{"nodes": []any{
+				leafUsers("document:roadmap#viewer"),
+				leafComputed("document:roadmap#viewer", "document:roadmap#owner"),
+			}},
+		}})
+		return root
+	}
+	expand := func(obj, rel string) *ResNode {
+		if obj == "document:roadmap" && rel == "owner" {
+			r, _ := ParseResolution(map[string]any{"root": leafUsers("document:roadmap#owner", "user:alice")})
+			return r
+		}
+		return nil
+	}
+
+	// depth 0: the computed(owner) arm can't be expanded → truncated.
+	if !ExpandTree(newRoot(), "document:roadmap#viewer", expand, nil, 0, 64) {
+		t.Error("ExpandTree should report truncation when depth is exhausted on an expandable arm")
+	}
+	// budget 0: same — no node budget to expand the arm.
+	if !ExpandTree(newRoot(), "document:roadmap#viewer", expand, nil, 8, 0) {
+		t.Error("ExpandTree should report truncation when the node budget is exhausted")
+	}
+	// ample depth+budget: fully expanded (owner resolves to a users leaf that
+	// needs no further expansion) → not truncated.
+	if ExpandTree(newRoot(), "document:roadmap#viewer", expand, nil, 8, 64) {
+		t.Error("ExpandTree should NOT report truncation when the tree fully expands")
 	}
 }
 
@@ -279,6 +321,149 @@ func TestMarkGrantedTupleToUserset(t *testing.T) {
 	})
 	if !root.Granted {
 		t.Fatal("TTU leaf should grant anne via organization:acme#repo_reader")
+	}
+}
+
+func TestLeafGrantsDirectMembershipWithoutFlag(t *testing.T) {
+	// A direct-user leaf with CheckDirectLeaves:false must grant by membership
+	// even when a provided Check would deny — the flag gates the deferral, so a
+	// context-free caller (e.g. the playground) keeps cheap membership behavior.
+	root, _ := ParseResolution(map[string]any{"root": leafUsers("document:x#owner", "user:alice")})
+	granted := MarkGranted(root, "user:alice", GrantResolver{Check: func(u, rel, obj string) bool {
+		return false // an always-deny Check that must be ignored without the flag
+	}})
+	if !granted || !root.Granted {
+		t.Fatal("direct membership must grant when CheckDirectLeaves is false, regardless of Check")
+	}
+
+	// With the flag set, the same always-deny Check now gates the leaf.
+	root2, _ := ParseResolution(map[string]any{"root": leafUsers("document:x#owner", "user:alice")})
+	granted = MarkGranted(root2, "user:alice", GrantResolver{CheckDirectLeaves: true, Check: func(u, rel, obj string) bool {
+		return false
+	}})
+	if granted || root2.Granted {
+		t.Fatal("with CheckDirectLeaves true, an always-deny Check must deny the direct leaf")
+	}
+}
+
+func TestLeafGrantsUsersetValueResolvesArm(t *testing.T) {
+	// document:budget#org_suspended := [organization#member], assigned to the
+	// members of organization:acme (a userset value, not a literal user). The
+	// queried user:carol is not listed literally, but IS a member of acme, so a
+	// context-aware resolver must resolve the arm and grant the leaf — this is
+	// what makes an intermediate exclusion/intersection node match the engine.
+	root, _ := ParseResolution(map[string]any{"root": leafUsers("document:budget#org_suspended", "organization:acme#member")})
+	granted := MarkGranted(root, "user:carol", GrantResolver{CheckDirectLeaves: true, Check: func(u, rel, obj string) bool {
+		return u == "user:carol" && rel == "member" && obj == "organization:acme"
+	}})
+	if !granted || !root.Granted {
+		t.Fatal("userset value organization:acme#member must grant a member (user:carol) under CheckDirectLeaves")
+	}
+
+	// The playground default (CheckDirectLeaves false) must NOT issue a per-leaf
+	// Check for a userset value: it keeps cheap literal-only matching, so a
+	// non-literal user does not grant even though the (unused) Check would say so.
+	root2, _ := ParseResolution(map[string]any{"root": leafUsers("document:budget#org_suspended", "organization:acme#member")})
+	calls := 0
+	if MarkGranted(root2, "user:carol", GrantResolver{Check: func(u, rel, obj string) bool {
+		calls++
+		return true
+	}}) {
+		t.Fatal("without CheckDirectLeaves a userset value must not grant a non-literal user")
+	}
+	if calls != 0 {
+		t.Fatalf("playground default must not Check userset arms per-leaf, got %d calls", calls)
+	}
+}
+
+func TestLeafGrantsTypedPublicWildcard(t *testing.T) {
+	// document:1#viewer := [user:*] — a typed public wildcard. A concrete query
+	// for user:anne is not listed literally but IS admitted by the wildcard, so
+	// leafGrants must grant it (matching the engine and narrator.isDirectMember).
+	// Previously the literal check missed "user:*" and splitUserset("user:*")
+	// was skipped, so the leaf wrongly denied.
+	root, _ := ParseResolution(map[string]any{"root": leafUsers("document:1#viewer", "user:*")})
+	if !MarkGranted(root, "user:anne", GrantResolver{}) || !root.Granted {
+		t.Fatal("typed public wildcard user:* must grant a concrete user:anne")
+	}
+
+	// A different type's user is NOT admitted by user:* — the wildcard is typed.
+	root2, _ := ParseResolution(map[string]any{"root": leafUsers("document:1#viewer", "user:*")})
+	if MarkGranted(root2, "team:eng", GrantResolver{}) || root2.Granted {
+		t.Fatal("user:* must not grant a differently-typed subject (team:eng)")
+	}
+
+	// A userset value is not a concrete subject, so a type:* wildcard must not
+	// admit it (publicWildcard returns "" for a "type:id#relation" subject).
+	root3, _ := ParseResolution(map[string]any{"root": leafUsers("document:1#viewer", "team:*")})
+	if MarkGranted(root3, "team:eng#member", GrantResolver{}) || root3.Granted {
+		t.Fatal("team:* must not admit a userset team:eng#member")
+	}
+}
+
+func TestMarkGrantedExclusionWithUsersetSubtrahend(t *testing.T) {
+	// can_delete := owner but not org_suspended, where org_suspended resolves to
+	// the members of organization:acme. carol is an owner AND an acme member, so
+	// the subtrahend is TRUE and the exclusion must deny — the flagship case the
+	// resolution tree previously got wrong (subtrahend left unresolved → false →
+	// exclusion wrongly true).
+	tree := map[string]any{"root": map[string]any{
+		"name": "document:budget#can_delete",
+		"difference": map[string]any{
+			"base":     leafUsers("document:budget#owner", "user:carol"),
+			"subtract": leafUsers("document:budget#org_suspended", "organization:acme#member"),
+		},
+	}}
+	root, _ := ParseResolution(tree)
+	acmeMember := func(u, rel, obj string) bool {
+		return u == "user:carol" && rel == "member" && obj == "organization:acme"
+	}
+	if MarkGranted(root, "user:carol", GrantResolver{CheckDirectLeaves: true, Check: acmeMember}) {
+		t.Fatal("exclusion must deny: carol is a member of the suspended org")
+	}
+	if sub := root.Children[1]; !sub.Granted {
+		t.Fatal("the userset subtrahend node must resolve TRUE for the suspended member")
+	}
+}
+
+func TestLeafGrantsNilCheckDoesNotPanic(t *testing.T) {
+	// A tree carrying a computed userset and a tuple-to-userset leaf, marked with
+	// a zero-value GrantResolver (nil Check, nil Tupleset, CheckDirectLeaves
+	// false), must not panic on any branch and must fall back to membership /
+	// not-granted semantics.
+	root, _ := ParseResolution(map[string]any{"root": map[string]any{
+		"name": "document:x#viewer",
+		"union": map[string]any{"nodes": []any{
+			leafUsers("document:x#viewer", "user:alice"),
+			leafComputed("document:x#viewer", "document:x#owner"),
+			leafTTU("document:x#viewer", "document:x#parent", "folder#viewer"),
+		}},
+	}})
+
+	granted := MarkGranted(root, "user:alice", GrantResolver{}) // must not panic
+	if !granted || !root.Granted {
+		t.Fatal("direct membership (user:alice) should grant even with a nil-Check resolver")
+	}
+	if !root.Children[0].Granted {
+		t.Fatal("direct-users leaf should grant by membership")
+	}
+	if root.Children[1].Granted {
+		t.Fatal("computed leaf must not grant when Check is nil")
+	}
+	if root.Children[2].Granted {
+		t.Fatal("tuple-to-userset leaf must not grant when Check is nil")
+	}
+
+	// And a user with no direct membership resolves to not-granted, not a panic.
+	root2, _ := ParseResolution(map[string]any{"root": map[string]any{
+		"name": "document:x#viewer",
+		"union": map[string]any{"nodes": []any{
+			leafComputed("document:x#viewer", "document:x#owner"),
+			leafTTU("document:x#viewer", "document:x#parent", "folder#viewer"),
+		}},
+	}})
+	if MarkGranted(root2, "user:bob", GrantResolver{}) {
+		t.Fatal("no membership + nil Check should deny, not panic or grant")
 	}
 }
 
