@@ -67,7 +67,7 @@ func LoadWorkspaceWith(path string, opts WorkspaceOptions) (*Workspace, error) {
 		root = filepath.Dir(abs)
 	}
 
-	if strings.HasSuffix(filepath.Base(filePath), ".test.yaml") {
+	if isTestFile(filePath) {
 		return loadSingleTestFile(filePath, root)
 	}
 
@@ -121,11 +121,12 @@ func loadWorkspaceWithOptions(path string, opts WorkspaceOptions) (*Workspace, e
 	if err != nil {
 		return nil, err
 	}
-	// A `<name>.test.yaml` path argument names a single file to run, even with
-	// flags set — restrict the workspace to it, mirroring loadSingleTestFile on
-	// the no-options branch, so `ofga model test foo.test.yaml --model x` runs
-	// only foo, not the whole workspace.
-	if strings.HasSuffix(filepath.Base(path), ".test.yaml") {
+	// A `<name>.test.yaml` (or .test.yml) path argument names a single file to
+	// run, even with flags set — restrict the workspace to it, mirroring
+	// loadSingleTestFile on the no-options branch, so
+	// `ofga model test foo.test.yaml --model x` runs only foo, not the whole
+	// workspace.
+	if isTestFile(path) {
 		if err := restrictToTestFile(ws, path); err != nil {
 			return nil, err
 		}

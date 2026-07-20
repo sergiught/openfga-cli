@@ -96,6 +96,13 @@ func Run(ctx context.Context, ws *Workspace, opts Options) (*Results, error) {
 		return nil, clierr.WithCode(clierr.CodeUsage, noMatchError(ws, opts.Run))
 	}
 
+	if opts.Engine == nil {
+		// There is real work to run and runTest would otherwise panic deep in
+		// Engine.Setup. Run is exported, so fail fast with a clear message. (The
+		// no-match pre-flight above intentionally needs no engine.)
+		return nil, fmt.Errorf("model test: Run requires a non-nil opts.Engine")
+	}
+
 	parallel := opts.Parallel
 	if parallel <= 0 {
 		parallel = runtime.NumCPU()
@@ -287,6 +294,13 @@ func matchTasks(ws *Workspace, pattern string) ([]runTask, int) {
 	}
 
 	return tasks, matchedFiles
+}
+
+// isTestFile reports whether path names a test file by extension
+// (.test.yaml or .test.yml), the same pair FileStem recognizes.
+func isTestFile(path string) bool {
+	base := filepath.Base(path)
+	return strings.HasSuffix(base, ".test.yaml") || strings.HasSuffix(base, ".test.yml")
 }
 
 // FileStem strips the .test.yaml/.test.yml suffix from a test file's base

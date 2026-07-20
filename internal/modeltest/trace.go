@@ -74,27 +74,29 @@ func trace(ctx context.Context, lm *LoadedModel, eng Resolver, sc Scope, r Check
 
 	bounded := fga.ExpandTree(root, r.Object+"#"+r.Relation, expand, tupleset, traceMaxDepth, traceMaxNodes)
 
+	// check forwards the original request's Context and ContextualTuples so nested
+	// resolution is condition-aware — a directly-assigned tuple guarded by an ABAC
+	// condition must be evaluated against the same context the engine's Check used,
+	// or the tree would grant a branch the engine denies. It backs both MarkGranted
+	// and the userset-value attribution in computeArmGrants.
+	check := func(user, relation, object string) bool {
+		ok, cerr := eng.Check(ctx, sc, CheckReq{
+			User:             user,
+			Relation:         relation,
+			Object:           object,
+			Context:          r.Context,
+			ContextualTuples: r.ContextualTuples,
+		})
+		return cerr == nil && ok
+	}
+
 	fga.MarkGranted(root, r.User, fga.GrantResolver{
-		// The runner forwards the request context in the Check closure below, so
-		// opt into condition-aware direct-leaf checking: an ABAC-conditioned
-		// direct tuple must be evaluated against that context, not trusted as
-		// bare membership, or the tree would disagree with the engine's verdict.
+		// Opt into condition-aware direct-leaf checking: an ABAC-conditioned direct
+		// tuple must be evaluated against the request context, not trusted as bare
+		// membership, or the tree would disagree with the engine's verdict.
 		CheckDirectLeaves: true,
-		Check: func(user, relation, object string) bool {
-			// Forward the original check's Context and ContextualTuples so nested
-			// resolution is condition-aware — a directly-assigned tuple guarded by
-			// an ABAC condition must be evaluated against the same context the
-			// engine's Check used, or the tree would grant a branch the engine denies.
-			ok, cerr := eng.Check(ctx, sc, CheckReq{
-				User:             user,
-				Relation:         relation,
-				Object:           object,
-				Context:          r.Context,
-				ContextualTuples: r.ContextualTuples,
-			})
-			return cerr == nil && ok
-		},
-		Tupleset: tupleset,
+		Check:             check,
+		Tupleset:          tupleset,
 	})
 
 	// condFor reports the ABAC condition name(s) on the direct tuple(s) that make
@@ -117,7 +119,7 @@ func trace(ctx context.Context, lm *LoadedModel, eng Resolver, sc Scope, r Check
 		return append(out, byUser[idType(user)+":*"]...)
 	}
 
-	arms, subtract := computeArmGrants(root, r.User)
+	arms, subtract := computeArmGrants(root, r.User, check)
 
 	return &Explain{
 		Verdict:      verdict,
@@ -226,7 +228,7 @@ const (
 // branch counts covered only when a test demonstrated it can grant. The labels
 // produced here mirror those enumerateBranches emits (see branchWalker) so
 // branchCovered can match them.
-func computeArmGrants(root *fga.ResNode, user string) (arms map[string]map[string]bool, subtract map[string]bool) {
+func computeArmGrants(root *fga.ResNode, user string, check func(user, relation, object string) bool) (arms map[string]map[string]bool, subtract map[string]bool) {
 	arms = map[string]map[string]bool{}
 	subtract = map[string]bool{}
 	userType := idType(user)
@@ -274,7 +276,7 @@ func computeArmGrants(root *fga.ResNode, user string) (arms map[string]map[strin
 						credit(key, "ttu:"+relPart(n.TTUFrom)+"/"+relPart(t))
 					}
 				case len(n.Users) > 0:
-					creditDirectLeaf(n, user, userType, key, credit)
+					creditDirectLeaf(n, user, userType, key, credit, check)
 				}
 			}
 		}
@@ -291,8 +293,11 @@ func computeArmGrants(root *fga.ResNode, user string) (arms map[string]map[strin
 // creditDirectLeaf credits the direct/wildcard branch(es) a granting direct-users
 // leaf exercised for the queried user: a literal match credits direct:<type>, a
 // public-wildcard match credits wildcard:<type>, and a grant reached only through
-// a userset value (type:id#relation) credits direct:<type>#<relation>.
-func creditDirectLeaf(n *fga.ResNode, user, userType, key string, credit func(key, label string)) {
+// a userset value (type:id#relation) credits direct:<type>#<relation>. check
+// attributes the userset case: a leaf may list several userset values but only
+// some admit the user, so only those that Check confirms are credited (grant-based
+// coverage credits only the arm that actually granted this check).
+func creditDirectLeaf(n *fga.ResNode, user, userType, key string, credit func(key, label string), check func(user, relation, object string) bool) {
 	matched := false
 	for _, u := range n.Users {
 		switch {
@@ -308,10 +313,13 @@ func creditDirectLeaf(n *fga.ResNode, user, userType, key string, credit func(ke
 		return
 	}
 	// Granted but not via a literal/wildcard entry — the grant came through a
-	// userset value; credit its direct:<type>#<relation> branch.
+	// userset value; credit only the value(s) that actually admit the user.
 	for _, u := range n.Users {
 		if i := strings.IndexByte(u, '#'); i >= 0 {
-			credit(key, "direct:"+idType(u[:i])+"#"+u[i+1:])
+			obj, rel := u[:i], u[i+1:]
+			if check == nil || check(user, rel, obj) {
+				credit(key, "direct:"+idType(obj)+"#"+rel)
+			}
 		}
 	}
 }

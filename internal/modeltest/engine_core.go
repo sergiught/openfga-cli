@@ -262,9 +262,10 @@ func (e *engine) Close() error {
 }
 
 // toStruct converts a manifest context map into a structpb.Struct, or nil when
-// m is empty.
+// m is empty (nil or zero-length), so callers uniformly send no context struct
+// rather than an empty one.
 func toStruct(m map[string]any) (*structpb.Struct, error) {
-	if m == nil {
+	if len(m) == 0 {
 		return nil, nil
 	}
 	s, err := structpb.NewStruct(m)
