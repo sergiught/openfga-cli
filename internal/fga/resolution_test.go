@@ -329,16 +329,16 @@ func TestLeafGrantsDirectMembershipWithoutFlag(t *testing.T) {
 	// even when a provided Check would deny — the flag gates the deferral, so a
 	// context-free caller (e.g. the playground) keeps cheap membership behavior.
 	root, _ := ParseResolution(map[string]any{"root": leafUsers("document:x#owner", "user:alice")})
-	denied := MarkGranted(root, "user:alice", GrantResolver{Check: func(u, rel, obj string) bool {
+	granted := MarkGranted(root, "user:alice", GrantResolver{Check: func(u, rel, obj string) bool {
 		return false // an always-deny Check that must be ignored without the flag
 	}})
-	if !denied || !root.Granted {
+	if !granted || !root.Granted {
 		t.Fatal("direct membership must grant when CheckDirectLeaves is false, regardless of Check")
 	}
 
 	// With the flag set, the same always-deny Check now gates the leaf.
 	root2, _ := ParseResolution(map[string]any{"root": leafUsers("document:x#owner", "user:alice")})
-	granted := MarkGranted(root2, "user:alice", GrantResolver{CheckDirectLeaves: true, Check: func(u, rel, obj string) bool {
+	granted = MarkGranted(root2, "user:alice", GrantResolver{CheckDirectLeaves: true, Check: func(u, rel, obj string) bool {
 		return false
 	}})
 	if granted || root2.Granted {
@@ -391,6 +391,13 @@ func TestLeafGrantsTypedPublicWildcard(t *testing.T) {
 	root2, _ := ParseResolution(map[string]any{"root": leafUsers("document:1#viewer", "user:*")})
 	if MarkGranted(root2, "team:eng", GrantResolver{}) || root2.Granted {
 		t.Fatal("user:* must not grant a differently-typed subject (team:eng)")
+	}
+
+	// A userset value is not a concrete subject, so a type:* wildcard must not
+	// admit it (publicWildcard returns "" for a "type:id#relation" subject).
+	root3, _ := ParseResolution(map[string]any{"root": leafUsers("document:1#viewer", "team:*")})
+	if MarkGranted(root3, "team:eng#member", GrantResolver{}) || root3.Granted {
+		t.Fatal("team:* must not admit a userset team:eng#member")
 	}
 }
 

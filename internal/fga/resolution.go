@@ -227,8 +227,8 @@ func leafGrants(n *ResNode, user string, r GrantResolver) bool {
 		if slices.Contains(n.Users, user) || slices.Contains(n.Users, publicWildcard(user)) {
 			// The user is directly assigned here — either listed literally or
 			// admitted by the typed public wildcard for its type (e.g. "user:*"
-			// admits "user:anne"), mirroring narrator.go isDirectMember and the
-			// engine. Without the wildcard match a concrete query returned false
+			// admits "user:anne"), mirroring the engine's direct-membership
+			// semantics. Without the wildcard match a concrete query returned false
 			// even though the engine grants, corrupting --explain narration and
 			// --coverage attribution. The assignment may carry
 			// an ABAC condition the Expand tree doesn't evaluate. A resolver that
@@ -304,8 +304,13 @@ func splitUserset(s string) (object, relation string, ok bool) {
 }
 
 // publicWildcard returns the typed public wildcard for a user id
-// (e.g. "user:anne" → "user:*"), or "" when user carries no type.
+// (e.g. "user:anne" → "user:*"), or "" when user carries no type. Usersets
+// (type:id#relation) return "": a typed public wildcard admits only concrete
+// subjects of that type, never a userset value.
 func publicWildcard(user string) string {
+	if strings.IndexByte(user, '#') >= 0 {
+		return ""
+	}
 	if i := strings.IndexByte(user, ':'); i >= 0 {
 		return user[:i] + ":*"
 	}
