@@ -1,0 +1,12 @@
+fixtures: [core-users]
+tests:
+  - name: owner-is-viewer
+    check:
+      - user: user:anne
+        object: document:1
+        assertions: {viewer: true, owner: true}
+  - name: stranger-denied
+    check:
+      - user: user:bob
+        object: document:1
+        assertions: {viewer: false}

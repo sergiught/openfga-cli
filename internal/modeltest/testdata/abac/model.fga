@@ -1,0 +1,12 @@
+model
+  schema 1.1
+
+type user
+
+type document
+  relations
+    define viewer: [user with in_business_hours]
+
+condition in_business_hours(current_hour: int) {
+  current_hour >= 9 && current_hour <= 17
+}

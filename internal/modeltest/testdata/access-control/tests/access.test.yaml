@@ -1,0 +1,27 @@
+fixtures: [grants]
+tests:
+  - name: intersection-both-arms-true
+    check:
+      - user: user:anne
+        object: document:1
+        assertions: {reviewer: true}
+  - name: intersection-only-editor-false
+    check:
+      - user: user:bob
+        object: document:1
+        assertions: {reviewer: false}
+  - name: intersection-only-approver-false
+    check:
+      - user: user:carol
+        object: document:1
+        assertions: {reviewer: false}
+  - name: exclusion-not-blocked-true
+    check:
+      - user: user:dave
+        object: document:1
+        assertions: {writer: true}
+  - name: exclusion-blocked-false
+    check:
+      - user: user:eve
+        object: document:1
+        assertions: {writer: false}

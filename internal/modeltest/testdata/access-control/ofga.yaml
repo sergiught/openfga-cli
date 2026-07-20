@@ -1,0 +1,6 @@
+version: 1
+model: ./model.fga
+fixtures:
+  - "fixtures/**/*.yaml"
+tests:
+  - "tests/**/*.test.yaml"

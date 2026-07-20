@@ -1,0 +1,32 @@
+# organization:acme is the suspended org; organization:privileged is the trusted one.
+- user: user:carol
+  relation: member
+  object: organization:acme
+- user: user:dave
+  relation: member
+  object: organization:privileged
+- user: user:erin
+  relation: member
+  object: organization:acme
+- user: user:erin
+  relation: member
+  object: organization:privileged
+
+# Everyone is an owner of document:budget.
+- user: user:carol
+  relation: owner
+  object: document:budget
+- user: user:dave
+  relation: owner
+  object: document:budget
+- user: user:erin
+  relation: owner
+  object: document:budget
+
+# The userset arms: members of acme are "suspended", members of privileged are "privileged".
+- user: organization:acme#member
+  relation: org_suspended
+  object: document:budget
+- user: organization:privileged#member
+  relation: org_privileged
+  object: document:budget

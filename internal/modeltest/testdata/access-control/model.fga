@@ -1,0 +1,12 @@
+model
+  schema 1.1
+
+type user
+
+type document
+  relations
+    define editor: [user]
+    define approver: [user]
+    define blocked: [user]
+    define reviewer: editor and approver
+    define writer: editor but not blocked

@@ -1,0 +1,217 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "workspace.v1.json",
+  "$defs": {
+    "manifest": {
+      "$anchor": "manifest",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "model"],
+      "properties": {
+        "version": { "type": "integer", "enum": [1] },
+        "model": { "type": "string" },
+        "fixtures": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "tuples": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "tests": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "server": { "$ref": "#/$defs/serverOptions" }
+      }
+    },
+
+    "serverOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "list_objects_max_results": { "type": "integer" },
+        "list_users_max_results": { "type": "integer" },
+        "max_types_per_authorization_model": { "type": "integer" },
+        "resolve_node_limit": { "type": "integer" },
+        "resolve_node_breadth_limit": { "type": "integer" },
+        "max_concurrent_reads_for_check": { "type": "integer" }
+      }
+    },
+
+    "testFile": {
+      "$anchor": "testFile",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tests"],
+      "properties": {
+        "model": { "type": "string" },
+        "fixtures": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "tuples": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "tests": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/test" }
+        }
+      }
+    },
+
+    "test": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "fixtures": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/tupleItem" }
+        },
+        "tuples": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/tupleItem" }
+        },
+        "check": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/checkCase" }
+        },
+        "list_objects": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/listObjectsCase" }
+        },
+        "list_users": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/listUsersCase" }
+        }
+      }
+    },
+
+    "tupleItem": {
+      "oneOf": [
+        { "type": "string" },
+        { "$ref": "#/$defs/tupleKey" }
+      ]
+    },
+
+    "tupleKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user", "relation", "object"],
+      "properties": {
+        "user": { "type": "string" },
+        "relation": { "type": "string" },
+        "object": { "type": "string" },
+        "condition": { "$ref": "#/$defs/tupleCondition" }
+      }
+    },
+
+    "tupleCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "context": { "type": "object" }
+      }
+    },
+
+    "checkCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assertions"],
+      "allOf": [
+        { "oneOf": [ { "required": ["user"] }, { "required": ["users"] } ] },
+        { "oneOf": [ { "required": ["object"] }, { "required": ["objects"] } ] }
+      ],
+      "properties": {
+        "user": { "type": "string" },
+        "users": { "type": "array", "items": { "type": "string" } },
+        "object": { "type": "string" },
+        "objects": { "type": "array", "items": { "type": "string" } },
+        "context": { "type": "object" },
+        "contextual_tuples": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/tupleItem" }
+        },
+        "assertions": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "type": "boolean" }
+        }
+      }
+    },
+
+    "listObjectsCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user", "type", "assertions"],
+      "properties": {
+        "user": { "type": "string" },
+        "type": { "type": "string" },
+        "context": { "type": "object" },
+        "assertions": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+
+    "listUsersCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["object", "user_filter", "assertions"],
+      "properties": {
+        "object": { "type": "string" },
+        "user_filter": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/userFilter" }
+        },
+        "context": { "type": "object" },
+        "assertions": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "$ref": "#/$defs/userExpectation" }
+        }
+      }
+    },
+
+    "userFilter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "type": "string" },
+        "relation": { "type": "string" }
+      }
+    },
+
+    "userExpectation": {
+      "oneOf": [
+        {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["users"],
+          "properties": {
+            "users": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

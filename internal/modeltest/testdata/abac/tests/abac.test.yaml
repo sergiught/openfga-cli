@@ -1,0 +1,23 @@
+tests:
+  - name: condition-satisfied
+    tuples:
+      - user: user:anne
+        relation: viewer
+        object: document:1
+        condition: {name: in_business_hours}
+    check:
+      - user: user:anne
+        object: document:1
+        context: {current_hour: 10}
+        assertions: {viewer: true}
+  - name: condition-not-satisfied
+    tuples:
+      - user: user:anne
+        relation: viewer
+        object: document:1
+        condition: {name: in_business_hours}
+    check:
+      - user: user:anne
+        object: document:1
+        context: {current_hour: 20}
+        assertions: {viewer: false}
