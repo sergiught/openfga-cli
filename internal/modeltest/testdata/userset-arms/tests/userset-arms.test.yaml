@@ -1,0 +1,36 @@
+fixtures: [grants]
+tests:
+  - name: exclusion-userset-subtrahend
+    check:
+      # carol is an owner AND a member of the suspended org (acme) → the
+      # userset subtrahend resolves TRUE, so can_delete is denied. Pre-fix the
+      # resolution tree left organization:acme#member unresolved (false), so
+      # the exclusion computed true and the root contradicted this verdict.
+      - user: user:carol
+        object: document:budget
+        assertions: {can_delete: false}
+      # erin is also an acme member → likewise denied.
+      - user: user:erin
+        object: document:budget
+        assertions: {can_delete: false}
+      # dave is an owner but NOT an acme member → subtrahend false → granted.
+      - user: user:dave
+        object: document:budget
+        assertions: {can_delete: true}
+  - name: intersection-userset-arm
+    check:
+      # dave is an owner AND a member of the privileged org → the userset arm
+      # resolves TRUE, so can_admin is granted. Pre-fix the tree left
+      # organization:privileged#member unresolved (false), so the intersection
+      # computed false and the root contradicted this granted verdict.
+      - user: user:dave
+        object: document:budget
+        assertions: {can_admin: true}
+      # erin is a member of privileged too → granted.
+      - user: user:erin
+        object: document:budget
+        assertions: {can_admin: true}
+      # carol is an owner but NOT a privileged member → arm false → denied.
+      - user: user:carol
+        object: document:budget
+        assertions: {can_admin: false}
