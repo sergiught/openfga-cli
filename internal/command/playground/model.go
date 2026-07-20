@@ -22,6 +22,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/dsl"
 	"github.com/sergiught/openfga-cli/internal/fga"
+	"github.com/sergiught/openfga-cli/internal/modeltest"
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/field"
 	"github.com/sergiught/openfga-cli/internal/ui/icons"
@@ -37,6 +38,11 @@ const modelTemplate = "model\n  schema 1.1\n\ntype user\n\ntype document\n  rela
 // row for our custom editor render.
 const editorNoWrapWidth = 10000
 
+// ephemeralProfileName labels the synthetic profile a seeded `--playground` run
+// is shown under, so the user can tell at a glance they're looking at throwaway
+// seeded data rather than one of their real, saved profiles.
+const ephemeralProfileName = "model-test (seeded)"
+
 type section int
 
 const (
@@ -48,9 +54,10 @@ const (
 	secQuery
 	secAssertions
 	secAPILogs
+	secTestResults
 )
 
-var sectionNames = []string{"Profiles", "Stores", "Model", "Tuples", "Changes", "Tuple Queries", "Assertions", "API Logs"}
+var sectionNames = []string{"Profiles", "Stores", "Model", "Tuples", "Changes", "Tuple Queries", "Assertions", "API Logs", "Tests"}
 
 // formKind identifies a full-panel form takeover.
 type formKind int
@@ -253,6 +260,19 @@ type Model struct {
 	profileEditName   string
 	profileAuthMethod string // auth method the open add/edit-profile form is built for
 
+	// A seeded playground run (`model test --playground`) targets a throwaway,
+	// in-process server. These fields describe that connection as a synthetic,
+	// clearly-labeled EPHEMERAL profile: it is shown as the active connection so
+	// the user knows they're on seeded data (not their real store), listed
+	// alongside their real profiles so they can switch back to it, and — being
+	// pure Model state, never in cli.Config — is never written to config.toml.
+	// ephemeralProfile is "" for an ordinary (non-seeded) playground run.
+	ephemeralProfile  string
+	ephemeralClient   *openfga.Client
+	ephemeralEndpoint string
+	ephemeralStoreID  string
+	ephemeralModelID  string
+
 	stores     []openfga.Store
 	storesList *uilist.List
 	// confirm holds the destructive action awaiting a confirmation modal, or nil
@@ -320,6 +340,11 @@ type Model struct {
 	// helpOpen shows the ? keybinding overlay.
 	helpOpen bool
 
+	// wb holds the Tests-workbench state: the parsed workspace behind a seeded
+	// `model test --playground` run, its file navigator tree, run results,
+	// coverage, and the "new test file" prompt. See the workbench type.
+	wb workbench
+
 	// DSL model editor
 	editorOpen    bool
 	editor        textarea.Model
@@ -328,6 +353,64 @@ type Model struct {
 	editorDiags   []dsl.Diagnostic
 	lastEditorDSL string // last DSL value diagnostics were computed for
 	modelDSL      string // DSL of the currently-loaded model, for edit pre-fill
+}
+
+// workbench is the Tests-section state for a seeded `model test --playground`
+// run: the parsed workspace, rendered as a file navigator tree (workbench.go)
+// with test files and their tests nested under them, plus run results,
+// coverage, and the "new test file" prompt.
+type workbench struct {
+	// workspace is the parsed test workspace behind a seeded run; files are its
+	// test files. results holds the tests injected by RunSeeded / produced by a
+	// hermetic run.
+	workspace *modeltest.Workspace
+	files     []*modeltest.TestFile
+	results   []modeltest.TestResult
+
+	// treeSel is a flat cursor over the visible selectable rows (file rows +
+	// test rows; the tests-dir header is a non-selectable label); see
+	// wbVisibleNodes. collapsed maps a file path to whether its tests are hidden
+	// (default expanded; lazily initialised).
+	treeSel   int
+	collapsed map[string]bool
+
+	// running is set while a hermetic run (r/R, see runSuiteCmd) is in flight,
+	// so the Tests body can show a spinner instead of the file/test list until
+	// the result lands.
+	running bool
+
+	// coverage is the coverage report from the last hermetic run (see
+	// runSuiteCmd, which always computes it), or nil before any run this
+	// session. showCoverage toggles ("c") whether the Tests section renders it
+	// in place of the usual file/test list. coverageErr is the reason the last
+	// run could not produce a report (see modeltest.Results.CoverageError) —
+	// e.g. a multi-model workspace has no single model to enumerate against —
+	// backing the "coverage unavailable: <reason>" hint on "c" when coverage is
+	// nil, distinguishing "not run yet" from "ran, but no coverage".
+	coverage     *modeltest.Coverage
+	showCoverage bool
+	coverageErr  string
+	// covScroll and detailScroll are the wheel-scroll offsets for the two
+	// capLines-capped Tests panes that aren't cursor lists: the coverage report
+	// (covScroll) and the verbose detail card below the tree (detailScroll). The
+	// mouse wheel scrolls them (see handleWheel); detailScroll resets to 0 on any
+	// selection change since the card's content follows the selected node.
+	covScroll    int
+	detailScroll int
+
+	// verbose toggles ("v") whether the Tests section stacks the selected
+	// node's explanation below the navigator tree. Off by default, so the tree
+	// renders full-width.
+	verbose bool
+
+	// "new test file" prompt: a single-line filename input opened by "n" from
+	// the Tests file list. newPromptInput holds the typed text; newPromptDir is
+	// the tests directory (relative to workspace.Root) resolved from the
+	// manifest's first tests: glob (or "tests" when there is none), shown
+	// alongside the input and used to build the target path on submit.
+	newPromptOpen  bool
+	newPromptInput string
+	newPromptDir   string
 }
 
 func newModel(ctx context.Context, cli *cli.CLI, cl *openfga.Client, storeID, modelID string) Model {
@@ -541,15 +624,90 @@ func Run(ctx context.Context, cli *cli.CLI) error {
 		}
 	}
 	m := newModel(ctx, cli, cl, r.StoreID, r.ModelID)
-	m.recorder = rec
 	m.bootNotice = bootNotice
+	return launch(ctx, cli, m, rec)
+}
+
+// launch applies the icon theme, wires the API-log recorder's repaint notify,
+// and runs the tea program for a fully-built model. Shared by Run and
+// RunSeeded. The program is bound to the interrupt-aware context so Ctrl-C /
+// SIGINT tears the TUI down cleanly and cancels any in-flight requests.
+func launch(ctx context.Context, cli *cli.CLI, m Model, rec *apilog.Recorder) error {
+	m.recorder = rec
 	icons.Apply(icons.Parse(cli.Config.IconsMode()))
-	// Bind the program to the interrupt-aware context so Ctrl-C / SIGINT tears
-	// the TUI down cleanly and cancels any in-flight requests it started.
 	p := tea.NewProgram(m, tea.WithContext(ctx))
-	rec.SetNotify(func() { p.Send(apiLogMsg{}) })
-	_, err = p.Run()
+	if rec != nil {
+		rec.SetNotify(func() { p.Send(apiLogMsg{}) })
+	}
+	_, err := p.Run()
 	return err
+}
+
+// SeedOptions configures RunSeeded: an SDK client already pointed at an
+// ephemeral endpoint (e.g. `model test --playground`), the seeded store/model ids,
+// optional test results to open on, and the endpoint string for a boot notice.
+type SeedOptions struct {
+	Client    *openfga.Client
+	StoreID   string
+	ModelID   string
+	Results   []modeltest.TestResult // may be empty (pure explore)
+	Endpoint  string                 // for a boot notice
+	Workspace *modeltest.Workspace   // parsed workspace behind this seed, for the workbench
+}
+
+// RunSeeded launches the playground against an injected, already-built client
+// (rather than one resolved from config), with any test results preloaded.
+// When results are present it opens on the Test Results section; otherwise it
+// opens on the default section. It never writes config.
+func RunSeeded(ctx context.Context, cli *cli.CLI, o SeedOptions) error {
+	m := newSeededModel(ctx, cli, o)
+	return launch(ctx, cli, m, apilog.NewRecorder(apiLogHistory))
+}
+
+// newSeededModel builds (but does not launch) the playground Model for a seeded
+// `--playground` run: an injected client pointed at an ephemeral in-process
+// server, presented under a clearly-labeled ephemeral profile. Split out from
+// RunSeeded so the construction is unit-testable without a TTY.
+func newSeededModel(ctx context.Context, cli *cli.CLI, o SeedOptions) Model {
+	// A seeded run targets an ephemeral server, never the active profile's real
+	// one. Setting the override URL is exactly the guard persistModel/persistStore
+	// check, so it keeps them from writing these ephemeral ids onto the saved
+	// profile's config.toml.
+	cli.Overrides.APIURL = o.Endpoint
+	m := newModel(ctx, cli, o.Client, o.StoreID, o.ModelID)
+	m.wb.results = o.Results
+	if o.Workspace != nil {
+		m.wb.workspace = o.Workspace
+		m.wb.files = o.Workspace.TestFiles
+	}
+	if len(o.Results) > 0 {
+		m.section = secTestResults
+		// Open the navigator on the first failing test's node (its file is
+		// expanded by default), so the most actionable test is highlighted the
+		// moment the panel opens; an all-pass suite lands on the first node.
+		m.wb.treeSel = 0
+		if failIdx := firstFailedTest(o.Results); !o.Results[failIdx].Passed {
+			m.wb.treeSel = m.wbNodeForTest(o.Results[failIdx].Name)
+		}
+		m.clampWbTreeSel()
+	}
+	// Present the seeded connection as a distinct EPHEMERAL profile and make it
+	// the active one, so the Profiles panel doesn't show the user's real saved
+	// profile as if it were full of seeded data. The ephemeral profile is pure
+	// Model state (never added to cli.Config), so it can never be written to
+	// config.toml — even if the user switches profiles mid-session.
+	m.ephemeralProfile = ephemeralProfileName
+	m.ephemeralClient = o.Client
+	m.ephemeralEndpoint = o.Endpoint
+	m.ephemeralStoreID = o.StoreID
+	m.ephemeralModelID = o.ModelID
+	m.profile = ephemeralProfileName
+	m.populateProfiles()
+	if o.Endpoint != "" {
+		m.apiURL = o.Endpoint
+		m.bootNotice = "seeded playground at " + o.Endpoint
+	}
+	return m
 }
 
 // --- sizing ---
@@ -667,15 +825,32 @@ func (m *Model) refreshResVP() {
 
 func (m *Model) populateProfiles() {
 	names := m.cli.Config.ProfileNames()
-	items := make([]uilist.Item, len(names))
-	for i, name := range names {
+	var items []uilist.Item
+	// A seeded (`--playground`) run prepends a synthetic ephemeral profile, so
+	// the user sees they're on throwaway seeded data — with a ✦ badge — rather
+	// than mistaking their real active profile for one now full of seeded rows.
+	// It lives only in this list (never in cli.Config), so it is never persisted.
+	if m.ephemeralProfile != "" {
+		desc := safeText(m.ephemeralEndpoint)
+		if m.ephemeralProfile == m.profile {
+			desc = "active · " + desc
+		}
+		items = append(items, uilist.Item{
+			TitleText: style.IconSpark + " " + safeText(m.ephemeralProfile),
+			DescText:  desc,
+			Filter:    safeText(m.ephemeralProfile),
+			ID:        m.ephemeralProfile,
+			Index:     len(items),
+		})
+	}
+	for _, name := range names {
 		p, _ := m.cli.Config.Get(name)
 		safeName := safeText(name)
 		desc := safeText(p.APIURL)
 		if name == m.profile {
 			desc = "active · " + desc
 		}
-		items[i] = uilist.Item{TitleText: safeName, DescText: desc, Filter: safeName, ID: name, Index: i}
+		items = append(items, uilist.Item{TitleText: safeName, DescText: desc, Filter: safeName, ID: name, Index: len(items)})
 	}
 	m.profilesList.SetItems(items)
 	m.profilesList.SelectID(m.profile)
@@ -1070,20 +1245,41 @@ func (m *Model) configSaveErrCmd(err error) tea.Cmd {
 
 // switchProfile makes name the active profile and reconnects to it.
 func (m *Model) switchProfile(name string) tea.Cmd {
+	// The ephemeral (seeded) profile isn't in cli.Config, so it can't be
+	// resolved or persisted the normal way; reconnect to its in-process server
+	// directly instead.
+	if name == m.ephemeralProfile {
+		if name == m.profile {
+			m.status = "already on " + name
+			return nil
+		}
+		return m.switchToEphemeral()
+	}
 	if name == m.profile && name == m.cli.Config.Active {
 		m.status = "already on profile " + name
 		return nil
 	}
 	prevOverride := m.cli.Overrides.Profile
 	m.cli.Overrides.Profile = name
+	// In a seeded session cli.Overrides.APIURL is pinned to the ephemeral
+	// endpoint (the guard that keeps seeded ids out of config). Switching to a
+	// real profile must actually reach that profile's own server, so lift the
+	// pin before resolving; restore it on any failure so a rolled-back switch
+	// leaves the ephemeral connection intact.
+	prevAPIURL := m.cli.Overrides.APIURL
+	if m.ephemeralProfile != "" {
+		m.cli.Overrides.APIURL = ""
+	}
 	r, cl, err := m.resolvedClient()
 	if err != nil {
 		m.cli.Overrides.Profile = prevOverride
+		m.cli.Overrides.APIURL = prevAPIURL
 		return m.toastErr("profile", err)
 	}
 	prevActive := m.cli.Config.Active
 	if err := m.cli.Config.Use(name); err != nil {
 		m.cli.Overrides.Profile = prevOverride
+		m.cli.Overrides.APIURL = prevAPIURL
 		return m.toastErr("profile", err)
 	}
 	if err := m.saveConfig(); err != nil {
@@ -1092,6 +1288,7 @@ func (m *Model) switchProfile(name string) tea.Cmd {
 		// failed save.
 		_ = m.cli.Config.Use(prevActive)
 		m.cli.Overrides.Profile = prevOverride
+		m.cli.Overrides.APIURL = prevAPIURL
 		return m.configSaveErrCmd(err)
 	}
 	// An explicit in-TUI switch is more recent than the process's initial
@@ -1101,6 +1298,21 @@ func (m *Model) switchProfile(name string) tea.Cmd {
 	m.cli.Overrides.Profile = name
 	m.profile = name
 	return m.activateResolved(r, cl, "switched to profile "+name)
+}
+
+// switchToEphemeral reconnects the seeded playground back to its throwaway,
+// in-process server, presenting it under the ephemeral profile. It re-pins the
+// API-URL override (the persist guard) and reuses the seeded client; it never
+// touches config on disk.
+func (m *Model) switchToEphemeral() tea.Cmd {
+	m.cli.Overrides.APIURL = m.ephemeralEndpoint
+	r := config.Resolved{
+		Profile: m.ephemeralProfile,
+		APIURL:  m.ephemeralEndpoint,
+		StoreID: m.ephemeralStoreID,
+		ModelID: m.ephemeralModelID,
+	}
+	return m.activateResolved(r, m.ephemeralClient, "switched to "+m.ephemeralProfile)
 }
 
 func (m *Model) resolvedClient() (config.Resolved, *openfga.Client, error) {

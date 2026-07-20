@@ -88,7 +88,7 @@ func (m Model) helpBody() string {
 	global := [][2]string{
 		{"tab / ↑↓", "move between tabs (from the tab bar)"},
 		{"↵ / esc", "enter the panel / return to the tabs"},
-		{"1–8", "jump to a section (1–5 rerun history in Tuple Queries)"},
+		{"1–9", "jump to a section (1–5 rerun history in Tuple Queries)"},
 		{"ctrl+k", "command palette"},
 		{"?", "toggle this help"},
 		{"q", "quit (from the tab bar)"},
@@ -121,6 +121,8 @@ func (m Model) helpBody() string {
 			{"x", "clear the log"},
 			{"wheel", "scroll list or body"},
 		}
+	case secTestResults:
+		section = [][2]string{{"↑↓ j/k", "move"}, {"↵/space", "expand file / show test explanation"}, {"n", "new test file"}, {"e", "edit test file"}, {"d", "delete test file"}, {"r", "run suite"}, {"R", "run selected file"}, {"c", "toggle coverage"}, {"v", "toggle explanation"}, {"esc", "back to sidebar"}}
 	}
 	render := func(rows [][2]string) string {
 		width := 0
@@ -183,6 +185,10 @@ func (m Model) dialogContent() (string, string) {
 		return "Confirm", body
 	case m.paletteOpen:
 		return "Command palette", m.paletteList.View() + "\n" + style.Faint.Render("↑↓ choose · enter go · esc close")
+	case m.wb.newPromptOpen:
+		return "New test file", style.Faint.Render("in "+safeText(m.wb.newPromptDir)+"/") +
+			"\n" + style.Value.Render("> "+safeText(m.wb.newPromptInput)) +
+			"\n\n" + style.Faint.Render("enter create · esc cancel")
 	case m.formKind == formCreateStore:
 		return "Create Store", m.form.View() + "\n" + style.Faint.Render("↵ create · esc cancel")
 	case m.formKind == formWriteTuple:
@@ -226,7 +232,7 @@ func (m Model) sidebarContext() []string {
 
 func (m Model) sidebarNav() []shell.NavItem {
 	ic := icons.I()
-	sectionIcons := []string{ic.Profile, ic.Store, ic.Model, ic.Tuple, ic.Change, ic.Query, ic.Assert, ic.APILog}
+	sectionIcons := []string{ic.Profile, ic.Store, ic.Model, ic.Tuple, ic.Change, ic.Query, ic.Assert, ic.APILog, ic.Check}
 	items := make([]shell.NavItem, len(sectionNames))
 	for i, name := range sectionNames {
 		it := shell.NavItem{Label: name, Icon: sectionIcons[i], Active: section(i) == m.section}
@@ -341,6 +347,8 @@ func (m Model) sectionBody() string {
 		body = m.assertionsBody()
 	case secAPILogs:
 		body = m.apiLogsBody()
+	case secTestResults:
+		body = m.testResultsBody()
 	}
 	if m.fading {
 		return style.Faint.Render(ansi.Strip(body))
@@ -407,6 +415,21 @@ func (m Model) profilePreview() (string, string) {
 	it, ok := m.profilesList.Selected()
 	if !ok {
 		return "", ""
+	}
+	// The ephemeral (seeded) profile isn't in cli.Config; render it from the
+	// Model's seeded-connection fields instead.
+	if it.ID == m.ephemeralProfile {
+		title := style.IconSpark + " " + safeText(m.ephemeralProfile)
+		if it.ID == m.profile {
+			title += "  · active"
+		}
+		rows := [][2]string{
+			{"API URL", m.ephemeralEndpoint},
+			{"Store", autoField(m.ephemeralStoreID)},
+			{"Model", autoField(m.ephemeralModelID)},
+			{"Auth", "ephemeral — seeded test server (not persisted)"},
+		}
+		return title, keyValueCard(rows)
 	}
 	p, ok := m.cli.Config.Get(it.ID)
 	if !ok {
@@ -661,16 +684,7 @@ func (m Model) queryBody() string {
 	// Trim to what actually fits, and flag that content was cut rather than
 	// dropping the bottom-most rows silently.
 	_, h := m.contentSize()
-	lines := strings.Split(b.String(), "\n")
-	if len(lines) > h {
-		if h > 1 {
-			lines = lines[:h-1]
-			lines = append(lines, style.Faint.Render("  ⋯ more — enlarge the window to see it"))
-		} else {
-			lines = lines[:h]
-		}
-	}
-	return strings.Join(lines, "\n")
+	return capLines(b.String(), h)
 }
 
 // renderResult renders the current query result inline, with no box. Badge
@@ -846,6 +860,12 @@ func (m Model) statusKeys() []string {
 		return []string{"ctrl+s save", "esc cancel"}
 	case m.section == secModel && m.editorOpen:
 		return []string{"ctrl+s apply", "esc cancel"}
+	case m.section == secTestResults && m.wb.newPromptOpen:
+		return []string{"↵ create", "esc cancel"}
+	case m.section == secTestResults && m.wb.running:
+		// The run isn't independently cancellable; make clear ctrl+c exits the
+		// whole playground rather than just the in-flight suite.
+		return []string{"running…", "ctrl+c quit"}
 	case m.section == secModel && m.modelPicking:
 		return []string{"↑↓ browse", "↵ select", "esc"}
 	case m.section == secQuery && m.editing:
@@ -857,7 +877,7 @@ func (m Model) statusKeys() []string {
 	}
 	// Sidebar (tab selection) focus: browse tabs, enter to descend.
 	if m.focus == shell.FocusSidebar {
-		return []string{"↑↓/tab", "↵ open", "1-8 jump", "ctrl+k palette", "q quit"}
+		return []string{"↑↓/tab", "↵ open", "1-9 jump", "ctrl+k palette", "q quit"}
 	}
 	// Panel focus: section-specific keys, esc back to the tabs.
 	switch m.section {
@@ -877,6 +897,8 @@ func (m Model) statusKeys() []string {
 		return []string{"↑↓", "↵ run", "a add", "e edit", "d delete", "t run all", m.compactHint(), "esc"}
 	case secAPILogs:
 		return []string{"↑↓ list", "tab section", "j down/k up", "←→ url", "c fmt", "x clear", "esc"}
+	case secTestResults:
+		return []string{"↑↓ select", "↵/space expand", "n new", "e edit", "d delete", "r run", "R run file", m.coverageHint(), m.verboseHint(), "esc"}
 	}
 	return nil
 }
@@ -888,6 +910,27 @@ func (m Model) compactHint() string {
 		return "v detail"
 	}
 	return "v compact"
+}
+
+// coverageHint labels the "c" toggle on the Tests section: what pressing it
+// does depends on whether a coverage report exists yet.
+func (m Model) coverageHint() string {
+	if m.wb.coverage == nil {
+		return "c coverage (run first)"
+	}
+	if m.wb.showCoverage {
+		return "c hide coverage"
+	}
+	return "c coverage"
+}
+
+// verboseHint labels the "v" toggle on the Tests section: it offers the mode
+// you would switch to, not the one you are in.
+func (m Model) verboseHint() string {
+	if m.wb.verbose {
+		return "v hide explain"
+	}
+	return "v explain"
 }
 
 // graphViewHint labels the "v" toggle on the model pane, offering the view you
