@@ -1178,6 +1178,12 @@ func TestWorkbenchEditPathTraversalBlocked(t *testing.T) {
 			}
 		})
 	}
+
+	// An empty root must be rejected outright: it would otherwise clean to "."
+	// and admit paths relative to the working directory.
+	if withinRoot("", inside) {
+		t.Error(`withinRoot("", …) = true, want false for an empty root`)
+	}
 }
 
 // wbFileIndexByBase returns the index into files whose Path's base name is

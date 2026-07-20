@@ -558,6 +558,10 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.wb.running = false
 		if msg.err != nil {
 			m.status = "run failed: " + errStr(msg.err)
+			// The previous run's coverage is now stale; force the view off and
+			// reset its scroll so a failure doesn't keep rendering an old report.
+			m.wb.showCoverage = false
+			m.wb.covScroll = 0
 			return m, m.toasts.Push(toast.Error, m.status)
 		}
 		m.wb.results = msg.results.Tests

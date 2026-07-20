@@ -262,8 +262,9 @@ func editorCommand() (string, []string) {
 // is already on disk, and the re-run surfaces the failing/erroring test.
 func (m *Model) handleTestFileEdited(msg testFileEditedMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
-		m.status = "editor: " + msg.err.Error()
-		return *m, nil
+		// The Tests footer doesn't render status text, so surface the launch
+		// failure as a toast or it would be invisible.
+		return *m, m.wbStatus(toast.Error, "editor: "+msg.err.Error())
 	}
 	status := "saved " + filepath.Base(msg.path)
 	var warn string // a durable toast for a bad save, which the async re-run's status would otherwise bury
@@ -307,8 +308,9 @@ func (m *Model) handleTestFileEdited(msg testFileEditedMsg) (tea.Model, tea.Cmd)
 func (m Model) openWorkbenchEditor() (tea.Model, tea.Cmd) {
 	tf, _, ok := m.wbSelectedFile()
 	if m.wb.workspace == nil || !ok {
-		m.status = "no test file to edit"
-		return m, nil
+		// Surface via toast — the Tests footer doesn't render status text, so
+		// otherwise pressing `e` here would appear to do nothing.
+		return m, m.wbStatus(toast.Info, "no test file to edit")
 	}
 	editor, args := editorCommand()
 	if editor == "" {
@@ -426,7 +428,22 @@ func (m Model) submitWorkbenchNewPrompt() (tea.Model, tea.Cmd) {
 // path-safety guard before creating or deleting a test file, so a crafted
 // filename can never escape the workspace directory.
 func withinRoot(root, path string) bool {
-	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(path))
+	// An empty root cleans to "." (the cwd), which would let a seeded/injected
+	// workspace with Root=="" pass the guard relative to the working directory —
+	// reject it outright. Normalize both sides to absolute so a mix of relative
+	// and absolute inputs compares correctly.
+	if root == "" {
+		return false
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(absRoot, absPath)
 	if err != nil {
 		return false
 	}

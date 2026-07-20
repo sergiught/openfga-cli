@@ -66,7 +66,15 @@ func capLinesAt(body string, off, h int) string {
 		return body
 	}
 	if h == 1 {
-		return lines[0]
+		// A single-row pane still scrolls: honor the offset instead of pinning
+		// to the first line.
+		if off > len(lines)-1 {
+			off = len(lines) - 1
+		}
+		if off < 0 {
+			off = 0
+		}
+		return lines[off]
 	}
 	max := len(lines) - h
 	if off > max {
