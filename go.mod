@@ -14,7 +14,7 @@ require (
 	github.com/charmbracelet/harmonica v0.2.0
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/charmbracelet/x/term v0.2.2
-	github.com/fsnotify/fsnotify v1.9.0
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0
 	github.com/lucasb-eyer/go-colorful v1.4.0
@@ -30,7 +30,7 @@ require (
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sys v0.47.0
-	google.golang.org/grpc v1.81.1
+	google.golang.org/grpc v1.82.1
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
 )
