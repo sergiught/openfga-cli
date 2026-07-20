@@ -192,7 +192,7 @@ func (c *Command) testCmd() *cobra.Command {
 			}
 			if err != nil {
 				if openfgaImage != "" && isDockerUnreachable(err) {
-					return clierr.WithCode(clierr.CodeUsage, errors.New("Docker isn't reachable — start Docker, or drop --openfga-image to use the embedded server"))
+					return clierr.WithCode(clierr.CodeUsage, errors.New("cannot reach Docker — start Docker, or drop --openfga-image to use the embedded server"))
 				}
 				return fmt.Errorf("start engine: %w", err)
 			}
