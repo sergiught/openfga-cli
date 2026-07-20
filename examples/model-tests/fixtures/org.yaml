@@ -1,0 +1,6 @@
+# Organization membership. anne and carol are members of Acme; anne also admins.
+# Tuples may use the compact "user relation object" form; documents.yaml shows
+# the mapping form, which is needed for conditioned tuples.
+- user:anne member organization:acme
+- user:carol member organization:acme
+- user:anne admin organization:acme

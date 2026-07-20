@@ -1,0 +1,94 @@
+# Union + computed userset + tuple-to-userset (TTU) inheritance.
+# Access granted on a folder flows down to child folders and documents.
+fixtures: [org, documents]
+tests:
+  - name: folder-direct-grants
+    description: Direct owner/viewer grants on the root folder.
+    check:
+      - user: user:anne
+        object: folder:root
+        assertions: {owner: true, editor: true, viewer: true}
+      - user: user:erin
+        object: folder:root
+        assertions: {owner: false, editor: false, viewer: true}
+
+  - name: folder-inherits-from-parent
+    description: eng's parent is root, so root's members flow into eng via TTU.
+    check:
+      - user: user:dave
+        object: folder:eng
+        assertions: {viewer: true}
+      - user: user:erin
+        object: folder:eng
+        assertions: {owner: false, viewer: true}
+      - user: user:anne
+        object: folder:eng
+        assertions: {editor: true, viewer: true}
+      - user: user:bob
+        object: folder:eng
+        assertions: {owner: true, editor: true, viewer: true}
+
+  - name: document-inherits-from-folder
+    description: roadmap's parent is eng, so eng access flows into the document.
+    check:
+      - user: user:bob
+        object: document:roadmap
+        assertions: {owner: true, editor: true, viewer: true}
+      - user: user:anne
+        object: document:roadmap
+        assertions: {owner: false, editor: true, viewer: true}
+      - user: user:dave
+        object: document:roadmap
+        assertions: {editor: false, viewer: true}
+      - user: user:erin
+        object: document:roadmap
+        assertions: {editor: false, viewer: true}
+      - user: user:carol
+        object: document:roadmap
+        assertions: {owner: false, editor: false, viewer: false}
+
+  - name: list-objects-anne-access
+    description: Which documents anne can reach, per relation.
+    list_objects:
+      - user: user:anne
+        type: document
+        assertions:
+          owner: [document:memo]
+          editor: [document:roadmap, document:memo]
+          viewer: [document:roadmap, document:memo]
+
+  - name: list-users-roadmap
+    description: Who holds editor/owner on the roadmap.
+    list_users:
+      - object: document:roadmap
+        user_filter: [{type: user}]
+        assertions:
+          owner:
+            users: [user:bob]
+          editor:
+            users: [user:bob, user:anne]
+
+  - name: structural-relations
+    description: Resolve the parent links and organization membership directly so
+      branch coverage credits those relations too.
+    # A direct folder editor, seeded for this test only, so grant-based coverage
+    # credits folder.editor's direct:user arm — which owner/inheritance grants
+    # never exercise.
+    tuples:
+      - user:grace editor folder:eng
+    check:
+      - user: user:grace
+        object: folder:eng
+        assertions: {editor: true}
+      - user: folder:root
+        object: folder:eng
+        assertions: {parent: true}
+      - user: folder:eng
+        object: document:roadmap
+        assertions: {parent: true}
+      - user: user:anne
+        object: organization:acme
+        assertions: {member: true, admin: true}
+      - user: user:carol
+        object: organization:acme
+        assertions: {member: true, admin: false}

@@ -1,0 +1,54 @@
+# Folder hierarchy:
+#   folder:root  (owner anne, viewer erin)
+#     └── folder:eng  (owner bob, viewer dave)
+#
+# Documents:
+#   document:roadmap  (parent folder:eng, owner bob, conditioned viewer frank)
+#   document:budget   (owner carol, suspended for Acme members)
+#   document:memo     (owner anne)
+
+# --- folders ---
+- user: user:anne
+  relation: owner
+  object: folder:root
+- user: user:erin
+  relation: viewer
+  object: folder:root
+
+- user: folder:root
+  relation: parent
+  object: folder:eng
+- user: user:bob
+  relation: owner
+  object: folder:eng
+- user: user:dave
+  relation: viewer
+  object: folder:eng
+
+# --- documents ---
+- user: folder:eng
+  relation: parent
+  object: document:roadmap
+- user: user:bob
+  relation: owner
+  object: document:roadmap
+# frank is a viewer of the roadmap only while his time-boxed grant is valid.
+- user: user:frank
+  relation: viewer
+  object: document:roadmap
+  condition:
+    name: non_expired_grant
+    context:
+      grant_expiry: "2026-12-31T23:59:59Z"
+
+- user: user:carol
+  relation: owner
+  object: document:budget
+# Acme members are suspended from deleting the budget doc.
+- user: organization:acme#member
+  relation: org_suspended
+  object: document:budget
+
+- user: user:anne
+  relation: owner
+  object: document:memo
