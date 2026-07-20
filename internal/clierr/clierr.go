@@ -19,9 +19,9 @@ import (
 // Process exit codes. Scripts and CI can branch on these instead of parsing
 // stderr text.
 const (
-	CodeError      = 1   // generic runtime failure
+	CodeError      = 1   // generic runtime failure (load/parse errors, I/O, etc.)
 	CodeUsage      = 2   // bad invocation (unknown flag, wrong arg count)
-	CodeTestFailed = 3   // `assertions test` ran and some assertions failed
+	CodeTestFailed = 3   // `model test` ran and some tests failed or coverage fell below --coverage-min
 	CodeNetwork    = 4   // could not reach the OpenFGA server
 	CodeCanceled   = 130 // interrupted (Ctrl-C); 128 + SIGINT
 )
@@ -41,6 +41,26 @@ func WithCode(code int, err error) error {
 		return nil
 	}
 	return &Coded{C: code, Err: err}
+}
+
+// errSilent is the sentinel carried by Silent errors; its message is never
+// shown to the user (main exits early on IsSilent), so it only surfaces in
+// debug logs.
+var errSilent = errors.New("(handled)")
+
+// Silent tags an exit code for a failure the command has already reported to
+// the user (e.g. a model-test "N/Total test(s) failed" summary line). main
+// honors the exit code but prints nothing further, so the summary is not
+// duplicated. Use WithCode instead when the error carries a message the user
+// still needs to see.
+func Silent(code int) error {
+	return &Coded{C: code, Err: errSilent}
+}
+
+// IsSilent reports whether err is a Silent error whose message was already
+// surfaced to the user and should not be printed again.
+func IsSilent(err error) bool {
+	return errors.Is(err, errSilent)
 }
 
 // Code resolves the exit code for err: an explicit Coded wins, then an

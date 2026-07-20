@@ -138,3 +138,20 @@ func TestFriendlyTokenEndpoint(t *testing.T) {
 		})
 	}
 }
+
+func TestSilent(t *testing.T) {
+	err := Silent(CodeTestFailed)
+	if !IsSilent(err) {
+		t.Error("IsSilent(Silent(CodeTestFailed)) = false, want true")
+	}
+	if got := Code(err); got != CodeTestFailed {
+		t.Errorf("Code(Silent(CodeTestFailed)) = %d, want %d", got, CodeTestFailed)
+	}
+	if IsSilent(errors.New("plain")) {
+		t.Error("IsSilent(plain error) = true, want false")
+	}
+	// Wrapping preserves the silent sentinel.
+	if !IsSilent(fmt.Errorf("wrapped: %w", Silent(CodeError))) {
+		t.Error("IsSilent(wrapped Silent) = false, want true")
+	}
+}

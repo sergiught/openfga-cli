@@ -206,10 +206,61 @@ func TestEmitPicksJSONOrYAML(t *testing.T) {
 	}
 }
 
-func TestErrorfNotSuppressedByQuiet(t *testing.T) {
+func TestWarnfAndNotefPrintDotAndMessage(t *testing.T) {
+	Plain = false
+	Quiet = false
+
+	for _, tc := range []struct {
+		name string
+		fn   func(*bytes.Buffer)
+	}{
+		{"Warnf", func(b *bytes.Buffer) { Warnf(b, "heads up %d", 2) }},
+		{"Notef", func(b *bytes.Buffer) { Notef(b, "heads up %d", 2) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var b bytes.Buffer
+			tc.fn(&b)
+			if !strings.Contains(b.String(), "heads up 2") {
+				t.Fatalf("%s output missing message: %q", tc.name, b.String())
+			}
+			if !strings.Contains(b.String(), "●") {
+				t.Fatalf("%s output missing dot: %q", tc.name, b.String())
+			}
+		})
+	}
+}
+
+func TestTrailingPadStripsSpacesBeforeReset(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"abc   ", "abc"},                             // no ANSI: plain trim
+		{"abc", "abc"},                                // nothing to trim
+		{"abc   \x1b[0m", "abc\x1b[0m"},               // padding before a reset
+		{"\x1b[1mabc   \x1b[0m", "\x1b[1mabc\x1b[0m"}, // styled header cell
+		{"abc \x1b[1m\x1b[0m", "abc\x1b[1m\x1b[0m"},   // multiple trailing sequences
+	} {
+		if got := trailingPad.ReplaceAllString(tc.in, "${1}"); got != tc.want {
+			t.Errorf("trailingPad(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestWarnfAndNotefSuppressedByQuiet(t *testing.T) {
+	defer func(p, q bool) { Plain, Quiet = p, q }(Plain, Quiet)
 	Plain = false
 	Quiet = true
-	defer func() { Quiet = false }()
+
+	var b bytes.Buffer
+	Warnf(&b, "warn")
+	Notef(&b, "note")
+	if b.Len() != 0 {
+		t.Fatalf("Warnf/Notef should be silent under Quiet, got %q", b.String())
+	}
+}
+
+func TestErrorfNotSuppressedByQuiet(t *testing.T) {
+	defer func(p, q bool) { Plain, Quiet = p, q }(Plain, Quiet)
+	Plain = false
+	Quiet = true
 
 	var b bytes.Buffer
 	Errorf(&b, "boom %d", 1)

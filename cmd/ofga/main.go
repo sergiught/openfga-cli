@@ -107,6 +107,12 @@ func main() {
 			output.Errorf(root.ErrWriter(), "canceled")
 			os.Exit(clierr.CodeCanceled)
 		}
+		if clierr.IsSilent(err) {
+			// The command already printed its own human summary (e.g. model
+			// test's "N/Total test(s) failed" line); honor the exit code without
+			// printing a second, redundant message or hint.
+			os.Exit(clierr.Code(err))
+		}
 		output.Errorf(root.ErrWriter(), "%s", clierr.Friendly(err))
 		code := clierr.Code(err)
 		if !root.RanCommand() || code == clierr.CodeUsage {
