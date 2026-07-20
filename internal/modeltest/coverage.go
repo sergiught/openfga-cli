@@ -423,8 +423,8 @@ func branchCovered(b branchDef, out *relOutcome) bool {
 	if out == nil {
 		return false
 	}
-	switch {
-	case b.Kind == "condition":
+	switch b.Kind {
+	case "condition":
 		// Label is "condition:<name>=true" / "=false"; credit only if that named
 		// condition was evaluated to the matching outcome on a direct-member leaf.
 		if name, ok := strings.CutSuffix(b.Label, "=true"); ok {
@@ -432,7 +432,7 @@ func branchCovered(b branchDef, out *relOutcome) bool {
 		}
 		name := strings.TrimSuffix(b.Label, "=false")
 		return out.condFalse[strings.TrimPrefix(name, "condition:")]
-	case b.Kind == "difference-subtract":
+	case "difference-subtract":
 		return out.subtract || out.listSeen
 	default:
 		return out.granted[b.Label] || out.listSeen

@@ -300,11 +300,11 @@ func computeArmGrants(root *fga.ResNode, user string, check func(user, relation,
 func creditDirectLeaf(n *fga.ResNode, user, userType, key string, credit func(key, label string), check func(user, relation, object string) bool) {
 	matched := false
 	for _, u := range n.Users {
-		switch {
-		case u == user:
+		switch u {
+		case user:
 			credit(key, "direct:"+idType(u))
 			matched = true
-		case u == userType+":*":
+		case userType + ":*":
 			credit(key, "wildcard:"+userType)
 			matched = true
 		}
