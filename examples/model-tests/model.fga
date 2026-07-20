@@ -1,0 +1,44 @@
+model
+  schema 1.1
+
+# A document-management authorization model for the "Acme" workspace.
+#
+# It deliberately exercises every OpenFGA rewrite form so that coverage
+# reports and failure explanations have something to show:
+#   - direct assignment            [user]
+#   - conditioned direct type      [user with non_expired_grant]
+#   - union                        a or b
+#   - computed userset             owner  (referenced from another relation)
+#   - tuple-to-userset (TTU)       viewer from parent
+#   - exclusion / but-not          owner but not org_suspended
+#   - ABAC condition               non_expired_grant(...)
+
+type user
+
+type organization
+  relations
+    define member: [user]
+    define admin: [user]
+
+type folder
+  relations
+    define parent: [folder]
+    define owner: [user]
+    # editor exists on folder so a document's "editor from parent" TTU is valid.
+    define editor: [user] or owner or editor from parent
+    define viewer: [user] or owner or viewer from parent
+
+type document
+  relations
+    define parent: [folder]
+    # org_suspended is populated by an organization#member userset, giving the
+    # can_delete but-not a real subtracted arm.
+    define org_suspended: [organization#member]
+    define owner: [user]
+    define editor: [user] or owner or editor from parent
+    define viewer: [user, user with non_expired_grant] or editor or viewer from parent
+    define can_delete: owner but not org_suspended
+
+condition non_expired_grant(current_time: timestamp, grant_expiry: timestamp) {
+  current_time < grant_expiry
+}

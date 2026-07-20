@@ -1,0 +1,37 @@
+# Exclusion (but-not): can_delete = owner but not org_suspended.
+# Members of a suspended organization lose delete rights even when they own.
+fixtures: [org, documents]
+tests:
+  - name: owner-can-delete-when-not-suspended
+    description: memo and roadmap have no suspension, so their owners can delete.
+    check:
+      - user: user:anne
+        object: document:memo
+        assertions: {owner: true, can_delete: true}
+      - user: user:bob
+        object: document:roadmap
+        assertions: {owner: true, can_delete: true}
+
+  - name: suspended-owner-cannot-delete
+    description: carol owns the budget but is an Acme member, and Acme members are
+      suspended for that document, so the but-not arm removes her delete right.
+    check:
+      - user: user:carol
+        object: document:budget
+        assertions: {owner: true, viewer: true, can_delete: false}
+
+  - name: non-owner-cannot-delete
+    description: can_delete requires ownership to begin with.
+    check:
+      - user: user:dave
+        object: document:memo
+        assertions: {owner: false, can_delete: false}
+
+  - name: list-users-suspended-org
+    description: org_suspended is filled by an organization#member userset.
+    list_users:
+      - object: document:budget
+        user_filter: [{type: organization, relation: member}]
+        # flat form, parallel to list_objects (the {users: [...]} wrapper also works)
+        assertions:
+          org_suspended: [organization:acme#member]

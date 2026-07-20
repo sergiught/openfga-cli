@@ -78,6 +78,7 @@ func (c *Command) RegisterSubCommands() {
 		c.getCmd(),
 		c.latestCmd(),
 		c.graphCmd(),
+		c.testCmd(),
 	)
 }
 

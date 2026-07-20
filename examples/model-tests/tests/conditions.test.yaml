@@ -1,0 +1,38 @@
+# ABAC conditions and inline / contextual tuples.
+# frank is a viewer of the roadmap only while his time-boxed grant is valid
+# (grant_expiry lives on the fixture tuple; current_time comes from the check).
+fixtures: [org, documents]
+tests:
+  - name: grant-valid-viewer-allowed
+    description: current_time is before grant_expiry, so the condition passes.
+    check:
+      - user: user:frank
+        object: document:roadmap
+        context: {current_time: "2026-06-01T00:00:00Z"}
+        assertions: {viewer: true}
+
+  - name: grant-expired-viewer-denied
+    description: current_time is after grant_expiry, so the condition fails.
+    check:
+      - user: user:frank
+        object: document:roadmap
+        context: {current_time: "2027-06-01T00:00:00Z"}
+        assertions: {viewer: false}
+
+  - name: inline-and-contextual-tuples
+    description: Per-test tuples add state on top of the fixtures; contextual
+      tuples exist only for the check they are attached to.
+    tuples:
+      - {user: user:gwen, relation: owner, object: document:memo}
+    check:
+      - user: user:gwen
+        object: document:memo
+        assertions: {owner: true, editor: true, viewer: true, can_delete: true}
+      - user: user:heidi
+        object: document:memo
+        contextual_tuples:
+          - {user: user:heidi, relation: owner, object: document:memo}
+        assertions: {owner: true, can_delete: true}
+      - user: user:heidi
+        object: document:memo
+        assertions: {owner: false}
