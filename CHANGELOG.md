@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.266.0](https://github.com/sergiught/openfga-cli/compare/v0.265.1...v0.266.0) (2026-07-21)
+
+
+### Features
+
+* **cli:** shared output, style & exit-code helpers for test tooling ([#34](https://github.com/sergiught/openfga-cli/issues/34)) ([0daf94f](https://github.com/sergiught/openfga-cli/commit/0daf94fff6ae1b5abbe2ac4174be25d638dfd572))
+* **fga:** expose resolution trace for explainability ([#35](https://github.com/sergiught/openfga-cli/issues/35)) ([2848435](https://github.com/sergiught/openfga-cli/commit/2848435e0f81f5ae4b02959938568aa509a27ef9))
+* **init:** replace prompts with a guided bubbletea tour ([#29](https://github.com/sergiught/openfga-cli/issues/29)) ([cec15c9](https://github.com/sergiught/openfga-cli/commit/cec15c927f2f43a1b6b554447a3e068ee57328b5))
+* **model:** add `model test` command + example workspace ([#38](https://github.com/sergiught/openfga-cli/issues/38)) ([b1aa14f](https://github.com/sergiught/openfga-cli/commit/b1aa14fae81539e78a7fb792888dc4d48d861a79))
+* **model:** show DSL by default for get and latest ([#31](https://github.com/sergiught/openfga-cli/issues/31)) ([069309d](https://github.com/sergiught/openfga-cli/commit/069309dcd3d46e276155041018dd3f7d183ed5ff))
+* **modeltest:** authorization-model test engine ([#36](https://github.com/sergiught/openfga-cli/issues/36)) ([c7e7327](https://github.com/sergiught/openfga-cli/commit/c7e732714bc8836a4632ab094dec3552415c0e2a))
+* **playground:** click to toggle full tree / ACL path in the resolution view ([#43](https://github.com/sergiught/openfga-cli/issues/43)) ([5056f65](https://github.com/sergiught/openfga-cli/commit/5056f65c90ca34a5a43d08bf60f95eed4b1fd4fd))
+* **playground:** explore model-test results in the TUI ([#37](https://github.com/sergiught/openfga-cli/issues/37)) ([a5dba81](https://github.com/sergiught/openfga-cli/commit/a5dba8169446ae75761a6d046ac6ef630440e2bd))
+
+
+### Bug fixes
+
+* **model:** harden model test reliability and DX ([#42](https://github.com/sergiught/openfga-cli/issues/42)) ([5e03b99](https://github.com/sergiught/openfga-cli/commit/5e03b998793bc0614127fe5166a855546a2dd868))
+* **playground:** add OAuth scopes field to client-credentials profile form ([#32](https://github.com/sergiught/openfga-cli/issues/32)) ([49f74ad](https://github.com/sergiught/openfga-cli/commit/49f74adc103fefdf26a56b3fc169ee3143e53655))
+
 ## [0.265.1](https://github.com/sergiught/openfga-cli/compare/v0.265.0...v0.265.1) (2026-07-18)
 
 
