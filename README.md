@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/banner.svg" alt="openfga-cli — a modern CLI &amp; TUI for OpenFGA" width="100%">
+<img src="examples/playground.gif" alt="ofga — the interactive OpenFGA playground TUI" width="900">
 
 # ofga
 
@@ -21,10 +21,6 @@ Manage stores, authorization models, relationship tuples, and run checks from yo
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-fa6673.svg)](https://www.conventionalcommits.org)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
-
-<p align="center">
-  <img src="examples/playground.gif" alt="ofga playground TUI demo" width="800">
-</p>
 
 ---
 
