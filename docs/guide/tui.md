@@ -9,7 +9,7 @@ staging playground` opens staging without changing the saved default. Profile,
 store, and model switches made inside the playground are reflected immediately
 in its footer and subsequent actions.
 
-**Sections** (switch with `tab`, the number keys `1`–`8`, `ctrl+k` for the command palette, or **click a tab**): Profiles · Stores · Model · Tuples · Changes · Tuple Queries · Assertions · API Logs.
+**Sections** (switch with `tab`, the number keys `1`–`9`, `ctrl+k` for the command palette, or **click a tab**): Profiles · Stores · Model · Tuples · Changes · Tuple Queries · Assertions · API Logs · Tests.
 
 **Highlights**
 
