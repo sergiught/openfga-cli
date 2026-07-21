@@ -21,8 +21,8 @@ ofga model test --coverage-diff main
 ```
 
 Both exit `3` when the gate trips (a failing test, coverage below the
-threshold, or an untested branch added since `main`) and `0` otherwise — a
-plain non-zero exit is enough to fail a CI step, no extra plumbing needed.
+threshold, or an untested branch added since `main`) and `0` otherwise. Any CI
+runner that stops on a non-zero exit will catch it.
 
 ## Scripting authorization checks
 
