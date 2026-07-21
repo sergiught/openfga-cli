@@ -1,9 +1,9 @@
 # Testing authorization models
 
 `ofga model test` runs a workspace of authorization-model tests against a
-hermetic, **embedded** OpenFGA server — no Docker container, no real store,
-no profile involved. Each run gets a disposable in-memory server and a fresh
-store, so testing never touches anything you're actually connected to.
+hermetic, **embedded** OpenFGA server, isolated from Docker, real stores, and
+profiles. Each run gets a disposable in-memory server and a fresh store, so
+testing never touches anything you're actually connected to.
 
 ![ofga model test --coverage](../../examples/model-test.gif)
 
@@ -14,7 +14,7 @@ store, so testing never touches anything you're actually connected to.
 *`ofga model test --playground` opens the results in the playground's Tests tab, with in-TUI coverage.*
 
 New here? `ofga model test init` scaffolds a runnable workspace (a manifest, a
-small model, a fixture, and a passing test) in the current directory — run
+small model, a fixture, and a passing test) in the current directory. Run
 `ofga model test` in it to see a green run and learn the format.
 
 ### Workspace layout
@@ -47,7 +47,7 @@ unique, or by its workspace-relative path (`teams/acme/grants`) when directories
 contain duplicate basenames. Test identities use the same relative convention,
 so `teams/acme/access.test.yaml` is selected as `teams/acme/access/*`. In the
 manifest and at the top of a test file, `fixtures:` and `tuples:` are
-interchangeable keywords for the same list — use whichever reads better.
+interchangeable keywords for the same list. Use whichever reads better.
 
 The manifest may also carry an optional `server:` map that tunes the embedded
 server before the tests run. Supported keys are `list_objects_max_results`,
@@ -81,7 +81,7 @@ tests:
         assertions: {viewer: true}
 ```
 
-Each test can also declare its own `fixtures:` and `tuples:` (interchangeable —
+Each test can also declare its own `fixtures:` and `tuples:` (interchangeable:
 each entry is a fixture reference or an inline tuple), and assert with
 `list_objects`/`list_users` blocks alongside `check`. A tuple may be written as
 a mapping (`{user: user:anne, relation: viewer, object: doc:1}`) or in the
@@ -144,9 +144,9 @@ ofga model test --coverage-diff main          # fail on newly-added, untested br
 ```
 
 `--coverage` prints a per-type coverage table tracking rewrite-rule branch
-coverage. Coverage is **grant-based**: a rewrite branch — a direct/wildcard
+coverage. Coverage is **grant-based**: a rewrite branch (a direct/wildcard
 type, a computed or tuple-to-userset arm, a `but not` exclusion, or an ABAC
-condition outcome — counts as covered only when a `check` assertion showed that
+condition outcome) counts as covered only when a `check` assertion showed that
 specific arm *granting*. So an arm you never exercise stays uncovered even if its
 relation is otherwise tested (e.g. `viewer: [user] or owner` tested only via an
 owner shows `direct:user` uncovered until a direct viewer is checked). ABAC
@@ -156,7 +156,7 @@ credit at relation granularity; empty denial results add no grant coverage.
 Use `check` assertions for precise per-arm coverage.
 `--coverage-detail` adds full per-branch detail to the human
 report. `--coverage-min` fails the run (exit `3`) if coverage falls short of the
-given percentage — wire that into CI.
+given percentage. Wire that into CI.
 
 If a model contains a relation the coverage engine cannot enumerate, the JSON
 report sets `coverage.complete` to `false`, the human report names the
@@ -164,14 +164,14 @@ unreachable relation, and the command exits non-zero rather than publishing a
 misleading 100% score.
 
 `--coverage-diff <git-ref>` compares the model against that ref and fails
-(exit `3`) if your change **added** a branch that no test exercises — matching
+(exit `3`) if your change **added** a branch that no test exercises, matching
 the same relation granularity: it catches branches under an entirely-untested
 relation and newly-added untested condition outcomes. It's the "don't merge an
 untested authorization branch" gate for PRs.
 
 By default tests run against a hermetic **embedded** OpenFGA server (no Docker,
-microsecond startup). To test against a **specific server version** instead —
-catching version-to-version behavior differences — point it at Docker or a
+microsecond startup). To test against a **specific server version** instead
+(catching version-to-version behavior differences), point it at Docker or a
 running server:
 
 ```bash
@@ -209,11 +209,11 @@ ofga model test --playground
 server over HTTP and opens the interactive playground against a failing test's
 seeded world (falling back to the first test when everything passes) so you can
 explore and drill into every result. The seeded data is shown under a clearly
-labeled ephemeral profile (`✦ model-test (seeded)`) — your real profiles stay
+labeled ephemeral profile (`✦ model-test (seeded)`). Your real profiles stay
 listed and switchable, and nothing about the seeded run is ever written to your
 config. With `--no-tui` (or no TTY) it prints a note and skips the TUI.
 
-Try it against the example workspace shipped in this repo — a documented,
+Try it against the example workspace shipped in this repo: a documented,
 13-test suite covering inheritance, exclusion, and ABAC conditions (see
 [`examples/model-tests/`](../../examples/model-tests) and its README):
 

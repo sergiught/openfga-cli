@@ -30,7 +30,7 @@ the reported count as already committed.
 > **Note:** `ofga tuples read`, `ofga tuples changes`, `ofga stores list`, and
 > `ofga model list` auto-paginate and return **all** rows by default
 > (`--page-size` only sets the per-request page size, not a total cap). Against
-> a large store that can be a lot of output—cap it with `--max-results`
+> a large store that can be a lot of output: cap it with `--max-results`
 > (alias `--limit`), or pipe through `head` or `--json | jq`.
 
 ```bash

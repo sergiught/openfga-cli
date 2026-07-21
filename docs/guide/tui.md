@@ -13,11 +13,11 @@ in its footer and subsequent actions.
 
 **Highlights**
 
-- 🎨 **Model graph** — the authorization model rendered as a colored tree of types, relations, and inherited (tuple-to-userset) paths.
-- 🔎 **Query + resolution tree** — run `check`/`list-objects`/`list-users`/`list-relations` and expand *why* a decision was made.
-- ✍️ **Inline editing** — add/delete tuples, edit assertions, and edit the model DSL, with **inline validation** as you type.
-- 🖱 **Full mouse support** — wheel-scroll the graph and lists, click tabs and list rows, click the footer keycaps as buttons, and click outside a dialog to dismiss it.
-- 🎭 **Themes** — `aurora`, `catppuccin`, `charm`, `dracula`, `gruvbox`, `nord`, `tokyonight`, and a `mono` (NO_COLOR-friendly) theme.
+- 🎨 **Model graph**: the authorization model rendered as a colored tree of types, relations, and inherited (tuple-to-userset) paths.
+- 🔎 **Query + resolution tree**: run `check`/`list-objects`/`list-users`/`list-relations` and expand *why* a decision was made.
+- ✍️ **Inline editing**: add/delete tuples, edit assertions, and edit the model DSL, with **inline validation** as you type.
+- 🖱 **Full mouse support**: wheel-scroll the graph and lists, click tabs and list rows, click the footer keycaps as buttons, and click outside a dialog to dismiss it.
+- 🎭 **Themes**: `aurora`, `catppuccin`, `charm`, `dracula`, `gruvbox`, `nord`, `tokyonight`, and a `mono` (NO_COLOR-friendly) theme.
 
 **Keys:** press `?` at any time for the full, context-aware keybinding overlay.
 

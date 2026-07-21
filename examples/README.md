@@ -7,16 +7,16 @@ Demo GIFs for the `ofga` CLI and TUI, generated with
 | --- | --- |
 | ![playground.gif](playground.gif) | The interactive `ofga` playground TUI: browsing stores, model, tuples, and live API logs. |
 | ![quickstart.gif](quickstart.gif) | A CLI flow: create a store, write a model, write a tuple, and check access. |
-| ![init.gif](init.gif) | `ofga init` — guided setup of a connection profile. |
-| ![stores.gif](stores.gif) | `ofga stores` — create, list, and inspect stores. |
-| ![model.gif](model.gif) | `ofga model` — write, inspect, and visualize an authorization model. |
-| ![tuples.gif](tuples.gif) | `ofga tuples` — write, read, and delete relationship tuples. |
-| ![query.gif](query.gif) | `ofga query` — check, list-objects, list-users, and expand. |
-| ![assertions.gif](assertions.gif) | `ofga assertions` — write and run a model's assertion test-suite. |
-| ![api.gif](api.gif) | `ofga api` — the raw API escape hatch. |
-| ![profiles.gif](profiles.gif) | `ofga profiles` — manage named connection profiles. |
-| ![model-test.gif](model-test.gif) | `ofga model test --coverage` — running the example workspace's tests with branch-coverage reporting from the CLI. |
-| ![model-test-tui.gif](model-test-tui.gif) | `ofga model test --playground` — exploring test results and coverage in the playground's Tests tab. |
+| ![init.gif](init.gif) | `ofga init`: guided setup of a connection profile. |
+| ![stores.gif](stores.gif) | `ofga stores`: create, list, and inspect stores. |
+| ![model.gif](model.gif) | `ofga model`: write, inspect, and visualize an authorization model. |
+| ![tuples.gif](tuples.gif) | `ofga tuples`: write, read, and delete relationship tuples. |
+| ![query.gif](query.gif) | `ofga query`: check, list-objects, list-users, and expand. |
+| ![assertions.gif](assertions.gif) | `ofga assertions`: write and run a model's assertion test-suite. |
+| ![api.gif](api.gif) | `ofga api`: the raw API escape hatch. |
+| ![profiles.gif](profiles.gif) | `ofga profiles`: manage named connection profiles. |
+| ![model-test.gif](model-test.gif) | `ofga model test --coverage`: running the example workspace's tests with branch-coverage reporting from the CLI. |
+| ![model-test-tui.gif](model-test-tui.gif) | `ofga model test --playground`: exploring test results and coverage in the playground's Tests tab. |
 
 ## Regenerating
 

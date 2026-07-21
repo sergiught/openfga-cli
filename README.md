@@ -1,12 +1,12 @@
 <div align="center">
 
-<img src="examples/playground.gif" alt="ofga — the interactive OpenFGA playground TUI" width="900">
+<img src="examples/playground.gif" alt="the interactive ofga playground TUI" width="900">
 
 # ofga
 
 **A modern CLI & TUI for [OpenFGA](https://openfga.dev).**
 
-Manage stores, authorization models, relationship tuples, and run checks from your terminal — or explore everything interactively in a full-screen TUI.
+Manage stores, authorization models, relationship tuples, and run checks from your terminal, or explore everything interactively in a full-screen TUI.
 
 [Quick start](#-quick-start) · [The TUI](docs/guide/tui.md) · [Commands](#-command-reference) · [Configuration](docs/guide/configuration.md) · [Docs](#-documentation) · [Contributing](#-contributing)
 
@@ -41,8 +41,8 @@ Manage stores, authorization models, relationship tuples, and run checks from yo
 
 `ofga` is a single, dependency-free binary that gives you two ways to work with an OpenFGA server:
 
-- 🧰 **A scriptable CLI** — create stores, write and inspect authorization models, manage relationship tuples, run `check`/`list-objects`/`list-users`, and run assertion suites. Read commands provide consistent JSON/YAML output, tabular commands support `--plain`, and failures return meaningful exit codes.
-- 🖥 **A full-screen TUI** — launch it by running `ofga` with no arguments. Browse stores, visualize a model as a colored relation graph, edit tuples, run queries and expand their resolution trees, and manage assertions — all with the keyboard **or the mouse**.
+- 🧰 **A scriptable CLI**: create stores, write and inspect authorization models, manage relationship tuples, run `check`/`list-objects`/`list-users`, and run assertion suites. Read commands provide consistent JSON/YAML output, tabular commands support `--plain`, and failures return meaningful exit codes.
+- 🖥 **A full-screen TUI**: launch it by running `ofga` with no arguments. Browse stores, visualize a model as a colored relation graph, edit tuples, run queries and expand their resolution trees, and manage assertions, all with the keyboard **or the mouse**.
 
 It talks to any OpenFGA-compatible server and reuses your connection **profiles** so you can switch between local, staging, and production in one flag.
 
@@ -110,7 +110,7 @@ Full matrix (AUR, go install, Docker, source), upgrade, and uninstall → [docs/
 
 ## 🖥 The interactive TUI
 
-Run `ofga` with no arguments to launch the interactive playground — a keyboard- **and mouse**-driven cockpit covering profiles, stores, the model graph, tuples, queries with resolution trees, and assertions. Press `?` at any time for the full, context-aware keybinding overlay.
+Run `ofga` with no arguments to launch the interactive playground, a keyboard- **and mouse**-driven cockpit covering profiles, stores, the model graph, tuples, queries with resolution trees, and assertions. Press `?` at any time for the full, context-aware keybinding overlay.
 
 Full TUI guide & keybinding reference → [docs/guide/tui.md](docs/guide/tui.md)
 
@@ -141,15 +141,15 @@ Run `ofga <command> --help` for details and examples on any command.
 
 ## 📚 Documentation
 
-- [Installation](docs/guide/installation.md) — install methods, upgrade, uninstall
-- [The interactive TUI](docs/guide/tui.md) — playground tour + full keybinding reference
-- [Command reference](docs/guide/commands.md) — every command and flag
-- [Testing authorization models](docs/guide/model-testing.md) — the `model test` workspace, coverage, CI
-- [Configuration](docs/guide/configuration.md) — config file, profiles, env vars
-- [Authentication](docs/guide/authentication.md) — auth methods, secret files, keyring
-- [Scripting & automation](docs/guide/scripting.md) — output formats, exit codes, pagination
-- [Recipes](docs/guide/recipes.md) — common end-to-end flows
-- [Troubleshooting](docs/guide/troubleshooting.md) — common issues + shell completion
+- [Installation](docs/guide/installation.md): install methods, upgrade, uninstall
+- [The interactive TUI](docs/guide/tui.md): playground tour + full keybinding reference
+- [Command reference](docs/guide/commands.md): every command and flag
+- [Testing authorization models](docs/guide/model-testing.md): the `model test` workspace, coverage, CI
+- [Configuration](docs/guide/configuration.md): config file, profiles, env vars
+- [Authentication](docs/guide/authentication.md): auth methods, secret files, keyring
+- [Scripting & automation](docs/guide/scripting.md): output formats, exit codes, pagination
+- [Recipes](docs/guide/recipes.md): common end-to-end flows
+- [Troubleshooting](docs/guide/troubleshooting.md): common issues + shell completion
 
 ---
 

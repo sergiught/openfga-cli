@@ -27,7 +27,7 @@ runner that stops on a non-zero exit will catch it.
 ## Scripting authorization checks
 
 `--plain` emits tab-separated `key<TAB>value` rows. A single `check` prints
-`allowed<TAB>true` or `allowed<TAB>false` — the exit code stays `0` either way,
+`allowed<TAB>true` or `allowed<TAB>false`. The exit code stays `0` either way,
 so scripts branch on the printed value, not the exit status (only a real
 error, like an unreachable server, exits non-zero).
 
@@ -46,7 +46,7 @@ ofga query list-objects document viewer user:anne --plain | wc -l
 
 A profile bundles an API URL, store/model ID, and auth. Add one per
 environment and switch with `--profile`/`-p` or `OPENFGA_PROFILE` instead of
-re-exporting variables — see [configuration.md](configuration.md) for the full
+re-exporting variables. See [configuration.md](configuration.md) for the full
 field list.
 
 ```bash
@@ -64,7 +64,7 @@ OPENFGA_PROFILE=prod ofga stores list
 
 `tuples write --file` takes a JSON array of `{"user", "relation", "object"}`
 objects (or `{"tuples": [...]}`), reading from stdin with `-`. Writes are sent
-in server-sized batches and are **not** transactional across batches — see
+in server-sized batches and are **not** transactional across batches. See
 [scripting.md](scripting.md) for the full automation contract.
 
 ```bash
@@ -90,7 +90,7 @@ already committed rather than retrying the whole file.
 ![ofga api](../../examples/api.gif)
 
 `ofga api` sends an arbitrary request through the active profile's URL and
-auth — useful for endpoints the CLI doesn't wrap yet, or for one-off
+auth, useful for endpoints the CLI doesn't wrap yet, or for one-off
 debugging.
 
 ```bash
@@ -108,7 +108,7 @@ consumer.
 
 `tuples read --json` auto-pages and returns every tuple as
 `{"key": {"user", "relation", "object"}, "timestamp"}`, which doesn't match
-the flatter shape `tuples write --file` expects — reshape it with `jq` first.
+the flatter shape `tuples write --file` expects. Reshape it with `jq` first.
 
 ```bash
 ofga tuples read --json | jq '[.[].key]' > backup.json

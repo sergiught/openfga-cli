@@ -2,10 +2,10 @@
 
 `ofga` supports the same auth methods as OpenFGA:
 
-- **None** — for a local, unauthenticated server.
-- **API token** — a pre-shared bearer token.
-- **Client credentials** — OAuth2 client-credentials grant.
-- **Private key JWT** — OAuth2 with a client-assertion JWT.
+- **None**: for a local, unauthenticated server.
+- **API token**: a pre-shared bearer token.
+- **Client credentials**: OAuth2 client-credentials grant.
+- **Private key JWT**: OAuth2 with a client-assertion JWT.
 
 Secrets should be provided without exposing them in your shell history or `ps`:
 
@@ -48,8 +48,8 @@ These flags avoid both argv secret values and environment inheritance. Secret
 environment variables remain available for compatibility and CI systems that
 cannot mount secret files. Use `ofga profiles unset token` (or
 `client_secret`/`private_key`) to remove a saved credential from the keyring.
-To delete **all** ofga-managed secrets from the OS keyring at once — every
-profile's credentials plus orphans left by deleted configs — run
+To delete **all** ofga-managed secrets from the OS keyring at once (every
+profile's credentials plus orphans left by deleted configs), run
 `ofga profiles cleanup-credentials --purge` (it prompts for confirmation;
 `--force` skips it).
 Authentication settings are checked before a request, so incomplete profiles

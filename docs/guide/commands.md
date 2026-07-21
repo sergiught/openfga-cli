@@ -4,7 +4,7 @@ Complete per-command reference for `ofga`, generated from the CLI's own `--help`
 
 ## init
 
-![ofga init — guided setup](../../examples/init.gif)
+![ofga init: guided setup](../../examples/init.gif)
 
 Set up a connection profile (guided). On a terminal it runs an interactive tour (API URL, auth, connection test, store/model picker); non-interactively it uses the flags and defaults, so it's safe in CI.
 
@@ -178,7 +178,7 @@ Write, delete and read relationship tuples. (`tuple` is an alias for `tuples`.)
 
 ![ofga query](../../examples/query.gif)
 
-Ask authorization questions. Positional argument order mirrors the OpenFGA API and differs per subcommand (`check` is user-first, `list-objects` is user-last, `list-users`/`expand` are object-first) — use the named flags (`--user`/`--relation`/`--object`) if the order is easy to mix up.
+Ask authorization questions. Positional argument order mirrors the OpenFGA API and differs per subcommand (`check` is user-first, `list-objects` is user-last, `list-users`/`expand` are object-first). Use the named flags (`--user`/`--relation`/`--object`) if the order is easy to mix up.
 
 ### query check
 
@@ -241,7 +241,7 @@ Read, write and run a model's assertion test-suite.
 
 ### assertions write
 
-- Synopsis: replace the assertions for a model (the active `--model-id`, or latest) from a JSON file — an array of assertions, or `{"assertions": [...]}`, each `{"tuple_key":{"user","relation","object"},"expectation":true}`.
+- Synopsis: replace the assertions for a model (the active `--model-id`, or latest) from a JSON file: an array of assertions, or `{"assertions": [...]}`, each `{"tuple_key":{"user","relation","object"},"expectation":true}`.
 - Key flags: `-f, --file` (assertions JSON file, `-` for stdin), `--force` (replace without prompting), `-n, --dry-run`.
 - Example:
   ```bash
@@ -305,7 +305,7 @@ Manage named connection profiles. Each profile stores an API URL, optional store
 
 ### profiles set
 
-- Synopsis: set a field on a profile. Settable keys — connection: `api_url`, `store_id`, `model_id`; auth: `auth_method`, `token`, `client_id`, `client_secret`, `token_url`, `audience`, `api_audience`, `key_file`, `private_key`, `signing_method`, `key_id`, `scopes`. For secrets (`token`, `client_secret`, `private_key`) prefer `--value-file` or `--value-stdin` so the value never appears in `ps` output or shell history; those are stored in the OS keyring.
+- Synopsis: set a field on a profile. Settable keys, for connection: `api_url`, `store_id`, `model_id`; for auth: `auth_method`, `token`, `client_id`, `client_secret`, `token_url`, `audience`, `api_audience`, `key_file`, `private_key`, `signing_method`, `key_id`, `scopes`. For secrets (`token`, `client_secret`, `private_key`) prefer `--value-file` or `--value-stdin` so the value never appears in `ps` output or shell history; those are stored in the OS keyring.
 - Key flags: `--value-file`, `--value-stdin`.
 - Example:
   ```bash
@@ -343,7 +343,7 @@ Manage named connection profiles. Each profile stores an API URL, optional store
 
 ![ofga api](../../examples/api.gif)
 
-Send a raw request to the OpenFGA API, reusing the active profile's URL and authentication. The path is relative to the profile's API URL; a JSON body may be passed as the third argument, or read from stdin with `-`. This is an expert escape hatch — mutating methods are sent directly, with no confirmation or dry-run support.
+Send a raw request to the OpenFGA API, reusing the active profile's URL and authentication. The path is relative to the profile's API URL; a JSON body may be passed as the third argument, or read from stdin with `-`. This is an expert escape hatch: mutating methods are sent directly, with no confirmation or dry-run support.
 
 ### api
 
