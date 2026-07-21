@@ -612,6 +612,38 @@ func (m Model) editorViewportRows() int {
 	return rows
 }
 
+// Resolution-view toggle labels, shared by the header renderer and the click
+// hit-test (resHeader) so their rendered widths can never drift apart.
+const (
+	resToggleFull = "full tree"
+	resTogglePath = "ACL path"
+)
+
+// resHeader builds the resolution-view header line — the title, the checked
+// tuple, the "full tree · ACL path" toggle and the key hints. It also returns
+// the absolute column ranges [start,end) of the two toggle labels, given the
+// main body's left column bx, so handleClick can hit-test a click on them. The
+// head string itself is independent of bx (only the ranges consume it), so the
+// renderer can pass bx=0 and ignore the ranges.
+func (m Model) resHeader(bx int) (head string, fullRange, pathRange [2]int) {
+	full, path := style.Faint.Render(resToggleFull), style.Faint.Render(resTogglePath)
+	if m.resPathOnly {
+		path = style.Heading.Render(resTogglePath)
+	} else {
+		full = style.Heading.Render(resToggleFull)
+	}
+	prefix := style.Heading.Render("Resolution") + "  " +
+		style.Faint.Render(safeText(m.result.vals[0])+" "+safeText(m.result.vals[1])+" "+safeText(m.result.vals[2])) +
+		"   "
+	fullStart := bx + lipgloss.Width(prefix)
+	fullEnd := fullStart + lipgloss.Width(resToggleFull)
+	pathStart := fullEnd + lipgloss.Width(" · ") // the separator between the two labels
+	pathEnd := pathStart + lipgloss.Width(resTogglePath)
+	head = prefix + full + " " + style.Faint.Render("·") + " " + path +
+		"   " + style.Faint.Render("p toggle · ↑↓←→ scroll · r/esc close")
+	return head, [2]int{fullStart, fullEnd}, [2]int{pathStart, pathEnd}
+}
+
 func (m Model) queryBody() string {
 	if m.storeID == "" {
 		return style.Faint.Render("Select a store first — press 2")
@@ -620,16 +652,7 @@ func (m Model) queryBody() string {
 	// Resolution tree takes over the panel when open.
 	if m.showRes && m.resTree != nil {
 		w, _ := m.contentSize()
-		full, path := style.Faint.Render("full tree"), style.Faint.Render("ACL path")
-		if m.resPathOnly {
-			path = style.Heading.Render("ACL path")
-		} else {
-			full = style.Heading.Render("full tree")
-		}
-		head := style.Heading.Render("Resolution") + "  " +
-			style.Faint.Render(safeText(m.result.vals[0])+" "+safeText(m.result.vals[1])+" "+safeText(m.result.vals[2])) +
-			"   " + full + " " + style.Faint.Render("·") + " " + path +
-			"   " + style.Faint.Render("p toggle · ↑↓←→ scroll · r/esc close")
+		head, _, _ := m.resHeader(0)
 		return head + "\n" + style.SectionHeader("", w) + "\n" + m.resVP.View()
 	}
 

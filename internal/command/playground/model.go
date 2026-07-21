@@ -802,6 +802,15 @@ func (m *Model) resize() {
 
 func (m *Model) contentSize() (int, int) { return m.sh.MainSize() }
 
+// setResPathOnly switches the resolution view between the full tree and the
+// collapsed ACL path, re-rendering and resetting the scroll. Shared by the `p`
+// key and a click on the header toggle.
+func (m *Model) setResPathOnly(pathOnly bool) {
+	m.resPathOnly = pathOnly
+	m.refreshResVP()
+	m.resVP.SetYOffset(0)
+}
+
 // refreshResVP re-renders the resolution viewport for the current mode: the
 // full tree, or (ACL path) collapsed to just the branch that grants the user.
 func (m *Model) refreshResVP() {

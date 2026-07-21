@@ -122,6 +122,22 @@ func (m Model) handleClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
+	// Click the "full tree" / "ACL path" labels in the resolution header to
+	// switch views, mirroring the query mode-chip strip (and the `p` key).
+	if m.section == secQuery && m.showRes && m.resTree != nil {
+		bx, by := m.sh.MainBodyOrigin()
+		if msg.Y == by {
+			_, fullRange, pathRange := m.resHeader(bx)
+			switch {
+			case msg.X >= fullRange[0] && msg.X < fullRange[1]:
+				m.setResPathOnly(false)
+				return m, nil
+			case msg.X >= pathRange[0] && msg.X < pathRange[1]:
+				m.setResPathOnly(true)
+				return m, nil
+			}
+		}
+	}
 	// Click an API Logs detail sub-section tab (Req/Resp headers/body) to switch
 	// it, mirroring the Tab key.
 	if m.section == secAPILogs {
