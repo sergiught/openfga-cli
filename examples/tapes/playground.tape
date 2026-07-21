@@ -44,12 +44,15 @@ Sleep 2s
 Type "1" Sleep 1200ms
 Down Sleep 1200ms
 
-# Model: descend into the panel and scroll the colored relation graph.
+# Model: descend into the panel, scroll the colored relation graph, then
+# toggle the weighted-graph view (v) and back.
 Down Sleep 1s
 Enter Sleep 1s
 Down Sleep 700ms
 Down Sleep 700ms
 Down Sleep 900ms
+Type "v" Sleep 2s
+Type "v" Sleep 1200ms
 Escape Sleep 1s
 
 # Tuples: add one.
