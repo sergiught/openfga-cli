@@ -22,7 +22,7 @@ import (
 // when Seed created the engine, closes it. Seed never writes any config or
 // profile — it only starts an in-memory server.
 //
-// sel selects one test by "<file-stem>/<test-name>" or bare test name (same
+// sel selects one test by "<workspace-relative-file>/<test-name>" or bare test name (same
 // matching as --run). When it matches more than one test, the first in
 // workspace order is served.
 func Seed(ctx context.Context, ws *Workspace, sel string, opts Options) (endpoint, storeID, modelID string, stop func(), err error) {

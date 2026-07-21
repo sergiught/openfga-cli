@@ -1434,7 +1434,7 @@ func TestWorkbenchDeleteSurfacesSuccessToast(t *testing.T) {
 }
 
 func TestTestResultsHelpAndFooterAdvertiseKeys(t *testing.T) {
-	m := Model{section: secTestResults}
+	m := Model{section: secTestResults, width: 120}
 	help := stripANSIView(m.helpBody())
 	for _, want := range []string{"run suite", "run selected file", "edit test", "new test", "delete test", "toggle coverage"} {
 		if !strings.Contains(help, want) {

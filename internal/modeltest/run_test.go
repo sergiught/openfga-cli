@@ -3,10 +3,19 @@ package modeltest
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	openfgav1 "github.com/openfga/api/proto/openfga/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	"github.com/sergiught/openfga-cli/internal/clierr"
 )
 
 // writeExplainWorkspace writes a workspace whose single test asserts
@@ -153,6 +162,119 @@ func TestRunPopulatesExplainOnFailure(t *testing.T) {
 	}
 	if ar.Explain.NearestMiss == "" {
 		t.Fatal("want a non-empty Explain.NearestMiss for a denial")
+	}
+}
+
+type setupNetworkFailureEngine struct{ Engine }
+
+func (setupNetworkFailureEngine) Setup(context.Context, *openfgav1.AuthorizationModel, []*openfgav1.TupleKey) (string, string, error) {
+	return "", "", &net.OpError{Op: "dial", Err: errors.New("connection refused")}
+}
+
+func TestRunReturnsSharedInfrastructureFailure(t *testing.T) {
+	ws, err := LoadWorkspace("testdata/docs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Run(t.Context(), ws, Options{Engine: setupNetworkFailureEngine{}})
+	if clierr.Code(err) != clierr.CodeNetwork {
+		t.Fatalf("Run() error = %v (code %d), want network code %d", err, clierr.Code(err), clierr.CodeNetwork)
+	}
+}
+
+type setupDeadlineEngine struct{ Engine }
+
+func (setupDeadlineEngine) Setup(ctx context.Context, _ *openfgav1.AuthorizationModel, _ []*openfgav1.TupleKey) (string, string, error) {
+	<-ctx.Done()
+	return "", "", ctx.Err()
+}
+
+func TestRunIsolatesPerTestTimeouts(t *testing.T) {
+	ws, err := LoadWorkspace("testdata/docs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := Run(t.Context(), ws, Options{Engine: setupDeadlineEngine{}, Timeout: time.Millisecond})
+	if err != nil {
+		t.Fatalf("per-test timeouts must not abort the suite: %v", err)
+	}
+	if res.Summary.Failed != res.Summary.Total || res.Summary.Total == 0 {
+		t.Fatalf("summary = %+v, want every timed-out test reported as failed", res.Summary)
+	}
+}
+
+type expandFailureEngine struct{ Engine }
+
+func (expandFailureEngine) Expand(context.Context, Scope, string, string) (*openfgav1.UsersetTree, error) {
+	return nil, errors.New("expand unavailable")
+}
+
+func TestCoverageSurfacesTraceFailure(t *testing.T) {
+	ws, err := LoadWorkspace("testdata/docs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	embedded, err := NewEmbeddedEngine(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer embedded.Close()
+
+	res, err := Run(t.Context(), ws, Options{Engine: expandFailureEngine{Engine: embedded}, Coverage: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Coverage != nil || !strings.Contains(res.CoverageError, "coverage trace failed") {
+		t.Fatalf("coverage = %+v, error = %q; want explicit trace failure", res.Coverage, res.CoverageError)
+	}
+}
+
+type expandNetworkFailureEngine struct{ Engine }
+
+func (expandNetworkFailureEngine) Expand(context.Context, Scope, string, string) (*openfgav1.UsersetTree, error) {
+	return nil, status.Error(codes.Unavailable, "server unavailable")
+}
+
+func TestCoverageTracePreservesInfrastructureFailure(t *testing.T) {
+	ws, err := LoadWorkspace("testdata/docs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	embedded, err := NewEmbeddedEngine(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer embedded.Close()
+
+	_, err = Run(t.Context(), ws, Options{Engine: expandNetworkFailureEngine{Engine: embedded}, Coverage: true})
+	if clierr.Code(err) != clierr.CodeNetwork {
+		t.Fatalf("Run() error = %v (code %d), want network code %d", err, clierr.Code(err), clierr.CodeNetwork)
+	}
+}
+
+type expandDeadlineEngine struct{ Engine }
+
+func (expandDeadlineEngine) Expand(context.Context, Scope, string, string) (*openfgav1.UsersetTree, error) {
+	return nil, status.Error(codes.DeadlineExceeded, "trace timed out")
+}
+
+func TestCoverageTraceDeadlineFailsOnlyItsTest(t *testing.T) {
+	ws, err := LoadWorkspace("testdata/docs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	embedded, err := NewEmbeddedEngine(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer embedded.Close()
+
+	res, err := Run(t.Context(), ws, Options{Engine: expandDeadlineEngine{Engine: embedded}, Coverage: true})
+	if err != nil {
+		t.Fatalf("coverage trace deadline must not abort the suite: %v", err)
+	}
+	if res.Summary.Failed == 0 || res.CoverageError != "" {
+		t.Fatalf("summary = %+v, coverage error = %q; want a per-test execution failure", res.Summary, res.CoverageError)
 	}
 }
 

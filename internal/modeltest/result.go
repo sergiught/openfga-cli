@@ -35,8 +35,11 @@ type Summary struct {
 
 // TestResult is the outcome of a single test.
 type TestResult struct {
-	Name        string            `json:"name"`                  // "<file-stem>/<test-name>"
+	Name        string            `json:"name"`                  // "<workspace-relative-test-file>/<test-name>"
 	Description string            `json:"description,omitempty"` // the test's optional `description:`, surfaced in the failure header
+	File        string            `json:"file,omitempty"`
+	Line        int               `json:"line,omitempty"`
+	Column      int               `json:"column,omitempty"`
 	Passed      bool              `json:"passed"`
 	Assertions  []AssertionResult `json:"assertions"`
 	DurationMs  int64             `json:"duration_ms"`
@@ -45,7 +48,8 @@ type TestResult struct {
 	// assertion simply failing. Such a test is reported as failed and errored,
 	// but — like go test / pytest — it is isolated to itself so the rest of the
 	// suite still runs and reports. Empty on a test that executed to completion.
-	Error string `json:"error,omitempty"`
+	Error      string `json:"error,omitempty"`
+	sourcePath string
 }
 
 // Assertion kinds — the value of AssertionResult.Kind (and the corresponding
@@ -72,6 +76,10 @@ type AssertionResult struct {
 	// markStructuralCredit) instead of reverse-parsing the display Subject.
 	// Unexported: internal to the runner and never serialized.
 	covKey string
+	// coverageErr records a best-effort explanation trace that failed while
+	// coverage was requested. It is consumed by buildCoverage and never exposed
+	// as an assertion failure or serialized result.
+	coverageErr error
 }
 
 // Coverage summarizes how many rewrite branches (see branchDef) were exercised
@@ -81,6 +89,7 @@ type Coverage struct {
 	Total       int           `json:"total"`
 	Covered     int           `json:"covered"`
 	Percent     float64       `json:"percent"`
+	Complete    bool          `json:"complete"`
 	Types       []TypeCov     `json:"types"`
 	Unreachable []string      `json:"unreachable,omitempty"`
 	Diff        *CoverageDiff `json:"diff,omitempty"`

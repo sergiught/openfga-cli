@@ -639,9 +639,9 @@ tests:
 
 // TestCoverageListAssertionsCreditStructuralCoverage covers markStructuralCredit
 // (run.go): a list_objects/list_users assertion has no resolution tree to
-// trace, so branch coverage for the type#relation it exercised can only come
-// from the best-effort structural credit parsed out of AssertionResult.Subject
-// via strings.Fields. The workspace's only assertions are a list_objects and a
+// trace, so branch coverage for a non-empty result can only come from the
+// structured relation-granular credit on AssertionResult.covKey. The
+// workspace's only assertions are a list_objects and a
 // list_users case (no check assertions at all), so any coverage credit here
 // can only have come from that path, not from resolvedRelations/Explain
 // trees.
@@ -717,7 +717,7 @@ tests:
 
 	// [user] is the only directly-assignable type for either relation, so
 	// enumerateBranches produces exactly one branch (direct:user) each; the
-	// list assertion's structural credit must mark it seen.
+	// non-empty list assertion's structural credit must mark it granted.
 	docRC := findRelCov(res.Coverage, "document", "viewer")
 	if docRC == nil {
 		t.Fatal("expected document#viewer in coverage")
@@ -753,7 +753,7 @@ type document
 	branches, unreachable := enumerateBranches(lm)
 
 	resolved := map[string]*relOutcome{
-		"document#viewer": {listSeen: true},
+		"document#viewer": {listGrant: true},
 	}
 
 	cov := aggregate(branches, unreachable, resolved)
@@ -779,6 +779,26 @@ type document
 		if b.Covered {
 			t.Errorf("expected branch %+v to be uncovered (document#banned was never resolved)", b)
 		}
+	}
+}
+
+func TestEmptyListResultDoesNotGrantCoverage(t *testing.T) {
+	acc := map[string]*relOutcome{}
+	markStructuralCredit(AssertionResult{
+		Kind: kindListObjects, covKey: "document#viewer", Got: []string{},
+	}, acc)
+	if _, ok := acc["document#viewer"]; ok {
+		t.Fatal("an empty list result proves denial and must not grant coverage")
+	}
+}
+
+func TestAllUnreachableCoverageIsIncompleteAndZero(t *testing.T) {
+	cov := aggregate(nil, []string{"document.viewer"}, nil)
+	if cov.Complete {
+		t.Fatal("coverage with unreachable relations must be incomplete")
+	}
+	if cov.Percent != 0 {
+		t.Fatalf("all-unreachable coverage percent = %v, want 0", cov.Percent)
 	}
 }
 

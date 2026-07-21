@@ -15,10 +15,13 @@ func (c *Command) testSchemaCmd() *cobra.Command {
 		Use:   "schema",
 		Short: "Print the JSON Schema for the model-test workspace format",
 		Long: "Print the JSON Schema that describes the ofga.yaml manifest and *.test.yaml files. " +
-			"There is no hosted URL for it, so save the output and point your editor at it, e.g.:\n\n" +
+			"A hosted copy is available at:\n\n" +
+			"  " + modeltest.WorkspaceSchemaURL + "\n\n" +
+			"Use its #manifest fragment for ofga.yaml or #testFile for *.test.yaml.\n\n" +
+			"To pin the schema shipped with your installed CLI, save it locally:\n\n" +
 			"  ofga model test schema > workspace.schema.json\n\n" +
 			"then add a modeline to a workspace file:\n\n" +
-			"  # yaml-language-server: $schema=./workspace.schema.json",
+			"  # yaml-language-server: $schema=./workspace.schema.json#manifest",
 		Example: `  ofga model test schema
   ofga model test schema > workspace.schema.json`,
 		Args: cobra.NoArgs,

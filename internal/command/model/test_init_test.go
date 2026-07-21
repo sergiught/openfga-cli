@@ -2,7 +2,10 @@ package model
 
 import (
 	"context"
+	"encoding/json"
 	"io"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -20,6 +23,13 @@ func TestTestInitScaffoldsRunnableWorkspace(t *testing.T) {
 
 	if err := scaffoldWorkspace(cmd, dir, false); err != nil {
 		t.Fatalf("scaffold: %v", err)
+	}
+	schema, err := os.ReadFile(filepath.Join(dir, "workspace.schema.json"))
+	if err != nil {
+		t.Fatalf("read scaffolded editor schema: %v", err)
+	}
+	if !json.Valid(schema) {
+		t.Fatal("scaffolded workspace.schema.json is not valid JSON")
 	}
 
 	// A second scaffold without --force must refuse rather than overwrite.
@@ -47,5 +57,29 @@ func TestTestInitScaffoldsRunnableWorkspace(t *testing.T) {
 	}
 	if res.Summary.Total == 0 || res.Summary.Failed != 0 {
 		t.Fatalf("scaffolded workspace should pass; got %+v", res.Summary)
+	}
+}
+
+func TestTestInitPreflightsAllDestinations(t *testing.T) {
+	dir := t.TempDir()
+	modelPath := filepath.Join(dir, "model.fga")
+	if err := os.WriteFile(modelPath, []byte("keep me"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := &cobra.Command{}
+	cmd.SetOut(io.Discard)
+
+	if err := scaffoldWorkspace(cmd, dir, false); err == nil {
+		t.Fatal("scaffold should reject an existing destination")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "ofga.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("preflight failure left a partial manifest: %v", err)
+	}
+	data, err := os.ReadFile(modelPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "keep me" {
+		t.Fatalf("existing model was changed: %q", data)
 	}
 }

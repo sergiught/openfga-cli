@@ -1,32 +1,41 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "workspace.v1.json",
+  "$id": "https://raw.githubusercontent.com/sergiught/openfga-cli/main/internal/modeltest/schema/workspace.v1.json",
+  "title": "ofga model-test workspace",
+  "description": "Manifest and test-file schema for `ofga model test` authorization model tests.",
   "$defs": {
     "manifest": {
+      "title": "Workspace manifest",
+      "description": "The ofga.yaml file that selects one model plus fixture and test globs.",
       "$anchor": "manifest",
       "type": "object",
       "additionalProperties": false,
       "required": ["version", "model"],
       "properties": {
-        "version": { "type": "integer", "enum": [1] },
-        "model": { "type": "string" },
+        "version": { "type": "integer", "enum": [1], "description": "Workspace format version." },
+        "model": { "type": "string", "minLength": 1, "description": "Authorization model path, relative to ofga.yaml." },
         "fixtures": {
+          "description": "Fixture-file globs, relative to ofga.yaml.",
           "type": "array",
-          "items": { "type": "string" }
+          "items": { "type": "string", "minLength": 1 }
         },
         "tuples": {
+          "description": "Alias for fixtures.",
           "type": "array",
-          "items": { "type": "string" }
+          "items": { "type": "string", "minLength": 1 }
         },
         "tests": {
+          "description": "Test-file globs, relative to ofga.yaml.",
           "type": "array",
-          "items": { "type": "string" }
+          "items": { "type": "string", "minLength": 1 }
         },
         "server": { "$ref": "#/$defs/serverOptions" }
       }
     },
 
     "serverOptions": {
+      "title": "Embedded server options",
+      "description": "Optional limits for the hermetic embedded OpenFGA server.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -40,19 +49,21 @@
     },
 
     "testFile": {
+      "title": "Model test file",
+      "description": "A *.test.yaml file containing one or more authorization behavior tests.",
       "$anchor": "testFile",
       "type": "object",
       "additionalProperties": false,
       "required": ["tests"],
       "properties": {
-        "model": { "type": "string" },
+        "model": { "type": "string", "minLength": 1, "description": "Optional model override, relative to this test file." },
         "fixtures": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": { "type": "string", "minLength": 1 }
         },
         "tuples": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": { "type": "string", "minLength": 1 }
         },
         "tests": {
           "type": "array",
@@ -62,12 +73,19 @@
     },
 
     "test": {
+      "title": "Authorization behavior test",
+      "description": "A named test with at least one check, list_objects, or list_users case.",
       "type": "object",
       "additionalProperties": false,
       "required": ["name"],
+      "anyOf": [
+        { "required": ["check"] },
+        { "required": ["list_objects"] },
+        { "required": ["list_users"] }
+      ],
       "properties": {
-        "name": { "type": "string" },
-        "description": { "type": "string" },
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "description": "Human context shown with failures." },
         "fixtures": {
           "type": "array",
           "items": { "$ref": "#/$defs/tupleItem" }
@@ -78,14 +96,17 @@
         },
         "check": {
           "type": "array",
+          "minItems": 1,
           "items": { "$ref": "#/$defs/checkCase" }
         },
         "list_objects": {
           "type": "array",
+          "minItems": 1,
           "items": { "$ref": "#/$defs/listObjectsCase" }
         },
         "list_users": {
           "type": "array",
+          "minItems": 1,
           "items": { "$ref": "#/$defs/listUsersCase" }
         }
       }
@@ -93,34 +114,38 @@
 
     "tupleItem": {
       "oneOf": [
-        { "type": "string" },
+        { "type": "string", "minLength": 1 },
         { "$ref": "#/$defs/tupleKey" }
       ]
     },
 
     "tupleKey": {
+      "title": "Relationship tuple",
       "type": "object",
       "additionalProperties": false,
       "required": ["user", "relation", "object"],
       "properties": {
-        "user": { "type": "string" },
-        "relation": { "type": "string" },
-        "object": { "type": "string" },
+        "user": { "type": "string", "minLength": 1 },
+        "relation": { "type": "string", "minLength": 1 },
+        "object": { "type": "string", "minLength": 1 },
         "condition": { "$ref": "#/$defs/tupleCondition" }
       }
     },
 
     "tupleCondition": {
+      "title": "Tuple condition",
       "type": "object",
       "additionalProperties": false,
       "required": ["name"],
       "properties": {
-        "name": { "type": "string" },
+        "name": { "type": "string", "minLength": 1 },
         "context": { "type": "object" }
       }
     },
 
     "checkCase": {
+      "title": "Check assertions",
+      "description": "Asserts relation decisions for one or more users and objects.",
       "type": "object",
       "additionalProperties": false,
       "required": ["assertions"],
@@ -129,10 +154,10 @@
         { "oneOf": [ { "required": ["object"] }, { "required": ["objects"] } ] }
       ],
       "properties": {
-        "user": { "type": "string" },
-        "users": { "type": "array", "items": { "type": "string" } },
-        "object": { "type": "string" },
-        "objects": { "type": "array", "items": { "type": "string" } },
+        "user": { "type": "string", "minLength": 1 },
+        "users": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "object": { "type": "string", "minLength": 1 },
+        "objects": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
         "context": { "type": "object" },
         "contextual_tuples": {
           "type": "array",
@@ -141,44 +166,52 @@
         "assertions": {
           "type": "object",
           "minProperties": 1,
+          "propertyNames": { "minLength": 1 },
           "additionalProperties": { "type": "boolean" }
         }
       }
     },
 
     "listObjectsCase": {
+      "title": "ListObjects assertions",
+      "description": "Asserts the exact objects returned per relation.",
       "type": "object",
       "additionalProperties": false,
       "required": ["user", "type", "assertions"],
       "properties": {
-        "user": { "type": "string" },
-        "type": { "type": "string" },
+        "user": { "type": "string", "minLength": 1 },
+        "type": { "type": "string", "minLength": 1 },
         "context": { "type": "object" },
         "assertions": {
           "type": "object",
           "minProperties": 1,
+          "propertyNames": { "minLength": 1 },
           "additionalProperties": {
             "type": "array",
-            "items": { "type": "string" }
+            "items": { "type": "string", "minLength": 1 }
           }
         }
       }
     },
 
     "listUsersCase": {
+      "title": "ListUsers assertions",
+      "description": "Asserts the exact users returned per relation.",
       "type": "object",
       "additionalProperties": false,
       "required": ["object", "user_filter", "assertions"],
       "properties": {
-        "object": { "type": "string" },
+        "object": { "type": "string", "minLength": 1 },
         "user_filter": {
           "type": "array",
+          "minItems": 1,
           "items": { "$ref": "#/$defs/userFilter" }
         },
         "context": { "type": "object" },
         "assertions": {
           "type": "object",
           "minProperties": 1,
+          "propertyNames": { "minLength": 1 },
           "additionalProperties": { "$ref": "#/$defs/userExpectation" }
         }
       }
@@ -189,8 +222,8 @@
       "additionalProperties": false,
       "required": ["type"],
       "properties": {
-        "type": { "type": "string" },
-        "relation": { "type": "string" }
+        "type": { "type": "string", "minLength": 1 },
+        "relation": { "type": "string", "minLength": 1 }
       }
     },
 
@@ -198,7 +231,7 @@
       "oneOf": [
         {
           "type": "array",
-          "items": { "type": "string" }
+          "items": { "type": "string", "minLength": 1 }
         },
         {
           "type": "object",
@@ -207,7 +240,7 @@
           "properties": {
             "users": {
               "type": "array",
-              "items": { "type": "string" }
+              "items": { "type": "string", "minLength": 1 }
             }
           }
         }

@@ -271,8 +271,11 @@ tests:
   - "tests/**/*.test.yaml"
 ```
 
-`fixtures` and `tests` are both glob patterns that register files; a test file
-references a registered fixture by name (its filename without extension). In the
+`fixtures` and `tests` are both glob patterns that register files. A test file
+can reference a fixture by its filename without the extension when that name is
+unique, or by its workspace-relative path (`teams/acme/grants`) when directories
+contain duplicate basenames. Test identities use the same relative convention,
+so `teams/acme/access.test.yaml` is selected as `teams/acme/access/*`. In the
 manifest and at the top of a test file, `fixtures:` and `tuples:` are
 interchangeable keywords for the same list — use whichever reads better.
 
@@ -323,12 +326,32 @@ A single `*.test.yaml` file can also stand on its own, without any `ofga.yaml`:
 pass it directly (`ofga model test path/to/foo.test.yaml`) and, if it declares
 its own top-level `model:` field, it runs manifest-free against that model.
 
+### Editor completion and validation
+
+`ofga model test init` writes `workspace.schema.json` and schema modelines into
+the scaffold, so YAML completion and validation work immediately. Existing
+workspaces can either pin the schema shipped with the installed CLI:
+
+```bash
+ofga model test schema > workspace.schema.json
+```
+
+or reference the hosted v1 schema directly:
+
+```yaml
+# ofga.yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/sergiught/openfga-cli/main/internal/modeltest/schema/workspace.v1.json#manifest
+
+# *.test.yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/sergiught/openfga-cli/main/internal/modeltest/schema/workspace.v1.json#testFile
+```
+
 ### Running tests
 
 ```bash
 ofga model test                        # discovers ofga.yaml here or in a parent dir
 ofga model test path/to/ofga.yaml
-ofga model test --run "documents/*"    # glob over "<file-stem>/<test-name>"
+ofga model test --run "documents/*"    # glob over "<relative-file>/<test-name>"
 ofga model test --parallel 4           # cap concurrent tests (0 = number of CPUs)
 ofga model test --fail-fast            # stop after the first failing test
 ofga model test --timeout 30s          # bound each test's engine work (0 = no timeout)
@@ -357,12 +380,18 @@ condition outcome — counts as covered only when a `check` assertion showed tha
 specific arm *granting*. So an arm you never exercise stays uncovered even if its
 relation is otherwise tested (e.g. `viewer: [user] or owner` tested only via an
 owner shows `direct:user` uncovered until a direct viewer is checked). ABAC
-conditions track their true and false outcomes separately. `list_objects` /
-`list_users` assertions have no per-arm resolution tree, so they credit at
-relation granularity — use `check` assertions for precise per-arm coverage.
+conditions track their true and false outcomes separately. Non-empty
+`list_objects` / `list_users` results have no per-arm resolution tree, so they
+credit at relation granularity; empty denial results add no grant coverage.
+Use `check` assertions for precise per-arm coverage.
 `--coverage-detail` adds full per-branch detail to the human
 report. `--coverage-min` fails the run (exit `3`) if coverage falls short of the
 given percentage — wire that into CI.
+
+If a model contains a relation the coverage engine cannot enumerate, the JSON
+report sets `coverage.complete` to `false`, the human report names the
+unreachable relation, and the command exits non-zero rather than publishing a
+misleading 100% score.
 
 `--coverage-diff <git-ref>` compares the model against that ref and fails
 (exit `3`) if your change **added** a branch that no test exercises — matching
@@ -389,7 +418,8 @@ ofga model test --report github   # GitHub Actions ::error annotations
 `--report` writes a report in the given format alongside the normal output, for
 CI: `junit` (XML for test dashboards), `json` (the same result shape as
 `-o json`, for writing to a file), or `github` (GitHub Actions `::error`
-annotations so failures surface in the Actions log and job summary). With
+annotations linked to the authored test file and line, so failures surface in
+the Actions log, job summary, and changed-files view). With
 `--report-file`, the report is written to that path; without it, it is printed
 to the terminal.
 

@@ -14,6 +14,7 @@ import (
 func evaluateAssertions(ctx context.Context, lm *LoadedModel, opts Options, scope Scope, tt Test) ([]AssertionResult, error) {
 	eng := opts.Engine
 	var out []AssertionResult
+	traceCache := newTraceCache()
 
 	for _, cc := range tt.Check {
 		ctxTuples, err := toProtoTuples(cc.ContextualTuples)
@@ -52,7 +53,11 @@ func evaluateAssertions(ctx context.Context, lm *LoadedModel, opts Options, scop
 						Passed:   got == expected,
 					}
 					if shouldExplain(opts, ar.Passed) {
-						ar.Explain = explainCheck(ctx, lm, eng, scope, req, got, ar.Passed)
+						exp, traceErr := explainCheck(ctx, lm, eng, scope, req, got, ar.Passed, traceCache)
+						ar.Explain = exp
+						if traceErr != nil && opts.Coverage {
+							ar.coverageErr = traceErr
+						}
 					}
 					out = append(out, ar)
 				}
@@ -136,17 +141,18 @@ func shouldExplain(opts Options, passed bool) bool {
 // passing expected-deny (got == false, passed == true) skips nearestMiss
 // entirely: probing for a tuple that would grant something the test intends
 // to deny is both wasted work and a confusing hint on a passing assertion.
-// trace/nearestMiss errors are swallowed — an explanation is a best-effort
-// addition and must never fail the run.
-func explainCheck(ctx context.Context, lm *LoadedModel, eng Resolver, scope Scope, req CheckReq, got, passed bool) *Explain {
-	exp, err := trace(ctx, lm, eng, scope, req)
+// Trace errors are returned separately so coverage can refuse to publish a
+// misleading partial result; callers that only requested human explanation
+// may still treat them as best-effort.
+func explainCheck(ctx context.Context, lm *LoadedModel, eng Resolver, scope Scope, req CheckReq, got, passed bool, cache *traceCache) (*Explain, error) {
+	exp, err := traceWithVerdict(ctx, lm, eng, scope, req, got, cache)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	if !got && !passed {
 		if miss, missErr := nearestMiss(ctx, lm, eng, scope, req); missErr == nil {
 			exp.NearestMiss = miss
 		}
 	}
-	return exp
+	return exp, nil
 }

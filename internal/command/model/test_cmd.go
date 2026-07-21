@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"os"
 	"os/exec"
@@ -69,9 +70,10 @@ func (c *Command) testCmd() *cobra.Command {
 		Long: "Run the tests declared by an ofga workspace (an ofga.yaml manifest and its *.test.yaml files). By default they run against an in-process, embedded OpenFGA server with no external dependency, real store, or profile involved; --openfga-image runs them against a specific OpenFGA version in Docker and --server-addr against an already-running server.\n\n" +
 			"Workspace: ofga.yaml is discovered by walking up from the current directory (like go.mod) unless a positional path or --file overrides it. Each test runs against its own fresh store.\n\n" +
 			"Explain: a failure prints expected/got values, a resolution tree, and a nearest-miss suggestion. --explain full shows this for every assertion, pass or fail.\n\n" +
-			"Coverage: --coverage reports per-type rewrite-branch coverage against the model, --coverage-detail adds full per-branch detail to the human report, and --coverage-min gates the run on it (exit 3 if unmet). Coverage is grant-based: a rewrite branch (a direct/wildcard type, a computed or tuple-to-userset arm, a 'but not' exclusion, or an ABAC condition outcome) counts covered only when a check assertion showed that specific arm granting — so an arm you never exercise stays uncovered even if its relation is otherwise tested. list_objects/list_users assertions have no per-arm tree, so they credit at relation granularity; use check assertions for precise per-arm coverage. --coverage-diff compares against a git ref and fails (exit 3) on newly-added branches no test covers.\n\n" +
-			"Reports: --report writes a CI-friendly report to --report-file (or the terminal): junit (XML), json (the same result shape as -o json, for writing to a file), or github (GitHub Actions ::error annotations so failures surface in the Actions log).\n\n" +
+			"Coverage: --coverage reports per-type rewrite-branch coverage against the model, --coverage-detail adds full per-branch detail to the human report, and --coverage-min gates the run on it (exit 3 if unmet). Coverage is grant-based: a rewrite branch (a direct/wildcard type, a computed or tuple-to-userset arm, a 'but not' exclusion, or an ABAC condition outcome) counts covered only when a check assertion showed that specific arm granting — so an arm you never exercise stays uncovered even if its relation is otherwise tested. Non-empty list_objects/list_users results have no per-arm tree, so they credit at relation granularity; empty denial results add no grant coverage. Use check assertions for precise per-arm coverage. --coverage-diff compares against a git ref and fails (exit 3) on newly-added branches no test covers.\n\n" +
+			"Reports: --report writes a CI-friendly report to --report-file (or the terminal): junit (XML), json (the same result shape as -o json, for writing to a file), or github (source-linked GitHub Actions ::error annotations so failures surface beside the authored test).\n\n" +
 			"Playground: --playground, after the run, boots the embedded server over HTTP and opens the interactive playground against a failing test's seeded world (on a TTY) so you can explore and drill into every result; the seeded data is shown under a clearly-labeled ephemeral profile and is never written to your real config.\n\n" +
+			"Documentation: https://github.com/sergiught/openfga-cli#-testing-authorization-models\n\n" +
 			"Exit codes: 0 success · 1 error · 2 usage · 3 test failure or coverage gate · 4 network · 130 canceled.",
 		Args: cobra.MaximumNArgs(1),
 		// This command reports the test-failure/usage error itself (via the
@@ -85,6 +87,19 @@ func (c *Command) testCmd() *cobra.Command {
 			if err := rejectInertConnectionFlags(cmd); err != nil {
 				return err
 			}
+			if parallel < 0 {
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--parallel must be 0 or greater"))
+			}
+			if timeout < 0 {
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--timeout must be 0 or greater"))
+			}
+			if slowest < 0 {
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--slowest must be 0 or greater"))
+			}
+			coverageMinSet := cmd.Flags().Changed("coverage-min")
+			if coverageMinSet && (math.IsNaN(coverageMin) || math.IsInf(coverageMin, 0) || coverageMin < 0 || coverageMin > 100) {
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--coverage-min must be a finite percentage from 0 to 100"))
+			}
 			if explain != "" && explain != "auto" && explain != "full" {
 				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("invalid --explain %q (want \"auto\" or \"full\")", explain))
 			}
@@ -94,7 +109,7 @@ func (c *Command) testCmd() *cobra.Command {
 			if !coverage && coverageDetail {
 				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--coverage-detail requires --coverage"))
 			}
-			if !coverage && coverageMin > 0 {
+			if !coverage && coverageMinSet {
 				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--coverage-min requires --coverage"))
 			}
 			if openfgaImage != "" && serverAddr != "" {
@@ -237,6 +252,9 @@ func (c *Command) testCmd() *cobra.Command {
 			if res.Coverage != nil && res.Coverage.Bounded {
 				output.Warnf(cmd.ErrOrStderr(), "coverage may be under-reported — a model is deep/wide enough that the resolution trace was truncated; some branches weren't evaluated.")
 			}
+			if res.Coverage != nil && !res.Coverage.Complete {
+				output.Warnf(cmd.ErrOrStderr(), "coverage is incomplete — these relations could not be enumerated: %s", strings.Join(res.Coverage.Unreachable, ", "))
+			}
 			// --fail-fast can stop before every test ran, so coverage is partial.
 			if res.Coverage != nil && res.Summary.Incomplete {
 				output.Warnf(cmd.ErrOrStderr(), "coverage is partial — --fail-fast stopped the run before every matched test ran.")
@@ -287,6 +305,9 @@ func (c *Command) testCmd() *cobra.Command {
 			if coverage && res.Coverage == nil && res.CoverageError != "" {
 				return clierr.WithCode(clierr.CodeUsage, errors.New(res.CoverageError))
 			}
+			if res.Coverage != nil && !res.Coverage.Complete {
+				return clierr.WithCode(clierr.CodeError, errors.New("coverage is incomplete because one or more relations could not be enumerated"))
+			}
 			if coverageMin > 0 && res.Coverage != nil && res.Coverage.Percent < coverageMin {
 				return clierr.WithCode(clierr.CodeTestFailed, fmt.Errorf("coverage %.1f%% is below the required %.1f%%", res.Coverage.Percent, coverageMin))
 			}
@@ -300,7 +321,7 @@ func (c *Command) testCmd() *cobra.Command {
 	cmd.Flags().StringVar(&modelFlag, "model", "", "model file to test (overrides the manifest, or runs manifest-free with --tests)")
 	cmd.Flags().StringArrayVar(&fixturesFlag, "fixtures", nil, "fixture-file glob(s) to register (repeatable; overrides the manifest's fixtures)")
 	cmd.Flags().StringArrayVar(&testsFlag, "tests", nil, "test-file glob(s) to run (repeatable; overrides the manifest's tests, or runs manifest-free with --model)")
-	cmd.Flags().StringVar(&run, "run", "", "glob to select tests by \"<file-stem>/<test-name>\" or by name alone")
+	cmd.Flags().StringVar(&run, "run", "", "glob to select tests by \"<relative-file>/<test-name>\" or by name alone")
 	cmd.Flags().IntVar(&parallel, "parallel", 0, "max concurrent tests (0 = number of CPUs)")
 	cmd.Flags().BoolVar(&failFast, "fail-fast", false, "stop after the first failing test instead of running the whole suite")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "per-test timeout bounding each test's engine work (e.g. 30s; 0 = no timeout)")
@@ -532,9 +553,7 @@ func isLocalAddr(addr string) bool {
 // "no ofga.yaml / workspace here" case, worth an actionable `test init` hint
 // rather than a bare load error.
 func isWorkspaceNotFound(err error) bool {
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "ofga.yaml") || strings.Contains(msg, "no workspace") ||
-		strings.Contains(msg, "workspace found")
+	return errors.Is(err, modeltest.ErrWorkspaceNotFound)
 }
 
 // isDockerUnreachable reports whether a container-engine start error is the
@@ -577,7 +596,11 @@ func renderFailures(w io.Writer, res *modeltest.Results, explain string) error {
 	// writeHeader prints the test name and, when present, its `description:` —
 	// authored docs that would otherwise never be shown.
 	writeHeader := func(t modeltest.TestResult) error {
-		if _, err := fmt.Fprintf(w, "\n%s\n", style.Heading.Render(t.Name)); err != nil {
+		header := t.Name
+		if t.File != "" && t.Line > 0 {
+			header += fmt.Sprintf(" (%s:%d)", t.File, t.Line)
+		}
+		if _, err := fmt.Fprintf(w, "\n%s\n", style.Heading.Render(header)); err != nil {
 			return err
 		}
 		if t.Description != "" {
@@ -698,7 +721,7 @@ func renderCoverage(w io.Writer, cov *modeltest.Coverage, detail bool) error {
 		}
 	}
 
-	disclosure := "coverage is grant-based (a rewrite branch counts covered only when a check assertion showed that specific arm granting; each ABAC condition counts its true and false outcomes separately; list_objects/list_users credit at relation granularity) over the manifest model."
+	disclosure := "coverage is grant-based (a rewrite branch counts covered only when a check assertion showed that specific arm granting; each ABAC condition counts its true and false outcomes separately; non-empty list_objects/list_users results credit at relation granularity) over the manifest model."
 	if _, err := fmt.Fprintln(w, style.Faint.Render(disclosure)); err != nil {
 		return err
 	}

@@ -25,6 +25,9 @@ func (m Model) handleWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 		m.resVP, cmd = m.resVP.Update(msg)
 		return m, cmd
 	case m.section == secTestResults:
+		if m.wb.running {
+			return m, nil
+		}
 		// The coverage report isn't a cursor list, so the wheel scrolls its
 		// capLines window (clamped) instead of moving a selection.
 		if m.wb.showCoverage && m.wb.coverage != nil {
@@ -36,10 +39,10 @@ func (m Model) handleWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 		// the detail pane below the tree; over the tree it moves the selection.
 		if m.wb.verbose {
 			_, h := m.contentSize()
-			_, card := m.wbDetail()
-			if detailH := wbDetailHeight(card, h); detailH > 0 {
+			treeH, detailH := m.wbLayout(h)
+			if detailH > 0 {
+				_, card := m.wbDetail()
 				_, by := m.sh.MainBodyOrigin()
-				treeH := h - detailH - 1
 				if msg.Y-by >= treeH+1 {
 					m.wb.detailScroll = clampScroll(m.wb.detailScroll, up, card, detailH)
 					return m, nil
@@ -151,6 +154,23 @@ func (m Model) handleClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		if msg.X >= bx && msg.X < bx+w && msg.Y >= by+off && msg.Y < by+h {
 			if idx := lst.IndexAt(msg.Y - by - off); idx >= 0 {
 				lst.SelectIndex(idx)
+				m.focus = shell.FocusPanel
+				return m, nil
+			}
+		}
+	}
+	// Click a Tests navigator row (file or nested test) to select it, the same
+	// row a click-through would land on via up/k, down/j — the tree isn't a
+	// list.List (sectionList doesn't cover it), and clicks are ignored while
+	// coverage/spinner occupy the pane since neither renders selectable rows.
+	if m.section == secTestResults && !m.wb.showCoverage && !m.wb.running {
+		bx, by := m.sh.MainBodyOrigin()
+		w, h := m.contentSize()
+		if msg.X >= bx && msg.X < bx+w && msg.Y >= by && msg.Y < by+h {
+			if idx, ok := m.wbNodeAt(msg.Y - by); ok {
+				m.wb.treeSel = idx
+				m.wb.detailScroll = 0
+				m.clampWbTreeSel()
 				m.focus = shell.FocusPanel
 				return m, nil
 			}

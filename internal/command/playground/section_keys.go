@@ -526,16 +526,16 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 // whole Tests behavior lives in one place, with one switch. Dead-end feedback
 // rides on toasts, since the Tests footer renders no status text (see wbStatus).
 func (m Model) handleTestResultsKey(key string) (tea.Model, tea.Cmd) {
+	if m.wb.running {
+		switch key {
+		case "n", "e", "r", "R", "c", "v", "up", "k", "down", "j", "enter", "space", "d":
+			return m, m.wbStatus(toast.Info, "tests running…")
+		}
+	}
 	switch key {
 	case "n":
-		if m.wb.running {
-			return m, m.wbStatus(toast.Info, "tests running…")
-		}
 		return m.openWorkbenchNewPrompt()
 	case "e":
-		if m.wb.running {
-			return m, m.wbStatus(toast.Info, "tests running…")
-		}
 		return m.openWorkbenchEditor()
 	case "r":
 		return m.runSuite("")
@@ -544,7 +544,7 @@ func (m Model) handleTestResultsKey(key string) (tea.Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		return m.runSuite(wbFileStem(tf.Path) + "/*")
+		return m.runSuite(wbFileStem(m.wb.workspace, tf) + "/*")
 	case "c":
 		if m.wb.coverage == nil {
 			m.wb.showCoverage = false
@@ -558,6 +558,7 @@ func (m Model) handleTestResultsKey(key string) (tea.Model, tea.Cmd) {
 		}
 		m.wb.showCoverage = !m.wb.showCoverage
 		if m.wb.showCoverage {
+			m.wb.verbose = false
 			m.wb.covScroll = 0
 			return m, m.wbStatus(toast.Info, "coverage — c to hide")
 		}
@@ -565,10 +566,24 @@ func (m Model) handleTestResultsKey(key string) (tea.Model, tea.Cmd) {
 	case "v":
 		return m, m.toggleVerbose()
 	case "up", "k":
+		// The coverage report isn't a cursor list — while it's shown, up/k
+		// scroll it (mirroring the wheel; see handleWheel) instead of moving
+		// the tree's selection, which would be invisible behind the coverage
+		// pane and desync the tree from what the arrow keys just did.
+		if m.wb.showCoverage && m.wb.coverage != nil {
+			w, h := m.contentSize()
+			m.wb.covScroll = clampScroll(m.wb.covScroll, true, renderWorkbenchCoverage(m.wb.coverage, w), h)
+			return m, nil
+		}
 		m.wb.treeSel--
 		m.wb.detailScroll = 0
 		m.clampWbTreeSel()
 	case "down", "j":
+		if m.wb.showCoverage && m.wb.coverage != nil {
+			w, h := m.contentSize()
+			m.wb.covScroll = clampScroll(m.wb.covScroll, false, renderWorkbenchCoverage(m.wb.coverage, w), h)
+			return m, nil
+		}
 		m.wb.treeSel++
 		m.wb.detailScroll = 0
 		m.clampWbTreeSel()
@@ -585,9 +600,6 @@ func (m Model) handleTestResultsKey(key string) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "d":
-		if m.wb.running {
-			return m, m.wbStatus(toast.Info, "tests running…")
-		}
 		tf, _, ok := m.wbSelectedFile()
 		if m.wb.workspace == nil || !ok {
 			return m, m.wbStatus(toast.Info, "no test file to delete")

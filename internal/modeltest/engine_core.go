@@ -2,8 +2,8 @@ package modeltest
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"time"
 
 	openfgav1 "github.com/openfga/api/proto/openfga/v1"
 	"github.com/openfga/openfga/pkg/tuple"
@@ -50,9 +50,17 @@ const readPageSize = 100
 // rpcMessage unwraps a gRPC status error to its bare human message, dropping the
 // "rpc error: code = ... desc = " envelope — noise for a user whose real mistake
 // is in their model or fixtures, not in any RPC transport.
+type friendlyRPCError struct {
+	message string
+	cause   error
+}
+
+func (e *friendlyRPCError) Error() string { return e.message }
+func (e *friendlyRPCError) Unwrap() error { return e.cause }
+
 func rpcMessage(err error) error {
 	if st, ok := status.FromError(err); ok {
-		return errors.New(st.Message())
+		return &friendlyRPCError{message: st.Message(), cause: err}
 	}
 	return err
 }
@@ -63,6 +71,15 @@ func (e *engine) Setup(ctx context.Context, model *openfgav1.AuthorizationModel,
 		return "", "", fmt.Errorf("create store: %w", rpcMessage(err))
 	}
 	storeID := storeResp.GetId()
+	setupComplete := false
+	defer func() {
+		if setupComplete {
+			return
+		}
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		_, _ = e.api.DeleteStore(cleanupCtx, &openfgav1.DeleteStoreRequest{StoreId: storeID})
+	}()
 
 	modelResp, err := e.api.WriteAuthorizationModel(ctx, &openfgav1.WriteAuthorizationModelRequest{
 		StoreId:         storeID,
@@ -90,6 +107,7 @@ func (e *engine) Setup(ctx context.Context, model *openfgav1.AuthorizationModel,
 		}
 	}
 
+	setupComplete = true
 	return storeID, modelID, nil
 }
 
