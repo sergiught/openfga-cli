@@ -122,18 +122,26 @@ func (m Model) handleClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-	// Click the "full tree" / "ACL path" labels in the resolution header to
-	// switch views, mirroring the query mode-chip strip (and the `p` key).
+	// Click a label in the resolution header — the "full tree"/"ACL path" toggle
+	// or the "p toggle"/"r/esc close" hints — to act on it, mirroring the query
+	// mode-chip strip (and the keys themselves).
 	if m.section == secQuery && m.showRes && m.resTree != nil {
 		bx, by := m.sh.MainBodyOrigin()
 		if msg.Y == by {
-			_, fullRange, pathRange := m.resHeader(bx)
+			_, z := m.resHeader(bx)
+			in := func(r [2]int) bool { return msg.X >= r[0] && msg.X < r[1] }
 			switch {
-			case msg.X >= fullRange[0] && msg.X < fullRange[1]:
+			case in(z.full):
 				m.setResPathOnly(false)
 				return m, nil
-			case msg.X >= pathRange[0] && msg.X < pathRange[1]:
+			case in(z.path):
 				m.setResPathOnly(true)
+				return m, nil
+			case in(z.toggle):
+				m.setResPathOnly(!m.resPathOnly)
+				return m, nil
+			case in(z.close):
+				m.showRes = false
 				return m, nil
 			}
 		}

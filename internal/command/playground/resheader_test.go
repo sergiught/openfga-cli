@@ -18,66 +18,78 @@ func colOf(vis, label string) int {
 	return lipgloss.Width(vis[:strings.Index(vis, label)])
 }
 
-// resHeader's reported toggle ranges must line up with where the labels
-// actually render, so a change to the header format can't silently break the
-// click hit-testing that maps a column to a toggle.
-func TestResHeaderTogglesMatchRenderedColumns(t *testing.T) {
+// resHeader's reported zones must line up with where the labels actually
+// render, so a change to the header format can't silently break the click
+// hit-testing that maps a column to an action.
+func TestResHeaderZonesMatchRenderedColumns(t *testing.T) {
 	m := Model{}
 	m.result.vals = [3]string{"user:anne", "viewer", "document:roadmap"}
 
-	head, fullRange, pathRange := m.resHeader(0)
+	head, z := m.resHeader(0)
 	vis := ansi.Strip(head)
 
-	if got := colOf(vis, resToggleFull); got != fullRange[0] {
-		t.Errorf("full tree renders at col %d, resHeader reports start %d", got, fullRange[0])
-	}
-	if got := fullRange[1] - fullRange[0]; got != lipgloss.Width(resToggleFull) {
-		t.Errorf("full tree range width = %d, want %d", got, lipgloss.Width(resToggleFull))
-	}
-	if got := colOf(vis, resTogglePath); got != pathRange[0] {
-		t.Errorf("ACL path renders at col %d, resHeader reports start %d", got, pathRange[0])
-	}
-	if got := pathRange[1] - pathRange[0]; got != lipgloss.Width(resTogglePath) {
-		t.Errorf("ACL path range width = %d, want %d", got, lipgloss.Width(resTogglePath))
+	for _, tc := range []struct {
+		name  string
+		label string
+		zone  [2]int
+	}{
+		{"full tree", resToggleFull, z.full},
+		{"ACL path", resTogglePath, z.path},
+		{"p toggle", resHintToggle, z.toggle},
+		{"r/esc close", resHintClose, z.close},
+	} {
+		if got := colOf(vis, tc.label); got != tc.zone[0] {
+			t.Errorf("%s renders at col %d, resHeader reports start %d", tc.name, got, tc.zone[0])
+		}
+		if got := tc.zone[1] - tc.zone[0]; got != lipgloss.Width(tc.label) {
+			t.Errorf("%s zone width = %d, want %d", tc.name, got, lipgloss.Width(tc.label))
+		}
 	}
 }
 
-// Clicking the "full tree" / "ACL path" labels in the resolution header switches
-// the view, like the `p` key does — the enhancement in issue #41.
-func TestResolutionHeaderClickTogglesView(t *testing.T) {
+// Clicking a resolution-header label acts on it, like the keys do — the
+// enhancement in issue #41.
+func TestResolutionHeaderClickActions(t *testing.T) {
 	sh := shell.New()
 	sh.SetSize(120, 30)
-	m := Model{sh: sh, section: secQuery, showRes: true, resPathOnly: true}
-	m.resTree = &fga.ResNode{Name: "document:roadmap#viewer", Granted: true}
-	m.result.vals = [3]string{"user:anne", "viewer", "document:roadmap"}
-
-	bx, by := m.sh.MainBodyOrigin()
-	_, fullRange, pathRange := m.resHeader(bx)
+	newModel := func() Model {
+		m := Model{sh: sh, section: secQuery, showRes: true, resPathOnly: true}
+		m.resTree = &fga.ResNode{Name: "document:roadmap#viewer", Granted: true}
+		m.result.vals = [3]string{"user:anne", "viewer", "document:roadmap"}
+		return m
+	}
+	bx, by := sh.MainBodyOrigin()
+	_, z := newModel().resHeader(bx)
 
 	click := func(m Model, x, y int) Model {
 		nm, _ := m.handleClick(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
 		return nm.(Model)
 	}
 
-	// Starting from ACL-path view, click "full tree" -> full tree.
-	m = click(m, fullRange[0], by)
-	if m.resPathOnly {
-		t.Fatal("clicking 'full tree' should set resPathOnly=false")
+	// "full tree" -> full tree; "ACL path" -> collapsed path.
+	if m := click(newModel(), z.full[0], by); m.resPathOnly {
+		t.Error("clicking 'full tree' should set resPathOnly=false")
 	}
-	// Click "ACL path" -> collapsed path.
-	m = click(m, pathRange[0], by)
-	if !m.resPathOnly {
-		t.Fatal("clicking 'ACL path' should set resPathOnly=true")
+	m := newModel()
+	m.resPathOnly = false
+	if m := click(m, z.path[0], by); !m.resPathOnly {
+		t.Error("clicking 'ACL path' should set resPathOnly=true")
 	}
-	// A click on the header line but left of both labels changes nothing.
-	m = click(m, bx, by)
-	if !m.resPathOnly {
-		t.Fatal("a click left of the toggles must not change the view")
+	// "p toggle" flips the current view.
+	if m := click(newModel(), z.toggle[0], by); m.resPathOnly {
+		t.Error("clicking 'p toggle' should flip resPathOnly true->false")
+	}
+	// "r/esc close" closes the resolution view.
+	if m := click(newModel(), z.close[0], by); m.showRes {
+		t.Error("clicking 'r/esc close' should close the resolution view")
+	}
+	// The scroll hint and gaps between labels are inert; the view stays open and
+	// unchanged.
+	if m := click(newModel(), bx, by); !m.showRes || !m.resPathOnly {
+		t.Error("a click left of the labels must not change anything")
 	}
 	// A click off the header row changes nothing.
-	m.resPathOnly = false
-	m = click(m, fullRange[0], by+5)
-	if m.resPathOnly {
-		t.Fatal("a click off the header row must not change the view")
+	if m := click(newModel(), z.full[0], by+5); !m.showRes || !m.resPathOnly {
+		t.Error("a click off the header row must not change anything")
 	}
 }
