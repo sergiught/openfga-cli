@@ -1,0 +1,114 @@
+# Recipes
+
+Short, end-to-end flows for wiring `ofga` into scripts, CI, and multi-store
+setups. Each recipe is self-contained and safe to copy into a shell script or
+CI job.
+
+## CI gate for authorization model tests
+
+Fail the build if a test regresses or an authorization branch ships untested.
+See [model-testing.md](model-testing.md) for how coverage is computed.
+
+```bash
+# Fail if overall coverage drops below 80%
+ofga model test --coverage --coverage-min 80
+
+# Fail if this branch adds a rewrite branch (a new type/arm/condition
+# outcome) that no test exercises, compared against main
+ofga model test --coverage-diff main
+```
+
+Both exit `3` when the gate trips (a failing test, coverage below the
+threshold, or an untested branch added since `main`) and `0` otherwise — a
+plain non-zero exit is enough to fail a CI step, no extra plumbing needed.
+
+## Scripting authorization checks
+
+`--plain` emits tab-separated `key<TAB>value` rows. A single `check` prints
+`allowed<TAB>true` or `allowed<TAB>false` — the exit code stays `0` either way,
+so scripts branch on the printed value, not the exit status (only a real
+error, like an unreachable server, exits non-zero).
+
+```bash
+if ofga query check user:anne viewer document:roadmap --plain | grep -q 'true$'; then
+  echo "anne can view the roadmap"
+else
+  echo "anne is denied"
+fi
+
+# Which documents can anne view?
+ofga query list-objects document viewer user:anne --plain | wc -l
+```
+
+## Multi-environment profiles
+
+A profile bundles an API URL, store/model ID, and auth. Add one per
+environment and switch with `--profile`/`-p` or `OPENFGA_PROFILE` instead of
+re-exporting variables — see [configuration.md](configuration.md) for the full
+field list.
+
+```bash
+ofga profiles add prod --api-url https://fga.example.com \
+  --auth-method client_credentials --client-id "$FGA_CLIENT_ID" \
+  --client-secret-stdin --token-url https://issuer.example.com/oauth/token \
+  --audience https://api.fga.example.com <<< "$FGA_CLIENT_SECRET"
+
+ofga --profile prod stores list
+# equivalent:
+OPENFGA_PROFILE=prod ofga stores list
+```
+
+## Bulk tuple writes from a file
+
+`tuples write --file` takes a JSON array of `{"user", "relation", "object"}`
+objects (or `{"tuples": [...]}`), reading from stdin with `-`. Writes are sent
+in server-sized batches and are **not** transactional across batches — see
+[scripting.md](scripting.md) for the full automation contract.
+
+```bash
+cat > tuples.json <<'EOF'
+{
+  "tuples": [
+    { "user": "user:bob", "relation": "member", "object": "organization:org1" },
+    { "user": "user:carol", "relation": "member", "object": "organization:org1" }
+  ]
+}
+EOF
+
+ofga tuples write --file tuples.json
+```
+
+If a later batch fails, the command reports `written`/`deleted`, `total`, and
+`complete: false` (in JSON/YAML/plain output) before exiting non-zero.
+Automation should check the exit status and treat the reported count as
+already committed rather than retrying the whole file.
+
+## Raw API escape hatch
+
+`ofga api` sends an arbitrary request through the active profile's URL and
+auth — useful for endpoints the CLI doesn't wrap yet, or for one-off
+debugging.
+
+```bash
+ofga api GET /stores
+
+ofga api POST /stores/01H.../check \
+  '{"tuple_key":{"user":"user:anne","relation":"viewer","object":"document:roadmap"}}'
+```
+
+`--plain` preserves the raw response bytes (only adding a missing trailing
+newline), which keeps the output pipeable straight into `jq` or another JSON
+consumer.
+
+## Exporting tuples for backup or re-import
+
+`tuples read --json` auto-pages and returns every tuple as
+`{"key": {"user", "relation", "object"}, "timestamp"}`, which doesn't match
+the flatter shape `tuples write --file` expects — reshape it with `jq` first.
+
+```bash
+ofga tuples read --json | jq '[.[].key]' > backup.json
+
+# ...later, against the same or a different store:
+ofga tuples write --file backup.json
+```
