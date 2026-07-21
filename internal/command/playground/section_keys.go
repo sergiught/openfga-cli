@@ -275,9 +275,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			case "r":
 				m.showRes = false
 			case "p":
-				m.resPathOnly = !m.resPathOnly
-				m.refreshResVP()
-				m.resVP.SetYOffset(0)
+				m.setResPathOnly(!m.resPathOnly)
 			case "left", "h":
 				m.resVP.ScrollLeft(4)
 			case "right", "l":

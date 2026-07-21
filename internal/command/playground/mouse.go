@@ -122,6 +122,30 @@ func (m Model) handleClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
+	// Click a label in the resolution header — the "full tree"/"ACL path" toggle
+	// or the "p toggle"/"r/esc close" hints — to act on it, mirroring the query
+	// mode-chip strip (and the keys themselves).
+	if m.section == secQuery && m.showRes && m.resTree != nil {
+		bx, by := m.sh.MainBodyOrigin()
+		if msg.Y == by {
+			_, z := m.resHeader(bx)
+			in := func(r [2]int) bool { return msg.X >= r[0] && msg.X < r[1] }
+			switch {
+			case in(z.full):
+				m.setResPathOnly(false)
+				return m, nil
+			case in(z.path):
+				m.setResPathOnly(true)
+				return m, nil
+			case in(z.toggle):
+				m.setResPathOnly(!m.resPathOnly)
+				return m, nil
+			case in(z.close):
+				m.showRes = false
+				return m, nil
+			}
+		}
+	}
 	// Click an API Logs detail sub-section tab (Req/Resp headers/body) to switch
 	// it, mirroring the Tab key.
 	if m.section == secAPILogs {

@@ -612,6 +612,67 @@ func (m Model) editorViewportRows() int {
 	return rows
 }
 
+// Resolution-view header labels, shared by the header renderer and the click
+// hit-test (resHeader) so their rendered widths can never drift apart. The
+// scroll hint is informational (no click action); the rest are clickable.
+const (
+	resToggleFull = "full tree"
+	resTogglePath = "ACL path"
+	resHintToggle = "p toggle"
+	resHintScroll = "↑↓←→ scroll"
+	resHintClose  = "r/esc close"
+	resHeaderSep  = " · " // visible separator between labels/hints
+)
+
+// resHeaderZones holds the absolute column ranges [start,end) of the clickable
+// segments in the resolution header, for handleClick's hit-testing.
+type resHeaderZones struct {
+	full, path, toggle, close [2]int
+}
+
+// resHeader builds the resolution-view header line — the title, the checked
+// tuple, the "full tree · ACL path" toggle and the key hints — and returns the
+// clickable segments' absolute column ranges given the main body's left column
+// bx. The head string is independent of bx (only the zones consume it), so the
+// renderer can pass bx=0 and ignore the zones.
+func (m Model) resHeader(bx int) (head string, zones resHeaderZones) {
+	full, path := style.Faint.Render(resToggleFull), style.Faint.Render(resTogglePath)
+	if m.resPathOnly {
+		path = style.Heading.Render(resTogglePath)
+	} else {
+		full = style.Heading.Render(resToggleFull)
+	}
+	prefix := style.Heading.Render("Resolution") + "  " +
+		style.Faint.Render(safeText(m.result.vals[0])+" "+safeText(m.result.vals[1])+" "+safeText(m.result.vals[2])) +
+		"   "
+
+	// Walk the line left-to-right, recording each clickable label's range as we
+	// advance the column cursor past every rendered segment.
+	col := bx + lipgloss.Width(prefix)
+	zones.full = span(&col, resToggleFull)
+	col += lipgloss.Width(resHeaderSep)
+	zones.path = span(&col, resTogglePath)
+	col += lipgloss.Width("   ") // gap before the hint group
+	zones.toggle = span(&col, resHintToggle)
+	col += lipgloss.Width(resHeaderSep)
+	col += lipgloss.Width(resHintScroll) // scroll hint isn't clickable
+	col += lipgloss.Width(resHeaderSep)
+	zones.close = span(&col, resHintClose)
+
+	head = prefix +
+		full + " " + style.Faint.Render("·") + " " + path +
+		"   " + style.Faint.Render(resHintToggle+resHeaderSep+resHintScroll+resHeaderSep+resHintClose)
+	return head, zones
+}
+
+// span records [start,end) for a label of the given text at *col, advancing
+// *col past its rendered width.
+func span(col *int, label string) [2]int {
+	start := *col
+	*col += lipgloss.Width(label)
+	return [2]int{start, *col}
+}
+
 func (m Model) queryBody() string {
 	if m.storeID == "" {
 		return style.Faint.Render("Select a store first — press 2")
@@ -620,16 +681,7 @@ func (m Model) queryBody() string {
 	// Resolution tree takes over the panel when open.
 	if m.showRes && m.resTree != nil {
 		w, _ := m.contentSize()
-		full, path := style.Faint.Render("full tree"), style.Faint.Render("ACL path")
-		if m.resPathOnly {
-			path = style.Heading.Render("ACL path")
-		} else {
-			full = style.Heading.Render("full tree")
-		}
-		head := style.Heading.Render("Resolution") + "  " +
-			style.Faint.Render(safeText(m.result.vals[0])+" "+safeText(m.result.vals[1])+" "+safeText(m.result.vals[2])) +
-			"   " + full + " " + style.Faint.Render("·") + " " + path +
-			"   " + style.Faint.Render("p toggle · ↑↓←→ scroll · r/esc close")
+		head, _ := m.resHeader(0)
 		return head + "\n" + style.SectionHeader("", w) + "\n" + m.resVP.View()
 	}
 
