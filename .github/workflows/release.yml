@@ -65,7 +65,7 @@ jobs:
       - name: install Syft for release SBOMs
         uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
-          syft-version: v1.48.0
+          syft-version: v1.49.0
       - name: install cosign for keyless signing
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: log in to GitHub Container Registry
