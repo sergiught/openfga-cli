@@ -300,7 +300,7 @@ condition in_business_hours(current_hour: int) {
 		t.Fatal(err)
 	}
 
-	csvContent := "user,relation,object\n" +
+	csvContent := " User,RELATION,Object \n" +
 		"user:anne,owner,document:1\n" +
 		"user:carol,viewer,document:3,in_business_hours\n"
 	writeFixtureFile(t, dir, "fixtures/core-csv.csv", csvContent)

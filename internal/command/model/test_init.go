@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/modeltest"
 	"github.com/sergiught/openfga-cli/internal/style"
 )
 
@@ -19,10 +20,7 @@ var scaffoldFiles = []struct {
 	content string
 }{
 	{"ofga.yaml", `# ofga model-test workspace. Run: ofga model test
-#
-# Editor completion/validation: generate the schema once with
-#   ofga model test schema > workspace.schema.json
-# and the modeline below binds this manifest to it.
+# The generated local schema provides editor completion and validation.
 # yaml-language-server: $schema=./workspace.schema.json#manifest
 version: 1
 model: ./model.fga
@@ -31,6 +29,7 @@ fixtures:
 tests:
   - tests/**/*.test.yaml
 `},
+	{"workspace.schema.json", string(modeltest.WorkspaceSchema()) + "\n"},
 	{"model.fga", `model
   schema 1.1
 
@@ -86,8 +85,8 @@ func (c *Command) testInitCmd() *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
 		Use:   "init [dir]",
-		Short: "Scaffold a runnable model-test workspace (ofga.yaml + a sample model, fixture, and test)",
-		Long: "Write a minimal ofga.yaml workspace — a model, a fixture, and a test that passes against them — into dir (default: current directory). " +
+		Short: "Scaffold a runnable, editor-ready model-test workspace",
+		Long: "Write a minimal ofga.yaml workspace — a local editor schema, model, fixture, and passing test — into dir (default: current directory). " +
 			"Run `ofga model test` in that directory to see a green run and learn the format. Existing files are left untouched unless --force is given.",
 		Example: `  ofga model test init
   ofga model test init ./ws
@@ -109,21 +108,49 @@ func (c *Command) testInitCmd() *cobra.Command {
 // existing file unless force is set.
 func scaffoldWorkspace(cmd *cobra.Command, dir string, force bool) error {
 	out := cmd.OutOrStdout()
-	for _, f := range scaffoldFiles {
-		dest := filepath.Join(dir, f.path)
-		if !force {
+	if !force {
+		for _, f := range scaffoldFiles {
+			dest := filepath.Join(dir, f.path)
 			if _, err := os.Stat(dest); err == nil {
 				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("%s already exists; use --force to overwrite", dest))
+			} else if !os.IsNotExist(err) {
+				return fmt.Errorf("inspect %s: %w", dest, err)
 			}
 		}
+	}
+	for _, f := range scaffoldFiles {
+		dest := filepath.Join(dir, f.path)
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			return fmt.Errorf("create %s: %w", filepath.Dir(dest), err)
 		}
-		if err := os.WriteFile(dest, []byte(f.content), 0o644); err != nil {
+		tmp, err := os.CreateTemp(filepath.Dir(dest), "."+filepath.Base(dest)+".tmp-*")
+		if err != nil {
+			return fmt.Errorf("stage %s: %w", dest, err)
+		}
+		tmpName := tmp.Name()
+		if _, err := tmp.WriteString(f.content); err != nil {
+			tmp.Close()
+			os.Remove(tmpName)
 			return fmt.Errorf("write %s: %w", dest, err)
+		}
+		if err := tmp.Close(); err != nil {
+			os.Remove(tmpName)
+			return fmt.Errorf("write %s: %w", dest, err)
+		}
+		if err := os.Chmod(tmpName, 0o644); err != nil {
+			os.Remove(tmpName)
+			return fmt.Errorf("chmod %s: %w", dest, err)
+		}
+		if err := os.Rename(tmpName, dest); err != nil {
+			os.Remove(tmpName)
+			return fmt.Errorf("install %s: %w", dest, err)
 		}
 		fmt.Fprintf(out, "  %s %s\n", style.Success.Render("created"), dest)
 	}
-	fmt.Fprintf(out, "\n%s\n", style.Faint.Render("Scaffolded a model-test workspace. Run `ofga model test` here to try it."))
+	next := "ofga model test"
+	if filepath.Clean(dir) != "." {
+		next += " " + filepath.Clean(dir)
+	}
+	fmt.Fprintf(out, "\n%s\n", style.Faint.Render(fmt.Sprintf("Scaffolded a model-test workspace. Run `%s` to try it.", next)))
 	return nil
 }

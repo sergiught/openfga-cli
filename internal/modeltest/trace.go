@@ -20,6 +20,20 @@ const (
 	traceMaxNodes = 64
 )
 
+type traceCache struct {
+	expands    map[string]*openfgav1.UsersetTree
+	reads      map[string][]string
+	conditions map[string]map[string][]string
+}
+
+func newTraceCache() *traceCache {
+	return &traceCache{
+		expands:    map[string]*openfgav1.UsersetTree{},
+		reads:      map[string][]string{},
+		conditions: map[string]map[string][]string{},
+	}
+}
+
 // trace produces a resolution narrative for a Check assertion. It fetches the
 // engine's Expand (userset) tree, runs it through internal/fga's proven
 // resolution pipeline — the same one the playground uses — and renders the
@@ -35,14 +49,35 @@ func trace(ctx context.Context, lm *LoadedModel, eng Resolver, sc Scope, r Check
 	if err != nil {
 		return nil, fmt.Errorf("trace verdict check: %w", err)
 	}
+	return traceWithVerdict(ctx, lm, eng, sc, r, verdict, newTraceCache())
+}
 
+// traceWithVerdict reuses the assertion's authoritative Check result and
+// test-scoped Expand/Read caches, avoiding a duplicate verdict RPC and repeated
+// resolution reads when coverage traces several assertions in one test.
+func traceWithVerdict(ctx context.Context, lm *LoadedModel, eng Resolver, sc Scope, r CheckReq, verdict bool, cache *traceCache) (*Explain, error) {
+	if cache == nil {
+		cache = newTraceCache()
+	}
+	var traceErr error
+	recordErr := func(err error) {
+		if traceErr == nil {
+			traceErr = err
+		}
+	}
 	// tupleset lists the "user" side of tuples for object#relation, used to
 	// expand and resolve tuple-to-userset branches.
 	tupleset := func(object, relation string) []string {
+		key := object + "#" + relation
+		if xs, ok := cache.reads[key]; ok {
+			return xs
+		}
 		xs, terr := eng.Read(ctx, sc, object, relation)
 		if terr != nil {
+			recordErr(fmt.Errorf("read %s: %w", key, terr))
 			return nil
 		}
+		cache.reads[key] = xs
 		return xs
 	}
 
@@ -50,12 +85,20 @@ func trace(ctx context.Context, lm *LoadedModel, eng Resolver, sc Scope, r Check
 	// into a ResNode, so ExpandTree can splice nested branches in place of
 	// dead-end leaves.
 	expand := func(object, relation string) *fga.ResNode {
-		tree, eerr := eng.Expand(ctx, sc, object, relation)
-		if eerr != nil {
-			return nil
+		key := object + "#" + relation
+		tree, ok := cache.expands[key]
+		if !ok {
+			var eerr error
+			tree, eerr = eng.Expand(ctx, sc, object, relation)
+			if eerr != nil {
+				recordErr(fmt.Errorf("expand %s: %w", key, eerr))
+				return nil
+			}
+			cache.expands[key] = tree
 		}
 		m, merr := protoTreeToMap(tree)
 		if merr != nil {
+			recordErr(fmt.Errorf("decode expansion %s: %w", key, merr))
 			return nil
 		}
 		sub, ok := fga.ParseResolution(m)
@@ -67,12 +110,18 @@ func trace(ctx context.Context, lm *LoadedModel, eng Resolver, sc Scope, r Check
 
 	root := expand(r.Object, r.Relation)
 	if root == nil {
+		if traceErr != nil {
+			return nil, traceErr
+		}
 		// No resolution tree (e.g. relation not expandable); still return the
 		// engine verdict so callers have a faithful outcome.
 		return &Explain{Verdict: verdict}, nil
 	}
 
 	bounded := fga.ExpandTree(root, r.Object+"#"+r.Relation, expand, tupleset, traceMaxDepth, traceMaxNodes)
+	if traceErr != nil {
+		return nil, traceErr
+	}
 
 	// check forwards the original request's Context and ContextualTuples so nested
 	// resolution is condition-aware — a directly-assigned tuple guarded by an ABAC
@@ -87,6 +136,9 @@ func trace(ctx context.Context, lm *LoadedModel, eng Resolver, sc Scope, r Check
 			Context:          r.Context,
 			ContextualTuples: r.ContextualTuples,
 		})
+		if cerr != nil {
+			recordErr(fmt.Errorf("check %s#%s for %s: %w", object, relation, user, cerr))
+		}
 		return cerr == nil && ok
 	}
 
@@ -104,26 +156,33 @@ func trace(ctx context.Context, lm *LoadedModel, eng Resolver, sc Scope, r Check
 	// the public wildcard for its type — so coverage can credit the specific
 	// condition branch exercised. Reads are memoized per object#relation since a
 	// tree can revisit the same node.
-	condCache := map[string]map[string][]string{}
 	condFor := func(object, relation, user string) []string {
 		key := object + "#" + relation
-		byUser, ok := condCache[key]
+		byUser, ok := cache.conditions[key]
 		if !ok {
-			byUser, _ = eng.ReadConditions(ctx, sc, object, relation)
+			var err error
+			byUser, err = eng.ReadConditions(ctx, sc, object, relation)
+			if err != nil {
+				recordErr(fmt.Errorf("read conditions %s: %w", key, err))
+			}
 			if byUser == nil {
 				byUser = map[string][]string{}
 			}
-			condCache[key] = byUser
+			cache.conditions[key] = byUser
 		}
 		out := append([]string(nil), byUser[user]...)
 		return append(out, byUser[idType(user)+":*"]...)
 	}
 
 	arms, subtract := computeArmGrants(root, r.User, check)
+	tree := toExplainNode(root, r.User, condFor)
+	if traceErr != nil {
+		return nil, traceErr
+	}
 
 	return &Explain{
 		Verdict:      verdict,
-		Tree:         toExplainNode(root, r.User, condFor),
+		Tree:         tree,
 		Bounded:      bounded,
 		grantedArms:  arms,
 		subtractRels: subtract,

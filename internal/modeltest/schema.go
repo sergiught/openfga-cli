@@ -14,6 +14,10 @@ var schemaBytes []byte
 
 const schemaResourceName = "workspace.v1.json"
 
+// WorkspaceSchemaURL is the canonical web URL editors can use for completion
+// and validation without generating a local copy.
+const WorkspaceSchemaURL = "https://raw.githubusercontent.com/sergiught/openfga-cli/main/internal/modeltest/schema/workspace.v1.json"
+
 // WorkspaceSchema returns the embedded workspace JSON schema bytes, so a command
 // can print it (e.g. to seed an editor's `$schema` binding). The returned slice
 // backs the embedded schema and must not be mutated.

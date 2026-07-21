@@ -2,6 +2,7 @@ package modeltest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -12,6 +13,8 @@ import (
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/sergiught/openfga-cli/internal/clierr"
 )
@@ -41,21 +44,27 @@ type Options struct {
 type runTask struct {
 	tf   *TestFile
 	test Test
-	name string // "<file-stem>/<test-name>"
+	name string // "<workspace-relative-test-file>/<test-name>"
 }
 
 // modelCache compiles each distinct model file at most once per run. Compiling
 // a model (DSL→JSON transform in loadModel) is the expensive part of per-test
 // setup; without this cache a workspace of N tests sharing one model would
-// compile it N times. Access is mutex-guarded because tests run concurrently.
+// compile it N times. A short mutex protects entry creation; unrelated models
+// compile concurrently while callers for the same path share one result.
 type modelCache struct {
-	mu    sync.Mutex
-	byKey map[string]*LoadedModel
-	errs  map[string]error
+	mu      sync.Mutex
+	entries map[string]*modelCacheEntry
+}
+
+type modelCacheEntry struct {
+	ready chan struct{}
+	model *LoadedModel
+	err   error
 }
 
 func newModelCache() *modelCache {
-	return &modelCache{byKey: map[string]*LoadedModel{}, errs: map[string]error{}}
+	return &modelCache{entries: map[string]*modelCacheEntry{}}
 }
 
 // load returns the compiled model at path, compiling (and memoizing) it on the
@@ -64,26 +73,39 @@ func newModelCache() *modelCache {
 // share across the concurrent tests that reference the same model.
 func (c *modelCache) load(path string) (*LoadedModel, error) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if lm, ok := c.byKey[path]; ok {
-		return lm, nil
+	if entry, ok := c.entries[path]; ok {
+		c.mu.Unlock()
+		<-entry.ready
+		return entry.model, entry.err
 	}
-	if err, ok := c.errs[path]; ok {
-		return nil, err
-	}
-	lm, err := loadModel(path)
-	if err != nil {
-		c.errs[path] = err
-		return nil, err
-	}
-	c.byKey[path] = lm
-	return lm, nil
+	entry := &modelCacheEntry{ready: make(chan struct{})}
+	c.entries[path] = entry
+	c.mu.Unlock()
+
+	func() {
+		defer close(entry.ready)
+		defer func() {
+			if r := recover(); r != nil {
+				entry.err = fmt.Errorf("load model %s: panic: %v", path, r)
+			}
+		}()
+		entry.model, entry.err = loadModel(path)
+	}()
+	return entry.model, entry.err
 }
 
 // Run executes every test in ws that matches opts.Run against a fresh store
 // per test, using opts.Engine. It does not create or close the engine.
 func Run(ctx context.Context, ws *Workspace, opts Options) (*Results, error) {
 	start := time.Now()
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+
+	if opts.Run != "" {
+		if _, err := doublestar.Match(opts.Run, "model-test/probe"); err != nil {
+			return nil, clierr.WithCode(clierr.CodeUsage, fmt.Errorf("invalid --run glob %q: %w", opts.Run, err))
+		}
+	}
 
 	tasks, matchedFiles := matchTasks(ws, opts.Run)
 	if len(tasks) == 0 {
@@ -119,11 +141,13 @@ func Run(ctx context.Context, ws *Workspace, opts Options) (*Results, error) {
 	sem := make(chan struct{}, parallel)
 	var wg sync.WaitGroup
 	var sawFailure atomic.Bool
+	var infraOnce sync.Once
+	var infraErr error
 	dispatched := 0
 	for i, tk := range tasks {
 		// Stop dispatching new tests once the run is cancelled/timed-out rather
 		// than blocking on a full semaphore while in-flight tests drain.
-		if ctx.Err() != nil {
+		if runCtx.Err() != nil {
 			break
 		}
 		// --fail-fast stops after the first failure. Already in-flight tests are
@@ -132,11 +156,19 @@ func Run(ctx context.Context, ws *Workspace, opts Options) (*Results, error) {
 		if opts.FailFast && sawFailure.Load() {
 			break
 		}
-		sem <- struct{}{}
+		acquired := false
+		select {
+		case sem <- struct{}{}:
+			acquired = true
+		case <-runCtx.Done():
+		}
+		if !acquired {
+			break
+		}
 		// Re-check after acquiring the slot: with low --parallel the in-flight
 		// test can fail (or the context cancel) while we waited for the slot, so
 		// the checks above may have been stale.
-		if ctx.Err() != nil || (opts.FailFast && sawFailure.Load()) {
+		if runCtx.Err() != nil || (opts.FailFast && sawFailure.Load()) {
 			<-sem
 			break
 		}
@@ -150,9 +182,19 @@ func Run(ctx context.Context, ws *Workspace, opts Options) (*Results, error) {
 			defer func() {
 				if r := recover(); r != nil {
 					errs[i] = fmt.Errorf("test %s: panic: %v", tk.name, r)
+					sawFailure.Store(true)
 				}
 			}()
-			results[i], errs[i] = runTest(ctx, ws, tk, opts, models, fixtures)
+			results[i], errs[i] = runTest(runCtx, ws, tk, opts, models, fixtures)
+			if errs[i] == nil {
+				errs[i] = coverageExecutionFailure(results[i])
+			}
+			if isInfrastructureFailure(errs[i]) {
+				infraOnce.Do(func() {
+					infraErr = errs[i]
+					cancelRun()
+				})
+			}
 			if errs[i] != nil || !results[i].Passed {
 				sawFailure.Store(true)
 			}
@@ -164,6 +206,9 @@ func Run(ctx context.Context, ws *Workspace, opts Options) (*Results, error) {
 	// unreliable and dispatch may have stopped early, leaving tasks unrun.
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
+	}
+	if infraErr != nil {
+		return nil, clierr.WithCode(clierr.CodeNetwork, infraErr)
 	}
 
 	// --fail-fast (or a full semaphore hit at cancel time) can leave trailing
@@ -185,7 +230,11 @@ func Run(ctx context.Context, ws *Workspace, opts Options) (*Results, error) {
 		// result via runTest's wrapper; strip that redundant prefix so the stored
 		// message doesn't repeat the name the result already carries.
 		msg := strings.TrimPrefix(err.Error(), "test "+tasks[i].name+": ")
-		results[i] = TestResult{Name: tasks[i].name, Passed: false, Error: msg}
+		file, line, column, sourcePath := taskSource(ws, tasks[i])
+		results[i] = TestResult{
+			Name: tasks[i].name, File: file, Line: line, Column: column,
+			Passed: false, Error: msg, sourcePath: sourcePath,
+		}
 	}
 
 	sort.Slice(results, func(i, j int) bool { return results[i].Name < results[j].Name })
@@ -222,6 +271,29 @@ func Run(ctx context.Context, ws *Workspace, opts Options) (*Results, error) {
 	res.Summary.DurationMs = time.Since(start).Milliseconds()
 
 	return res, nil
+}
+
+func isInfrastructureFailure(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	return clierr.IsConnErr(err) || status.Code(err) == codes.Unavailable
+}
+
+func coverageExecutionFailure(result TestResult) error {
+	for _, ar := range result.Assertions {
+		if ar.coverageErr == nil {
+			continue
+		}
+		if isInfrastructureFailure(ar.coverageErr) ||
+			errors.Is(ar.coverageErr, context.Canceled) ||
+			errors.Is(ar.coverageErr, context.DeadlineExceeded) ||
+			status.Code(ar.coverageErr) == codes.Canceled ||
+			status.Code(ar.coverageErr) == codes.DeadlineExceeded {
+			return fmt.Errorf("test %s: coverage trace: %w", result.Name, ar.coverageErr)
+		}
+	}
+	return nil
 }
 
 // ModelPath returns the single model file the workspace's tests resolve to,
@@ -280,7 +352,7 @@ func matchTasks(ws *Workspace, pattern string) ([]runTask, int) {
 	matchedFiles := 0
 
 	for _, tf := range ws.TestFiles {
-		stem := FileStem(tf.Path)
+		stem := ws.TestFileID(tf)
 		fileMatched := false
 		for _, tt := range tf.Tests {
 			if matchRun(pattern, stem, tt.Name) {
@@ -396,7 +468,22 @@ func runTest(ctx context.Context, ws *Workspace, tk runTask, opts Options, model
 		}
 	}
 
-	return TestResult{Name: tk.name, Description: tk.test.Description, Passed: passed, Assertions: assertions, DurationMs: time.Since(start).Milliseconds()}, nil
+	file, line, column, sourcePath := taskSource(ws, tk)
+	return TestResult{
+		Name: tk.name, Description: tk.test.Description,
+		File: file, Line: line, Column: column,
+		Passed: passed, Assertions: assertions, DurationMs: time.Since(start).Milliseconds(),
+		sourcePath: sourcePath,
+	}, nil
+}
+
+func taskSource(ws *Workspace, tk runTask) (string, int, int, string) {
+	file := tk.tf.Path
+	if rel, err := filepath.Rel(ws.Root, tk.tf.Path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		file = rel
+	}
+	sourcePath, _ := filepath.Abs(tk.tf.Path)
+	return filepath.ToSlash(file), tk.test.Line, tk.test.Column, sourcePath
 }
 
 // resolveModelPath chooses the model path for a test file: the test file's

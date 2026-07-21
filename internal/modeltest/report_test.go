@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/xml"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -322,6 +323,9 @@ func TestWriteGitHubReportEmitsErrorAnnotation(t *testing.T) {
 			{Name: "documents/passes", Passed: true},
 			{
 				Name:   "documents/owner-is-viewer",
+				File:   "tests/documents.test.yaml",
+				Line:   12,
+				Column: 11,
 				Passed: false,
 				Assertions: []AssertionResult{
 					{Kind: "check", Subject: "check user:anne viewer document:1", Expected: true, Got: false, Passed: false},
@@ -349,5 +353,20 @@ func TestWriteGitHubReportEmitsErrorAnnotation(t *testing.T) {
 	// the workflow command's property parsing.
 	if !strings.Contains(out, "model test%3A") {
 		t.Fatalf("title ':' should be escaped to %%3A, got:\n%s", out)
+	}
+	if !strings.Contains(out, "file=tests/documents.test.yaml,line=12,col=11") {
+		t.Fatalf("annotation should point at the authored test, got:\n%s", out)
+	}
+}
+
+func TestGitHubAnnotationFileUsesRepositoryRelativeSource(t *testing.T) {
+	repo := t.TempDir()
+	t.Setenv("GITHUB_WORKSPACE", repo)
+	got := githubAnnotationFile(TestResult{
+		File:       "tests/access.test.yaml",
+		sourcePath: filepath.Join(repo, "examples", "model-tests", "tests", "access.test.yaml"),
+	})
+	if got != "examples/model-tests/tests/access.test.yaml" {
+		t.Fatalf("annotation file = %q, want repository-relative source path", got)
 	}
 }

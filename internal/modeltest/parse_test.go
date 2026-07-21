@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -88,7 +89,7 @@ func TestLoadWorkspaceSingleFileWalksUpToManifest(t *testing.T) {
 	}
 }
 
-func TestLoadWorkspaceRejectsDuplicateStems(t *testing.T) {
+func TestLoadWorkspaceAllowsDuplicateBasenames(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "ofga.yaml"), []byte("version: 1\nmodel: ./model.fga\ntests:\n  - \"tests/**/*.test.yaml\"\n"), 0o600)
 	os.WriteFile(filepath.Join(dir, "model.fga"), []byte("model\n  schema 1.1\n\ntype user\n"), 0o600)
@@ -106,14 +107,14 @@ tests:
 	os.WriteFile(filepath.Join(dir, "tests", "a", "foo.test.yaml"), []byte(testYAML), 0o600)
 	os.WriteFile(filepath.Join(dir, "tests", "b", "foo.test.yaml"), []byte(testYAML), 0o600)
 
-	_, err := LoadWorkspace(dir)
-	if err == nil {
-		t.Fatal("want error for duplicate test-file stem, got nil")
+	ws, err := LoadWorkspace(dir)
+	if err != nil {
+		t.Fatalf("duplicate basenames in separate directories should load: %v", err)
 	}
-	fooA := filepath.Join(dir, "tests", "a", "foo.test.yaml")
-	fooB := filepath.Join(dir, "tests", "b", "foo.test.yaml")
-	if !strings.Contains(err.Error(), fooA) || !strings.Contains(err.Error(), fooB) || !strings.Contains(err.Error(), `"foo"`) {
-		t.Fatalf("error must name both files and the shared stem, got: %v", err)
+	got := []string{ws.TestFileID(ws.TestFiles[0]), ws.TestFileID(ws.TestFiles[1])}
+	sort.Strings(got)
+	if strings.Join(got, ",") != "a/foo,b/foo" {
+		t.Fatalf("test file IDs = %v, want [a/foo b/foo]", got)
 	}
 }
 
@@ -254,24 +255,34 @@ func TestExpandFixturesRegistersByNameAcrossNestedDirs(t *testing.T) {
 	if _, ok := reg["org"]; !ok {
 		t.Errorf("expected 'org' registered (direct child), got %v", reg)
 	}
-	if _, ok := reg["docs"]; !ok {
-		t.Errorf("expected 'docs' registered (nested dir), got %v", reg)
+	if _, ok := reg["sub/docs"]; !ok {
+		t.Errorf("expected qualified nested fixture registered, got %v", reg)
+	}
+	ws := &Workspace{Root: dir, Fixtures: reg}
+	tf := &TestFile{Path: filepath.Join(dir, "tests", "test.test.yaml")}
+	if got, err := resolveFixtureRef(ws, tf, "docs"); err != nil || got != reg["sub/docs"] {
+		t.Errorf("unique bare basename should resolve for compatibility: got %q, err=%v", got, err)
 	}
 }
 
-func TestExpandFixturesRejectsDuplicateNames(t *testing.T) {
+func TestExpandFixturesAllowsDuplicateBasenamesWithQualifiedRefs(t *testing.T) {
 	dir := t.TempDir()
 	for _, rel := range []string{"fixtures/a/org.yaml", "fixtures/b/org.yaml"} {
 		p := filepath.Join(dir, rel)
 		os.MkdirAll(filepath.Dir(p), 0o755)
 		os.WriteFile(p, []byte("- {user: user:a, relation: x, object: y:1}\n"), 0o600)
 	}
-	_, err := expandFixtures(dir, []string{"fixtures/**/*.yaml"})
-	if err == nil {
-		t.Fatal("want duplicate-fixture-name error, got nil")
+	reg, err := expandFixtures(dir, []string{"fixtures/**/*.yaml"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "duplicate fixture name") {
-		t.Errorf("unexpected error: %v", err)
+	if reg["a/org"] == "" || reg["b/org"] == "" {
+		t.Fatalf("qualified fixture refs missing: %v", reg)
+	}
+	ws := &Workspace{Root: dir, Fixtures: reg}
+	tf := &TestFile{Path: filepath.Join(dir, "tests", "test.test.yaml")}
+	if _, err := resolveFixtureRef(ws, tf, "org"); err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("bare duplicate fixture ref should be actionable: %v", err)
 	}
 }
 

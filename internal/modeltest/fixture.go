@@ -22,13 +22,18 @@ import (
 // its own result), so sharing it across the concurrent tests is safe. A nil
 // *fixtureCache disables caching (used by seed and by the public wrapper).
 type fixtureCache struct {
-	mu     sync.Mutex
-	byPath map[string][]TupleKey
-	errs   map[string]error
+	mu      sync.Mutex
+	entries map[string]*fixtureCacheEntry
+}
+
+type fixtureCacheEntry struct {
+	ready  chan struct{}
+	tuples []TupleKey
+	err    error
 }
 
 func newFixtureCache() *fixtureCache {
-	return &fixtureCache{byPath: map[string][]TupleKey{}, errs: map[string]error{}}
+	return &fixtureCache{entries: map[string]*fixtureCacheEntry{}}
 }
 
 // load returns the parsed tuples for a fixture file, memoizing the parse (and
@@ -38,20 +43,25 @@ func (c *fixtureCache) load(path string) ([]TupleKey, error) {
 		return loadFixtureFile(path)
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if t, ok := c.byPath[path]; ok {
-		return t, nil
+	if entry, ok := c.entries[path]; ok {
+		c.mu.Unlock()
+		<-entry.ready
+		return entry.tuples, entry.err
 	}
-	if err, ok := c.errs[path]; ok {
-		return nil, err
-	}
-	t, err := loadFixtureFile(path)
-	if err != nil {
-		c.errs[path] = err
-		return nil, err
-	}
-	c.byPath[path] = t
-	return t, nil
+	entry := &fixtureCacheEntry{ready: make(chan struct{})}
+	c.entries[path] = entry
+	c.mu.Unlock()
+
+	func() {
+		defer close(entry.ready)
+		defer func() {
+			if r := recover(); r != nil {
+				entry.err = fmt.Errorf("load fixture %s: panic: %v", path, r)
+			}
+		}()
+		entry.tuples, entry.err = loadFixtureFile(path)
+	}()
+	return entry.tuples, entry.err
 }
 
 // resolveFixtures resolves the tuple set for a single test by concatenating,
@@ -66,8 +76,9 @@ func (c *fixtureCache) load(path string) ([]TupleKey, error) {
 // in condition are always an error, regardless of dedupe.
 func resolveFixtures(ws *Workspace, tf *TestFile, tt Test, dedupe bool, cache *fixtureCache) ([]TupleKey, error) {
 	type seenTuple struct {
-		fullKey string
-		source  string
+		fullKey  string
+		condName string
+		source   string
 	}
 
 	result := make([]TupleKey, 0)
@@ -97,10 +108,13 @@ func resolveFixtures(ws *Workspace, tf *TestFile, tt Test, dedupe bool, cache *f
 				}
 				return fmt.Errorf("duplicate fixture tuple (%s, %s, %s) from %s and %s", tk.User, tk.Relation, tk.Object, prev.source, source)
 			}
-			return fmt.Errorf("conflicting fixture tuple (%s, %s, %s) with different condition from %s and %s", tk.User, tk.Relation, tk.Object, prev.source, source)
+			if prev.condName == condName {
+				return fmt.Errorf("conflicting fixture tuple (%s, %s, %s) with condition %q but different context from %s and %s", tk.User, tk.Relation, tk.Object, condName, prev.source, source)
+			}
+			return fmt.Errorf("conflicting fixture tuple (%s, %s, %s) with conditions %q and %q from %s and %s", tk.User, tk.Relation, tk.Object, prev.condName, condName, prev.source, source)
 		}
 
-		seen[triple] = seenTuple{fullKey: fullKey, source: source}
+		seen[triple] = seenTuple{fullKey: fullKey, condName: condName, source: source}
 		result = append(result, tk)
 		return nil
 	}
@@ -165,6 +179,21 @@ func resolveFixtureRef(ws *Workspace, tf *TestFile, ref string) (string, error) 
 
 	if path, ok := ws.Fixtures[ref]; ok {
 		return path, nil
+	}
+	var matches []string
+	var names []string
+	for name, path := range ws.Fixtures {
+		if filepath.Base(name) == ref {
+			matches = append(matches, path)
+			names = append(names, name)
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+	if len(matches) > 1 {
+		sort.Strings(names)
+		return "", fmt.Errorf("fixture %q is ambiguous; use a workspace-relative name: %s", ref, strings.Join(names, ", "))
 	}
 
 	if len(ws.Fixtures) == 0 {
@@ -310,7 +339,10 @@ func loadCSVTuples(path string) ([]TupleKey, error) {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 
-	if len(records) > 0 && len(records[0]) > 0 && records[0][0] == "user" {
+	if len(records) > 0 && len(records[0]) >= 3 &&
+		strings.EqualFold(strings.TrimSpace(records[0][0]), "user") &&
+		strings.EqualFold(strings.TrimSpace(records[0][1]), "relation") &&
+		strings.EqualFold(strings.TrimSpace(records[0][2]), "object") {
 		records = records[1:]
 	}
 

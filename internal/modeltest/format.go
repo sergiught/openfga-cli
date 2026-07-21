@@ -2,6 +2,7 @@ package modeltest
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -16,6 +17,17 @@ type Workspace struct {
 	// patterns. Test files reference fixtures by that name. Nil for a bare test
 	// file loaded without a manifest.
 	Fixtures map[string]string
+}
+
+// TestFileID returns a stable workspace-relative identifier without the
+// .test.yaml/.test.yml suffix.
+func (ws *Workspace) TestFileID(tf *TestFile) string {
+	rel, err := filepath.Rel(ws.Root, tf.Path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		rel = filepath.Base(tf.Path)
+	}
+	rel = filepath.FromSlash(strings.TrimPrefix(filepath.ToSlash(rel), "tests/"))
+	return strings.TrimSuffix(strings.TrimSuffix(filepath.ToSlash(rel), ".test.yaml"), ".test.yml")
 }
 
 type Manifest struct {
@@ -43,6 +55,8 @@ type TestFile struct {
 type Test struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
+	Line        int    `yaml:"-"`
+	Column      int    `yaml:"-"`
 	// Fixtures and Tuples are interchangeable keywords for this test's setup
 	// tuples. Each entry is either a fixture reference (a string) or an inline
 	// tuple (a mapping); the two lists are merged at resolution.

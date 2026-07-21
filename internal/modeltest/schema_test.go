@@ -36,6 +36,7 @@ func TestValidateRejectsCheckMissingRequiredFields(t *testing.T) {
 		"missing object":     `{"tests":[{"name":"t","check":[{"user":"user:anne","assertions":{"viewer":true}}]}]}`,
 		"missing assertions": `{"tests":[{"name":"t","check":[{"user":"user:anne","object":"doc:1"}]}]}`,
 	}
+
 	for name, doc := range cases {
 		t.Run(name, func(t *testing.T) {
 			if err := validate(docTestFile, []byte(doc)); err == nil {
@@ -47,6 +48,20 @@ func TestValidateRejectsCheckMissingRequiredFields(t *testing.T) {
 	good := `{"tests":[{"name":"t","check":[{"user":"user:anne","object":"doc:1","assertions":{"viewer":true}}]}]}`
 	if err := validate(docTestFile, []byte(good)); err != nil {
 		t.Fatalf("complete check case rejected: %v", err)
+	}
+}
+
+func TestValidateRejectsVacuousTests(t *testing.T) {
+	for name, doc := range map[string]string{
+		"name only":   `{"tests":[{"name":"looks-green"}]}`,
+		"empty check": `{"tests":[{"name":"looks-green","check":[]}]}`,
+		"empty name":  `{"tests":[{"name":"","check":[{"user":"user:a","object":"doc:1","assertions":{"viewer":true}}]}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := validate(docTestFile, []byte(doc)); err == nil {
+				t.Fatal("vacuous test must be rejected")
+			}
+		})
 	}
 }
 

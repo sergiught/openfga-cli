@@ -4,6 +4,8 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/sergiught/openfga-cli/internal/output"
@@ -26,8 +28,6 @@ func WriteReport(format string, w io.Writer, res *Results) error {
 // writeGitHubReport emits a GitHub Actions workflow annotation per failing test
 // (https://docs.github.com/actions/using-workflows/workflow-commands-for-github-actions),
 // so failures surface as errors in the Actions log and job summary. Annotations
-// are file-less here (a TestResult carries no source path), so they attach to
-// the run rather than to a line.
 func writeGitHubReport(w io.Writer, res *Results) error {
 	for _, t := range res.Tests {
 		if t.Passed && t.Error == "" {
@@ -44,11 +44,41 @@ func writeGitHubReport(w io.Writer, res *Results) error {
 			}
 			msg = "failed: " + strings.Join(parts, "; ")
 		}
-		if _, err := fmt.Fprintf(w, "::error title=%s::%s\n", ghEscapeProp("model test: "+t.Name), ghEscapeData(msg)); err != nil {
+		var props []string
+		if t.File != "" {
+			props = append(props, "file="+ghEscapeProp(githubAnnotationFile(t)))
+		}
+		if t.Line > 0 {
+			props = append(props, fmt.Sprintf("line=%d", t.Line))
+		}
+		if t.Column > 0 {
+			props = append(props, fmt.Sprintf("col=%d", t.Column))
+		}
+		props = append(props, "title="+ghEscapeProp("model test: "+t.Name))
+		if _, err := fmt.Fprintf(w, "::error %s::%s\n", strings.Join(props, ","), ghEscapeData(msg)); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func githubAnnotationFile(t TestResult) string {
+	if t.sourcePath == "" {
+		return t.File
+	}
+	root := os.Getenv("GITHUB_WORKSPACE")
+	if root == "" {
+		var err error
+		root, err = os.Getwd()
+		if err != nil {
+			return t.File
+		}
+	}
+	rel, err := filepath.Rel(root, t.sourcePath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return t.File
+	}
+	return filepath.ToSlash(rel)
 }
 
 // ghEscapeData / ghEscapeProp apply GitHub's workflow-command escaping so a
@@ -129,10 +159,9 @@ func writeJUnitReport(w io.Writer, res *Results) error {
 }
 
 // buildJUnitSuites groups res.Tests' assertions into one testsuite per test
-// file, keyed by the "<file-stem>" prefix of TestResult.Name (the part
-// before the first "/"), preserving res.Tests order. It also returns the sum
-// of every suite's duration in milliseconds, for the caller to use as the
-// <testsuites> root time.
+// file, keyed by its workspace-relative source identity, preserving res.Tests
+// order. It also returns the sum of every suite's duration in milliseconds,
+// for the caller to use as the <testsuites> root time.
 //
 // The root time is the SUM of the child <testsuite> times (matching how
 // tests/failures are already rolled up as sums), not Results.Summary.
@@ -146,7 +175,7 @@ func buildJUnitSuites(res *Results) ([]junitTestSuite, int64) {
 	var suiteDurationMs []int64
 
 	for _, t := range res.Tests {
-		stem, _, _ := strings.Cut(t.Name, "/")
+		stem := junitSuiteName(t)
 
 		i, ok := index[stem]
 		if !ok {
@@ -188,6 +217,21 @@ func buildJUnitSuites(res *Results) ([]junitTestSuite, int64) {
 	}
 
 	return suites, totalMs
+}
+
+func junitSuiteName(t TestResult) string {
+	if t.File != "" {
+		name := strings.TrimPrefix(filepath.ToSlash(t.File), "tests/")
+		for _, suffix := range []string{".test.yaml", ".test.yml"} {
+			if strings.HasSuffix(name, suffix) {
+				return strings.TrimSuffix(name, suffix)
+			}
+		}
+	}
+	if i := strings.LastIndex(t.Name, "/"); i >= 0 {
+		return t.Name[:i]
+	}
+	return t.Name
 }
 
 // formatSeconds renders a millisecond duration as JUnit's expected seconds

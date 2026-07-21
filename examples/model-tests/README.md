@@ -1,8 +1,8 @@
 # `ofga model test` showcase workspace
 
-A self-contained, runnable workspace that exercises **every** capability of
-`ofga model test`. Everything runs in-process against a hermetic embedded
-OpenFGA server — no store, profile, or network required.
+A self-contained, runnable workspace that exercises the core authorization
+semantics of `ofga model test`. Everything runs in-process against a hermetic
+embedded OpenFGA server — no store, profile, or network required.
 
 ```bash
 ofga model test examples/model-tests      # from the repo root
@@ -101,8 +101,8 @@ total          23        23      100%
   organization.member  1/1
 coverage is grant-based (a rewrite branch counts covered only when a check
 assertion showed that specific arm granting; each ABAC condition counts its true
-and false outcomes separately; list_objects/list_users credit at relation
-granularity) over the manifest model.
+and false outcomes separately; non-empty list_objects/list_users results credit
+at relation granularity) over the manifest model.
 ```
 
 Every relation is listed now (not just missed ones); a relation with any
@@ -158,8 +158,8 @@ total          23        23      100%
     ✓ direct:user
 coverage is grant-based (a rewrite branch counts covered only when a check
 assertion showed that specific arm granting; each ABAC condition counts its true
-and false outcomes separately; list_objects/list_users credit at relation
-granularity) over the manifest model.
+and false outcomes separately; non-empty list_objects/list_users results credit
+at relation granularity) over the manifest model.
 ```
 
 The `structural-relations` test in `inheritance.test.yaml` exists purely to
@@ -195,7 +195,7 @@ total          19        23      82.6%
 
 ### Filter tests
 
-`--run` globs over `<file-stem>/<test-name>`:
+`--run` globs over `<relative-file>/<test-name>` (without `.test.yaml`):
 
 ```console
 $ ofga model test examples/model-tests --run 'conditions/*'

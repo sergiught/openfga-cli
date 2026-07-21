@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -651,7 +652,7 @@ func TestModelTestCoverageJSONMachineShape(t *testing.T) {
 	if !ok {
 		t.Fatalf("stdout JSON missing coverage object: %s", out)
 	}
-	for _, key := range []string{"total", "covered", "percent"} {
+	for _, key := range []string{"total", "covered", "percent", "complete"} {
 		if _, ok := cov[key]; !ok {
 			t.Fatalf("coverage object missing %q key: %s", key, out)
 		}
@@ -837,8 +838,46 @@ func TestWatchAllowsHumanOutputRejectsMachine(t *testing.T) {
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
 	cmd.SetArgs([]string{"--file", passingWorkspace, "--watch"})
-	if err := cmd.ExecuteContext(ctx); err != nil {
-		t.Fatalf("--watch -o table should be allowed (table is a human format), got %v", err)
+	if err := cmd.ExecuteContext(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("--watch -o table cancellation = %v, want context.Canceled", err)
+	}
+}
+
+func TestModelTestRejectsInvalidNumericFlags(t *testing.T) {
+	for _, args := range [][]string{
+		{"--parallel", "-1"},
+		{"--slowest", "-1"},
+		{"--timeout", "-1s"},
+		{"--coverage", "--coverage-min", "-1"},
+		{"--coverage", "--coverage-min", "101"},
+		{"--coverage", "--coverage-min", "NaN"},
+		{"--coverage-min", "0"},
+	} {
+		_, _, err := runTestCmd(t, args, nil)
+		if clierr.Code(err) != clierr.CodeUsage {
+			t.Errorf("%v: code = %d, want usage (err=%v)", args, clierr.Code(err), err)
+		}
+	}
+}
+
+func TestModelTestRejectsInvalidRunGlob(t *testing.T) {
+	_, _, err := runTestCmd(t, []string{"--file", passingWorkspace, "--run", "["}, nil)
+	if clierr.Code(err) != clierr.CodeUsage || !strings.Contains(err.Error(), "invalid --run glob") {
+		t.Fatalf("error = %v (code %d), want actionable usage error", err, clierr.Code(err))
+	}
+}
+
+func TestMalformedManifestDoesNotSuggestInit(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "ofga.yaml"), []byte("version: [\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := runTestCmd(t, []string{"--file", dir}, nil)
+	if err == nil {
+		t.Fatal("malformed manifest should fail")
+	}
+	if strings.Contains(err.Error(), "test init") {
+		t.Fatalf("malformed existing manifest must not suggest scaffolding over it: %v", err)
 	}
 }
 

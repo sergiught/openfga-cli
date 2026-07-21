@@ -2,6 +2,7 @@ package modeltest
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,10 @@ import (
 )
 
 const manifestFileName = "ofga.yaml"
+
+// ErrWorkspaceNotFound identifies manifest discovery failure without relying on
+// error-message text. Callers can offer scaffold guidance only for this case.
+var ErrWorkspaceNotFound = errors.New("model-test workspace not found")
 
 // WorkspaceOptions supplies or overrides workspace configuration from CLI
 // flags. A non-empty field replaces the corresponding manifest field. When no
@@ -76,7 +81,7 @@ func LoadWorkspaceWith(path string, opts WorkspaceOptions) (*Workspace, error) {
 		return nil, err
 	}
 
-	if err := checkDuplicateStems(ws.TestFiles); err != nil {
+	if err := checkDuplicateTestIDs(ws); err != nil {
 		return nil, err
 	}
 
@@ -100,11 +105,13 @@ func loadWorkspaceWithOptions(path string, opts WorkspaceOptions) (*Workspace, e
 			return nil, err
 		}
 		root = filepath.Dir(manifestPath)
-	} else {
+	} else if errors.Is(ferr, ErrWorkspaceNotFound) {
 		if opts.Model == "" || len(opts.Tests) == 0 {
 			return nil, fmt.Errorf("no ofga.yaml found in %s or any parent directory; running from flags requires at least --model and --tests", root)
 		}
 		m = &Manifest{Version: 1, path: filepath.Join(root, "ofga.yaml")}
+	} else {
+		return nil, ferr
 	}
 
 	if opts.Model != "" {
@@ -131,7 +138,7 @@ func loadWorkspaceWithOptions(path string, opts WorkspaceOptions) (*Workspace, e
 			return nil, err
 		}
 	}
-	if err := checkDuplicateStems(ws.TestFiles); err != nil {
+	if err := checkDuplicateTestIDs(ws); err != nil {
 		return nil, err
 	}
 	return ws, nil
@@ -185,10 +192,25 @@ func findManifest(dir string) (string, error) {
 
 		parent := filepath.Dir(abs)
 		if parent == abs {
-			return "", fmt.Errorf("no %s found in %s or any parent directory", manifestFileName, dir)
+			return "", fmt.Errorf("%w: no %s found in %s or any parent directory", ErrWorkspaceNotFound, manifestFileName, dir)
 		}
 		abs = parent
 	}
+}
+
+// FindWorkspaceRoot discovers the nearest manifest directory without parsing
+// the manifest. Watch mode uses it so a temporarily malformed ofga.yaml still
+// watches the correct directory and recovers on the next save.
+func FindWorkspaceRoot(path string) (string, error) {
+	dir, err := resolveDir(path)
+	if err != nil {
+		return "", err
+	}
+	manifest, err := findManifest(dir)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Dir(manifest), nil
 }
 
 // loadSingleTestFile loads a workspace for a single *.test.yaml file passed
@@ -203,7 +225,10 @@ func findManifest(dir string) (string, error) {
 func loadSingleTestFile(path, root string) (*Workspace, error) {
 	manifestPath, err := findManifest(filepath.Dir(path))
 	if err != nil {
-		return loadBareTestFile(path, root)
+		if errors.Is(err, ErrWorkspaceNotFound) {
+			return loadBareTestFile(path, root)
+		}
+		return nil, err
 	}
 
 	ws, err := loadManifestWorkspace(manifestPath, filepath.Dir(manifestPath))
@@ -309,11 +334,8 @@ func buildManifestWorkspace(m *Manifest, manifestDir, root string) (*Workspace, 
 	return &Workspace{Root: root, Manifest: m, TestFiles: testFiles, Fixtures: fixtures}, nil
 }
 
-// expandFixtures registers the fixture files matched by the manifest's
-// `fixtures` glob patterns, keyed by name (filename without extension) so test
-// files can reference them by name — the same glob-expansion model as `tests`.
-// Two registered files sharing a name are rejected (an ambiguous reference),
-// mirroring the duplicate test-file-stem check.
+// expandFixtures registers fixture files by workspace-relative path without the
+// extension. Bare basenames remain accepted by resolveFixtureRef when unique.
 func expandFixtures(manifestDir string, patterns []string) (map[string]string, error) {
 	reg := make(map[string]string)
 	for _, pattern := range patterns {
@@ -330,9 +352,9 @@ func expandFixtures(manifestDir string, patterns []string) (map[string]string, e
 			if info.IsDir() {
 				continue // a glob like fixtures/** can match directories; skip them
 			}
-			name := fixtureName(full)
+			name := fixtureID(manifestDir, full)
 			if prev, ok := reg[name]; ok && prev != full {
-				return nil, fmt.Errorf("duplicate fixture name %q (%s and %s); fixture file names must be unique across the workspace", name, prev, full)
+				return nil, fmt.Errorf("duplicate fixture id %q (%s and %s)", name, prev, full)
 			}
 			reg[name] = full
 		}
@@ -340,26 +362,23 @@ func expandFixtures(manifestDir string, patterns []string) (map[string]string, e
 	return reg, nil
 }
 
-// fixtureName is a fixture file's reference name: its base name without the
-// final extension (grants.yaml -> "grants", core-users.jsonl -> "core-users").
-func fixtureName(path string) string {
-	base := filepath.Base(path)
-	return strings.TrimSuffix(base, filepath.Ext(base))
+func fixtureID(root, path string) string {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		rel = filepath.Base(path)
+	}
+	rel = filepath.FromSlash(strings.TrimPrefix(filepath.ToSlash(rel), "fixtures/"))
+	return strings.TrimSuffix(filepath.ToSlash(rel), filepath.Ext(rel))
 }
 
-// checkDuplicateStems rejects two test files that resolve to the same
-// FileStem (e.g. tests/a/foo.test.yaml and tests/b/foo.test.yaml both stem to
-// "foo"): their tests would collide under the same "<file-stem>/<test-name>"
-// identity in --run selection, JUnit classname/suite, and the TUI's file
-// match.
-func checkDuplicateStems(testFiles []*TestFile) error {
-	seen := make(map[string]string, len(testFiles))
-	for _, tf := range testFiles {
-		stem := FileStem(tf.Path)
-		if prev, ok := seen[stem]; ok {
-			return fmt.Errorf("duplicate test-file name %q (%s and %s); test file names must be unique across the workspace", stem, prev, tf.Path)
+func checkDuplicateTestIDs(ws *Workspace) error {
+	seen := make(map[string]string, len(ws.TestFiles))
+	for _, tf := range ws.TestFiles {
+		id := ws.TestFileID(tf)
+		if prev, ok := seen[id]; ok {
+			return fmt.Errorf("duplicate test-file id %q (%s and %s)", id, prev, tf.Path)
 		}
-		seen[stem] = tf.Path
+		seen[id] = tf.Path
 	}
 	return nil
 }
@@ -436,6 +455,7 @@ func decodeTestFile(path string, raw []byte) (*TestFile, error) {
 	if err := yaml.Unmarshal(raw, &tf); err != nil {
 		return nil, fmt.Errorf("decode %s: %w", path, err)
 	}
+	setTestSourcePositions(raw, tf.Tests)
 	// `tuples` is an interchangeable keyword for `fixtures` at the file level.
 	tf.Fixtures = append(tf.Fixtures, tf.Tuples...)
 	tf.Tuples = nil
@@ -446,7 +466,11 @@ func decodeTestFile(path string, raw []byte) (*TestFile, error) {
 		if seen[test.Name] {
 			return nil, fmt.Errorf("duplicate test name %q in %s", test.Name, path)
 		}
+
 		seen[test.Name] = true
+		if len(test.Check)+len(test.ListObjects)+len(test.ListUsers) == 0 {
+			return nil, fmt.Errorf("%s: test %q has no assertions; add a check, list_objects, or list_users case", path, test.Name)
+		}
 
 		// The schema requires an `assertions` key but permits an empty map; an
 		// empty (or omitted) assertions block would run zero assertions and pass
@@ -454,6 +478,11 @@ func decodeTestFile(path string, raw []byte) (*TestFile, error) {
 		for i, cc := range test.Check {
 			if len(cc.Assertions) == 0 {
 				return nil, fmt.Errorf("%s: test %q check case %d has no assertions", path, test.Name, i+1)
+			}
+			for j, tk := range cc.ContextualTuples {
+				if err := validateTuple(tk); err != nil {
+					return nil, fmt.Errorf("%s: test %q check case %d contextual tuple %d: %w", path, test.Name, i+1, j+1, err)
+				}
 			}
 		}
 		for i, lc := range test.ListObjects {
@@ -466,9 +495,52 @@ func decodeTestFile(path string, raw []byte) (*TestFile, error) {
 				return nil, fmt.Errorf("%s: test %q list_users case %d has no assertions", path, test.Name, i+1)
 			}
 		}
+		for _, items := range [][]TupleItem{test.Fixtures, test.Tuples} {
+			for i, item := range items {
+				if item.Tuple != nil {
+					if err := validateTuple(*item.Tuple); err != nil {
+						return nil, fmt.Errorf("%s: test %q inline tuple %d: %w", path, test.Name, i+1, err)
+					}
+				}
+			}
+		}
 	}
 
 	return &tf, nil
+}
+
+func setTestSourcePositions(raw []byte, tests []Test) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(raw, &doc); err != nil || len(doc.Content) == 0 {
+		return
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value != "tests" || root.Content[i+1].Kind != yaml.SequenceNode {
+			continue
+		}
+		for j, item := range root.Content[i+1].Content {
+			if j >= len(tests) {
+				break
+			}
+			tests[j].Line = item.Line
+			tests[j].Column = item.Column
+			if item.Kind != yaml.MappingNode {
+				continue
+			}
+			for k := 0; k+1 < len(item.Content); k += 2 {
+				if item.Content[k].Value == "name" {
+					tests[j].Line = item.Content[k+1].Line
+					tests[j].Column = item.Content[k+1].Column
+					break
+				}
+			}
+		}
+		return
+	}
 }
 
 // yamlToJSON parses YAML bytes and re-encodes them as JSON so they can be

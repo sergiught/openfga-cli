@@ -898,7 +898,7 @@ func (m Model) statusKeys() []string {
 	case secAPILogs:
 		return []string{"↑↓ list", "tab section", "j down/k up", "←→ url", "c fmt", "x clear", "esc"}
 	case secTestResults:
-		return []string{"↑↓ select", "↵/space expand", "n new", "e edit", "d delete", "r run", "R run file", m.coverageHint(), m.verboseHint(), "esc"}
+		return m.testResultsFooterKeys()
 	}
 	return nil
 }
@@ -912,23 +912,47 @@ func (m Model) compactHint() string {
 	return "v compact"
 }
 
-// coverageHint labels the "c" toggle on the Tests section: what pressing it
-// does depends on whether a coverage report exists yet.
-func (m Model) coverageHint() string {
-	if m.wb.coverage == nil {
-		return "c coverage (run first)"
+// testResultsFooterKeys returns the Tests section's footer keycap hints,
+// tiered by terminal width (m.width) so the essential navigation ("↑↓
+// select") and way-out ("esc") hints always survive. Without tiering, the
+// full hint list renders wider than even a 120-column terminal — and
+// shell.Shell.renderStatus truncates the *whole* joined key row from its
+// right-hand end when the row overflows, which cuts off the trailing hints
+// (esc among them) instead of dropping the least essential ones first. Each
+// tier keeps the run/new/coverage actions and a compact, still-accurate label
+// for whichever of coverage/verbose is togglable, rather than dropping
+// accessibility outright — every binding not shown here still lives in the
+// "? help" overlay, always appended by the caller.
+func (m Model) testResultsFooterKeys() []string {
+	switch {
+	case m.width >= 120:
+		return []string{"↑↓ select", "↵/space expand", "n new", "e edit", "d delete", "r run", "R run file", m.wbCoverageFooterHint(), m.wbVerboseFooterHint(), "esc"}
+	case m.width >= 100:
+		return []string{"↑↓ select", "↵ expand", "n new", "e edit", "d del", "r run", m.wbCoverageFooterHint(), m.wbVerboseFooterHint(), "esc"}
+	case m.width >= 80:
+		return []string{"↑↓ select", "n new", "r run", m.wbCoverageFooterHint(), "esc"}
+	default:
+		return []string{"↑↓ select", "esc"}
 	}
+}
+
+// wbCoverageFooterHint labels the "c" toggle on the Tests footer: what
+// pressing it does depends on whether coverage is currently shown. Kept short
+// (no "run first"/"unavailable" qualifier — that detail rides on the toast
+// handleTestResultsKey raises when "c" can't do anything yet) so it fits the
+// responsive footer's narrower tiers too.
+func (m Model) wbCoverageFooterHint() string {
 	if m.wb.showCoverage {
-		return "c hide coverage"
+		return "c hide cov"
 	}
 	return "c coverage"
 }
 
-// verboseHint labels the "v" toggle on the Tests section: it offers the mode
-// you would switch to, not the one you are in.
-func (m Model) verboseHint() string {
+// wbVerboseFooterHint labels the "v" toggle on the Tests footer: the mode you
+// would switch to, not the one you are in.
+func (m Model) wbVerboseFooterHint() string {
 	if m.wb.verbose {
-		return "v hide explain"
+		return "v hide"
 	}
 	return "v explain"
 }

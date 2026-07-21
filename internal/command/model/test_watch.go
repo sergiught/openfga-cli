@@ -39,12 +39,9 @@ var watchExtensions = map[string]bool{
 func runWatch(cmd *cobra.Command, a *cli.CLI, path string, wsOpts modeltest.WorkspaceOptions, cfg watchConfig) error {
 	ctx := cmd.Context()
 
-	root, err := filepath.Abs(path)
+	root, err := resolveWatchRoot(path, wsOpts)
 	if err != nil {
 		return err
-	}
-	if info, statErr := os.Stat(root); statErr == nil && !info.IsDir() {
-		root = filepath.Dir(root)
 	}
 
 	w, err := fsnotify.NewWatcher()
@@ -57,20 +54,41 @@ func runWatch(cmd *cobra.Command, a *cli.CLI, path string, wsOpts modeltest.Work
 	}
 
 	changed := make(chan struct{}, 1)
-	go debounceEvents(ctx, w, changed)
+	watchErrs := make(chan error, 1)
+	go debounceEvents(ctx, w, changed, watchErrs)
 
+	runOnceForWatch(cmd, a, root, path, wsOpts, cfg)
 	for {
-		runOnceForWatch(cmd, a, root, path, wsOpts, cfg)
-
 		select {
 		case <-ctx.Done():
 			fmt.Fprintln(cmd.OutOrStdout())
-			return nil
+			return ctx.Err()
+		case err := <-watchErrs:
+			fmt.Fprintln(cmd.ErrOrStderr(), style.Failure.Render("● file watcher: "+err.Error()))
 		case <-changed:
 			// A change may have created new subdirectories; watch them too.
-			_ = addDirsRecursive(w, root)
+			if err := addDirsRecursive(w, root); err != nil {
+				fmt.Fprintln(cmd.ErrOrStderr(), style.Failure.Render("● file watcher: "+err.Error()))
+			}
+			runOnceForWatch(cmd, a, root, path, wsOpts, cfg)
 		}
 	}
+}
+
+func resolveWatchRoot(path string, wsOpts modeltest.WorkspaceOptions) (string, error) {
+	root, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	if info, statErr := os.Stat(root); statErr == nil && !info.IsDir() {
+		root = filepath.Dir(root)
+	}
+	if discovered, discoverErr := modeltest.FindWorkspaceRoot(path); discoverErr == nil {
+		root = discovered
+	} else if ws, loadErr := modeltest.LoadWorkspaceWith(path, wsOpts); loadErr == nil {
+		root = ws.Root
+	}
+	return root, nil
 }
 
 // runOnceForWatch clears the screen, prints a header, then loads and runs the
@@ -140,7 +158,7 @@ func addDirsRecursive(w *fsnotify.Watcher, root string) error {
 
 // debounceEvents coalesces a burst of file events (editors write several times
 // per save) into a single signal after a short quiet period.
-func debounceEvents(ctx context.Context, w *fsnotify.Watcher, changed chan<- struct{}) {
+func debounceEvents(ctx context.Context, w *fsnotify.Watcher, changed chan<- struct{}, watchErrs chan<- error) {
 	const quiet = 200 * time.Millisecond
 	var timer *time.Timer
 	var timerC <-chan time.Time
@@ -167,9 +185,13 @@ func debounceEvents(ctx context.Context, w *fsnotify.Watcher, changed chan<- str
 			case changed <- struct{}{}:
 			default: // a re-run is already pending; drop this one
 			}
-		case _, ok := <-w.Errors:
+		case err, ok := <-w.Errors:
 			if !ok {
 				return
+			}
+			select {
+			case watchErrs <- err:
+			default:
 			}
 		}
 	}

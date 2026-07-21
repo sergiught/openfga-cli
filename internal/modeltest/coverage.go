@@ -244,7 +244,7 @@ func describeChildren(children []*openfgav1.Userset, sep string) string {
 type relOutcome struct {
 	granted   map[string]bool // arm branch labels shown to grant (grant-based, from computeArmGrants)
 	subtract  bool            // a difference ("but not") arm was actually exercised
-	listSeen  bool            // credited at relation granularity by a list_objects/list_users assertion
+	listGrant bool            // a list_objects/list_users assertion returned at least one result
 	condTrue  map[string]bool
 	condFalse map[string]bool
 }
@@ -356,7 +356,7 @@ func aggregate(branches []branchDef, unreachable []string, resolved map[string]*
 
 	var typeOrder []string
 	byType := map[string]*TypeCov{}
-	cov := &Coverage{Unreachable: unreachable}
+	cov := &Coverage{Unreachable: unreachable, Complete: len(unreachable) == 0}
 
 	for _, k := range order {
 		rc := RelCov{Relation: k.rel}
@@ -393,7 +393,7 @@ func aggregate(branches []branchDef, unreachable []string, resolved map[string]*
 
 	if cov.Total > 0 {
 		cov.Percent = 100 * float64(cov.Covered) / float64(cov.Total)
-	} else {
+	} else if len(unreachable) == 0 {
 		// No branches at all (e.g. an empty model) isn't a coverage gap —
 		// report 100% rather than a misleading 0%.
 		cov.Percent = 100
@@ -416,9 +416,9 @@ func aggregate(branches []branchDef, unreachable []string, resolved map[string]*
 //     was evaluated to that outcome on a direct-member leaf.
 //
 // list_objects/list_users assertions have no per-arm resolution tree, so they
-// credit at relation granularity (out.listSeen): every non-condition arm of a
-// relation a list assertion exercised counts covered. Use check assertions for
-// precise per-arm coverage.
+// credit at relation granularity only when a list assertion returned at least
+// one result (out.listGrant). An empty result proves a denial and must not
+// increase grant-based coverage.
 func branchCovered(b branchDef, out *relOutcome) bool {
 	if out == nil {
 		return false
@@ -433,9 +433,9 @@ func branchCovered(b branchDef, out *relOutcome) bool {
 		name := strings.TrimSuffix(b.Label, "=false")
 		return out.condFalse[strings.TrimPrefix(name, "condition:")]
 	case "difference-subtract":
-		return out.subtract || out.listSeen
+		return out.subtract || out.listGrant
 	default:
-		return out.granted[b.Label] || out.listSeen
+		return out.granted[b.Label] || out.listGrant
 	}
 }
 
@@ -453,6 +453,9 @@ func buildCoverage(ws *Workspace, tasks []runTask, results []TestResult, opts Op
 	bounded := false
 	for _, tr := range results {
 		for _, ar := range tr.Assertions {
+			if ar.coverageErr != nil {
+				return nil, fmt.Errorf("%s: coverage trace failed: %w", tr.Name, ar.coverageErr)
+			}
 			if ar.Explain != nil {
 				resolvedRelations(ar.Explain, acc)
 				bounded = bounded || ar.Explain.Bounded
@@ -535,15 +538,16 @@ func resolveCoverageModelPath(ws *Workspace, tasks []runTask) (string, error) {
 	}
 }
 
-// markStructuralCredit gives a list_objects/list_users assertion — which has
-// no per-arm resolution tree to trace — relation-granular coverage credit
-// (listSeen) for the type#relation it exercised, read from the structured
-// covKey the assertion carries. Under grant-based coverage this means a list
-// assertion covers every non-condition arm of its relation; per-arm precision
-// requires a check assertion.
+// markStructuralCredit gives a list_objects/list_users assertion with at least
+// one returned object/user relation-granular grant credit. Empty results prove
+// denial behavior and therefore do not cover any granting arm.
 func markStructuralCredit(ar AssertionResult, acc map[string]*relOutcome) {
 	if ar.covKey == "" {
 		return
 	}
-	outcomeFor(acc, ar.covKey).listSeen = true
+	got, ok := ar.Got.([]string)
+	if !ok || len(got) == 0 {
+		return
+	}
+	outcomeFor(acc, ar.covKey).listGrant = true
 }
