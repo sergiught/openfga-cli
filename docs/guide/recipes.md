@@ -6,6 +6,8 @@ CI job.
 
 ## CI gate for authorization model tests
 
+![model test coverage](../../examples/model-test.gif)
+
 Fail the build if a test regresses or an authorization branch ships untested.
 See [model-testing.md](model-testing.md) for how coverage is computed.
 
@@ -84,6 +86,8 @@ Automation should check the exit status and treat the reported count as
 already committed rather than retrying the whole file.
 
 ## Raw API escape hatch
+
+![ofga api](../../examples/api.gif)
 
 `ofga api` sends an arbitrary request through the active profile's URL and
 auth — useful for endpoints the CLI doesn't wrap yet, or for one-off

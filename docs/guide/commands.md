@@ -4,6 +4,8 @@ Complete per-command reference for `ofga`, generated from the CLI's own `--help`
 
 ## init
 
+![ofga init — guided setup](../../examples/init.gif)
+
 Set up a connection profile (guided). On a terminal it runs an interactive tour (API URL, auth, connection test, store/model picker); non-interactively it uses the flags and defaults, so it's safe in CI.
 
 ### init
@@ -16,6 +18,8 @@ Set up a connection profile (guided). On a terminal it runs an interactive tour 
   ```
 
 ## stores
+
+![ofga stores](../../examples/stores.gif)
 
 Create, list, inspect and delete stores. (`store` is an alias for `stores`.)
 
@@ -55,6 +59,8 @@ Create, list, inspect and delete stores. (`store` is an alias for `stores`.)
   ```
 
 ## model
+
+![ofga model](../../examples/model.gif)
 
 Write, inspect and visualize authorization models.
 
@@ -128,6 +134,8 @@ Write, inspect and visualize authorization models.
 
 ## tuples
 
+![ofga tuples](../../examples/tuples.gif)
+
 Write, delete and read relationship tuples. (`tuple` is an alias for `tuples`.)
 
 ### tuples write
@@ -167,6 +175,8 @@ Write, delete and read relationship tuples. (`tuple` is an alias for `tuples`.)
   ```
 
 ## query
+
+![ofga query](../../examples/query.gif)
 
 Ask authorization questions. Positional argument order mirrors the OpenFGA API and differs per subcommand (`check` is user-first, `list-objects` is user-last, `list-users`/`expand` are object-first) — use the named flags (`--user`/`--relation`/`--object`) if the order is easy to mix up.
 
@@ -217,6 +227,8 @@ Ask authorization questions. Positional argument order mirrors the OpenFGA API a
 
 ## assertions
 
+![ofga assertions](../../examples/assertions.gif)
+
 Read, write and run a model's assertion test-suite.
 
 ### assertions read
@@ -245,6 +257,8 @@ Read, write and run a model's assertion test-suite.
   ```
 
 ## profiles
+
+![ofga profiles](../../examples/profiles.gif)
 
 Manage named connection profiles. Each profile stores an API URL, optional store and authorization-model IDs, and optional authentication settings.
 
@@ -327,6 +341,8 @@ Manage named connection profiles. Each profile stores an API URL, optional store
 
 ## api
 
+![ofga api](../../examples/api.gif)
+
 Send a raw request to the OpenFGA API, reusing the active profile's URL and authentication. The path is relative to the profile's API URL; a JSON body may be passed as the third argument, or read from stdin with `-`. This is an expert escape hatch — mutating methods are sent directly, with no confirmation or dry-run support.
 
 ### api
@@ -387,6 +403,8 @@ Print version and build information.
   ```
 
 ## playground
+
+![the ofga playground TUI](../../examples/playground.gif)
 
 Launch the interactive playground.
 

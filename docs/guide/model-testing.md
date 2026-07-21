@@ -5,6 +5,14 @@ hermetic, **embedded** OpenFGA server — no Docker container, no real store,
 no profile involved. Each run gets a disposable in-memory server and a fresh
 store, so testing never touches anything you're actually connected to.
 
+![ofga model test --coverage](../../examples/model-test.gif)
+
+*Running the example workspace with `--coverage` from the CLI.*
+
+![exploring test results in the playground](../../examples/model-test-tui.gif)
+
+*`ofga model test --playground` opens the results in the playground's Tests tab, with in-TUI coverage.*
+
 New here? `ofga model test init` scaffolds a runnable workspace (a manifest, a
 small model, a fixture, and a passing test) in the current directory — run
 `ofga model test` in it to see a green run and learn the format.
