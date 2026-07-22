@@ -1,0 +1,62 @@
+# Authentication
+
+`ofga` supports the same auth methods as OpenFGA:
+
+- **None**: for a local, unauthenticated server.
+- **API token**: a pre-shared bearer token.
+- **Client credentials**: OAuth2 client-credentials grant.
+- **Private key JWT**: OAuth2 with a client-assertion JWT.
+
+Secrets should be provided without exposing them in your shell history or `ps`:
+
+```bash
+# API token
+ofga profiles add prod --api-url https://fga.example.com \
+  --auth-method api_token --token-stdin < token.txt
+
+# OAuth2 client credentials
+ofga profiles add ci --api-url https://fga.example.com \
+  --auth-method client_credentials --client-id "$CLIENT_ID" \
+  --client-secret-stdin --token-url https://issuer.example.com/oauth/token \
+  --audience https://fga.example.com < client-secret.txt
+
+# OAuth2 private-key JWT
+ofga profiles add workload --api-url https://fga.example.com \
+  --auth-method private_key_jwt --client-id "$CLIENT_ID" \
+  --token-url https://issuer.example.com/oauth/token \
+  --audience https://issuer.example.com/ \
+  --api-audience https://fga.example.com --key-file ./signing-key.pem
+```
+
+The config file is written atomically with `0600` permissions. Tokens, client
+secrets, and private-key contents supplied through `profiles set private_key`
+are stored in the OS keyring under a namespace derived from the config path, so
+two `--config` files cannot share credentials accidentally. The TOML file
+contains managed-secret markers rather than plaintext credentials, and
+`profiles show` masks secrets. `key_file` is different: TOML stores its path
+and the PEM remains in that file on disk.
+
+For one process only, override a profile's managed credential from a file:
+
+```bash
+ofga --profile prod --auth-token-file /run/secrets/fga-token stores list
+ofga --profile ci --auth-client-secret-file /run/secrets/oauth-secret stores list
+ofga --profile workload --auth-private-key-file /run/secrets/signing.pem stores list
+```
+
+These flags avoid both argv secret values and environment inheritance. Secret
+environment variables remain available for compatibility and CI systems that
+cannot mount secret files. Use `ofga profiles unset token` (or
+`client_secret`/`private_key`) to remove a saved credential from the keyring.
+To delete **all** ofga-managed secrets from the OS keyring at once (every
+profile's credentials plus orphans left by deleted configs), run
+`ofga profiles cleanup-credentials --purge` (it prompts for confirmation;
+`--force` skips it).
+Authentication settings are checked before a request, so incomplete profiles
+fail locally with an actionable error. Secret files should be mode `0600`;
+`ofga` warns when they are accessible by other users.
+
+API and OAuth token endpoints must be configured at their final URLs. Redirects
+are rejected rather than followed so credentials cannot be forwarded to a
+different host or downgraded connection.
+
