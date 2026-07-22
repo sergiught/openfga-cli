@@ -5,6 +5,10 @@ sidebar:
   order: 6
 ---
 
+import CommandDemo from '../../../../components/CommandDemo.astro';
+
+<CommandDemo slug="model-write" />
+
 Write a new authorization model. The file may be the model JSON (schema_version and type_definitions, as produced by `fga model transform` or the OpenFGA API) or the `.fga` DSL, which is transformed to JSON automatically. The format is chosen by file extension (.json/.fga), falling back to content sniffing for stdin.
 
 ## Usage

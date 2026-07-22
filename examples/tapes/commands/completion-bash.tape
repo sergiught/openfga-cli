@@ -14,7 +14,5 @@ Set TypingSpeed 60ms
 Set Theme "Catppuccin Mocha"
 
 Sleep 1s
-Type "source <(ofga completion bash)" Sleep 400ms Enter
-Sleep 1s
-Type "ofga stor" Sleep 500ms Tab
-Sleep 3s
+Type "ofga completion bash | head -12" Sleep 400ms Enter
+Sleep 4s

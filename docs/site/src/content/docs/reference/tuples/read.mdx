@@ -5,6 +5,10 @@ sidebar:
   order: 3
 ---
 
+import CommandDemo from '../../../../components/CommandDemo.astro';
+
+<CommandDemo slug="tuples-read" />
+
 Read tuples from the store. Use --user, --relation and --object to filter; all are optional. By default all matching tuples are returned (the CLI auto-pages); --max-results (alias --limit) caps the total returned and stops paging once reached. --page-size only tunes the per-request page.
 
 ## Usage

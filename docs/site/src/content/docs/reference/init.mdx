@@ -5,6 +5,10 @@ sidebar:
   order: 5
 ---
 
+import CommandDemo from '../../../components/CommandDemo.astro';
+
+<CommandDemo slug="init" />
+
 Create or update a connection profile and make it active. On a terminal it runs a guided tour: it collects the API URL and authentication, tests the connection, and lets you pick a store and model from the server. Non-interactively it uses the flags and defaults, so it is safe in CI.
 
 ## Usage

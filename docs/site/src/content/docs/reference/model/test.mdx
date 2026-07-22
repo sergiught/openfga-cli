@@ -5,6 +5,10 @@ sidebar:
   order: 5
 ---
 
+import CommandDemo from '../../../../components/CommandDemo.astro';
+
+<CommandDemo slug="model-test" />
+
 Run the tests declared by an ofga workspace (an ofga.yaml manifest and its *.test.yaml files). By default they run against an in-process, embedded OpenFGA server with no external dependency, real store, or profile involved; --openfga-image runs them against a specific OpenFGA version in Docker and --server-addr against an already-running server.
 
 Workspace: ofga.yaml is discovered by walking up from the current directory (like go.mod) unless a positional path or --file overrides it. Each test runs against its own fresh store.

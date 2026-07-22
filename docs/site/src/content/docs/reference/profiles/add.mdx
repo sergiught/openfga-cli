@@ -5,6 +5,10 @@ sidebar:
   order: 1
 ---
 
+import CommandDemo from '../../../../components/CommandDemo.astro';
+
+<CommandDemo slug="profiles-add" />
+
 Create a named connection profile. The auth method defaults to a bearer
 token when --token* is given, otherwise none. For OAuth flows pass
 --auth-method client_credentials or private_key_jwt with their fields.

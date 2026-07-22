@@ -5,6 +5,10 @@ sidebar:
   order: 1
 ---
 
+import CommandDemo from '../../../components/CommandDemo.astro';
+
+<CommandDemo slug="api" />
+
 Send an arbitrary request to the OpenFGA API, reusing the active profile's URL and authentication (token, client-credentials or private-key JWT).
 
 The path is relative to the profile's API URL (e.g. /stores). A JSON body may be passed as the third argument, or read from stdin by passing `-` as the body.
