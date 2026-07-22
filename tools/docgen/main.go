@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"charm.land/log/v2"
@@ -112,6 +113,17 @@ func escapeMDX(s string) string {
 	return strings.ReplaceAll(s, "<", `\<`)
 }
 
+// bareURLPattern matches bare http(s) URLs (e.g. inside a flag's default-value
+// hint) so they can be wrapped as inline code instead of left as plain text,
+// which Markdown would otherwise autolink.
+var bareURLPattern = regexp.MustCompile(`https?://[^\s)]+`)
+
+// escapeBareURLs wraps bare URLs in backticks so table cells render them as
+// inline code rather than live links.
+func escapeBareURLs(s string) string {
+	return bareURLPattern.ReplaceAllString(s, "`$0`")
+}
+
 func frontmatter(cmd *cobra.Command, order int) string {
 	return fmt.Sprintf("---\ntitle: %q\ndescription: %q\nsidebar:\n  order: %d\n---\n",
 		cmd.CommandPath(), cmd.Short, order)
@@ -182,7 +194,7 @@ func flagRows(fs *pflag.FlagSet) []string {
 		} else {
 			def = "`" + def + "`"
 		}
-		usage := strings.ReplaceAll(escapeMDX(f.Usage), "|", `\|`)
+		usage := escapeBareURLs(strings.ReplaceAll(escapeMDX(f.Usage), "|", `\|`))
 		rows = append(rows, fmt.Sprintf("| %s | %s | %s |", name, usage, def))
 	})
 	return rows

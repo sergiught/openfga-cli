@@ -1,6 +1,8 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import starlightLinksValidator from 'starlight-links-validator';
+import starlightLlmsTxt from 'starlight-llms-txt';
 
 // https://astro.build/config
 export default defineConfig({
@@ -20,6 +22,17 @@ export default defineConfig({
 			sidebar: [
 				{ label: 'Guide', items: [{ autogenerate: { directory: 'guide' } }] },
 				{ label: 'Reference', items: [{ autogenerate: { directory: 'reference' } }] },
+			],
+			plugins: [starlightLinksValidator({ errorOnRelativeLinks: false }), starlightLlmsTxt()],
+			head: [
+				{
+					tag: 'meta',
+					attrs: { property: 'og:image', content: 'https://sergiught.github.io/openfga-cli/og.png' },
+				},
+				{
+					tag: 'meta',
+					attrs: { name: 'twitter:card', content: 'summary_large_image' },
+				},
 			],
 		}),
 	],
