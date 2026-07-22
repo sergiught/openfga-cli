@@ -16,7 +16,7 @@ CI job.
 <CommandDemo slug="model-test" />
 
 Fail the build if a test regresses or an authorization branch ships untested.
-See [model-testing.md](../model-testing/) for how coverage is computed.
+See [model testing](../model-testing/) for how coverage is computed.
 
 ```bash
 # Fail if overall coverage drops below 80%
@@ -53,7 +53,7 @@ ofga query list-objects document viewer user:anne --plain | wc -l
 
 A profile bundles an API URL, store/model ID, and auth. Add one per
 environment and switch with `--profile`/`-p` or `OPENFGA_PROFILE` instead of
-re-exporting variables. See [configuration.md](../configuration/) for the full
+re-exporting variables. See [configuration](../configuration/) for the full
 field list.
 
 ```bash
@@ -72,7 +72,7 @@ OPENFGA_PROFILE=prod ofga stores list
 `tuples write --file` takes a JSON array of `{"user", "relation", "object"}`
 objects (or `{"tuples": [...]}`), reading from stdin with `-`. Writes are sent
 in server-sized batches and are **not** transactional across batches. See
-[scripting.md](../scripting/) for the full automation contract.
+[scripting](../scripting/) for the full automation contract.
 
 ```bash
 cat > tuples.json <<'EOF'

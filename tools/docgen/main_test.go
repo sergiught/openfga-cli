@@ -85,6 +85,37 @@ func TestEscapeMDX(t *testing.T) {
 	}
 }
 
+func TestEscapeBareURLs(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "bare URL gets wrapped in backticks",
+			in:   "http://localhost:8080",
+			want: "`http://localhost:8080`",
+		},
+		{
+			name: "URL followed by a closing paren stops before the paren",
+			in:   "(default http://x:8080)",
+			want: "(default `http://x:8080`)",
+		},
+		{
+			name: "no URL leaves the string unchanged",
+			in:   "set the new store as the active store",
+			want: "set the new store as the active store",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := escapeBareURLs(tt.in); got != tt.want {
+				t.Errorf("escapeBareURLs(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRenderLeafPage(t *testing.T) {
 	root := testRoot()
 	create := find(t, root, "stores", "create")

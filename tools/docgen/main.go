@@ -124,6 +124,13 @@ func escapeBareURLs(s string) string {
 	return bareURLPattern.ReplaceAllString(s, "`$0`")
 }
 
+// escapeCell prepares a string for use inside a Markdown table cell: escape
+// MDX-sensitive characters, escape the table's own `|` delimiter, then wrap
+// any bare URL as inline code.
+func escapeCell(s string) string {
+	return escapeBareURLs(strings.ReplaceAll(escapeMDX(s), "|", `\|`))
+}
+
 func frontmatter(cmd *cobra.Command, order int) string {
 	return fmt.Sprintf("---\ntitle: %q\ndescription: %q\nsidebar:\n  order: %d\n---\n",
 		cmd.CommandPath(), cmd.Short, order)
@@ -194,7 +201,7 @@ func flagRows(fs *pflag.FlagSet) []string {
 		} else {
 			def = "`" + def + "`"
 		}
-		usage := escapeBareURLs(strings.ReplaceAll(escapeMDX(f.Usage), "|", `\|`))
+		usage := escapeCell(f.Usage)
 		rows = append(rows, fmt.Sprintf("| %s | %s | %s |", name, usage, def))
 	})
 	return rows
@@ -211,7 +218,7 @@ func renderGroupIndex(cmd *cobra.Command, order int) []byte {
 	b.WriteString(escapeMDX(strings.TrimSpace(desc)) + "\n")
 	b.WriteString("\n| Command | Description |\n| --- | --- |\n")
 	for _, child := range visibleCommands(cmd) {
-		fmt.Fprintf(&b, "| [%s](%s/) | %s |\n", child.Name(), child.Name(), escapeMDX(child.Short))
+		fmt.Fprintf(&b, "| [%s](%s/) | %s |\n", child.Name(), child.Name(), escapeCell(child.Short))
 	}
 	return []byte(b.String())
 }
@@ -224,7 +231,7 @@ func renderIndex(root *cobra.Command) []byte {
 	for _, cmd := range visibleCommands(root) {
 		// Starlight routes both reference/api.mdx and reference/stores/index.mdx
 		// to a trailing-slash URL, so leaves and groups share the same link form.
-		fmt.Fprintf(&b, "| [%s](%s/) | %s |\n", cmd.Name(), cmd.Name(), escapeMDX(cmd.Short))
+		fmt.Fprintf(&b, "| [%s](%s/) | %s |\n", cmd.Name(), cmd.Name(), escapeCell(cmd.Short))
 	}
 	return []byte(b.String())
 }
