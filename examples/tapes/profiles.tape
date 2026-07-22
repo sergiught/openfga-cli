@@ -24,7 +24,7 @@ Show
 
 # --- visible demo ---
 Sleep 1s
-Type `printf 'sk_demo_5f3a...' | ofga profiles add staging --api-url https://fga.example.com --auth-method api_token --token-stdin` Sleep 400ms Enter
+Type "printf 'demo-token-not-a-real-secret' | ofga profiles add staging --api-url https://fga.example.com --auth-method api_token --token-stdin" Sleep 400ms Enter
 Sleep 1.5s
 Type "ofga profiles use staging" Sleep 400ms Enter
 Sleep 1.5s
