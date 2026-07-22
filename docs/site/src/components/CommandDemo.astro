@@ -1,0 +1,19 @@
+---
+interface Props {
+  slug: string;
+}
+const { slug } = Astro.props;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const src = `${base}/recordings/${slug}.webm`;
+const label = `Demo of ofga ${slug.replaceAll('-', ' ')}`;
+---
+
+<video
+  class="command-demo"
+  autoplay
+  loop
+  muted
+  playsinline
+  preload="metadata"
+  src={src}
+  aria-label={label}></video>

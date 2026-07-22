@@ -1,0 +1,17 @@
+/* Accents matched to the TUI recordings (Catppuccin Mocha mauve). */
+:root {
+  --sl-color-accent-low: #2a2640;
+  --sl-color-accent: #8961e8;
+  --sl-color-accent-high: #cbc0f2;
+}
+:root[data-theme='light'] {
+  --sl-color-accent-low: #ece6fb;
+  --sl-color-accent: #6f4fd0;
+  --sl-color-accent-high: #3a2a72;
+}
+
+.command-demo {
+  width: 100%;
+  border-radius: 0.5rem;
+  margin-top: 1rem;
+}
