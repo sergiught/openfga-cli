@@ -177,7 +177,7 @@ func TestRunGeneratesRealTree(t *testing.T) {
 	}
 	for _, p := range []string{
 		"index.mdx",
-		"api.mdx",
+		"api/index.mdx", // childless top-level commands get their own directory too
 		"stores/index.mdx",
 		"stores/create.mdx",
 		"completion/bash.mdx",
@@ -186,6 +186,10 @@ func TestRunGeneratesRealTree(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(out, p)); err != nil {
 			t.Errorf("expected generated file %s: %v", p, err)
 		}
+	}
+	// A childless command must not also leave a flat page beside its directory.
+	if _, err := os.Stat(filepath.Join(out, "api.mdx")); err == nil {
+		t.Error("childless command api should be a directory (api/index.mdx), not a flat api.mdx")
 	}
 	b, err := os.ReadFile(filepath.Join(out, "stores", "create.mdx"))
 	if err != nil {

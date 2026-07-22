@@ -1,48 +1,56 @@
 ---
-title: "ofga theme"
-description: "Show or set the color theme"
+title: "ofga init"
+description: "Set up a connection profile (guided)"
 sidebar:
-  order: 11
+  order: 5
 ---
 
-import CommandDemo from '../../../components/CommandDemo.astro';
+import CommandDemo from '../../../../components/CommandDemo.astro';
 
-<CommandDemo slug="theme" />
+<CommandDemo slug="init" />
 
-With no argument, lists available themes and marks the current one. With a name, sets and saves the global theme.
+Create or update a connection profile and make it active. On a terminal it runs a guided tour: it collects the API URL and authentication, tests the connection, and lets you pick a store and model from the server. Non-interactively it uses the flags and defaults, so it is safe in CI.
 
 ## Usage
 
 ```sh
-ofga theme [name]
+ofga init [profile] [flags]
 ```
 
 ## Examples
 
 ```sh
-  ofga theme
-  ofga theme dracula
+  ofga init
+  ofga init prod --api-url https://fga.example.com --token-stdin < token.txt
+  ofga init prod --api-url https://fga.example.com --store-id 01STORE --model-id 01MODEL
 ```
+
+## Flags
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--api-url` | API URL to save in the profile (default `http://localhost:8080`) |   |
+| `-f, --force` | overwrite an existing profile without prompting | `false` |
+| `--model-id` | authorization model ID to save in the profile |   |
+| `--store-id` | store ID to save in the profile |   |
+| `--token-stdin` | read the API token from stdin | `false` |
 
 <details>
 <summary>Global flags</summary>
 
 ```
-      --api-url string                   OpenFGA API URL (overrides profile/env)
       --auth-client-secret-file string   read the process-scoped OAuth client secret from a file
       --auth-private-key-file string     read the process-scoped private-key JWT signing key from a file
       --auth-token-file string           read the process-scoped API token from a file
       --config string                    path to the config file (overrides OPENFGA_CONFIG)
   -d, --debug                            enable debug logging
       --json                             output machine-readable JSON (alias for --output json)
-      --model-id string                  authorization model ID (overrides profile/env)
       --no-color                         disable colored output
       --no-input                         never prompt or launch the interactive TUI
   -o, --output string                    output format: json, yaml, plain or table (takes precedence over --json/--yaml/--plain)
       --plain                            output unstyled, tab-separated rows (alias for --output plain)
   -p, --profile string                   configuration profile to use
   -q, --quiet                            suppress incidental output
-      --store-id string                  store ID (overrides profile/env)
       --theme string                     color theme (aurora, catppuccin, charm, dracula, gruvbox, nord, tokyonight, mono)
       --timeout duration                 per-request timeout (0 disables) (default 30s)
   -v, --verbose                          alias for --debug

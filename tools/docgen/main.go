@@ -67,17 +67,23 @@ func buildTree() *cobra.Command {
 	return root
 }
 
-// emit writes the page(s) for one top-level command: either a single leaf
-// page, or a group index plus one page per visible child.
+// emit writes the page(s) for one top-level command under its own directory:
+// a childless command gets a single index.mdx (rendered as a one-item sidebar
+// group); a command with children gets a group index plus one page per child.
 func emit(cmd *cobra.Command, out, rec string, order int) error {
-	children := visibleCommands(cmd)
-	if len(children) == 0 {
-		page := renderLeafPage(cmd, hasRecording(rec, cmd), 3, order)
-		return os.WriteFile(filepath.Join(out, cmd.Name()+".mdx"), page, 0o644)
-	}
 	dir := filepath.Join(out, cmd.Name())
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
+	}
+	children := visibleCommands(cmd)
+	if len(children) == 0 {
+		// A childless top-level command still becomes a directory so the sidebar
+		// renders it as a one-item group (a bold "<name>" header expanding to the
+		// "ofga <name>" page) that matches the multi-command groups, rather than a
+		// bare link. Both <name>.mdx and <name>/index.mdx route to /reference/<name>/,
+		// so this keeps the URL and every link to it unchanged.
+		page := renderLeafPage(cmd, hasRecording(rec, cmd), 4, order)
+		return os.WriteFile(filepath.Join(dir, "index.mdx"), page, 0o644)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "index.mdx"), renderGroupIndex(cmd, order), 0o644); err != nil {
 		return err

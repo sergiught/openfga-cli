@@ -1,35 +1,27 @@
 ---
-title: "ofga api"
-description: "Send a raw request to the OpenFGA API (uses the active profile's auth)"
+title: "ofga theme"
+description: "Show or set the color theme"
 sidebar:
-  order: 1
+  order: 11
 ---
 
-import CommandDemo from '../../../components/CommandDemo.astro';
+import CommandDemo from '../../../../components/CommandDemo.astro';
 
-<CommandDemo slug="api" />
+<CommandDemo slug="theme" />
 
-Send an arbitrary request to the OpenFGA API, reusing the active profile's URL and authentication (token, client-credentials or private-key JWT).
-
-The path is relative to the profile's API URL (e.g. /stores). A JSON body may be passed as the third argument, or read from stdin by passing `-` as the body.
-
-With --plain, successful response bytes are copied unchanged (with only a final newline added when absent), preserving compact JSON for machine pipelines.
-
-This is an expert escape hatch: mutating methods are sent directly without confirmation or dry-run support.
+With no argument, lists available themes and marks the current one. With a name, sets and saves the global theme.
 
 ## Usage
 
 ```sh
-ofga api <method> <path> [body]
+ofga theme [name]
 ```
 
 ## Examples
 
 ```sh
-  ofga api GET /stores
-  ofga api GET /stores/<id>/authorization-models
-  ofga api POST /stores/<id>/check '{"tuple_key":{"user":"user:anne","relation":"viewer","object":"document:roadmap"}}'
-  echo '{"name":"demo"}' | ofga api POST /stores -
+  ofga theme
+  ofga theme dracula
 ```
 
 <details>
