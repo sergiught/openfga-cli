@@ -21,7 +21,7 @@ Hide
 Source "examples/tapes/_setup.tape"
 Type "for s in $(ofga stores list --plain | awk '/demo/{print $1}'); do ofga stores delete $s --force; done" Enter
 Sleep 500ms
-Type "STORE=$(ofga stores list --plain | awk '/dev/{print $1}')" Enter
+Type "STORE=$(ofga stores list --plain | awk -v n=dev '$2==n{print $1}')" Enter
 Sleep 500ms
 Type "clear" Enter
 Show
