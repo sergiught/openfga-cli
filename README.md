@@ -104,7 +104,7 @@ brew install sergiught/tap/ofga
 curl -fsSL https://raw.githubusercontent.com/sergiught/openfga-cli/main/install.sh | bash
 ```
 
-Full matrix (AUR, go install, Docker, source), upgrade, and uninstall → [docs/guide/installation.md](docs/guide/installation.md)
+Full matrix (AUR, go install, Docker, source), upgrade, and uninstall → [the installation guide](https://sergiught.github.io/openfga-cli/guide/installation/)
 
 ---
 
@@ -112,7 +112,7 @@ Full matrix (AUR, go install, Docker, source), upgrade, and uninstall → [docs/
 
 Run `ofga` with no arguments to launch the interactive playground, a keyboard- **and mouse**-driven cockpit covering profiles, stores, the model graph, tuples, queries with resolution trees, and assertions. Press `?` at any time for the full, context-aware keybinding overlay.
 
-Full TUI guide & keybinding reference → [docs/guide/tui.md](docs/guide/tui.md)
+Full TUI guide & keybinding reference → [the TUI guide](https://sergiught.github.io/openfga-cli/guide/tui/)
 
 ---
 
