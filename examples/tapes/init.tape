@@ -1,6 +1,7 @@
 # examples/tapes/init.tape — guided `ofga init` first-run setup demo
 # Regenerate: make demo && make gifs && make demo-down
 Output examples/init.gif
+Output docs/site/public/recordings/init.webm
 
 Require ofga
 

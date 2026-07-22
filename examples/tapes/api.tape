@@ -1,6 +1,7 @@
 # examples/tapes/api.tape — raw `ofga api` command demo
 # Regenerate: make demo && make gifs && make demo-down
 Output examples/api.gif
+Output docs/site/public/recordings/api.webm
 
 Require ofga
 

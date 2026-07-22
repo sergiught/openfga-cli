@@ -1,6 +1,7 @@
 # examples/playground.tape — TUI hero demo for the ofga playground.
 # Regenerate: make demo && make gifs && make demo-down
 Output examples/playground.gif
+Output docs/site/public/recordings/playground.webm
 
 Require ofga
 
