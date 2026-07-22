@@ -1,0 +1,56 @@
+---
+title: "ofga api"
+description: "Send a raw request to the OpenFGA API (uses the active profile's auth)"
+sidebar:
+  order: 1
+---
+
+Send an arbitrary request to the OpenFGA API, reusing the active profile's URL and authentication (token, client-credentials or private-key JWT).
+
+The path is relative to the profile's API URL (e.g. /stores). A JSON body may be passed as the third argument, or read from stdin by passing `-` as the body.
+
+With --plain, successful response bytes are copied unchanged (with only a final newline added when absent), preserving compact JSON for machine pipelines.
+
+This is an expert escape hatch: mutating methods are sent directly without confirmation or dry-run support.
+
+## Usage
+
+```sh
+ofga api <method> <path> [body]
+```
+
+## Examples
+
+```sh
+  ofga api GET /stores
+  ofga api GET /stores/<id>/authorization-models
+  ofga api POST /stores/<id>/check '{"tuple_key":{"user":"user:anne","relation":"viewer","object":"document:roadmap"}}'
+  echo '{"name":"demo"}' | ofga api POST /stores -
+```
+
+<details>
+<summary>Global flags</summary>
+
+```
+      --api-url string                   OpenFGA API URL (overrides profile/env)
+      --auth-client-secret-file string   read the process-scoped OAuth client secret from a file
+      --auth-private-key-file string     read the process-scoped private-key JWT signing key from a file
+      --auth-token-file string           read the process-scoped API token from a file
+      --config string                    path to the config file (overrides OPENFGA_CONFIG)
+  -d, --debug                            enable debug logging
+      --json                             output machine-readable JSON (alias for --output json)
+      --model-id string                  authorization model ID (overrides profile/env)
+      --no-color                         disable colored output
+      --no-input                         never prompt or launch the interactive TUI
+  -o, --output string                    output format: json, yaml, plain or table (takes precedence over --json/--yaml/--plain)
+      --plain                            output unstyled, tab-separated rows (alias for --output plain)
+  -p, --profile string                   configuration profile to use
+  -q, --quiet                            suppress incidental output
+      --store-id string                  store ID (overrides profile/env)
+      --theme string                     color theme (aurora, catppuccin, charm, dracula, gruvbox, nord, tokyonight, mono)
+      --timeout duration                 per-request timeout (0 disables) (default 30s)
+  -v, --verbose                          alias for --debug
+      --yaml                             output machine-readable YAML (alias for --output yaml)
+```
+
+</details>

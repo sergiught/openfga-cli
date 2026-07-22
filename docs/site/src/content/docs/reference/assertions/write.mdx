@@ -1,0 +1,62 @@
+---
+title: "ofga assertions write"
+description: "Replace the assertions for a model from a JSON file"
+sidebar:
+  order: 3
+---
+
+Replace a model's assertions (the active --model-id, or the latest). The file is a JSON array of assertions or an object \{"assertions": [...]}, each: \{"tuple_key":\{"user","relation","object"},"expectation":true}.
+
+## Usage
+
+```sh
+ofga assertions write --file <assertions.json> [flags]
+```
+
+## Examples
+
+```sh
+  ofga assertions write --file assertions.json
+  ofga assertions write --model-id 01H… --file assertions.json
+  cat assertions.json | ofga assertions write --file -
+```
+
+## Flags
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `-n, --dry-run` | validate the file and show what would be written without writing it | `false` |
+| `-f, --file` | assertions JSON file ('-' for stdin) |   |
+| `--force` | replace assertions without prompting | `false` |
+
+<details>
+<summary>Global flags</summary>
+
+```
+      --api-url string                   OpenFGA API URL (overrides profile/env)
+      --auth-client-secret-file string   read the process-scoped OAuth client secret from a file
+      --auth-private-key-file string     read the process-scoped private-key JWT signing key from a file
+      --auth-token-file string           read the process-scoped API token from a file
+      --config string                    path to the config file (overrides OPENFGA_CONFIG)
+  -d, --debug                            enable debug logging
+      --json                             output machine-readable JSON (alias for --output json)
+      --model-id string                  authorization model ID (overrides profile/env)
+      --no-color                         disable colored output
+      --no-input                         never prompt or launch the interactive TUI
+  -o, --output string                    output format: json, yaml, plain or table (takes precedence over --json/--yaml/--plain)
+      --plain                            output unstyled, tab-separated rows (alias for --output plain)
+  -p, --profile string                   configuration profile to use
+  -q, --quiet                            suppress incidental output
+      --store-id string                  store ID (overrides profile/env)
+      --theme string                     color theme (aurora, catppuccin, charm, dracula, gruvbox, nord, tokyonight, mono)
+      --timeout duration                 per-request timeout (0 disables) (default 30s)
+  -v, --verbose                          alias for --debug
+      --yaml                             output machine-readable YAML (alias for --output yaml)
+```
+
+</details>
+
+## Related
+
+- [ofga assertions read](../read/)
+- [ofga assertions test](../test/)

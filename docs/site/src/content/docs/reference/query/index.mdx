@@ -1,0 +1,23 @@
+---
+title: "ofga query"
+description: "Ask authorization questions"
+sidebar:
+  order: 9
+---
+
+Ask authorization questions.
+
+Positional argument order mirrors the OpenFGA API for each call, so it differs between subcommands:
+  check        \<user> \<relation> \<object>   (user first)
+  list-objects \<type> \<relation> \<user>     (user last)
+  list-users   \<object> \<relation>          (object first, --type for the user filter)
+  expand       \<relation> \<object>
+Use the named flags (--user/--relation/--object) where available if the order is easy to mix up.
+
+| Command | Description |
+| --- | --- |
+| [batch-check](batch-check/) | Run several checks in one request |
+| [check](check/) | Check whether a user has a relation on an object |
+| [expand](expand/) | Expand the userset tree that grants a relation (JSON) |
+| [list-objects](list-objects/) | List objects of a type a user has a relation with |
+| [list-users](list-users/) | List users that have a relation on an object |

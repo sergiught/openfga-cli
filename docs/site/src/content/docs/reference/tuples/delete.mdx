@@ -1,0 +1,66 @@
+---
+title: "ofga tuples delete"
+description: "Delete one relationship tuple, or many with --file"
+sidebar:
+  order: 2
+---
+
+Delete one relationship tuple, or many with --file
+
+## Usage
+
+```sh
+ofga tuples delete [user] [relation] [object] [flags]
+```
+
+## Examples
+
+```sh
+  ofga tuples delete user:anne viewer document:roadmap
+  ofga tuples delete --user user:anne --relation viewer --object document:roadmap
+  ofga tuples delete --file tuples.json
+```
+
+## Flags
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `-n, --dry-run` | show the tuple that would be deleted without deleting it | `false` |
+| `--file` | JSON file of tuples to delete in bulk ('-' for stdin) |   |
+| `-f, --force` | skip the confirmation prompt | `false` |
+| `--object` | object (alternative to the positional arg) |   |
+| `--relation` | relation (alternative to the positional arg) |   |
+| `--user` | user (alternative to the positional arg) |   |
+
+<details>
+<summary>Global flags</summary>
+
+```
+      --api-url string                   OpenFGA API URL (overrides profile/env)
+      --auth-client-secret-file string   read the process-scoped OAuth client secret from a file
+      --auth-private-key-file string     read the process-scoped private-key JWT signing key from a file
+      --auth-token-file string           read the process-scoped API token from a file
+      --config string                    path to the config file (overrides OPENFGA_CONFIG)
+  -d, --debug                            enable debug logging
+      --json                             output machine-readable JSON (alias for --output json)
+      --model-id string                  authorization model ID (overrides profile/env)
+      --no-color                         disable colored output
+      --no-input                         never prompt or launch the interactive TUI
+  -o, --output string                    output format: json, yaml, plain or table (takes precedence over --json/--yaml/--plain)
+      --plain                            output unstyled, tab-separated rows (alias for --output plain)
+  -p, --profile string                   configuration profile to use
+  -q, --quiet                            suppress incidental output
+      --store-id string                  store ID (overrides profile/env)
+      --theme string                     color theme (aurora, catppuccin, charm, dracula, gruvbox, nord, tokyonight, mono)
+      --timeout duration                 per-request timeout (0 disables) (default 30s)
+  -v, --verbose                          alias for --debug
+      --yaml                             output machine-readable YAML (alias for --output yaml)
+```
+
+</details>
+
+## Related
+
+- [ofga tuples changes](../changes/)
+- [ofga tuples read](../read/)
+- [ofga tuples write](../write/)

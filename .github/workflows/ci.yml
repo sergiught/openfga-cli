@@ -35,6 +35,10 @@ jobs:
         run: |
           go mod tidy
           git diff --exit-code -- go.mod go.sum
+      - name: verify command reference is fresh
+        run: |
+          go run ./tools/docgen
+          git diff --exit-code -- docs/site/src/content/docs/reference
       # The profiles e2e tests run the real binary, which stores secrets in the
       # OS keyring and refuses to fall back to plaintext. Headless runners have
       # no Secret Service, so provide gnome-keyring under a private D-Bus session.

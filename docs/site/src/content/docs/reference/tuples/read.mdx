@@ -1,0 +1,66 @@
+---
+title: "ofga tuples read"
+description: "Read relationship tuples (optionally filtered)"
+sidebar:
+  order: 3
+---
+
+Read tuples from the store. Use --user, --relation and --object to filter; all are optional. By default all matching tuples are returned (the CLI auto-pages); --max-results (alias --limit) caps the total returned and stops paging once reached. --page-size only tunes the per-request page.
+
+## Usage
+
+```sh
+ofga tuples read [flags]
+```
+
+## Examples
+
+```sh
+  ofga tuples read
+  ofga tuples read --object document:roadmap
+  ofga tuples read --max-results 100
+```
+
+## Flags
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--limit` | alias for --max-results | `0` |
+| `--max-results` | cap the total number of tuples returned (0 = unbounded) | `0` |
+| `--object` | filter by object |   |
+| `--page-size` | per-request page size (0 = server default; not a total cap) | `50` |
+| `--relation` | filter by relation |   |
+| `--user` | filter by user |   |
+
+<details>
+<summary>Global flags</summary>
+
+```
+      --api-url string                   OpenFGA API URL (overrides profile/env)
+      --auth-client-secret-file string   read the process-scoped OAuth client secret from a file
+      --auth-private-key-file string     read the process-scoped private-key JWT signing key from a file
+      --auth-token-file string           read the process-scoped API token from a file
+      --config string                    path to the config file (overrides OPENFGA_CONFIG)
+  -d, --debug                            enable debug logging
+      --json                             output machine-readable JSON (alias for --output json)
+      --model-id string                  authorization model ID (overrides profile/env)
+      --no-color                         disable colored output
+      --no-input                         never prompt or launch the interactive TUI
+  -o, --output string                    output format: json, yaml, plain or table (takes precedence over --json/--yaml/--plain)
+      --plain                            output unstyled, tab-separated rows (alias for --output plain)
+  -p, --profile string                   configuration profile to use
+  -q, --quiet                            suppress incidental output
+      --store-id string                  store ID (overrides profile/env)
+      --theme string                     color theme (aurora, catppuccin, charm, dracula, gruvbox, nord, tokyonight, mono)
+      --timeout duration                 per-request timeout (0 disables) (default 30s)
+  -v, --verbose                          alias for --debug
+      --yaml                             output machine-readable YAML (alias for --output yaml)
+```
+
+</details>
+
+## Related
+
+- [ofga tuples changes](../changes/)
+- [ofga tuples delete](../delete/)
+- [ofga tuples write](../write/)

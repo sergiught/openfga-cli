@@ -1,0 +1,18 @@
+---
+title: "ofga config"
+description: "Inspect ofga's configuration"
+sidebar:
+  order: 4
+---
+
+Inspect ofga's configuration.
+
+Profile metadata is stored in a TOML file (mode 0600). Tokens, client
+secrets, and private keys are stored separately in the OS keyring; the
+TOML file contains only managed-secret markers. Environment variables
+remain available for ephemeral CI overrides. Run `ofga config path` to
+see the file location.
+
+| Command | Description |
+| --- | --- |
+| [path](path/) | Print the path to the config file |

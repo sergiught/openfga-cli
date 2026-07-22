@@ -1,0 +1,60 @@
+---
+title: "ofga stores list"
+description: "List all stores"
+sidebar:
+  order: 4
+---
+
+List stores. By default all stores are returned (the CLI auto-pages); --max-results caps the total returned and stops paging once reached.
+
+## Usage
+
+```sh
+ofga stores list [flags]
+```
+
+## Examples
+
+```sh
+  ofga stores list
+```
+
+## Flags
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--limit` | alias for --max-results | `0` |
+| `--max-results` | cap the total number of stores returned (0 = unbounded) | `0` |
+
+<details>
+<summary>Global flags</summary>
+
+```
+      --api-url string                   OpenFGA API URL (overrides profile/env)
+      --auth-client-secret-file string   read the process-scoped OAuth client secret from a file
+      --auth-private-key-file string     read the process-scoped private-key JWT signing key from a file
+      --auth-token-file string           read the process-scoped API token from a file
+      --config string                    path to the config file (overrides OPENFGA_CONFIG)
+  -d, --debug                            enable debug logging
+      --json                             output machine-readable JSON (alias for --output json)
+      --model-id string                  authorization model ID (overrides profile/env)
+      --no-color                         disable colored output
+      --no-input                         never prompt or launch the interactive TUI
+  -o, --output string                    output format: json, yaml, plain or table (takes precedence over --json/--yaml/--plain)
+      --plain                            output unstyled, tab-separated rows (alias for --output plain)
+  -p, --profile string                   configuration profile to use
+  -q, --quiet                            suppress incidental output
+      --store-id string                  store ID (overrides profile/env)
+      --theme string                     color theme (aurora, catppuccin, charm, dracula, gruvbox, nord, tokyonight, mono)
+      --timeout duration                 per-request timeout (0 disables) (default 30s)
+  -v, --verbose                          alias for --debug
+      --yaml                             output machine-readable YAML (alias for --output yaml)
+```
+
+</details>
+
+## Related
+
+- [ofga stores create](../create/)
+- [ofga stores delete](../delete/)
+- [ofga stores get](../get/)

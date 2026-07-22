@@ -1,0 +1,83 @@
+---
+title: "ofga profiles add"
+description: "Create a new profile"
+sidebar:
+  order: 1
+---
+
+Create a named connection profile. The auth method defaults to a bearer
+token when --token* is given, otherwise none. For OAuth flows pass
+--auth-method client_credentials or private_key_jwt with their fields.
+
+## Usage
+
+```sh
+ofga profiles add <profile> [flags]
+```
+
+## Examples
+
+```sh
+  ofga profiles add dev --api-url http://localhost:8080 --use
+  ofga profiles add prod --api-url https://fga.example.com --token-stdin < token.txt
+  ofga profiles add ci --auth-method client_credentials \
+    --client-id abc --client-secret-stdin --token-url https://issuer/oauth/token \
+    --audience https://api.fga.example.com
+```
+
+## Flags
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--api-audience` | API audience (private_key_jwt) |   |
+| `--api-url` | API URL (default http://localhost:8080) |   |
+| `--audience` | OAuth audience |   |
+| `--auth-method` | none \| api_token \| client_credentials \| private_key_jwt |   |
+| `--client-id` | OAuth client ID |   |
+| `--client-secret-file` | read the client secret from a file |   |
+| `--client-secret-stdin` | read the client secret from stdin | `false` |
+| `--key-file` | PEM signing key path (private_key_jwt) |   |
+| `--key-id` | signing key ID (private_key_jwt) |   |
+| `--model-id` | authorization model ID to save in the profile |   |
+| `--scopes` | OAuth scopes (comma-separated) | `[]` |
+| `--signing-method` | JWT signing method, e.g. RS256 (private_key_jwt) |   |
+| `--store-id` | store ID to save in the profile |   |
+| `--token-file` | read the API token from a file |   |
+| `--token-stdin` | read the API token from stdin | `false` |
+| `--token-url` | OAuth token endpoint URL |   |
+| `--use` | switch to this profile after creating it | `false` |
+
+<details>
+<summary>Global flags</summary>
+
+```
+      --auth-client-secret-file string   read the process-scoped OAuth client secret from a file
+      --auth-private-key-file string     read the process-scoped private-key JWT signing key from a file
+      --auth-token-file string           read the process-scoped API token from a file
+      --config string                    path to the config file (overrides OPENFGA_CONFIG)
+  -d, --debug                            enable debug logging
+      --json                             output machine-readable JSON (alias for --output json)
+      --no-color                         disable colored output
+      --no-input                         never prompt or launch the interactive TUI
+  -o, --output string                    output format: json, yaml, plain or table (takes precedence over --json/--yaml/--plain)
+      --plain                            output unstyled, tab-separated rows (alias for --output plain)
+  -p, --profile string                   configuration profile to use
+  -q, --quiet                            suppress incidental output
+      --theme string                     color theme (aurora, catppuccin, charm, dracula, gruvbox, nord, tokyonight, mono)
+      --timeout duration                 per-request timeout (0 disables) (default 30s)
+  -v, --verbose                          alias for --debug
+      --yaml                             output machine-readable YAML (alias for --output yaml)
+```
+
+</details>
+
+## Related
+
+- [ofga profiles cleanup-credentials](../cleanup-credentials/)
+- [ofga profiles current](../current/)
+- [ofga profiles list](../list/)
+- [ofga profiles remove](../remove/)
+- [ofga profiles set](../set/)
+- [ofga profiles show](../show/)
+- [ofga profiles unset](../unset/)
+- [ofga profiles use](../use/)

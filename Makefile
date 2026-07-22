@@ -129,6 +129,10 @@ gifs: build ## Record example GIFs from examples/tapes/*.tape (run `make demo` f
 	done
 	@echo "✓ recorded: $$(ls examples/*.gif 2>/dev/null)"
 
+.PHONY: docs-reference
+docs-reference: ## Regenerate per-command MDX reference pages from the cobra tree
+	go run ./tools/docgen -out docs/site/src/content/docs/reference
+
 #-----------------------------------------------------------------------------------------------------------------------
 # Clean
 #-----------------------------------------------------------------------------------------------------------------------

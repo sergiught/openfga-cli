@@ -1,0 +1,69 @@
+---
+title: "ofga profiles unset"
+description: "Clear a field on a profile"
+sidebar:
+  order: 8
+---
+
+Clear a field on the active profile (or --profile).
+
+`auth` (alias `auth_method`) clears the ENTIRE auth config — method, client_id,
+token_url, audience and any keyring-stored secrets — not just the method. It
+prompts for confirmation unless --force is given.
+
+## Usage
+
+```sh
+ofga profiles unset <key> [flags]
+```
+
+## Examples
+
+```sh
+  ofga profiles unset store_id
+  ofga profiles unset auth --force
+```
+
+## Flags
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `-f, --force` | skip the confirmation prompt when clearing auth | `false` |
+
+<details>
+<summary>Global flags</summary>
+
+```
+      --api-url string                   OpenFGA API URL (overrides profile/env)
+      --auth-client-secret-file string   read the process-scoped OAuth client secret from a file
+      --auth-private-key-file string     read the process-scoped private-key JWT signing key from a file
+      --auth-token-file string           read the process-scoped API token from a file
+      --config string                    path to the config file (overrides OPENFGA_CONFIG)
+  -d, --debug                            enable debug logging
+      --json                             output machine-readable JSON (alias for --output json)
+      --model-id string                  authorization model ID (overrides profile/env)
+      --no-color                         disable colored output
+      --no-input                         never prompt or launch the interactive TUI
+  -o, --output string                    output format: json, yaml, plain or table (takes precedence over --json/--yaml/--plain)
+      --plain                            output unstyled, tab-separated rows (alias for --output plain)
+  -p, --profile string                   configuration profile to use
+  -q, --quiet                            suppress incidental output
+      --store-id string                  store ID (overrides profile/env)
+      --theme string                     color theme (aurora, catppuccin, charm, dracula, gruvbox, nord, tokyonight, mono)
+      --timeout duration                 per-request timeout (0 disables) (default 30s)
+  -v, --verbose                          alias for --debug
+      --yaml                             output machine-readable YAML (alias for --output yaml)
+```
+
+</details>
+
+## Related
+
+- [ofga profiles add](../add/)
+- [ofga profiles cleanup-credentials](../cleanup-credentials/)
+- [ofga profiles current](../current/)
+- [ofga profiles list](../list/)
+- [ofga profiles remove](../remove/)
+- [ofga profiles set](../set/)
+- [ofga profiles show](../show/)
+- [ofga profiles use](../use/)
