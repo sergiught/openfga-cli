@@ -22,6 +22,12 @@ import (
 	"github.com/sergiught/openfga-cli/internal/config"
 )
 
+// groupChildOrder is the sidebar order of the first child page within a command
+// group. It sits well above the number of top-level commands so that a group's
+// own overview page (index.mdx, whose order is its top-level rank) always sorts
+// first inside the group's dropdown.
+const groupChildOrder = 100
+
 func main() {
 	out := flag.String("out", "docs/site/src/content/docs/reference", "output directory for generated MDX pages")
 	rec := flag.String("recordings", "docs/site/public/recordings", "directory holding <slug>.webm demo recordings")
@@ -77,7 +83,12 @@ func emit(cmd *cobra.Command, out, rec string, order int) error {
 		return err
 	}
 	for i, child := range children {
-		page := renderLeafPage(child, hasRecording(rec, child), 4, i+1)
+		// Starlight uses the group index's sidebar order for both the group's
+		// position among its siblings and the index's position inside the group,
+		// so the index keeps its top-level rank (order). Offsetting the children
+		// past that rank range makes the "ofga <group>" overview sort first in
+		// the dropdown while leaving the group's outer position untouched.
+		page := renderLeafPage(child, hasRecording(rec, child), 4, groupChildOrder+i)
 		if err := os.WriteFile(filepath.Join(dir, child.Name()+".mdx"), page, 0o644); err != nil {
 			return err
 		}
