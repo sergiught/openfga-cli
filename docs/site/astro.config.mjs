@@ -23,6 +23,8 @@ export default defineConfig({
 				{ label: 'Guide', items: [{ autogenerate: { directory: 'guide' } }] },
 				{ label: 'Reference', items: [{ autogenerate: { directory: 'reference' } }] },
 			],
+			// Relative links (../foo/) are deliberate (base-path robust); this plugin can only
+			// ban or ignore them, not resolution-check them. tools/docgen tests do that instead.
 			plugins: [starlightLinksValidator({ errorOnRelativeLinks: false }), starlightLlmsTxt()],
 			head: [
 				{

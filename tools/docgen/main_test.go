@@ -2,7 +2,9 @@ package main
 
 import (
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -160,5 +162,92 @@ func TestRunGeneratesRealTree(t *testing.T) {
 	}
 	if !strings.Contains(string(b), `<CommandDemo slug="stores-create" />`) {
 		t.Error("stores/create.mdx should embed its recording")
+	}
+}
+
+// mdLinkPattern matches Markdown link targets: "](target)". It does not
+// match the CommandDemo import line (a JS import, not a "](...)" link).
+var mdLinkPattern = regexp.MustCompile(`\]\(([^)]+)\)`)
+
+// bareSegmentLinkPattern matches a single bare path segment used by the
+// group/root index tables, e.g. "create/" or "stores/".
+var bareSegmentLinkPattern = regexp.MustCompile(`^[\w.-]+/$`)
+
+// isRelativeInternalLink reports whether target is one of the relative,
+// same-site link forms docgen emits (leaf "## Related" siblings use
+// "../sibling/", index tables use bare "child/"), as opposed to an absolute
+// http(s) URL or a root-absolute path.
+func isRelativeInternalLink(target string) bool {
+	if strings.Contains(target, "://") || strings.HasPrefix(target, "#") || strings.HasPrefix(target, "/") {
+		return false
+	}
+	return strings.HasPrefix(target, "./") || strings.HasPrefix(target, "../") || bareSegmentLinkPattern.MatchString(target)
+}
+
+// linkBaseDir returns the directory relative links in relPath (e.g.
+// "query/check.mdx", relative to the generated reference root) resolve
+// against, following Starlight's routing: an index page routes to its own
+// directory, a leaf page routes to a same-named pseudo-directory one level
+// below (its URL has a trailing slash).
+func linkBaseDir(relPath string) string {
+	slash := filepath.ToSlash(relPath)
+	dir := path.Dir(slash)
+	name := strings.TrimSuffix(path.Base(slash), ".mdx")
+	if name == "index" {
+		return dir
+	}
+	return path.Join(dir, name)
+}
+
+// TestGeneratedLinksResolve guards against reference-page link drift: every
+// relative internal link the generator emits (leaf "## Related" siblings,
+// group index tables, the root index table) must resolve to a page that
+// docgen actually generates. starlight-links-validator does not check this
+// (relative links are either banned outright or ignored entirely), so this
+// is the only thing gating it.
+func TestGeneratedLinksResolve(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "reference")
+	rec := t.TempDir()
+	if err := run(out, rec); err != nil {
+		t.Fatal(err)
+	}
+
+	err := filepath.Walk(out, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() || !strings.HasSuffix(p, ".mdx") {
+			return nil
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		relPath, err := filepath.Rel(out, p)
+		if err != nil {
+			return err
+		}
+		baseDir := linkBaseDir(relPath)
+
+		for _, m := range mdLinkPattern.FindAllStringSubmatch(string(b), -1) {
+			target := m[1]
+			if !isRelativeInternalLink(target) {
+				continue
+			}
+			resolved := path.Join(baseDir, target)
+			leaf := filepath.Join(out, filepath.FromSlash(resolved)+".mdx")
+			group := filepath.Join(out, filepath.FromSlash(resolved), "index.mdx")
+			if _, err := os.Stat(leaf); err == nil {
+				continue
+			}
+			if _, err := os.Stat(group); err == nil {
+				continue
+			}
+			t.Errorf("%s: link %q resolves to %q, but neither %s nor %s exists", relPath, target, resolved, leaf, group)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
