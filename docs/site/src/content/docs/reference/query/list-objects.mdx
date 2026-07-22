@@ -1,0 +1,69 @@
+---
+title: "ofga query list-objects"
+description: "List objects of a type a user has a relation with"
+sidebar:
+  order: 103
+---
+
+import CommandDemo from '../../../../components/CommandDemo.astro';
+
+<CommandDemo slug="query-list-objects" />
+
+List objects of a type a user has a relation with
+
+## Usage
+
+```sh
+ofga query list-objects [type] [relation] [user] [flags]
+```
+
+## Examples
+
+```sh
+  ofga query list-objects --type document --relation viewer --user user:anne
+  ofga query list-objects document viewer user:anne
+```
+
+## Flags
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--context` | JSON object of condition context |   |
+| `--contextual-tuple` | contextual tuple as user,relation,object (repeatable) | `[]` |
+| `--relation` | relation |   |
+| `--type` | object type |   |
+| `--user` | user |   |
+
+<details>
+<summary>Global flags</summary>
+
+```
+      --api-url string                   OpenFGA API URL (overrides profile/env)
+      --auth-client-secret-file string   read the process-scoped OAuth client secret from a file
+      --auth-private-key-file string     read the process-scoped private-key JWT signing key from a file
+      --auth-token-file string           read the process-scoped API token from a file
+      --config string                    path to the config file (overrides OPENFGA_CONFIG)
+  -d, --debug                            enable debug logging
+      --json                             output machine-readable JSON (alias for --output json)
+      --model-id string                  authorization model ID (overrides profile/env)
+      --no-color                         disable colored output
+      --no-input                         never prompt or launch the interactive TUI
+  -o, --output string                    output format: json, yaml, plain or table (takes precedence over --json/--yaml/--plain)
+      --plain                            output unstyled, tab-separated rows (alias for --output plain)
+  -p, --profile string                   configuration profile to use
+  -q, --quiet                            suppress incidental output
+      --store-id string                  store ID (overrides profile/env)
+      --theme string                     color theme (aurora, catppuccin, charm, dracula, gruvbox, nord, tokyonight, mono)
+      --timeout duration                 per-request timeout (0 disables) (default 30s)
+  -v, --verbose                          alias for --debug
+      --yaml                             output machine-readable YAML (alias for --output yaml)
+```
+
+</details>
+
+## Related
+
+- [ofga query batch-check](../batch-check/)
+- [ofga query check](../check/)
+- [ofga query expand](../expand/)
+- [ofga query list-users](../list-users/)

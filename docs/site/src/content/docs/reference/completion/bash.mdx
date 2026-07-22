@@ -1,0 +1,76 @@
+---
+title: "ofga completion bash"
+description: "Generate the autocompletion script for bash"
+sidebar:
+  order: 100
+---
+
+import CommandDemo from '../../../../components/CommandDemo.astro';
+
+<CommandDemo slug="completion-bash" />
+
+Generate the autocompletion script for the bash shell.
+
+This script depends on the 'bash-completion' package.
+If it is not installed already, you can install it via your OS's package manager.
+
+To load completions in your current shell session:
+
+	source \<(ofga completion bash)
+
+To load completions for every new session, execute once:
+
+#### Linux:
+
+	ofga completion bash > /etc/bash_completion.d/ofga
+
+#### macOS:
+
+	ofga completion bash > $(brew --prefix)/etc/bash_completion.d/ofga
+
+You will need to start a new shell for this setup to take effect.
+
+## Usage
+
+```sh
+ofga completion bash
+```
+
+## Flags
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--no-descriptions` | disable completion descriptions | `false` |
+
+<details>
+<summary>Global flags</summary>
+
+```
+      --api-url string                   OpenFGA API URL (overrides profile/env)
+      --auth-client-secret-file string   read the process-scoped OAuth client secret from a file
+      --auth-private-key-file string     read the process-scoped private-key JWT signing key from a file
+      --auth-token-file string           read the process-scoped API token from a file
+      --config string                    path to the config file (overrides OPENFGA_CONFIG)
+  -d, --debug                            enable debug logging
+      --json                             output machine-readable JSON (alias for --output json)
+      --model-id string                  authorization model ID (overrides profile/env)
+      --no-color                         disable colored output
+      --no-input                         never prompt or launch the interactive TUI
+  -o, --output string                    output format: json, yaml, plain or table (takes precedence over --json/--yaml/--plain)
+      --plain                            output unstyled, tab-separated rows (alias for --output plain)
+  -p, --profile string                   configuration profile to use
+  -q, --quiet                            suppress incidental output
+      --store-id string                  store ID (overrides profile/env)
+      --theme string                     color theme (aurora, catppuccin, charm, dracula, gruvbox, nord, tokyonight, mono)
+      --timeout duration                 per-request timeout (0 disables) (default 30s)
+  -v, --verbose                          alias for --debug
+      --yaml                             output machine-readable YAML (alias for --output yaml)
+```
+
+</details>
+
+## Related
+
+- [ofga completion fish](../fish/)
+- [ofga completion powershell](../powershell/)
+- [ofga completion zsh](../zsh/)

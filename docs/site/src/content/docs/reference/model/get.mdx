@@ -1,0 +1,60 @@
+---
+title: "ofga model get"
+description: "Show an authorization model as DSL"
+sidebar:
+  order: 100
+---
+
+import CommandDemo from '../../../../components/CommandDemo.astro';
+
+<CommandDemo slug="model-get" />
+
+Show an authorization model as DSL
+
+## Usage
+
+```sh
+ofga model get <model-id>
+```
+
+## Examples
+
+```sh
+  ofga model get 01ARZ3NDEKTSV4RRFFQ69G5FAV
+  ofga model get 01ARZ3NDEKTSV4RRFFQ69G5FAV --json
+```
+
+<details>
+<summary>Global flags</summary>
+
+```
+      --api-url string                   OpenFGA API URL (overrides profile/env)
+      --auth-client-secret-file string   read the process-scoped OAuth client secret from a file
+      --auth-private-key-file string     read the process-scoped private-key JWT signing key from a file
+      --auth-token-file string           read the process-scoped API token from a file
+      --config string                    path to the config file (overrides OPENFGA_CONFIG)
+  -d, --debug                            enable debug logging
+      --json                             output machine-readable JSON (alias for --output json)
+      --model-id string                  authorization model ID (overrides profile/env)
+      --no-color                         disable colored output
+      --no-input                         never prompt or launch the interactive TUI
+  -o, --output string                    output format: json, yaml, plain or table (takes precedence over --json/--yaml/--plain)
+      --plain                            output unstyled, tab-separated rows (alias for --output plain)
+  -p, --profile string                   configuration profile to use
+  -q, --quiet                            suppress incidental output
+      --store-id string                  store ID (overrides profile/env)
+      --theme string                     color theme (aurora, catppuccin, charm, dracula, gruvbox, nord, tokyonight, mono)
+      --timeout duration                 per-request timeout (0 disables) (default 30s)
+  -v, --verbose                          alias for --debug
+      --yaml                             output machine-readable YAML (alias for --output yaml)
+```
+
+</details>
+
+## Related
+
+- [ofga model graph](../graph/)
+- [ofga model latest](../latest/)
+- [ofga model list](../list/)
+- [ofga model test](../test/)
+- [ofga model write](../write/)

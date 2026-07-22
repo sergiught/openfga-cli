@@ -129,6 +129,23 @@ gifs: build ## Record example GIFs from examples/tapes/*.tape (run `make demo` f
 	done
 	@echo "✓ recorded: $$(ls examples/*.gif 2>/dev/null)"
 
+.PHONY: recordings
+recordings: build ## Record per-command site demos from examples/tapes/commands/*.tape (run `make demo` first)
+	@command -v vhs >/dev/null 2>&1 || { echo "vhs not found, install charmbracelet/vhs and ttyd"; exit 1; }
+	@curl -sf http://localhost:8080/healthz >/dev/null 2>&1 || { echo "demo stack not reachable on :8080, run 'make demo' first"; exit 1; }
+	@for tape in examples/tapes/commands/*.tape; do \
+		echo "▶ recording $$tape"; PATH="$(CURDIR)/bin:$$PATH" vhs "$$tape" || exit 1; \
+	done
+	@echo "✓ $$(ls docs/site/public/recordings/*.webm 2>/dev/null | wc -l) recordings in docs/site/public/recordings"
+
+.PHONY: docs-site
+docs-site: ## Build the docs site into docs/site/dist
+	@cd docs/site && npm ci && npm run build
+
+.PHONY: docs-reference
+docs-reference: ## Regenerate per-command MDX reference pages from the cobra tree
+	go run ./tools/docgen -out docs/site/src/content/docs/reference
+
 #-----------------------------------------------------------------------------------------------------------------------
 # Clean
 #-----------------------------------------------------------------------------------------------------------------------

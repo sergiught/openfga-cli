@@ -1,0 +1,82 @@
+---
+title: "ofga profiles set"
+description: "Set a field on a profile"
+sidebar:
+  order: 105
+---
+
+import CommandDemo from '../../../../components/CommandDemo.astro';
+
+<CommandDemo slug="profiles-set" />
+
+Set a field on the active profile (or --profile).
+
+Connection: api_url, store_id, model_id.
+Auth: auth_method (none|api_token|client_credentials|private_key_jwt), token,
+client_id, client_secret, token_url, audience, api_audience, key_file,
+private_key, signing_method, key_id, scopes (space-separated).
+
+For secrets (token, client_secret, private_key) prefer --value-file or
+--value-stdin so the value never appears in `ps` output or your shell
+history. token, client_secret, and private_key are stored in the OS keyring.
+
+## Usage
+
+```sh
+ofga profiles set <key> [value] [flags]
+```
+
+## Examples
+
+```sh
+  ofga profiles set api_url http://localhost:8080
+  ofga profiles set auth_method api_token
+  ofga profiles set token --value-stdin < token.txt
+  ofga profiles set client_secret --value-file ./secret
+  ofga profiles set private_key --value-file ./key.pem
+```
+
+## Flags
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--value-file` | read the value from a file instead of an argument |   |
+| `--value-stdin` | read the value from stdin instead of an argument | `false` |
+
+<details>
+<summary>Global flags</summary>
+
+```
+      --api-url string                   OpenFGA API URL (overrides profile/env)
+      --auth-client-secret-file string   read the process-scoped OAuth client secret from a file
+      --auth-private-key-file string     read the process-scoped private-key JWT signing key from a file
+      --auth-token-file string           read the process-scoped API token from a file
+      --config string                    path to the config file (overrides OPENFGA_CONFIG)
+  -d, --debug                            enable debug logging
+      --json                             output machine-readable JSON (alias for --output json)
+      --model-id string                  authorization model ID (overrides profile/env)
+      --no-color                         disable colored output
+      --no-input                         never prompt or launch the interactive TUI
+  -o, --output string                    output format: json, yaml, plain or table (takes precedence over --json/--yaml/--plain)
+      --plain                            output unstyled, tab-separated rows (alias for --output plain)
+  -p, --profile string                   configuration profile to use
+  -q, --quiet                            suppress incidental output
+      --store-id string                  store ID (overrides profile/env)
+      --theme string                     color theme (aurora, catppuccin, charm, dracula, gruvbox, nord, tokyonight, mono)
+      --timeout duration                 per-request timeout (0 disables) (default 30s)
+  -v, --verbose                          alias for --debug
+      --yaml                             output machine-readable YAML (alias for --output yaml)
+```
+
+</details>
+
+## Related
+
+- [ofga profiles add](../add/)
+- [ofga profiles cleanup-credentials](../cleanup-credentials/)
+- [ofga profiles current](../current/)
+- [ofga profiles list](../list/)
+- [ofga profiles remove](../remove/)
+- [ofga profiles show](../show/)
+- [ofga profiles unset](../unset/)
+- [ofga profiles use](../use/)

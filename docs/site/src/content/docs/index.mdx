@@ -1,0 +1,73 @@
+---
+title: ofga
+description: modern CLI & TUI OpenFGA. Manage stores, models, tuples, run checks, explore everything in full-screen terminal UI.
+template: splash
+hero:
+  tagline: A modern CLI & TUI for <a href="https://openfga.dev">OpenFGA</a>. Manage stores, authorization models, relationship tuples, run checks, explore everything interactively, all from terminal.
+  actions:
+    - text: Get started
+      link: ./guide/installation/
+      icon: right-arrow
+    - text: View on GitHub
+      link: https://github.com/sergiught/openfga-cli
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
+import CommandDemo from '../../components/CommandDemo.astro';
+
+<CommandDemo slug="playground" />
+
+## Install
+
+<Tabs>
+  <TabItem label="Install script">
+    ```sh
+    curl -fsSL https://raw.githubusercontent.com/sergiught/openfga-cli/main/install.sh | bash
+    ```
+  </TabItem>
+  <TabItem label="Homebrew">
+    ```sh
+    brew install sergiught/tap/ofga
+    ```
+  </TabItem>
+  <TabItem label="Arch (AUR)">
+    ```sh
+    yay -S ofga-bin        # or: paru -S ofga-bin
+    ```
+  </TabItem>
+  <TabItem label="Go">
+    ```sh
+    go install github.com/sergiught/openfga-cli/cmd/ofga@latest
+    ```
+  </TabItem>
+  <TabItem label="Docker">
+    ```sh
+    docker run --rm -it --network host ghcr.io/sergiught/ofga:latest stores list
+    ```
+  </TabItem>
+</Tabs>
+
+More options (prebuilt binaries, from source) in [installation guide](./guide/installation/).
+
+## Why ofga
+
+<CardGrid stagger>
+  <Card title="Scriptable CLI" icon="seti:shell">
+    Create stores, write models, manage tuples, and run checks with consistent
+    JSON/YAML output, `--plain` tables, and meaningful exit codes.
+  </Card>
+  <Card title="Full-screen TUI" icon="laptop">
+    Run `ofga` with no arguments: browse stores, visualize models as relation
+    graphs, edit tuples, and expand query resolution trees with keyboard or mouse.
+  </Card>
+  <Card title="Model testing" icon="approve-check">
+    Run assertion suites and YAML test files with coverage, watch mode, and an
+    in-TUI test workbench.
+  </Card>
+  <Card title="Profiles" icon="setting">
+    Switch between local, staging, and production servers in one flag, with
+    OAuth and keyring-backed secrets.
+  </Card>
+</CardGrid>

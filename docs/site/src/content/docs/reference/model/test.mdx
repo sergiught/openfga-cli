@@ -1,0 +1,110 @@
+---
+title: "ofga model test"
+description: "Run authorization model tests against an embedded (or a real/versioned) OpenFGA server"
+sidebar:
+  order: 104
+---
+
+import CommandDemo from '../../../../components/CommandDemo.astro';
+
+<CommandDemo slug="model-test" />
+
+Run the tests declared by an ofga workspace (an ofga.yaml manifest and its *.test.yaml files). By default they run against an in-process, embedded OpenFGA server with no external dependency, real store, or profile involved; --openfga-image runs them against a specific OpenFGA version in Docker and --server-addr against an already-running server.
+
+Workspace: ofga.yaml is discovered by walking up from the current directory (like go.mod) unless a positional path or --file overrides it. Each test runs against its own fresh store.
+
+Explain: a failure prints expected/got values, a resolution tree, and a nearest-miss suggestion. --explain full shows this for every assertion, pass or fail.
+
+Coverage: --coverage reports per-type rewrite-branch coverage against the model, --coverage-detail adds full per-branch detail to the human report, and --coverage-min gates the run on it (exit 3 if unmet). Coverage is grant-based: a rewrite branch (a direct/wildcard type, a computed or tuple-to-userset arm, a 'but not' exclusion, or an ABAC condition outcome) counts covered only when a check assertion showed that specific arm granting — so an arm you never exercise stays uncovered even if its relation is otherwise tested. Non-empty list_objects/list_users results have no per-arm tree, so they credit at relation granularity; empty denial results add no grant coverage. Use check assertions for precise per-arm coverage. --coverage-diff compares against a git ref and fails (exit 3) on newly-added branches no test covers.
+
+Reports: --report writes a CI-friendly report to --report-file (or the terminal): junit (XML), json (the same result shape as -o json, for writing to a file), or github (source-linked GitHub Actions ::error annotations so failures surface beside the authored test).
+
+Playground: --playground, after the run, boots the embedded server over HTTP and opens the interactive playground against a failing test's seeded world (on a TTY) so you can explore and drill into every result; the seeded data is shown under a clearly-labeled ephemeral profile and is never written to your real config.
+
+Documentation: https://github.com/sergiught/openfga-cli#-testing-authorization-models
+
+Exit codes: 0 success · 1 error · 2 usage · 3 test failure or coverage gate · 4 network · 130 canceled.
+
+## Usage
+
+```sh
+ofga model test [path] [flags]
+```
+
+## Examples
+
+```sh
+  ofga model test
+  ofga model test --file ofga.yaml
+  ofga model test --model model.fga --tests 'tests/**/*.test.yaml'   # no manifest
+  ofga model test --run "documents/*"
+  ofga model test --watch
+  ofga model test --coverage --coverage-min 80
+  ofga model test --coverage-diff main
+  ofga model test --report junit --report-file results.xml
+  ofga model test --report json
+  ofga model test --playground
+  ofga model test --openfga-image openfga/openfga:v1.5.0
+  ofga model test --server-addr localhost:8081
+```
+
+## Flags
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--coverage` | enable a branch coverage report against the model | `false` |
+| `--coverage-detail` | print full per-branch detail in the human coverage report; requires --coverage | `false` |
+| `--coverage-diff` | compare the model against a git ref (e.g. main) and fail (exit 3) on rewrite branches added since that ref that no test covers (grant-based); implies --coverage |   |
+| `--coverage-min` | fail (exit 3) if coverage percent is below this threshold; requires --coverage | `0` |
+| `--dedupe-fixtures` | drop duplicate tuples when resolving fixtures | `false` |
+| `--explain` | explanation detail: "auto" (failures only) or "full" (every assertion) | `auto` |
+| `--fail-fast` | stop after the first failing test instead of running the whole suite | `false` |
+| `-f, --file` | path to the workspace manifest, directory, or a single test file (default: current directory, searched upward for ofga.yaml) | `.` |
+| `--fixtures` | fixture-file glob(s) to register (repeatable; overrides the manifest's fixtures) | `[]` |
+| `--model` | model file to test (overrides the manifest, or runs manifest-free with --tests) |   |
+| `--no-tui` | with --playground, print a note instead of launching the playground TUI | `false` |
+| `--openfga-image` | run tests against a specific OpenFGA server version in Docker (e.g. openfga/openfga:v1.5.0) instead of the embedded server; requires Docker |   |
+| `--parallel` | max concurrent tests (0 = number of CPUs) | `0` |
+| `--playground` | after the run, open the playground on a failing test's seeded world to explore and drill into every result (interactive TTY, human output only) | `false` |
+| `--report` | write a report in this format ("junit", "json", or "github"); to --report-file if set, otherwise printed to the terminal |   |
+| `--report-file` | path to write the --report file to (requires --report) |   |
+| `--run` | glob to select tests by "\<relative-file>/\<test-name>" or by name alone |   |
+| `--server-addr` | run tests against an already-running OpenFGA server at this gRPC host:port instead of the embedded server |   |
+| `--slowest` | after the run, list the N slowest tests (0 = don't) | `0` |
+| `--tests` | test-file glob(s) to run (repeatable; overrides the manifest's tests, or runs manifest-free with --model) | `[]` |
+| `--timeout` | per-test timeout bounding each test's engine work (e.g. 30s; 0 = no timeout) | `0s` |
+| `--watch` | re-run the tests whenever a workspace file changes (interactive; Ctrl-C to stop) | `false` |
+
+<details>
+<summary>Global flags</summary>
+
+```
+      --api-url string                   OpenFGA API URL (overrides profile/env)
+      --auth-client-secret-file string   read the process-scoped OAuth client secret from a file
+      --auth-private-key-file string     read the process-scoped private-key JWT signing key from a file
+      --auth-token-file string           read the process-scoped API token from a file
+      --config string                    path to the config file (overrides OPENFGA_CONFIG)
+  -d, --debug                            enable debug logging
+      --json                             output machine-readable JSON (alias for --output json)
+      --model-id string                  authorization model ID (overrides profile/env)
+      --no-color                         disable colored output
+      --no-input                         never prompt or launch the interactive TUI
+  -o, --output string                    output format: json, yaml, plain or table (takes precedence over --json/--yaml/--plain)
+      --plain                            output unstyled, tab-separated rows (alias for --output plain)
+  -p, --profile string                   configuration profile to use
+  -q, --quiet                            suppress incidental output
+      --store-id string                  store ID (overrides profile/env)
+      --theme string                     color theme (aurora, catppuccin, charm, dracula, gruvbox, nord, tokyonight, mono)
+  -v, --verbose                          alias for --debug
+      --yaml                             output machine-readable YAML (alias for --output yaml)
+```
+
+</details>
+
+## Related
+
+- [ofga model get](../get/)
+- [ofga model graph](../graph/)
+- [ofga model latest](../latest/)
+- [ofga model list](../list/)
+- [ofga model write](../write/)

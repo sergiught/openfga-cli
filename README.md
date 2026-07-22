@@ -8,7 +8,7 @@
 
 Manage stores, authorization models, relationship tuples, and run checks from your terminal, or explore everything interactively in a full-screen TUI.
 
-[Quick start](#-quick-start) · [The TUI](docs/guide/tui.md) · [Commands](#-command-reference) · [Configuration](docs/guide/configuration.md) · [Docs](#-documentation) · [Contributing](#-contributing)
+[Quick start](#-quick-start) · [The TUI](https://sergiught.github.io/openfga-cli/guide/tui/) · [Commands](#-command-reference) · [Configuration](https://sergiught.github.io/openfga-cli/guide/configuration/) · [Docs](#-documentation) · [Contributing](#-contributing)
 
 </div>
 
@@ -104,7 +104,7 @@ brew install sergiught/tap/ofga
 curl -fsSL https://raw.githubusercontent.com/sergiught/openfga-cli/main/install.sh | bash
 ```
 
-Full matrix (AUR, go install, Docker, source), upgrade, and uninstall → [docs/guide/installation.md](docs/guide/installation.md)
+Full matrix (AUR, go install, Docker, source), upgrade, and uninstall → [the installation guide](https://sergiught.github.io/openfga-cli/guide/installation/)
 
 ---
 
@@ -112,44 +112,28 @@ Full matrix (AUR, go install, Docker, source), upgrade, and uninstall → [docs/
 
 Run `ofga` with no arguments to launch the interactive playground, a keyboard- **and mouse**-driven cockpit covering profiles, stores, the model graph, tuples, queries with resolution trees, and assertions. Press `?` at any time for the full, context-aware keybinding overlay.
 
-Full TUI guide & keybinding reference → [docs/guide/tui.md](docs/guide/tui.md)
+Full TUI guide & keybinding reference → [the TUI guide](https://sergiught.github.io/openfga-cli/guide/tui/)
 
 ---
 
 ## 📋 Command reference
 
-| Command | What it does |
-| --- | --- |
-| [`ofga`](docs/guide/commands.md#playground) | Launch the interactive TUI |
-| [`ofga playground`](docs/guide/commands.md#playground) | Explicit subcommand form of bare `ofga`; launches the interactive TUI |
-| [`ofga init`](docs/guide/commands.md#init) | Guided first-run setup (creates a connection profile) |
-| [`ofga stores`](docs/guide/commands.md#stores) | Create, list, inspect and delete stores |
-| [`ofga model`](docs/guide/commands.md#model) | Write (from JSON **or `.fga` DSL**), list, inspect, **visualize** (`model graph`), and **test** (`model test`) authorization models |
-| [`ofga tuples`](docs/guide/commands.md#tuples) | Write, delete, read relationship tuples and follow the changelog |
-| [`ofga query`](docs/guide/commands.md#query) | Ask authorization questions: `check`, `batch-check`, `expand`, `list-objects`, `list-users` |
-| [`ofga assertions`](docs/guide/commands.md#assertions) | Read, write, and **run** a model's assertion test-suite |
-| [`ofga api`](docs/guide/commands.md#api) | Send a raw request to the OpenFGA API using the active profile's auth |
-| [`ofga profiles`](docs/guide/commands.md#profiles) | Manage connection profiles (add/list/show/current/use/set/unset/remove/cleanup-credentials) |
-| [`ofga config`](docs/guide/commands.md#config) | Inspect configuration (`config path`) |
-| [`ofga theme`](docs/guide/commands.md#theme) | Show or set the color theme |
-| [`ofga completion`](docs/guide/commands.md#completion) | Generate a shell completion script |
-| [`ofga version`](docs/guide/commands.md#version) | Print version and build info |
-
-Run `ofga <command> --help` for details and examples on any command.
+Every command has a generated reference page with a live demo recording:
+**<https://sergiught.github.io/openfga-cli/reference/>**
 
 ---
 
 ## 📚 Documentation
 
-- [Installation](docs/guide/installation.md): install methods, upgrade, uninstall
-- [The interactive TUI](docs/guide/tui.md): playground tour + full keybinding reference
-- [Command reference](docs/guide/commands.md): every command and flag
-- [Testing authorization models](docs/guide/model-testing.md): the `model test` workspace, coverage, CI
-- [Configuration](docs/guide/configuration.md): config file, profiles, env vars
-- [Authentication](docs/guide/authentication.md): auth methods, secret files, keyring
-- [Scripting & automation](docs/guide/scripting.md): output formats, exit codes, pagination
-- [Recipes](docs/guide/recipes.md): common end-to-end flows
-- [Troubleshooting](docs/guide/troubleshooting.md): common issues + shell completion
+- [Installation](https://sergiught.github.io/openfga-cli/guide/installation/): install methods, upgrade, uninstall
+- [The interactive TUI](https://sergiught.github.io/openfga-cli/guide/tui/): playground tour + full keybinding reference
+- [Command reference](https://sergiught.github.io/openfga-cli/reference/): every command and flag
+- [Testing authorization models](https://sergiught.github.io/openfga-cli/guide/model-testing/): the `model test` workspace, coverage, CI
+- [Configuration](https://sergiught.github.io/openfga-cli/guide/configuration/): config file, profiles, env vars
+- [Authentication](https://sergiught.github.io/openfga-cli/guide/authentication/): auth methods, secret files, keyring
+- [Scripting & automation](https://sergiught.github.io/openfga-cli/guide/scripting/): output formats, exit codes, pagination
+- [Recipes](https://sergiught.github.io/openfga-cli/guide/recipes/): common end-to-end flows
+- [Troubleshooting](https://sergiught.github.io/openfga-cli/guide/troubleshooting/): common issues + shell completion
 
 ---
 
