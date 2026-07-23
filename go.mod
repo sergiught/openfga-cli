@@ -19,7 +19,7 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0
 	github.com/lucasb-eyer/go-colorful v1.4.0
 	github.com/muesli/go-app-paths v0.2.2
-	github.com/openfga/api/proto v0.0.0-20260619182052-dd87be81488e
+	github.com/openfga/api/proto v0.0.0-20260723150800-6981fff8d33b
 	github.com/openfga/language/pkg/go v0.3.1
 	github.com/openfga/openfga v1.18.1
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
