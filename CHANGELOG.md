@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.267.0](https://github.com/sergiught/openfga-cli/compare/v0.266.0...v0.267.0) (2026-07-24)
+
+
+### Features
+
+* add a GitHub Pages docs site with a demo for every command ([#49](https://github.com/sergiught/openfga-cli/issues/49)) ([eae7b78](https://github.com/sergiught/openfga-cli/commit/eae7b7864f3cb28a87f4f6dbe04926e5bd9b5612))
+
+
+### Documentation
+
+* restructure README into docs/guide and add a command GIF gallery ([#46](https://github.com/sergiught/openfga-cli/issues/46)) ([0b51e29](https://github.com/sergiught/openfga-cli/commit/0b51e29ba7bcdf7bb64811a2bb179882e2f32ffe))
+
 ## [0.266.0](https://github.com/sergiught/openfga-cli/compare/v0.265.1...v0.266.0) (2026-07-21)
 
 
