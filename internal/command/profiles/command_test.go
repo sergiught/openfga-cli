@@ -1,6 +1,7 @@
 package profiles
 
 import (
+	"bytes"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/config"
+	"github.com/sergiught/openfga-cli/internal/output"
 )
 
 // setRunE returns the RunE of the `profiles set` subcommand, wired to a fresh
@@ -309,6 +311,172 @@ func TestProfilesAddSaveFailurePreservesExistingKeyringEntry(t *testing.T) {
 	}
 	if _, ok := cfg.Get("dev"); ok {
 		t.Fatal("failed profile creation should be rolled back in memory")
+	}
+}
+
+// TestProfilesSetClientSecretAutoSwitchesFromAPIToken covers CLI-80: setting
+// an OAuth-only field on a profile whose auth_method doesn't consume it must
+// not silently store a dead value. The preferred fix auto-switches the
+// method to client_credentials, prints a notice naming the old/new method,
+// and leaves the existing token untouched (switching must never destroy a
+// credential the user still needs).
+func TestProfilesSetClientSecretAutoSwitchesFromAPIToken(t *testing.T) {
+	keyring.MockInit()
+	path := filepath.Join(t.TempDir(), "config.toml")
+	cfg, err := config.LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, _ := cfg.Get("default")
+	p.Auth = config.Auth{Method: config.AuthAPIToken, Token: "bearer-secret"}
+	cfg.Set("default", p)
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	set := subCmd(t, cli.New(charmlog.New(io.Discard), cfg, "test"), "set")
+	set.SetIn(strings.NewReader("oauth-secret"))
+	var stderr bytes.Buffer
+	set.SetErr(&stderr)
+	if err := set.Flags().Set("value-stdin", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if err := set.RunE(set, []string{"client_secret"}); err != nil {
+		t.Fatal(err)
+	}
+
+	p, _ = cfg.Get("default")
+	if p.Auth.Method != config.AuthClientCredentials {
+		t.Fatalf("auth_method = %q, want %q", p.Auth.Method, config.AuthClientCredentials)
+	}
+	// Save() moves plaintext secrets into the keyring, leaving a sentinel on
+	// the in-memory profile; resolve to check the real values (same pattern
+	// as TestSetPrivateKeyStoresInKeyring).
+	resolved, err := cfg.Resolve(config.Overrides{})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if resolved.Auth.ClientSecret != "oauth-secret" {
+		t.Fatalf("client_secret not resolved: %+v", resolved.Auth)
+	}
+	if p.Auth.Token == "" {
+		t.Fatal("auto-switch must not clear the existing token field")
+	}
+	notice := stderr.String()
+	if !strings.Contains(notice, config.AuthClientCredentials) || !strings.Contains(notice, config.AuthAPIToken) {
+		t.Fatalf("notice = %q, want it to name the old (%s) and new (%s) auth_method", notice, config.AuthAPIToken, config.AuthClientCredentials)
+	}
+	if strings.Contains(notice, "oauth-secret") || strings.Contains(notice, "bearer-secret") {
+		t.Fatalf("notice must never leak secret values: %q", notice)
+	}
+}
+
+// TestProfilesSetClientIDAutoSwitchesFromNone mirrors the above for a profile
+// with no auth configured at all.
+func TestProfilesSetClientIDAutoSwitchesFromNone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	cfg, err := config.LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	set := subCmd(t, cli.New(charmlog.New(io.Discard), cfg, "test"), "set")
+	var stderr bytes.Buffer
+	set.SetErr(&stderr)
+	if err := set.RunE(set, []string{"client_id", "abc-client"}); err != nil {
+		t.Fatal(err)
+	}
+
+	p, _ := cfg.Get("default")
+	if p.Auth.Method != config.AuthClientCredentials {
+		t.Fatalf("auth_method = %q, want %q", p.Auth.Method, config.AuthClientCredentials)
+	}
+	if p.Auth.ClientID != "abc-client" {
+		t.Fatalf("client_id not stored: %+v", p.Auth)
+	}
+	notice := stderr.String()
+	if !strings.Contains(notice, config.AuthClientCredentials) || !strings.Contains(notice, config.AuthNone) {
+		t.Fatalf("notice = %q, want it to name the old (%s) and new (%s) auth_method", notice, config.AuthNone, config.AuthClientCredentials)
+	}
+}
+
+// TestProfilesSetTokenURLNoSwitchWhenAlreadyOAuth asserts that setting a
+// field already consumed by the current auth_method (token_url is read by
+// both client_credentials and private_key_jwt) never triggers a switch or a
+// notice.
+func TestProfilesSetTokenURLNoSwitchWhenAlreadyOAuth(t *testing.T) {
+	keyring.MockInit()
+	path := filepath.Join(t.TempDir(), "config.toml")
+	cfg, err := config.LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, _ := cfg.Get("default")
+	p.Auth = config.Auth{
+		Method:     config.AuthPrivateKeyJWT,
+		ClientID:   "client",
+		PrivateKey: "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n",
+	}
+	cfg.Set("default", p)
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	set := subCmd(t, cli.New(charmlog.New(io.Discard), cfg, "test"), "set")
+	var stderr bytes.Buffer
+	set.SetErr(&stderr)
+	if err := set.RunE(set, []string{"token_url", "https://issuer.example/token"}); err != nil {
+		t.Fatal(err)
+	}
+
+	p, _ = cfg.Get("default")
+	if p.Auth.Method != config.AuthPrivateKeyJWT {
+		t.Fatalf("auth_method changed unexpectedly: %q", p.Auth.Method)
+	}
+	if p.Auth.TokenURL != "https://issuer.example/token" {
+		t.Fatalf("token_url not stored: %+v", p.Auth)
+	}
+	if strings.Contains(stderr.String(), "auto-switched") {
+		t.Fatalf("no auto-switch notice expected, got %q", stderr.String())
+	}
+}
+
+// TestProfilesListMarksEnvSelectedProfileActive covers CLI-81: `list` must
+// mark the profile that command resolution will actually use (honoring
+// --profile/OPENFGA_PROFILE/FGA_PROFILE), not just the file's active_profile.
+func TestProfilesListMarksEnvSelectedProfileActive(t *testing.T) {
+	c := cli.New(charmlog.New(io.Discard), &config.Config{
+		Active: "default",
+		Profiles: map[string]config.Profile{
+			"default": {APIURL: config.DefaultAPIURL},
+			"prod":    {APIURL: "http://prod:8080"},
+		},
+	}, "test")
+
+	output.Plain = true
+	t.Cleanup(func() { output.Plain = false })
+	t.Setenv("OPENFGA_PROFILE", "prod")
+
+	list := subCmd(t, c, "list")
+	var out bytes.Buffer
+	list.SetOut(&out)
+	if err := list.RunE(list, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	active := map[string]bool{}
+	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+		fields := strings.Split(line, "\t")
+		if len(fields) < 2 {
+			continue
+		}
+		active[fields[1]] = fields[0] != ""
+	}
+	if !active["prod"] {
+		t.Errorf("prod (env-selected) should be marked active, got rows:\n%s", out.String())
+	}
+	if active["default"] {
+		t.Errorf("default (file active_profile, not session-active) should not be marked active, got rows:\n%s", out.String())
 	}
 }
 

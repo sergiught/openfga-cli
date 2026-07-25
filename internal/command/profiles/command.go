@@ -111,7 +111,7 @@ func (c *Command) listCmd() *cobra.Command {
 			for _, name := range cfg.ProfileNames() {
 				p, _ := cfg.Get(name)
 				active := ""
-				if name == cfg.Active {
+				if name == c.activeProfile() {
 					active = style.Success.Render("●")
 				}
 				rows = append(rows, []string{
@@ -277,6 +277,7 @@ func (c *Command) setCmd() *cobra.Command {
 			key := strings.ToLower(args[0])
 			previous := p
 			var cleanupFields []string
+			var notice string
 			switch key {
 			case "api_url", "url":
 				p.APIURL = val
@@ -303,10 +304,22 @@ func (c *Command) setCmd() *cobra.Command {
 				p.Auth = authForMethod(p.Auth, config.AuthAPIToken)
 				p.Auth.Token = val
 			case "client_id":
+				notice = oauthAutoSwitchNotice(p.Auth, "client_id")
+				if notice != "" {
+					p.Auth.Method = config.AuthClientCredentials
+				}
 				p.Auth.ClientID = val
 			case "client_secret":
+				notice = oauthAutoSwitchNotice(p.Auth, "client_secret")
+				if notice != "" {
+					p.Auth.Method = config.AuthClientCredentials
+				}
 				p.Auth.ClientSecret = val
 			case "token_url":
+				notice = oauthAutoSwitchNotice(p.Auth, "token_url")
+				if notice != "" {
+					p.Auth.Method = config.AuthClientCredentials
+				}
 				p.Auth.TokenURL = val
 			case "audience":
 				p.Auth.Audience = val
@@ -337,6 +350,9 @@ func (c *Command) setCmd() *cobra.Command {
 			} else if err := c.cli.SaveConfig(); err != nil {
 				c.cli.Config.Set(name, previous)
 				return err
+			}
+			if notice != "" {
+				output.Infof(cmd.ErrOrStderr(), "%s", notice)
 			}
 			if c.cli.JSON || c.cli.YAML {
 				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]string{"profile": name, "set": key})
@@ -373,6 +389,31 @@ func authForMethod(a config.Auth, method string) config.Auth {
 	default:
 		return config.Auth{Method: config.AuthNone}
 	}
+}
+
+// oauthAutoSwitchNotice reports whether key is consumed by a's current auth
+// method (CLI-80). client_id and token_url are read by both OAuth grant
+// types; client_secret only by client_credentials. When key is not consumed,
+// it returns a notice to print and the caller switches the profile's method
+// to client_credentials — the fix does NOT clear any other field (unlike
+// `set auth_method`/`set token`, which reset unrelated fields): forcibly
+// dropping, say, an existing api_token would destroy a credential the user
+// may still need, so an auto-switch only ever changes the method label.
+func oauthAutoSwitchNotice(a config.Auth, key string) string {
+	var used bool
+	switch key {
+	case "client_id", "token_url":
+		used = a.Method == config.AuthClientCredentials || a.Method == config.AuthPrivateKeyJWT
+	case "client_secret":
+		used = a.Method == config.AuthClientCredentials
+	}
+	if used {
+		return ""
+	}
+	return fmt.Sprintf(
+		"auth_method auto-switched from %s to %s (%s is not used by %s); run `ofga profiles set auth_method <method>` to change it",
+		authName(a), config.AuthClientCredentials, key, authName(a),
+	)
 }
 
 func (c *Command) unsetCmd() *cobra.Command {
