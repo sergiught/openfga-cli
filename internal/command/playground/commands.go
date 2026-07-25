@@ -306,6 +306,7 @@ func loadChangesCmd(ctx context.Context, cl *openfga.Client, storeID string, gen
 	return func() tea.Msg {
 		changes := make([]openfga.TupleChange, 0, changesDisplayCap)
 		total := 0
+		pos := 0 // once the buffer is full, the next (oldest) slot to overwrite
 		for ch, err := range cl.Tuples.ChangesAll(ctx, &openfga.ReadChangesOptions{}, openfga.WithStore(storeID)) {
 			if err != nil {
 				return changesLoadedMsg{storeID: storeID, gen: gen, err: err}
@@ -314,14 +315,22 @@ func loadChangesCmd(ctx context.Context, cl *openfga.Client, storeID string, gen
 			if len(changes) < changesDisplayCap {
 				changes = append(changes, ch)
 			} else {
-				// Ring buffer: shift the window forward one slot so only the
-				// last changesDisplayCap entries are ever retained.
-				copy(changes, changes[1:])
-				changes[len(changes)-1] = ch
+				// Circular buffer: O(1) per entry instead of shifting the
+				// whole window — memory stays bounded at changesDisplayCap,
+				// and the wrap is unrotated once, after the drain completes.
+				changes[pos] = ch
+				pos = (pos + 1) % changesDisplayCap
 			}
 		}
-		// The feed is drained oldest-first; reverse in place so the pane
-		// renders newest-first.
+		// Once wrapped, pos is the oldest surviving entry's slot (the next one
+		// due to be overwritten); rotate so the buffer reads oldest-to-newest,
+		// then reverse in place so the pane renders newest-first.
+		if total > changesDisplayCap {
+			rotated := make([]openfga.TupleChange, 0, len(changes))
+			rotated = append(rotated, changes[pos:]...)
+			rotated = append(rotated, changes[:pos]...)
+			changes = rotated
+		}
 		for i, j := 0, len(changes)-1; i < j; i, j = i+1, j-1 {
 			changes[i], changes[j] = changes[j], changes[i]
 		}

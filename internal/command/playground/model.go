@@ -304,8 +304,13 @@ type Model struct {
 
 	changesCapped bool // more changes exist than are shown (hit the display cap)
 	changesTotal  int  // the feed's true size as of the last load, for an honest capped status
-	changes       []openfga.TupleChange
-	changesList   *uilist.List
+	// changesStale is set after a tuple mutation invalidates the changes data
+	// so onEnterSection's lazy load re-fires next time the tab is opened, even
+	// when len(changes) == 0 would otherwise be ambiguous (never loaded vs.
+	// loaded-and-genuinely-empty).
+	changesStale bool
+	changes      []openfga.TupleChange
+	changesList  *uilist.List
 
 	assertions     []openfga.Assertion
 	assertionsList *uilist.List
@@ -1118,6 +1123,9 @@ func (m *Model) selectStore(s openfga.Store) tea.Cmd {
 	m.queryGen++
 	m.resGen++
 	m.assertGen++
+	// This dispatches a fresh changes load unconditionally, so any pending
+	// invalidation from a mutation on the previous store selection is moot.
+	m.changesStale = false
 	// Four concurrent loads start together here; begin each so the spinner
 	// stays on until all four have landed, not just the first.
 	m.beginLoad()
@@ -1407,6 +1415,9 @@ func (m *Model) activateResolved(r config.Resolved, cl *openfga.Client, status s
 		m.beginLoad()
 		m.beginLoad()
 		m.beginLoad()
+		// This dispatches a fresh changes load unconditionally, so any pending
+		// invalidation from a mutation before the reconnect is moot.
+		m.changesStale = false
 		cmds = append(cmds,
 			m.startModelCmd(),
 			loadTuplesCmd(m.ctx, m.client, m.storeID, m.tuplesGen),

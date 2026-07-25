@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -150,14 +151,23 @@ func TestChangesSectionStatusUncappedStaysPlain(t *testing.T) {
 	}
 }
 
-// --- (c) a successful tuple write/delete must refresh (not leave stale) the
-// Changes pane, going through the same begin/end load + gen accounting as
+// --- (c) a successful tuple write/delete must not leave the Changes pane
+// showing stale data — but since ChangesAll has no reverse/tail fetch (it
+// always drains the store's ENTIRE lifetime change feed), an eager reload on
+// every mutation would turn every tuple write into a potentially expensive
+// full-history scan, even when the user never looks at Changes. So the fix is
+// lazy invalidation, not an eager reload: clear the stale data and mark it
+// stale so onEnterSection's existing lazy load re-fires next time the tab is
+// actually opened, going through the same begin/end load + gen accounting as
 // every other reload.
 
-func TestTupleWrittenRefreshesChangesPane(t *testing.T) {
-	newChanges := changesFeed(3)
+func TestTupleWrittenInvalidatesChangesWithoutEagerReload(t *testing.T) {
+	var changesCalls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(openfga.ReadChangesResponse{Changes: newChanges})
+		if strings.Contains(r.URL.Path, "/changes") {
+			changesCalls.Add(1)
+		}
+		_ = json.NewEncoder(w).Encode(openfga.ReadResponse{})
 	}))
 	defer srv.Close()
 	cl, err := openfga.NewClient(srv.URL)
@@ -167,27 +177,43 @@ func TestTupleWrittenRefreshesChangesPane(t *testing.T) {
 
 	m := newTestModel().(Model)
 	m.client = cl
-	// Seed a stale changes list distinct from what the mock server will
-	// return, so a successful refresh is observable.
+	// Seed stale changes data (list + counters) distinct from an invalidated
+	// state, so invalidation is observable.
 	m.changes = []openfga.TupleChange{{TupleKey: openfga.TupleKey{User: "user:stale", Relation: "viewer", Object: "doc:1"}}}
+	m.changesCapped = true
+	m.changesTotal = 250
 	staleGenBefore := m.changesGen
 	pendingBefore := m.pendingLoads
 
 	nm, cmd := m.Update(tupleWrittenMsg{label: "user:anne#viewer@doc:1"})
 	got := nm.(Model)
 	if cmd == nil {
-		t.Fatal("a successful tuple write should dispatch a command (toast + reloads)")
+		t.Fatal("a successful tuple write should dispatch a command (toast + tuples reload)")
+	}
+	if got.changes != nil {
+		t.Fatalf("changes = %+v, want cleared (invalidated) immediately, not left stale", got.changes)
+	}
+	if got.changesCapped || got.changesTotal != 0 {
+		t.Fatalf("stale capped/total counters must be reset alongside the invalidation: capped=%v total=%d", got.changesCapped, got.changesTotal)
+	}
+	if !got.changesStale {
+		t.Fatal("a successful tuple write should mark changes stale so onEnterSection's lazy load re-fires")
 	}
 	if got.changesGen == staleGenBefore {
-		t.Fatal("a successful tuple write should bump changesGen so a stale in-flight response can't win")
+		t.Fatal("changesGen should still be bumped (with no matching load dispatched) to fence off " +
+			"any load already in flight from before the write, so it can't land afterward and " +
+			"silently overwrite the invalidated state with pre-write data")
 	}
-	if got.pendingLoads <= pendingBefore {
-		t.Fatal("the changes reload must go through beginLoad() like every other dispatched load")
+	// Exactly one load (tuples) begins here, not two — no beginLoad for a
+	// changes reload that never gets dispatched.
+	if got.pendingLoads != pendingBefore+1 {
+		t.Fatalf("pendingLoads = %d, want exactly %d (tuples reload only, no eager changes load)", got.pendingLoads, pendingBefore+1)
 	}
+	midGen := got.changesGen
 
-	// Drain the command(s) tupleWrittenMsg dispatched (toast + tuples/changes
-	// reloads) until the model settles, mirroring pump()'s loop but starting
-	// from the already-produced (got, cmd) pair.
+	// Drain the command(s) tupleWrittenMsg dispatched (toast + tuples reload)
+	// until the model settles, mirroring pump()'s loop but starting from the
+	// already-produced (got, cmd) pair.
 	queue := []tea.Msg{}
 	collectCmd(cmd, &queue)
 	var final tea.Model = got
@@ -205,16 +231,44 @@ func TestTupleWrittenRefreshesChangesPane(t *testing.T) {
 	if fm.pendingLoads != 0 {
 		t.Fatalf("pendingLoads = %d after everything settles, want 0", fm.pendingLoads)
 	}
-	foundRefreshed := false
-	for _, ch := range fm.changes {
-		if ch.TupleKey.User == "user:002" { // newest of newChanges (index 2, the last one)
-			foundRefreshed = true
-		}
-		if ch.TupleKey.User == "user:stale" {
-			t.Fatal("the stale seeded change must not survive a successful write's refresh")
-		}
+	if changesCalls.Load() != 0 {
+		t.Fatalf("the /changes endpoint was hit %d times after a tuple write; want 0 — invalidation must not eagerly scan the change feed", changesCalls.Load())
 	}
-	if !foundRefreshed {
-		t.Fatalf("expected the reloaded changes to include the mock server's data; got %+v", fm.changes)
+
+	// Only now, when the user actually opens the Changes tab, must the
+	// invalidated data be reloaded.
+	fm.section = secChanges
+	nm2, cmd2 := fm.onEnterSection()
+	entered := nm2.(Model)
+	if cmd2 == nil {
+		t.Fatal("entering Changes after an invalidating write should dispatch a reload")
+	}
+	if entered.changesGen == staleGenBefore || entered.changesGen == midGen {
+		t.Fatal("entering Changes should bump changesGen again for the deferred reload, distinct from both the pre-write gen and the write's own fencing bump")
+	}
+	if entered.changesStale {
+		t.Fatal("changesStale should be cleared once the deferred reload is dispatched")
+	}
+
+	msg := cmd2()
+	loaded, ok := msg.(changesLoadedMsg)
+	if !ok {
+		t.Fatalf("expected a changesLoadedMsg from the deferred reload, got %#v", msg)
+	}
+	final2, _ := entered.Update(loaded)
+	fm2 := final2.(Model)
+	// The mock server responds to /changes with an empty ReadResponse{} body
+	// (no Changes field set), i.e. zero changes — checking the deferred load
+	// actually landed (and cleared changesStale) is enough here; a
+	// populated-data variant is already covered by
+	// TestLoadChangesCmdOverCapKeepsLastChangesNewestFirst.
+	if len(fm2.changes) != 0 {
+		t.Fatalf("changes = %+v, want empty (mock server has none)", fm2.changes)
+	}
+	if fm2.changesStale {
+		t.Fatal("changesStale should stay cleared once the deferred reload lands")
+	}
+	if changesCalls.Load() != 1 {
+		t.Fatalf("the /changes endpoint should be hit exactly once, on tab entry; got %d calls", changesCalls.Load())
 	}
 }

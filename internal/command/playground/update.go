@@ -520,16 +520,28 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = verb + " " + msg.label
 		m.beginLoad()
 		m.tuplesGen++
-		m.beginLoad()
-		m.changesGen++
 		// A write/delete also changes the store's change log, so the Changes
-		// pane must not keep showing pre-write data — refresh it immediately
-		// rather than relying on the Changes tab's lazy load, which only
-		// triggers when it's still empty.
+		// pane must not keep showing pre-write data. Changes has no
+		// reverse/tail fetch (ChangesAll always drains the entire lifetime
+		// feed), so an eager reload here would turn every tuple mutation into
+		// a full-history scan even when the user never looks at Changes.
+		// Invalidate instead: clear the stale data and set changesStale so
+		// onEnterSection's lazy load re-fires next time the tab is actually
+		// opened, whether or not the store's own count of changes is zero.
+		// changesGen is still bumped (with no matching beginLoad/dispatch of
+		// its own) purely as a fence: a load already in flight from before
+		// this write (e.g. a manual refresh, or the tab's own first lazy
+		// load) must not land afterward and silently overwrite this
+		// invalidated state with pre-write data — its gen no longer matches,
+		// so the changesLoadedMsg handler's existing staleGen check drops it.
+		m.changes = nil
+		m.changesCapped = false
+		m.changesTotal = 0
+		m.changesStale = true
+		m.changesGen++
 		return m, tea.Batch(
 			m.toasts.Push(toast.Success, m.status),
 			loadTuplesCmd(m.ctx, m.client, m.storeID, m.tuplesGen),
-			loadChangesCmd(m.ctx, m.client, m.storeID, m.changesGen),
 		)
 
 	case queryResultMsg:
@@ -1054,13 +1066,18 @@ func (m Model) onEnterSection() (tea.Model, tea.Cmd) {
 	case secStores:
 		m.selectCurrentStore()
 	case secChanges:
-		if m.storeID != "" && len(m.changes) == 0 {
+		// changesStale forces a reload after a tuple mutation invalidated the
+		// data (see the tupleWrittenMsg handler), even if the store legitimately
+		// has zero changes and len(m.changes) == 0 would otherwise be
+		// ambiguous between "never loaded" and "loaded, genuinely empty".
+		if m.storeID != "" && (len(m.changes) == 0 || m.changesStale) {
 			m.beginLoad()
 			// A slow first load racing a second lazy trigger (e.g. leaving and
 			// re-entering the tab before the first response lands — len(changes)
 			// stays 0 either way) must not let the older response overwrite
 			// whichever landed later.
 			m.changesGen++
+			m.changesStale = false
 			return m, loadChangesCmd(m.ctx, m.client, m.storeID, m.changesGen)
 		}
 	case secAssertions:
