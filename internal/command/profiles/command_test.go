@@ -2,6 +2,7 @@ package profiles
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -477,6 +478,55 @@ func TestProfilesListMarksEnvSelectedProfileActive(t *testing.T) {
 	}
 	if active["default"] {
 		t.Errorf("default (file active_profile, not session-active) should not be marked active, got rows:\n%s", out.String())
+	}
+}
+
+// TestProfilesListJSONMarksEnvSelectedProfileActive covers the machine-output
+// half of CLI-81: `profiles list --json`'s "active" field must agree with
+// the session-resolved profile (the same one the human table marks and
+// `profiles current --json` reports), not the file's active_profile.
+func TestProfilesListJSONMarksEnvSelectedProfileActive(t *testing.T) {
+	c := cli.New(charmlog.New(io.Discard), &config.Config{
+		Active: "default",
+		Profiles: map[string]config.Profile{
+			"default": {APIURL: config.DefaultAPIURL},
+			"prod":    {APIURL: "http://prod:8080"},
+		},
+	}, "test")
+	c.JSON = true
+
+	t.Setenv("OPENFGA_PROFILE", "prod")
+
+	list := subCmd(t, c, "list")
+	var listOut bytes.Buffer
+	list.SetOut(&listOut)
+	if err := list.RunE(list, nil); err != nil {
+		t.Fatal(err)
+	}
+	var listPayload struct {
+		Active string `json:"active"`
+	}
+	if err := json.Unmarshal(listOut.Bytes(), &listPayload); err != nil {
+		t.Fatalf("decode list --json: %v\noutput: %s", err, listOut.String())
+	}
+	if listPayload.Active != "prod" {
+		t.Fatalf(`list --json "active" = %q, want "prod" (env-selected)`, listPayload.Active)
+	}
+
+	current := subCmd(t, c, "current")
+	var currentOut bytes.Buffer
+	current.SetOut(&currentOut)
+	if err := current.RunE(current, nil); err != nil {
+		t.Fatal(err)
+	}
+	var currentPayload struct {
+		Active string `json:"active"`
+	}
+	if err := json.Unmarshal(currentOut.Bytes(), &currentPayload); err != nil {
+		t.Fatalf("decode current --json: %v\noutput: %s", err, currentOut.String())
+	}
+	if listPayload.Active != currentPayload.Active {
+		t.Fatalf("list --json active %q disagrees with current --json active %q", listPayload.Active, currentPayload.Active)
 	}
 }
 

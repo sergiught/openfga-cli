@@ -103,7 +103,7 @@ func (c *Command) listCmd() *cobra.Command {
 			warnLoadErr(cmd, cfg)
 			if c.cli.JSON || c.cli.YAML {
 				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{
-					"active":   cfg.Active,
+					"active":   c.activeProfile(),
 					"profiles": cfg.Profiles,
 				})
 			}
