@@ -3,9 +3,11 @@
 package tuple
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -58,9 +60,10 @@ func (c *Command) RegisterSubCommands() {
 
 func (c *Command) writeCmd() *cobra.Command {
 	var (
-		dryRun            bool
-		file              string
-		fUser, fRel, fObj string
+		dryRun                        bool
+		file                          string
+		fUser, fRel, fObj             string
+		fCondition, fConditionContext string
 	)
 	cmd := &cobra.Command{
 		Use:     "write [user] [relation] [object]",
@@ -68,12 +71,20 @@ func (c *Command) writeCmd() *cobra.Command {
 		Short:   "Write one relationship tuple, or many with --file",
 		Example: `  ofga tuples write user:anne viewer document:roadmap
   ofga tuples write --user user:anne --relation viewer --object document:roadmap
+  ofga tuples write user:anne viewer document:roadmap --condition non_expired_grant --condition-context '{"grant_duration":"10m"}'
   ofga tuples write --file tuples.json
   cat tuples.json | ofga tuples write --file -`,
 		Args: cobra.MaximumNArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if fConditionContext != "" && fCondition == "" {
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--condition-context requires --condition"))
+			}
 			if file != "" {
-				keys, err := bulkTuples(cmd, file, args, fUser, fRel, fObj)
+				if fCondition != "" {
+					return clierr.WithCode(clierr.CodeUsage,
+						fmt.Errorf("--condition cannot be combined with --file; set a condition per tuple in the file instead"))
+				}
+				keys, err := bulkTuples(cmd, file, args, fUser, fRel, fObj, false)
 				if err != nil {
 					return err
 				}
@@ -113,6 +124,13 @@ func (c *Command) writeCmd() *cobra.Command {
 			if err != nil {
 				return clierr.WithCode(clierr.CodeUsage, err)
 			}
+			if fCondition != "" {
+				condCtx, err := fga.ParseJSONObject("--condition-context", fConditionContext)
+				if err != nil {
+					return clierr.WithCode(clierr.CodeUsage, err)
+				}
+				key.Condition = &openfga.RelationshipCondition{Name: fCondition, Context: condCtx}
+			}
 			if dryRun {
 				if c.cli.JSON || c.cli.YAML {
 					return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{"dry_run": true, "would_write": 1})
@@ -146,6 +164,8 @@ func (c *Command) writeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&fUser, "user", "", "user (alternative to the positional arg)")
 	cmd.Flags().StringVar(&fRel, "relation", "", "relation (alternative to the positional arg)")
 	cmd.Flags().StringVar(&fObj, "object", "", "object (alternative to the positional arg)")
+	cmd.Flags().StringVar(&fCondition, "condition", "", "ABAC condition name to attach to the tuple")
+	cmd.Flags().StringVar(&fConditionContext, "condition-context", "", "JSON object of condition context parameters (requires --condition)")
 	return cmd
 }
 
@@ -166,7 +186,7 @@ func (c *Command) deleteCmd() *cobra.Command {
 		Args: cobra.MaximumNArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if file != "" {
-				keys, err := bulkTuples(cmd, file, args, fUser, fRel, fObj)
+				keys, err := bulkTuples(cmd, file, args, fUser, fRel, fObj, true)
 				if err != nil {
 					return err
 				}
@@ -418,18 +438,31 @@ func (c *Command) changesCmd() *cobra.Command {
 }
 
 // tupleInput is one relationship tuple as it appears in a bulk --file: the
-// canonical user/relation/object triple.
+// canonical user/relation/object triple, plus an optional ABAC condition.
+// Unknown JSON fields are rejected (see bulkTuples) so a misspelled key such as
+// "conditon" surfaces as a parse error instead of silently vanishing.
 type tupleInput struct {
-	User     string `json:"user"`
-	Relation string `json:"relation"`
-	Object   string `json:"object"`
+	User      string          `json:"user"`
+	Relation  string          `json:"relation"`
+	Object    string          `json:"object"`
+	Condition *conditionInput `json:"condition"`
+}
+
+// conditionInput is a bulk-file tuple's optional ABAC condition: a condition
+// name plus its context parameters.
+type conditionInput struct {
+	Name    string         `json:"name"`
+	Context map[string]any `json:"context"`
 }
 
 // bulkTuples reads and validates the tuples for a bulk --file operation. The
-// file (or stdin for "-") is a JSON array of {user,relation,object} objects, or
-// an object {"tuples":[...]}. --file is mutually exclusive with positional args
-// and the --user/--relation/--object flags.
-func bulkTuples(cmd *cobra.Command, file string, args []string, fUser, fRel, fObj string) ([]openfga.TupleKey, error) {
+// file (or stdin for "-") is a JSON array of {user,relation,object,condition}
+// objects, or an object {"tuples":[...]}. --file is mutually exclusive with
+// positional args and the --user/--relation/--object flags. Unknown fields on
+// any tuple entry are rejected rather than silently ignored. forDelete rejects
+// a condition on any entry: OpenFGA matches a delete by user/relation/object
+// only, so a condition on a delete input would otherwise be silently dropped.
+func bulkTuples(cmd *cobra.Command, file string, args []string, fUser, fRel, fObj string, forDelete bool) ([]openfga.TupleKey, error) {
 	if len(args) > 0 || fUser != "" || fRel != "" || fObj != "" {
 		return nil, clierr.WithCode(clierr.CodeUsage,
 			fmt.Errorf("--file cannot be combined with positional args or --user/--relation/--object"))
@@ -448,9 +481,9 @@ func bulkTuples(cmd *cobra.Command, file string, args []string, fUser, fRel, fOb
 		Tuples []tupleInput `json:"tuples"`
 	}
 	var raw []tupleInput
-	if err := json.Unmarshal(data, &wrapper); err == nil && wrapper.Tuples != nil {
+	if err := decodeStrict(data, &wrapper); err == nil && wrapper.Tuples != nil {
 		raw = wrapper.Tuples
-	} else if err := json.Unmarshal(data, &raw); err != nil {
+	} else if err := decodeStrict(data, &raw); err != nil {
 		return nil, clierr.WithCode(clierr.CodeUsage, fmt.Errorf("parse tuples file: %w", err))
 	}
 	if len(raw) == 0 {
@@ -462,9 +495,37 @@ func bulkTuples(cmd *cobra.Command, file string, args []string, fUser, fRel, fOb
 		if err != nil {
 			return nil, clierr.WithCode(clierr.CodeUsage, fmt.Errorf("tuple %d: %w", i+1, err))
 		}
+		if t.Condition != nil {
+			if forDelete {
+				return nil, clierr.WithCode(clierr.CodeUsage,
+					fmt.Errorf("tuple %d: delete does not support a condition (deletes match by user/relation/object only)", i+1))
+			}
+			name := strings.TrimSpace(t.Condition.Name)
+			if name == "" {
+				return nil, clierr.WithCode(clierr.CodeUsage, fmt.Errorf("tuple %d: condition present but its name is empty", i+1))
+			}
+			key.Condition = &openfga.RelationshipCondition{Name: name, Context: t.Condition.Context}
+		}
 		keys = append(keys, key)
 	}
 	return keys, nil
+}
+
+// decodeStrict JSON-decodes data into v, rejecting unknown fields anywhere in
+// the value so a misspelled key (e.g. "conditon") surfaces as a parse error
+// instead of being silently dropped. It also rejects trailing data after the
+// value, matching json.Unmarshal's stricter behavior (json.Decoder.Decode
+// alone only reads one value and ignores what follows).
+func decodeStrict(data []byte, v any) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		return err
+	}
+	if dec.More() {
+		return fmt.Errorf("unexpected trailing data after JSON value")
+	}
+	return nil
 }
 
 // writeInBatches writes (or deletes, when del is true) keys in chunks that stay
