@@ -63,6 +63,27 @@ func IsSilent(err error) bool {
 	return errors.Is(err, errSilent)
 }
 
+// PartialResult marks an error from an interrupted bulk operation (e.g. a
+// tuple write that stopped partway through a batch) whose message already
+// carries "N of M committed" detail. A Ctrl-C/SIGTERM cancellation handler
+// can errors.As for this to still report what landed, instead of only
+// "canceled".
+type PartialResult struct {
+	Err error
+}
+
+func (e *PartialResult) Error() string { return e.Err.Error() }
+func (e *PartialResult) Unwrap() error { return e.Err }
+
+// WithPartialResult tags err as carrying partial-commit detail. Returns nil
+// for a nil error.
+func WithPartialResult(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &PartialResult{Err: err}
+}
+
 // Code resolves the exit code for err: an explicit Coded wins, then an
 // interruption maps to CodeCanceled, a bad invocation to CodeUsage, a network
 // failure to CodeNetwork, and anything else to CodeError.
