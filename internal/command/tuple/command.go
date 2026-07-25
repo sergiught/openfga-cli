@@ -439,8 +439,8 @@ func (c *Command) changesCmd() *cobra.Command {
 
 // tupleInput is one relationship tuple as it appears in a bulk --file: the
 // canonical user/relation/object triple, plus an optional ABAC condition.
-// Unknown JSON fields are rejected (see bulkTuples) so a misspelled key such as
-// "conditon" surfaces as a parse error instead of silently vanishing.
+// Unknown JSON fields are rejected (see bulkTuples) so a mistyped field name
+// surfaces as a parse error instead of silently vanishing.
 type tupleInput struct {
 	User      string          `json:"user"`
 	Relation  string          `json:"relation"`
@@ -512,10 +512,10 @@ func bulkTuples(cmd *cobra.Command, file string, args []string, fUser, fRel, fOb
 }
 
 // decodeStrict JSON-decodes data into v, rejecting unknown fields anywhere in
-// the value so a misspelled key (e.g. "conditon") surfaces as a parse error
-// instead of being silently dropped. It also rejects trailing data after the
-// value, matching json.Unmarshal's stricter behavior (json.Decoder.Decode
-// alone only reads one value and ignores what follows).
+// the value so a mistyped field name surfaces as a parse error instead of
+// being silently dropped. It also rejects trailing data after the value,
+// matching json.Unmarshal's stricter behavior (json.Decoder.Decode alone only
+// reads one value and ignores what follows).
 func decodeStrict(data []byte, v any) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()

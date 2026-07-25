@@ -139,13 +139,14 @@ func TestBulkTuplesCondition(t *testing.T) {
 		t.Errorf("condition context = %+v, want grant_duration=10m", keys[0].Condition.Context)
 	}
 
-	// An unknown field (a misspelled "condition") is a parse error naming it.
-	p = writeTemp(t, `[{"user":"user:anne","relation":"viewer","object":"doc:1","conditon":{"name":"x"}}]`)
+	// An unrecognized field is a parse error naming it, rather than being
+	// silently dropped.
+	p = writeTemp(t, `[{"user":"user:anne","relation":"viewer","object":"doc:1","condition_ctx":{"name":"x"}}]`)
 	if _, err := bulkTuples(cmd, p, nil, "", "", "", false); err == nil {
 		t.Error("unknown field should be rejected")
 	} else if clierr.Code(err) != clierr.CodeUsage {
 		t.Errorf("unknown field exit code = %d, want usage", clierr.Code(err))
-	} else if !strings.Contains(err.Error(), "conditon") {
+	} else if !strings.Contains(err.Error(), "condition_ctx") {
 		t.Errorf("error = %v, want it to name the unknown field", err)
 	}
 
