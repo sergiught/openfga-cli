@@ -2,6 +2,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -120,6 +122,163 @@ func (r *cancelReadCloser) Close() error {
 	return r.ReadCloser.Close()
 }
 
+// idempotentRetryMaxAttempts, idempotentRetryMinWait, and idempotentRetryMaxWait
+// mirror the SDK's own retry defaults (see go-openfga's defaultRetryConfig),
+// so 5xx retries on safe RPCs behave the same as the 429 retries the SDK
+// already performs on every request.
+const (
+	idempotentRetryMaxAttempts = 3
+	idempotentRetryMinWait     = time.Second
+	idempotentRetryMaxWait     = 30 * time.Second
+)
+
+// idempotentRetryStatus is the set of 5xx statuses retried by
+// idempotentRetryTransport, mirroring the finding's original RetryableStatus
+// list minus 429 (429 is retried for every request by the SDK's own retry
+// transport regardless of idempotency, since rate-limiting is always safe to
+// retry).
+var idempotentRetryStatus = map[int]bool{
+	http.StatusInternalServerError: true,
+	http.StatusBadGateway:          true,
+	http.StatusServiceUnavailable:  true,
+	http.StatusGatewayTimeout:      true,
+}
+
+// idempotentRetryTransport retries 5xx responses, but only for requests whose
+// RPC is safe to repeat.
+//
+// The SDK's own WithRetry(RetryConfig{RetryableStatus: ...}) applies its
+// status list to every request uniformly — it has no notion of which RPC is
+// being called, so it cannot tell POST /write from POST /check. Retrying a
+// 5xx on /write is dangerous: if a proxy or the connection fails *after* the
+// server already committed the write, the retry replays the same write and
+// fails with "already exists", turning a successful write into a reported
+// failure while under-counting what was actually committed (CLI-76). So this
+// client does not opt in to the SDK's global 5xx retry at all (see New,
+// below); instead this transport retries 5xx only for requests it can prove
+// are idempotent or read-only by RPC path:
+//
+//   - all GET/HEAD requests
+//   - POST requests to the read-semantics RPCs OpenFGA models as POST:
+//     /check, /expand, /list-objects, /list-users, /batch-check, /read
+//
+// Everything else (POST /write, POST /stores, DELETE /stores/{id}, PUT
+// .../assertions, POST /authorization-models, ...) gets a single attempt for
+// a 5xx and lets the error surface. 429 and transient network failures are
+// retried unconditionally for every request by the SDK's own retry
+// transport, which wraps this one — this transport only ever sees and acts
+// on 5xx status codes.
+type idempotentRetryTransport struct {
+	base http.RoundTripper
+	// wait is injectable for tests; nil uses the real timer/select wait.
+	wait func(ctx context.Context, d time.Duration) error
+}
+
+func (t *idempotentRetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if !isIdempotentRPC(req) {
+		return t.base.RoundTrip(req)
+	}
+
+	waitFn := t.wait
+	if waitFn == nil {
+		waitFn = defaultWait
+	}
+	getBody, err := replayableBody(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp *http.Response
+	for attempt := 0; attempt < idempotentRetryMaxAttempts; attempt++ {
+		r2 := req.Clone(req.Context())
+		if getBody != nil {
+			body, berr := getBody()
+			if berr != nil {
+				return nil, berr
+			}
+			r2.Body = body
+		}
+		resp, err = t.base.RoundTrip(r2)
+		if err != nil {
+			// Transport-level errors (connection resets, timeouts, ...) are
+			// left to the SDK's own retry transport, which retries them for
+			// every request regardless of idempotency.
+			return resp, err
+		}
+		lastAttempt := attempt == idempotentRetryMaxAttempts-1
+		if lastAttempt || !idempotentRetryStatus[resp.StatusCode] {
+			return resp, nil
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+		if werr := waitFn(req.Context(), idempotentRetryBackoff(attempt)); werr != nil {
+			return nil, werr
+		}
+	}
+	return resp, nil
+}
+
+// isIdempotentRPC reports whether req is safe to retry on a 5xx: any GET/HEAD,
+// or a POST to one of the read-semantics RPCs OpenFGA models as POST.
+func isIdempotentRPC(req *http.Request) bool {
+	switch req.Method {
+	case http.MethodGet, http.MethodHead:
+		return true
+	case http.MethodPost:
+		for _, suffix := range []string{"/check", "/expand", "/list-objects", "/list-users", "/batch-check", "/read"} {
+			if strings.HasSuffix(req.URL.Path, suffix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// idempotentRetryBackoff returns exponential backoff for the given attempt
+// (0-indexed), capped at idempotentRetryMaxWait.
+func idempotentRetryBackoff(attempt int) time.Duration {
+	d := idempotentRetryMinWait << attempt
+	if d > idempotentRetryMaxWait {
+		d = idempotentRetryMaxWait
+	}
+	return d
+}
+
+// defaultWait blocks for d or until ctx is cancelled, returning ctx.Err() in
+// the latter case.
+func defaultWait(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	select {
+	case <-ctx.Done():
+		timer.Stop()
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+// replayableBody returns a function that reconstructs req's body for each
+// retry attempt, or nil when there is nothing to replay. It prefers the
+// stdlib's GetBody (no extra copy) and falls back to buffering the body once.
+// The original req.Body is closed.
+func replayableBody(req *http.Request) (func() (io.ReadCloser, error), error) {
+	if req.Body == nil || req.Body == http.NoBody {
+		return req.GetBody, nil
+	}
+	if req.GetBody != nil {
+		_ = req.Body.Close()
+		return req.GetBody, nil
+	}
+	bodyBytes, err := io.ReadAll(req.Body)
+	_ = req.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+	return func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(bodyBytes)), nil
+	}, nil
+}
+
 // New builds an *openfga.Client from a resolved configuration. The store and
 // authorization-model IDs are registered as client defaults so per-call
 // overrides remain optional.
@@ -137,14 +296,23 @@ func New(r config.Resolved, opts ...Option) (*openfga.Client, error) {
 	if o.capture != nil {
 		base = apilog.Transport(base, o.capture, r.APIURL)
 	}
+	// idempotentRetryTransport adds 5xx retries scoped to RPCs that are safe
+	// to repeat (see its doc comment for the full rule and the CLI-76
+	// rationale). It sits below the SDK's own retry/auth/header chain so its
+	// retries are invisible to (and don't double up with) the SDK's 429
+	// handling below.
+	base = &idempotentRetryTransport{base: base}
 
 	opts2 := []openfga.Option{
 		openfga.WithUserAgent("ofga-cli"),
 		openfga.WithDefaultConsistency(openfga.ConsistencyHigherConsistency),
 		openfga.WithBaseTransport(base),
-		// Retry transient server errors, not just 429 (the SDK default). A
-		// partial RetryConfig keeps the SDK's attempt/backoff defaults.
-		openfga.WithRetry(openfga.RetryConfig{RetryableStatus: []int{429, 500, 502, 503, 504}}),
+		// Deliberately NOT opting the SDK's own retry transport into 5xx via
+		// RetryableStatus: that option applies to every request uniformly
+		// (it can't distinguish POST /write from POST /check), so adding 5xx
+		// there would retry non-idempotent writes. 429 stays covered by the
+		// SDK's default RetryableStatus ({429}); 5xx retry for safe RPCs is
+		// handled by idempotentRetryTransport above instead.
 	}
 	if r.StoreID != "" {
 		opts2 = append(opts2, openfga.WithStoreID(r.StoreID))

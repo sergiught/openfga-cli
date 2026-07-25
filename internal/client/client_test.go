@@ -277,3 +277,161 @@ type roundTripperFunc func(*http.Request) (*http.Response, error)
 func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
+
+// noWait is a wait function for tests: it never sleeps, so retry tests run instantly.
+func noWait(context.Context, time.Duration) error { return nil }
+
+// idempotentRetryServer counts requests to path and returns firstStatus on the
+// first n calls, then 200 with an empty JSON object.
+func idempotentRetryServer(t *testing.T, failStatus int, failCount int) (*httptest.Server, *atomic.Int32) {
+	t.Helper()
+	var attempts atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := attempts.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		if int(n) <= failCount {
+			w.WriteHeader(failStatus)
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	return srv, &attempts
+}
+
+// TestIdempotentRetryTransport_GETRetriedOn502 covers CLI-76 (a): a GET
+// (always idempotent) is retried past a 502.
+func TestIdempotentRetryTransport_GETRetriedOn502(t *testing.T) {
+	srv, attempts := idempotentRetryServer(t, http.StatusBadGateway, 1)
+	defer srv.Close()
+
+	rt := &idempotentRetryTransport{base: http.DefaultTransport, wait: noWait}
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/stores", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip error = %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if got := attempts.Load(); got != 2 {
+		t.Fatalf("attempts = %d, want 2", got)
+	}
+}
+
+// TestIdempotentRetryTransport_WriteNotRetriedOn502 covers CLI-76 (b): a POST
+// /write is not idempotent, so a 502 must not be retried — the single 502
+// response surfaces as-is.
+func TestIdempotentRetryTransport_WriteNotRetriedOn502(t *testing.T) {
+	srv, attempts := idempotentRetryServer(t, http.StatusBadGateway, 10)
+	defer srv.Close()
+
+	rt := &idempotentRetryTransport{base: http.DefaultTransport, wait: noWait}
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/stores/01ABC/write", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip error = %v", err)
+	}
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502 (unretried)", resp.StatusCode)
+	}
+	if got := attempts.Load(); got != 1 {
+		t.Fatalf("attempts = %d, want 1 (no retry on /write)", got)
+	}
+}
+
+// TestIdempotentRetryTransport_CheckRetriedOn502 covers CLI-76 (d): /check is
+// a POST but read-semantics, so a 502 is retried.
+func TestIdempotentRetryTransport_CheckRetriedOn502(t *testing.T) {
+	srv, attempts := idempotentRetryServer(t, http.StatusBadGateway, 1)
+	defer srv.Close()
+
+	rt := &idempotentRetryTransport{base: http.DefaultTransport, wait: noWait}
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/stores/01ABC/check", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip error = %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if got := attempts.Load(); got != 2 {
+		t.Fatalf("attempts = %d, want 2", got)
+	}
+}
+
+// TestNewRetriesWriteOn429ButNotOn502 covers CLI-76 end-to-end through New():
+// 429 retries stay in effect for every RPC (via the SDK's own retry
+// transport), but a 502 on POST /write is not retried.
+func TestNewRetriesWriteOn429ButNotOn502(t *testing.T) {
+	t.Run("429 is retried", func(t *testing.T) {
+		srv, attempts := idempotentRetryServer(t, http.StatusTooManyRequests, 1)
+		defer srv.Close()
+
+		c, err := New(config.Resolved{APIURL: srv.URL, StoreID: "01ARZ3NDEKTSV4RRFFQ69G5FAV"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = c.Tuples.Write(context.Background(), &openfga.WriteRequest{
+			Writes: &openfga.WriteRequestTuples{TupleKeys: []openfga.TupleKey{
+				{User: "user:a", Relation: "reader", Object: "doc:1"},
+			}},
+		})
+		if err != nil {
+			t.Fatalf("write error = %v, want retried success", err)
+		}
+		if got := attempts.Load(); got != 2 {
+			t.Fatalf("attempts = %d, want 2 (429 retried)", got)
+		}
+	})
+
+	t.Run("502 is not retried", func(t *testing.T) {
+		srv, attempts := idempotentRetryServer(t, http.StatusBadGateway, 10)
+		defer srv.Close()
+
+		c, err := New(config.Resolved{APIURL: srv.URL, StoreID: "01ARZ3NDEKTSV4RRFFQ69G5FAV"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = c.Tuples.Write(context.Background(), &openfga.WriteRequest{
+			Writes: &openfga.WriteRequestTuples{TupleKeys: []openfga.TupleKey{
+				{User: "user:a", Relation: "reader", Object: "doc:1"},
+			}},
+		})
+		if err == nil {
+			t.Fatal("expected write to surface the 502 error, got nil")
+		}
+		if got := attempts.Load(); got != 1 {
+			t.Fatalf("attempts = %d, want 1 (no retry on /write)", got)
+		}
+	})
+}
+
+// TestNewRetriesCheckOn502 covers CLI-76 end-to-end: /check is POST but
+// read-semantics, so a 502 is retried through the full client.
+func TestNewRetriesCheckOn502(t *testing.T) {
+	srv, attempts := idempotentRetryServer(t, http.StatusBadGateway, 1)
+	defer srv.Close()
+
+	c, err := New(config.Resolved{APIURL: srv.URL, StoreID: "01ARZ3NDEKTSV4RRFFQ69G5FAV"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.Relationships.Check(context.Background(), &openfga.CheckRequest{
+		TupleKey: openfga.CheckRequestTupleKey{User: "user:a", Relation: "reader", Object: "doc:1"},
+	})
+	if err != nil {
+		t.Fatalf("check error = %v, want retried success", err)
+	}
+	if got := attempts.Load(); got != 2 {
+		t.Fatalf("attempts = %d, want 2 (502 retried on /check)", got)
+	}
+}
