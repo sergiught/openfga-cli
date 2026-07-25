@@ -7,6 +7,7 @@ import (
 	"crypto"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
@@ -168,10 +169,23 @@ var idempotentRetryStatus = map[int]bool{
 // retried unconditionally for every request by the SDK's own retry
 // transport, which wraps this one — this transport only ever sees and acts
 // on 5xx status codes.
+//
+// This transport also sees OAuth token-fetch traffic: the SDK wires
+// WithBaseTransport's value as the base for its out-of-band token client too
+// (openfga.go's buildTransport: "tokenClient := &http.Client{Transport: base,
+// ...}"), bypassing the auth/header layers but not this one. That is safe
+// only because isIdempotentRPC requires the /stores/ prefix before matching
+// any suffix — a token endpoint's path is never rooted there, so token
+// fetches always take the non-retry fast path with no body buffering. If the
+// suffix list here is ever broadened, re-verify it can't collide with a
+// plausible token URL path (see TestIsIdempotentRPCExcludesTokenEndpoints).
 type idempotentRetryTransport struct {
 	base http.RoundTripper
 	// wait is injectable for tests; nil uses the real timer/select wait.
 	wait func(ctx context.Context, d time.Duration) error
+	// jitter randomizes a backoff duration; nil uses defaultJitter. Injectable
+	// for tests so wiring can be asserted without relying on real randomness.
+	jitter func(d time.Duration) time.Duration
 }
 
 func (t *idempotentRetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -182,6 +196,10 @@ func (t *idempotentRetryTransport) RoundTrip(req *http.Request) (*http.Response,
 	waitFn := t.wait
 	if waitFn == nil {
 		waitFn = defaultWait
+	}
+	jitterFn := t.jitter
+	if jitterFn == nil {
+		jitterFn = defaultJitter
 	}
 	getBody, err := replayableBody(req)
 	if err != nil {
@@ -211,7 +229,7 @@ func (t *idempotentRetryTransport) RoundTrip(req *http.Request) (*http.Response,
 		}
 		_, _ = io.Copy(io.Discard, resp.Body)
 		_ = resp.Body.Close()
-		if werr := waitFn(req.Context(), idempotentRetryBackoff(attempt)); werr != nil {
+		if werr := waitFn(req.Context(), jitterFn(idempotentRetryBackoff(attempt))); werr != nil {
 			return nil, werr
 		}
 	}
@@ -219,12 +237,20 @@ func (t *idempotentRetryTransport) RoundTrip(req *http.Request) (*http.Response,
 }
 
 // isIdempotentRPC reports whether req is safe to retry on a 5xx: any GET/HEAD,
-// or a POST to one of the read-semantics RPCs OpenFGA models as POST.
+// or a POST to one of the read-semantics RPCs OpenFGA models as POST. This
+// transport also sees OAuth token-fetch requests (see the type's doc
+// comment), which are POSTs to an entirely different host/path — the
+// /stores/ prefix check below exists specifically to keep a token endpoint
+// whose path happens to end in a colliding suffix (e.g. .../v1/read) from
+// being misclassified as a retryable OpenFGA RPC.
 func isIdempotentRPC(req *http.Request) bool {
 	switch req.Method {
 	case http.MethodGet, http.MethodHead:
 		return true
 	case http.MethodPost:
+		if !strings.HasPrefix(req.URL.Path, "/stores/") {
+			return false
+		}
 		for _, suffix := range []string{"/check", "/expand", "/list-objects", "/list-users", "/batch-check", "/read"} {
 			if strings.HasSuffix(req.URL.Path, suffix) {
 				return true
@@ -242,6 +268,19 @@ func idempotentRetryBackoff(attempt int) time.Duration {
 		d = idempotentRetryMaxWait
 	}
 	return d
+}
+
+// defaultJitter applies equal jitter to a backoff duration, returning a value
+// in [d/2, d). Fan-outs that issue several parallel idempotent requests
+// (e.g. BatchCheckAll) would otherwise all back off on the identical fixed
+// schedule and retry a shared 5xx in lockstep; jitter spreads them out.
+func defaultJitter(d time.Duration) time.Duration {
+	if d <= 1 {
+		return d
+	}
+	half := d / 2
+	//nolint:gosec // G404: backoff jitter is not security-sensitive; a weak RNG is fine.
+	return half + time.Duration(rand.Int63n(int64(d-half)))
 }
 
 // defaultWait blocks for d or until ctx is cancelled, returning ctx.Err() in

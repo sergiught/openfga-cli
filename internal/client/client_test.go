@@ -435,3 +435,88 @@ func TestNewRetriesCheckOn502(t *testing.T) {
 		t.Fatalf("attempts = %d, want 2 (502 retried on /check)", got)
 	}
 }
+
+// TestIsIdempotentRPCExcludesTokenEndpoints is a regression test for CLI-76
+// fix round 1: idempotentRetryTransport also sees OAuth token-fetch traffic
+// (the SDK wires WithBaseTransport's value as the base for its out-of-band
+// token client too), so isIdempotentRPC must never misclassify a token
+// endpoint as a retryable OpenFGA RPC — including a token URL that happens to
+// collide with one of the read-semantics suffixes (e.g. ".../v1/read").
+func TestIsIdempotentRPCExcludesTokenEndpoints(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		url    string
+		want   bool
+	}{
+		{"oauth token endpoint", http.MethodPost, "https://issuer.example/oauth/token", false},
+		{"token endpoint colliding with /read suffix", http.MethodPost, "https://issuer.example/v1/read", false},
+		{"token endpoint colliding with /check suffix", http.MethodPost, "https://issuer.example/api/check", false},
+		// Regression guards: real OpenFGA RPCs under /stores/ must still match.
+		{"check RPC under /stores/", http.MethodPost, "https://api.example/stores/01ABC/check", true},
+		{"read RPC under /stores/", http.MethodPost, "https://api.example/stores/01ABC/read", true},
+		{"write RPC under /stores/ still excluded", http.MethodPost, "https://api.example/stores/01ABC/write", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest(tc.method, tc.url, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := isIdempotentRPC(req); got != tc.want {
+				t.Fatalf("isIdempotentRPC(%s %s) = %v, want %v", tc.method, tc.url, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestDefaultJitterStaysWithinEqualJitterBounds covers CLI-76 fix round 1
+// (minor finding 2): backoff jitter must land in the documented [d/2, d)
+// range so parallel idempotent retries (e.g. a BatchCheckAll fan-out hitting
+// a shared 5xx) spread out instead of retrying in lockstep, without ever
+// exceeding or collapsing the base backoff.
+func TestDefaultJitterStaysWithinEqualJitterBounds(t *testing.T) {
+	d := 4 * time.Second
+	half := d / 2
+	saw := map[time.Duration]bool{}
+	for i := 0; i < 200; i++ {
+		got := defaultJitter(d)
+		if got < half || got >= d {
+			t.Fatalf("defaultJitter(%v) = %v, want in [%v, %v)", d, got, half, d)
+		}
+		saw[got] = true
+	}
+	if len(saw) < 2 {
+		t.Fatalf("defaultJitter(%v) returned the same value %d/200 times; expected randomization", d, 200)
+	}
+}
+
+// TestIdempotentRetryTransportAppliesJitterToBackoff covers CLI-76 fix round
+// 1 (minor finding 2): RoundTrip must run each backoff duration through the
+// configured jitter function before waiting on it, rather than waiting on
+// the raw exponential backoff directly.
+func TestIdempotentRetryTransportAppliesJitterToBackoff(t *testing.T) {
+	srv, _ := idempotentRetryServer(t, http.StatusBadGateway, 1)
+	defer srv.Close()
+
+	const fixedJittered = 7 * time.Millisecond
+	var gotWait time.Duration
+	rt := &idempotentRetryTransport{
+		base: http.DefaultTransport,
+		wait: func(_ context.Context, d time.Duration) error {
+			gotWait = d
+			return nil
+		},
+		jitter: func(time.Duration) time.Duration { return fixedJittered },
+	}
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/stores", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.RoundTrip(req); err != nil {
+		t.Fatalf("RoundTrip error = %v", err)
+	}
+	if gotWait != fixedJittered {
+		t.Fatalf("wait received %v, want the jittered value %v", gotWait, fixedJittered)
+	}
+}
