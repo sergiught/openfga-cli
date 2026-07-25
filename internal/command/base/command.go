@@ -403,7 +403,8 @@ func (c *Command) ErrWriter() *colorprofile.Writer { return c.errW }
 // the failure was a bad invocation and main exits with CodeUsage.
 func (c *Command) RanCommand() bool { return c.ranCommand }
 
-// versionCmd prints the full build info (version, commit, date). Under --json
+// versionCmd prints the full build info (version, commit, date, and the
+// version of the OpenFGA server embedded for `ofga model test`). Under --json
 // or --yaml it emits a machine-readable object so scripts can parse the build.
 func (c *Command) versionCmd() *cobra.Command {
 	return &cobra.Command{
@@ -414,9 +415,10 @@ func (c *Command) versionCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if c.cli.JSON || c.cli.YAML {
 				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]string{
-					"version": version.Resolved(),
-					"commit":  version.Commit,
-					"built":   version.Date,
+					"version":        version.Resolved(),
+					"commit":         version.Commit,
+					"built":          version.Date,
+					"openfga_server": version.Server(),
 				})
 			}
 			if c.cli.Plain || c.cli.Output == "table" {
@@ -424,6 +426,7 @@ func (c *Command) versionCmd() *cobra.Command {
 					{"version", version.Resolved()},
 					{"commit", version.Commit},
 					{"built", version.Date},
+					{"openfga server", version.Server()},
 				})
 			}
 			_, err := fmt.Fprintln(cmd.OutOrStdout(), "ofga "+version.String())
