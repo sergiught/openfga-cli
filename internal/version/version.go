@@ -36,7 +36,40 @@ func Resolved() string {
 	return resolveVersion()
 }
 
+// serverModule is the OpenFGA server module the CLI links in and runs
+// in-process for `ofga model test`.
+const serverModule = "github.com/openfga/openfga"
+
+// Server returns the version of the embedded OpenFGA server, read from the
+// module list the Go toolchain records in the binary. Builds without that
+// information report "unknown".
+func Server() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "unknown"
+	}
+	return serverVersion(info)
+}
+
+// serverVersion picks the embedded server's module version out of build info,
+// honouring a `replace` directive so a locally patched server reports the
+// version actually built.
+func serverVersion(info *debug.BuildInfo) string {
+	for _, dep := range info.Deps {
+		if dep == nil || dep.Path != serverModule {
+			continue
+		}
+		if dep.Replace != nil && dep.Replace.Version != "" {
+			return dep.Replace.Version
+		}
+		if dep.Version != "" {
+			return dep.Version
+		}
+	}
+	return "unknown"
+}
+
 // String returns a one-line, human-readable build description.
 func String() string {
-	return fmt.Sprintf("%s (commit %s, built %s)", resolveVersion(), Commit, Date)
+	return fmt.Sprintf("%s (commit %s, built %s, openfga server %s)", resolveVersion(), Commit, Date, Server())
 }
