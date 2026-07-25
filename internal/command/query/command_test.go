@@ -3,6 +3,7 @@ package query
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -37,10 +38,20 @@ func TestAllowedWord(t *testing.T) {
 
 func TestPlainBatchLabelCannotInjectRecords(t *testing.T) {
 	var out bytes.Buffer
-	if err := writePlainBatchResult(&out, true, "user:anne viewer\nadmin\tdoc:1\x1b[31m"); err != nil {
+	if err := writePlainBatchResult(&out, "allowed", "user:anne viewer\nadmin\tdoc:1\x1b[31m", ""); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := out.String(), "allowed\tuser:anne viewer admin doc:1\n"; got != want {
+	if got, want := out.String(), "allowed\tuser:anne viewer admin doc:1\t\n"; got != want {
+		t.Fatalf("plain batch result = %q, want %q", got, want)
+	}
+}
+
+func TestPlainBatchDetailCannotInjectRecords(t *testing.T) {
+	var out bytes.Buffer
+	if err := writePlainBatchResult(&out, "error", "user:anne viewer doc:1", "bad\trelation\nvalue"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := out.String(), "error\tuser:anne viewer doc:1\tbad relation value\n"; got != want {
 		t.Fatalf("plain batch result = %q, want %q", got, want)
 	}
 }
@@ -51,6 +62,198 @@ func TestBatchCheckValidatesInputBeforeClientCreation(t *testing.T) {
 	err := cmd.Execute()
 	if got := clierr.Code(err); got != clierr.CodeUsage {
 		t.Fatalf("exit code = %d, want usage; err=%v", got, err)
+	}
+}
+
+// batchCheckMockServer serves POST /stores/{id}/batch-check, enforcing the
+// real server's 50-item cap and returning results built by resultFor for the
+// checks it receives.
+func batchCheckMockServer(t *testing.T, resultFor func(correlationID string) map[string]any) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Checks []struct {
+				CorrelationID string `json:"correlation_id"`
+			} `json:"checks"`
+		}
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(data, &body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body.Checks) > 50 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"code":"validation_error","message":"the number of checks exceeds the maximum allowed"}`))
+			return
+		}
+		result := make(map[string]any, len(body.Checks))
+		for _, c := range body.Checks {
+			if r := resultFor(c.CorrelationID); r != nil {
+				result[c.CorrelationID] = r
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"result": result})
+	}))
+}
+
+// TestBatchCheckHandlesMoreThan50Checks (CLI-72): the server caps a single
+// /batch-check request at 50 items, so 60 --check flags must be chunked by
+// BatchCheckAll rather than sent as one request that would 400. Results must
+// come back in input order (order is not guaranteed by the response map).
+func TestBatchCheckHandlesMoreThan50Checks(t *testing.T) {
+	srv := batchCheckMockServer(t, func(string) map[string]any {
+		return map[string]any{"allowed": true}
+	})
+	defer srv.Close()
+
+	const total = 60
+	args := make([]string, 0, total*2)
+	for i := range total {
+		args = append(args, "--check", fmt.Sprintf("user:u%d,viewer,doc:%d", i, i))
+	}
+
+	cmd := New(newQueryCLI(t, srv.URL)).batchCheckCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(args)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("batch-check with %d checks: %v", total, err)
+	}
+
+	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	if len(lines) != total {
+		t.Fatalf("got %d result line(s), want %d", len(lines), total)
+	}
+	for i, line := range lines {
+		want := fmt.Sprintf("user:u%d viewer doc:%d", i, i)
+		if !strings.Contains(line, want) {
+			t.Errorf("line %d = %q, want to contain %q (results must preserve input order)", i, line, want)
+		}
+	}
+}
+
+// TestBatchCheckPerItemErrorIsNotDenied (CLI-73): a per-item Error in the
+// response must render distinctly from a real "denied" result, in both human
+// and --plain output, and must make the command exit non-zero.
+func TestBatchCheckPerItemErrorIsNotDenied(t *testing.T) {
+	srv := batchCheckMockServer(t, func(id string) map[string]any {
+		if id == "c1" {
+			return map[string]any{"allowed": false, "error": map[string]any{"message": "relation not found"}}
+		}
+		return map[string]any{"allowed": true}
+	})
+	defer srv.Close()
+
+	t.Run("human", func(t *testing.T) {
+		cmd := New(newQueryCLI(t, srv.URL)).batchCheckCmd()
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetArgs([]string{"--check", "user:anne,viewer,doc:1", "--check", "user:bob,viewr,doc:1"})
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatal("expected a non-nil error when an item's result carries an error")
+		}
+		if code := clierr.Code(err); code == 0 {
+			t.Errorf("exit code = %d, want non-zero", code)
+		}
+		got := out.String()
+		if strings.Contains(strings.ToLower(got), "denied") {
+			t.Errorf("output = %q, must not render the errored item as denied", got)
+		}
+		if !strings.Contains(got, "ERROR") {
+			t.Errorf("output = %q, want an ERROR marker for the errored item", got)
+		}
+	})
+
+	t.Run("plain", func(t *testing.T) {
+		output.Plain = true
+		t.Cleanup(func() { output.Plain = false })
+
+		cmd := New(newQueryCLI(t, srv.URL)).batchCheckCmd()
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetArgs([]string{"--check", "user:anne,viewer,doc:1", "--check", "user:bob,viewr,doc:1"})
+		err := cmd.Execute()
+		if err == nil {
+			t.Fatal("expected a non-nil error when an item's result carries an error")
+		}
+		if code := clierr.Code(err); code == 0 {
+			t.Errorf("exit code = %d, want non-zero", code)
+		}
+		lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+		if len(lines) != 2 {
+			t.Fatalf("got %d line(s), want 2", len(lines))
+		}
+		if strings.HasPrefix(lines[1], "denied") {
+			t.Errorf("line 2 = %q, must not render the errored item as denied", lines[1])
+		}
+		if !strings.HasPrefix(lines[1], "error\t") {
+			t.Errorf("line 2 = %q, want it to start with the error marker", lines[1])
+		}
+	})
+}
+
+// TestBatchCheckMissingCorrelationIDIsNotDenied (CLI-73): a correlation ID the
+// server never returned a result for (e.g. a failed chunk) must render as an
+// error, not silently render as "denied".
+func TestBatchCheckMissingCorrelationIDIsNotDenied(t *testing.T) {
+	srv := batchCheckMockServer(t, func(id string) map[string]any {
+		if id == "c0" {
+			// c1's correlation ID is simply absent from the result map.
+			return map[string]any{"allowed": true}
+		}
+		return nil
+	})
+	defer srv.Close()
+
+	cmd := New(newQueryCLI(t, srv.URL)).batchCheckCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--check", "user:anne,viewer,doc:1", "--check", "user:bob,editor,doc:1"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected a non-nil error when a correlation ID is missing from the response")
+	}
+	if code := clierr.Code(err); code == 0 {
+		t.Errorf("exit code = %d, want non-zero", code)
+	}
+	got := out.String()
+	if strings.Contains(strings.ToLower(got), "denied") {
+		t.Errorf("output = %q, must not render the missing result as denied", got)
+	}
+}
+
+// TestBatchCheckAllSuccessExitsZero (CLI-72/CLI-73 regression guard): the
+// happy path must keep exiting 0 and emitting the raw SDK response unchanged
+// under --json.
+func TestBatchCheckAllSuccessExitsZero(t *testing.T) {
+	srv := batchCheckMockServer(t, func(string) map[string]any {
+		return map[string]any{"allowed": true}
+	})
+	defer srv.Close()
+
+	a := newQueryCLI(t, srv.URL)
+	a.JSON = true
+	cmd := New(a).batchCheckCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--check", "user:anne,viewer,doc:1", "--check", "user:bob,editor,doc:1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("all-success batch-check should exit 0, got: %v", err)
+	}
+	var res openfga.BatchCheckResponse
+	if err := json.Unmarshal(out.Bytes(), &res); err != nil {
+		t.Fatalf("--json output not valid BatchCheckResponse JSON: %v (%q)", err, out.String())
+	}
+	if len(res.Result) != 2 {
+		t.Fatalf("got %d result(s), want 2", len(res.Result))
+	}
+	for id, r := range res.Result {
+		if !r.Allowed {
+			t.Errorf("result %s: allowed = false, want true", id)
+		}
 	}
 }
 

@@ -186,6 +186,14 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 		Short:   "Run several checks in one request",
 		Example: "  ofga query batch-check --check user:anne,viewer,doc:1 --check user:bob,editor,doc:1",
 		Args:    cobra.NoArgs,
+		// A partial per-item failure is reported by an already-emitted table plus
+		// a non-nil error for the exit code (see batchCheckErr); cobra's default
+		// "Error: ..." + usage dump on a non-nil RunE error would duplicate that
+		// and pollute --json/--plain stdout. Silence both here rather than
+		// relying on the root command's settings, since this command is also
+		// exercised standalone in tests.
+		SilenceUsage:  true,
+		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if len(checks) == 0 {
 				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("provide at least one --check user,relation,object"))
@@ -216,26 +224,43 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			res, err := cl.Relationships.BatchCheck(cmd.Context(), &openfga.BatchCheckRequest{Checks: items})
-			if err != nil {
-				return err
+			// BatchCheckAll chunks Checks into requests of at most the server's
+			// 50-item /batch-check cap and merges the results; BatchCheck alone
+			// would send everything as one request and 400 past 50 items.
+			res, callErr := cl.Relationships.BatchCheckAll(cmd.Context(), &openfga.BatchCheckRequest{Checks: items})
+			if res == nil {
+				return callErr
 			}
-			if c.cli.JSON || c.cli.YAML {
-				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, res)
-			}
+			// Results are keyed by correlation ID in a map, so this resolves each
+			// item by its own ID rather than trusting map iteration order.
+			outcomes := make([]batchOutcome, len(items))
+			failed := 0
 			for i, item := range items {
-				r := res.Result[item.CorrelationID]
-				if output.Plain {
-					if err := writePlainBatchResult(cmd.OutOrStdout(), r.Allowed, labels[i]); err != nil {
-						return err
-					}
-				} else {
-					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s  %s\n", style.Allowed(r.Allowed), style.Faint.Render(labels[i])); err != nil {
-						return err
-					}
+				outcomes[i] = resolveBatchOutcome(res, item.CorrelationID)
+				if outcomes[i].isError {
+					failed++
 				}
 			}
-			return nil
+			if c.cli.JSON || c.cli.YAML {
+				if err := output.Emit(cmd.OutOrStdout(), c.cli.YAML, res); err != nil {
+					return err
+				}
+				return batchCheckErr(callErr, failed, len(items))
+			}
+			for i, o := range outcomes {
+				if output.Plain {
+					word := allowedWord(o.allowed)
+					if o.isError {
+						word = "error"
+					}
+					if err := writePlainBatchResult(cmd.OutOrStdout(), word, labels[i], o.detail); err != nil {
+						return err
+					}
+				} else if err := writeBatchResult(cmd.OutOrStdout(), o, labels[i]); err != nil {
+					return err
+				}
+			}
+			return batchCheckErr(callErr, failed, len(items))
 		},
 	}
 	cmd.Flags().StringArrayVar(&checks, "check", nil, "a check as user,relation,object (repeatable)")
@@ -553,9 +578,82 @@ func (c *Command) listUsersCmd() *cobra.Command {
 	return cmd
 }
 
-func writePlainBatchResult(w io.Writer, allowed bool, label string) error {
-	_, err := fmt.Fprintf(w, "%s\t%s\n", allowedWord(allowed), output.PlainField(label))
+func writePlainBatchResult(w io.Writer, word, label, detail string) error {
+	_, err := fmt.Fprintf(w, "%s\t%s\t%s\n", word, output.PlainField(label), output.PlainField(detail))
 	return err
+}
+
+// batchOutcome is one --check item resolved against a BatchCheckResponse: a
+// correlation ID either has a per-item Error, is missing from the response
+// map entirely (a failed chunk), or carries an Allowed verdict.
+type batchOutcome struct {
+	allowed bool
+	isError bool
+	detail  string
+}
+
+// resolveBatchOutcome looks up id in res.Result. A missing correlation ID or a
+// non-empty per-item Error both count as an error, never as "denied" — a
+// typo'd relation must not look like a real authorization denial.
+func resolveBatchOutcome(res *openfga.BatchCheckResponse, id string) batchOutcome {
+	r, ok := res.Result[id]
+	switch {
+	case !ok:
+		return batchOutcome{isError: true, detail: "no result returned for this check"}
+	case len(r.Error) > 0:
+		return batchOutcome{isError: true, detail: batchCheckErrorDetail(r.Error)}
+	default:
+		return batchOutcome{allowed: r.Allowed}
+	}
+}
+
+// batchCheckErrorDetail extracts a human-readable message from a per-item
+// BatchCheckSingleResult.Error, falling back to its raw JSON when the server
+// didn't send a "message" field.
+func batchCheckErrorDetail(e map[string]any) string {
+	if msg, ok := e["message"].(string); ok && msg != "" {
+		return msg
+	}
+	b, err := json.Marshal(e)
+	if err != nil {
+		return "check failed"
+	}
+	return string(b)
+}
+
+// writeBatchResult renders one check's outcome for human/table output: an
+// ALLOWED/DENIED badge, or a distinct ERROR badge (with detail) so a per-item
+// failure never reads as a denial.
+func writeBatchResult(w io.Writer, o batchOutcome, label string) error {
+	badge := style.Allowed(o.allowed)
+	if o.isError {
+		badge = style.Failure.Render(style.IconCross + " ERROR")
+	}
+	line := fmt.Sprintf("%s  %s", badge, style.Faint.Render(label))
+	if o.detail != "" {
+		line += style.Faint.Render(" (" + output.SanitizeField(o.detail) + ")")
+	}
+	_, err := fmt.Fprintln(w, line)
+	return err
+}
+
+// batchCheckErr picks the command's exit error: nil on full success, or an
+// error naming how many of the total checks failed (wrapping callErr, the
+// BatchCheckAll transport error, if BatchCheckAll itself returned one).
+// Mirrors the plain-error partial-failure convention used by the tuple
+// write/delete batch helpers (writeInBatches): a real per-item failure is a
+// generic runtime error (clierr.CodeError, the default for an unwrapped
+// error), not clierr.CodeTestFailed — that code is reserved for `model
+// test`/`assertions test`'s "ran fine, but the expectation didn't match"
+// outcome, which per-item batch-check errors are not.
+func batchCheckErr(callErr error, failed, total int) error {
+	if failed == 0 {
+		return callErr
+	}
+	if callErr != nil {
+		return fmt.Errorf("%d of %d check(s) failed: %w", failed, total, callErr)
+	}
+	return fmt.Errorf("%d of %d check(s) failed", failed, total)
 }
 
 // writeTreePlain renders an untyped expand tree (map[string]any) as an indented
