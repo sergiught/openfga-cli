@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/sergiught/go-openfga/openfga"
+	"github.com/spf13/pflag"
 	"golang.org/x/oauth2"
 )
 
@@ -106,26 +107,39 @@ func IsIgnorableBrokenPipe(err error) bool {
 	return !errors.As(err, &coded)
 }
 
-// IsUsageErr reports whether err is one of cobra's flag/argument validation
-// failures, which it returns as plain errors (missing required flag, unknown
-// flag/command, wrong arg count). These are bad invocations, not runtime
-// failures, so they map to CodeUsage and a "--help" hint.
+// IsUsageErr reports whether err is one of cobra's or pflag's flag/argument
+// validation failures (missing required flag, unknown flag/command, wrong
+// arg count). These are bad invocations, not runtime failures, so they map
+// to CodeUsage and a "--help" hint.
+//
+// pflag returns a distinct type for each flag-parsing failure, so those are
+// matched structurally with errors.As. Cobra's own arg-count/required-flag/
+// unknown-command errors have no dedicated type — they're plain strings in a
+// fixed format (args.go, command.go) — so matching is anchored to that exact
+// prefix with strings.HasPrefix. An unanchored substring match would also
+// catch unrelated errors that merely mention the same words, e.g. an OS
+// EINVAL surfacing as "open <path>: invalid argument", or a wrapped server
+// message containing "requires"/"accepts" mid-sentence.
 func IsUsageErr(err error) bool {
 	if err == nil {
 		return false
 	}
+	var notExist *pflag.NotExistError
+	var valueRequired *pflag.ValueRequiredError
+	var invalidValue *pflag.InvalidValueError
+	var invalidSyntax *pflag.InvalidSyntaxError
+	if errors.As(err, &notExist) || errors.As(err, &valueRequired) ||
+		errors.As(err, &invalidValue) || errors.As(err, &invalidSyntax) {
+		return true
+	}
 	msg := err.Error()
-	for _, s := range []string{
-		"required flag(s)",
-		"unknown flag",
-		"unknown shorthand flag",
-		"unknown command",
-		"flag needs an argument",
-		"invalid argument",
+	for _, prefix := range []string{
+		"unknown command ",
+		`required flag(s) "`,
 		"accepts ",  // "accepts N arg(s), received M"
 		"requires ", // "requires at least N arg(s)"
 	} {
-		if strings.Contains(msg, s) {
+		if strings.HasPrefix(msg, prefix) {
 			return true
 		}
 	}

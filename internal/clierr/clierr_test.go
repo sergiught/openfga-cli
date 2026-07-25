@@ -3,6 +3,7 @@ package clierr
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/spf13/pflag"
 	"golang.org/x/oauth2"
 )
 
@@ -27,12 +29,83 @@ func TestCode(t *testing.T) {
 		{name: "net.Error", err: &net.OpError{Op: "dial", Err: errors.New("refused")}, want: CodeNetwork},
 		{name: "local file error", err: &os.PathError{Op: "open", Path: "missing", Err: syscall.ENOENT}, want: CodeError},
 		{name: "broken pipe is not a server failure", err: fmt.Errorf("write stdout: %w", syscall.EPIPE), want: CodeError},
+		// CLI-79: an OS EINVAL (e.g. a failing file read) surfaces as
+		// "open <path>: invalid argument", which the old substring match on
+		// "invalid argument" misclassified as a usage error.
+		{name: "OS EINVAL is not a usage error", err: &os.PathError{Op: "open", Path: "/dev/x", Err: syscall.EINVAL}, want: CodeError},
+		{name: "wrapped OS EINVAL is not a usage error", err: fmt.Errorf("read config: %w", &os.PathError{Op: "open", Path: "/dev/x", Err: syscall.EINVAL}), want: CodeError},
+		// CLI-79: a runtime/server message that merely mentions "requires" or
+		// "accepts" mid-sentence must not be mistaken for cobra's own
+		// "requires N arg(s)" / "accepts N arg(s)" arg-count errors.
+		{name: "server message mentioning requires is not a usage error", err: errors.New("update failed: requires elevated permission"), want: CodeError},
+		{name: "server message mentioning accepts is not a usage error", err: errors.New("the endpoint no longer accepts this format"), want: CodeError},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := Code(tt.err); got != tt.want {
 				t.Errorf("Code() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestIsUsageErr covers CLI-79: usage errors must be classified structurally
+// (pflag's own typed parse errors) or, where cobra has no dedicated type,
+// by an anchored prefix match on cobra's exact message format — never by an
+// unanchored substring that could also appear in an unrelated wrapped error.
+func TestIsUsageErr(t *testing.T) {
+	// Genuine pflag parse failures come back as distinct types (NotExistError,
+	// ValueRequiredError, InvalidValueError); drive real FlagSet.Parse calls so
+	// the errors are exactly what cobra would see, not hand-rolled strings.
+	unknownFlag := func() error {
+		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		fs.Bool("foo", false, "")
+		return fs.Parse([]string{"--bar"})
+	}
+	unknownShorthand := func() error {
+		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		fs.BoolP("foo", "f", false, "")
+		return fs.Parse([]string{"-x"})
+	}
+	missingValue := func() error {
+		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		fs.String("foo", "", "")
+		return fs.Parse([]string{"--foo"})
+	}
+	invalidValue := func() error {
+		fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		fs.Bool("foo", false, "")
+		return fs.Parse([]string{"--foo=notabool"})
+	}
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"pflag unknown flag", unknownFlag(), true},
+		{"pflag unknown shorthand flag", unknownShorthand(), true},
+		{"pflag flag needs an argument", missingValue(), true},
+		{"pflag invalid argument for a flag", invalidValue(), true},
+		{"cobra unknown command", fmt.Errorf("unknown command %q for %q", "bad", "ofga"), true},
+		{"cobra required flag(s) not set", fmt.Errorf(`required flag(s) "name" not set`), true},
+		{"cobra accepts N arg(s)", errors.New("accepts 1 arg(s), received 2"), true},
+		{"cobra requires at least N arg(s)", errors.New("requires at least 1 arg(s), only received 0"), true},
+		{"OS EINVAL is not a usage error", &os.PathError{Op: "open", Path: "/dev/x", Err: syscall.EINVAL}, false},
+		{"requires mid-sentence is not anchored", errors.New("update failed: requires elevated permission"), false},
+		{"accepts mid-sentence is not anchored", errors.New("the endpoint no longer accepts this format"), false},
+		{"plain runtime error", errors.New("boom"), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsUsageErr(tt.err); got != tt.want {
+				t.Errorf("IsUsageErr(%v) = %v, want %v", tt.err, got, tt.want)
 			}
 		})
 	}
