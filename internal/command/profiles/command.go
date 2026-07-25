@@ -59,15 +59,6 @@ func (c *Command) activeProfile() string {
 	return name
 }
 
-// warnLoadErr surfaces a deferred config parse/version error on stderr for the
-// read-only inspection commands, which still operate on defaults so the user
-// can look around even when their real file is broken.
-func warnLoadErr(cmd *cobra.Command, cfg *config.Config) {
-	if err := cfg.LoadErr(); err != nil {
-		output.Errorf(cmd.ErrOrStderr(), "warning: %v", err)
-	}
-}
-
 // completeNames suggests configured profile names for the first positional arg.
 func (c *Command) completeNames(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
 	if len(args) > 0 {
@@ -100,7 +91,6 @@ func (c *Command) listCmd() *cobra.Command {
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg := c.cli.Config
-			warnLoadErr(cmd, cfg)
 			if c.cli.JSON || c.cli.YAML {
 				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{
 					"active":   c.activeProfile(),
@@ -136,7 +126,6 @@ func (c *Command) currentCmd() *cobra.Command {
 		Example: "  ofga profiles current",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			warnLoadErr(cmd, c.cli.Config)
 			active := c.activeProfile()
 			if _, ok := c.cli.Config.Get(active); !ok {
 				return fmt.Errorf("active profile %q does not exist (set via --profile or OPENFGA_PROFILE?)", active)
@@ -161,7 +150,6 @@ func (c *Command) showCmd() *cobra.Command {
 		Long: "Show the values of a profile. With no argument, shows the fully resolved active configuration after applying env and flag overrides.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			warnLoadErr(cmd, c.cli.Config)
 			if len(args) == 1 {
 				p, ok := c.cli.Config.Get(args[0])
 				if !ok {

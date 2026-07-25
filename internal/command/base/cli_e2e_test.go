@@ -392,3 +392,73 @@ func TestSIGTERMCancelsGracefully(t *testing.T) {
 		t.Errorf("stderr should report cancellation: %q", stderr.String())
 	}
 }
+
+// writeCorruptConfig writes an unparseable config.toml where a runOfga child
+// will look for it, and returns its path.
+func writeCorruptConfig(t *testing.T, cfgHome string) string {
+	t.Helper()
+	// Must match the path runOfga pins OPENFGA_CONFIG to — cfgHome/config.toml,
+	// not the XDG-style cfgHome/ofga/config.toml. Writing to the latter would
+	// leave the child reading a non-existent config, quietly falling back to
+	// defaults, and the test would assert a warning that never comes.
+	path := filepath.Join(cfgHome, "config.toml")
+	if err := os.WriteFile(path, []byte("this is = not [valid toml"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// TestConfigLoadErrorWarnsOnEveryCommand covers CLI-75: a corrupt config file
+// must be surfaced on stderr for ANY command, not just `profiles` and
+// `config init`, while the command still proceeds on defaults (warn, not
+// fatal). `config path` is used because it never touches the network and
+// always succeeds, isolating the assertion to the warning itself.
+func TestConfigLoadErrorWarnsOnEveryCommand(t *testing.T) {
+	// The CLI reports the config path canonicalized, so the expectation has to
+	// be canonical too. On macOS t.TempDir() sits under /var, itself a symlink
+	// to /private/var, and the substring assertions below would never match.
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := writeCorruptConfig(t, home)
+
+	out, errb, code := runOfga(t, home, "", nil, "config", "path")
+	if code != 0 {
+		t.Fatalf("command should still proceed on a corrupt config: code=%d err=%q", code, errb)
+	}
+	if !strings.Contains(out, "config.toml") {
+		t.Errorf("config path should still print the resolved path: %q", out)
+	}
+	if !strings.Contains(errb, path) {
+		t.Errorf("warning should name the config path %q: stderr=%q", path, errb)
+	}
+	if !strings.Contains(errb, "parse config") {
+		t.Errorf("warning should name the parse error: stderr=%q", errb)
+	}
+
+	// --quiet suppresses the warning entirely.
+	out, errb, code = runOfga(t, home, "", nil, "config", "path", "--quiet")
+	if code != 0 {
+		t.Fatalf("--quiet run should still succeed: code=%d err=%q", code, errb)
+	}
+	if errb != "" {
+		t.Errorf("--quiet should suppress the load-error warning, got stderr=%q", errb)
+	}
+	if !strings.Contains(out, "config.toml") {
+		t.Errorf("--quiet should not suppress the command's own output: %q", out)
+	}
+
+	// Machine-output modes keep stdout clean; the warning still reaches stderr.
+	out, errb, code = runOfga(t, home, "", nil, "config", "path", "--json")
+	if code != 0 {
+		t.Fatalf("--json run should still succeed: code=%d err=%q", code, errb)
+	}
+	var pathResult map[string]string
+	if err := json.Unmarshal([]byte(out), &pathResult); err != nil || pathResult["path"] == "" {
+		t.Fatalf("--json stdout must stay clean JSON: out=%q err=%v", out, err)
+	}
+	if !strings.Contains(errb, path) {
+		t.Errorf("--json mode should still warn on stderr: stderr=%q", errb)
+	}
+}

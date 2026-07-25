@@ -109,9 +109,11 @@ func NewInit(c *cli.CLI) *cobra.Command {
 
 			// init is the recovery path: if the existing file was unparseable or
 			// an unsupported schema version, replacing it is the whole point, so
-			// clear the load error that would otherwise block Save.
+			// clear the load error that would otherwise block Save. The root
+			// command already warned about the load error itself; just note that
+			// init is replacing it.
 			if c.Config.LoadErr() != nil {
-				output.Infof(cmd.ErrOrStderr(), "replacing unreadable config: %v", c.Config.LoadErr())
+				output.Infof(cmd.ErrOrStderr(), "replacing unreadable config")
 				c.Config.ClearLoadErr()
 			}
 
