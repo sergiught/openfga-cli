@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -9,6 +11,8 @@ import (
 	"time"
 
 	"charm.land/log/v2"
+
+	"github.com/sergiught/openfga-cli/internal/clierr"
 )
 
 func TestRawGlobalFlagParsing(t *testing.T) {
@@ -50,6 +54,33 @@ func TestDebugFlagsEnableDebugLogging(t *testing.T) {
 		if got := logLevel([]string{flag}); got != log.DebugLevel {
 			t.Fatalf("logLevel(%q) = %v, want debug", flag, got)
 		}
+	}
+}
+
+func TestReportCanceledPrintsPartialCommitDetail(t *testing.T) {
+	var buf bytes.Buffer
+	inner := fmt.Errorf("tuples 26-50 failed after 25 of 100 tuple(s) were committed: %w", context.Canceled)
+	reportCanceled(&buf, clierr.WithPartialResult(inner))
+
+	out := buf.String()
+	if !strings.Contains(out, "canceled") {
+		t.Errorf("output should mention canceled: %q", out)
+	}
+	if !strings.Contains(out, "25 of 100 tuple(s) were committed") {
+		t.Errorf("output should surface the partial-commit detail: %q", out)
+	}
+}
+
+func TestReportCanceledWithoutPartialResultPrintsOnlyCanceled(t *testing.T) {
+	var buf bytes.Buffer
+	reportCanceled(&buf, context.Canceled)
+
+	out := buf.String()
+	if !strings.Contains(out, "canceled") {
+		t.Errorf("output should mention canceled: %q", out)
+	}
+	if strings.Contains(out, "committed") {
+		t.Errorf("output should not fabricate partial-commit detail: %q", out)
 	}
 }
 
