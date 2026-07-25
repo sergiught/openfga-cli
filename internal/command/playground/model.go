@@ -303,6 +303,7 @@ type Model struct {
 	graphAnimating bool
 
 	changesCapped bool // more changes exist than are shown (hit the display cap)
+	changesTotal  int  // the feed's true size as of the last load, for an honest capped status
 	changes       []openfga.TupleChange
 	changesList   *uilist.List
 

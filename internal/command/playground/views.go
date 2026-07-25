@@ -1036,7 +1036,7 @@ func (m Model) sectionStatus() string {
 		return plural(len(m.tuples), "tuple")
 	case secChanges:
 		if m.changesCapped {
-			return fmt.Sprintf("first %d changes (more exist)", len(m.changes))
+			return fmt.Sprintf("latest %d of %d changes", len(m.changes), m.changesTotal)
 		}
 		return plural(len(m.changes), "change")
 	case secAssertions:

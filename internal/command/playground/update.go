@@ -296,6 +296,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.connLost = false
 		m.changes = msg.changes
 		m.changesCapped = msg.capped
+		m.changesTotal = msg.total
 		m.populateChanges()
 		m.status = plural(len(msg.changes), "change")
 		return m, nil
@@ -519,7 +520,17 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = verb + " " + msg.label
 		m.beginLoad()
 		m.tuplesGen++
-		return m, tea.Batch(m.toasts.Push(toast.Success, m.status), loadTuplesCmd(m.ctx, m.client, m.storeID, m.tuplesGen))
+		m.beginLoad()
+		m.changesGen++
+		// A write/delete also changes the store's change log, so the Changes
+		// pane must not keep showing pre-write data — refresh it immediately
+		// rather than relying on the Changes tab's lazy load, which only
+		// triggers when it's still empty.
+		return m, tea.Batch(
+			m.toasts.Push(toast.Success, m.status),
+			loadTuplesCmd(m.ctx, m.client, m.storeID, m.tuplesGen),
+			loadChangesCmd(m.ctx, m.client, m.storeID, m.changesGen),
+		)
 
 	case queryResultMsg:
 		stale := staleStore(msg.storeID, m.storeID) || staleModel(msg.modelID, m.modelID) || staleGen(msg.gen, m.queryGen)
