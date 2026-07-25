@@ -316,6 +316,7 @@ type Model struct {
 	// query
 	qmode        int
 	qform        *field.Form
+	qformWidth   int  // content width the query form was last built for (see resize)
 	qShowContext bool // reveal the Context (JSON) + contextual-tuples fields
 	editing      bool // a form (query or takeover) is capturing keys
 	hasResult    bool
@@ -788,15 +789,23 @@ func (m *Model) resize() {
 	if m.apiLogVPInit {
 		m.refreshAPILogVP()
 	}
-	// Preserve any in-progress query input across the rebuild: WindowSizeMsg can
-	// arrive mid-typing and async loads (assertions, etc.) also call resize().
-	// The mode/context is unchanged here, so the fields line up 1:1.
-	if m.qform != nil {
+	// Async loads (assertions, etc.) call resize() too, at the same terminal
+	// width — only a genuine width change requires rebuilding the query form.
+	// Rebuilding unconditionally would call qform.Init(), which refocuses field
+	// 0 and drops the cursor blink, yanking focus away from whatever field the
+	// user is mid-typing in. When a rebuild IS needed, the mode/context is
+	// unchanged here, so the fields line up 1:1 and the focused index carries
+	// over via FocusIndex.
+	if m.qform == nil {
+		m.rebuildQueryForm()
+		m.qformWidth = w
+	} else if w != m.qformWidth {
 		vals := m.qform.Values()
+		focus := m.qform.FocusedIndex()
 		m.rebuildQueryForm()
 		m.qform.SetValues(vals)
-	} else {
-		m.rebuildQueryForm()
+		m.qform.FocusIndex(focus)
+		m.qformWidth = w
 	}
 }
 
