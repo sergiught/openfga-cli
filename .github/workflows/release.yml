@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 env:
-  GORELEASER_VERSION: 'v2.17.0'
+  GORELEASER_VERSION: 'v2.17.1'
 
 concurrency:
   group: release-${{ github.ref }}
