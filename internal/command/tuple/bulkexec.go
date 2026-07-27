@@ -93,13 +93,16 @@ func runBulk(cmd *cobra.Command, c *cli.CLI, cl *openfga.Client, keys []openfga.
 	if del {
 		verb, noun = "deleted", "deleted"
 	}
-	succeeded, failures := bulkApply(cmd, cl, keys, del, o, verb)
+	succeeded, failures, connErr := bulkApply(cmd, cl, keys, del, o, verb)
 
-	var failedKeys []openfga.TupleKey
+	failedKeys := make([]openfga.TupleKey, 0, len(failures))
 	for _, f := range failures {
 		failedKeys = append(failedKeys, f.Tuple)
 	}
-	if len(failedKeys) > 0 && o.failedFile != "" {
+	// Written unconditionally, so a clean re-run truncates the file left behind
+	// by the previous one: a stale list of failures that have since been fixed
+	// is worse than an empty file.
+	if o.failedFile != "" {
 		if err := writeFailedFile(o.failedFile, failedKeys, o.format); err != nil {
 			output.Errorf(cmd.ErrOrStderr(), "could not write --failed-file %s: %v", o.failedFile, err)
 		}
@@ -122,13 +125,20 @@ func runBulk(cmd *cobra.Command, c *cli.CLI, cl *openfga.Client, keys []openfga.
 		return clierr.WithPartialResult(fmt.Errorf("%s: %w", summary, ctxErr))
 	}
 	if !machine && !output.Plain {
-		reportFailures(cmd, summary, failures, o)
+		reportFailures(cmd, summary, failures, o, connErr)
+	}
+	// A transport failure keeps CodeNetwork: `ofga tuples write --file` is a
+	// scripting entry point, and "the server was unreachable" is a retry, while
+	// "the server rejected these tuples" is not.
+	code := clierr.CodeError
+	if connErr != nil {
+		code = clierr.CodeNetwork
 	}
 	// The summary and the per-tuple reasons (or the machine payload) have
 	// already reached the user, so the error is Silent: main honors the exit
 	// code without printing a second, redundant message. It still carries a
 	// PartialResult so a cancellation racing this return keeps its reporting.
-	return clierr.WithPartialResult(clierr.Silent(clierr.CodeError))
+	return clierr.WithPartialResult(clierr.Silent(code))
 }
 
 // bulkApply feeds keys to the SDK a window at a time and splits the per-tuple
@@ -137,7 +147,11 @@ func runBulk(cmd *cobra.Command, c *cli.CLI, cl *openfga.Client, keys []openfga.
 // of maxPerChunk*maxParallel — the most work it can have in flight — and
 // progress is reported between windows. With the defaults (100 per chunk, one
 // request at a time) a window is exactly one chunk.
-func bulkApply(cmd *cobra.Command, cl *openfga.Client, keys []openfga.TupleKey, del bool, o bulkOpts, verb string) ([]openfga.TupleKey, []bulkFailure) {
+//
+// The third return value is the first transport failure seen, if any: it stops
+// the run (a server that is down will not be up for the next window) and marks
+// the outcome as a network failure rather than a tuple rejection.
+func bulkApply(cmd *cobra.Command, cl *openfga.Client, keys []openfga.TupleKey, del bool, o bulkOpts, verb string) ([]openfga.TupleKey, []bulkFailure, error) {
 	opts := o.requestOptions(del)
 	succeeded := make([]openfga.TupleKey, 0, len(keys))
 	failures := make([]bulkFailure, 0)
@@ -159,30 +173,63 @@ func bulkApply(cmd *cobra.Command, cl *openfga.Client, keys []openfga.TupleKey, 
 			// The SDK only returns a top-level error when no request could be
 			// issued at all (e.g. no store resolved); nothing later would fare
 			// better, so record the remainder as failed and stop.
-			for _, k := range keys[start:] {
-				failures = append(failures, bulkFailure{Tuple: k, Reason: clierr.Friendly(err)})
+			failures = append(failures, notAttempted(keys[start:], failureReason(err))...)
+			if clierr.IsConnErr(err) {
+				return succeeded, failures, err
 			}
-			return succeeded, failures
+			return succeeded, failures, nil
 		}
 		results := res.Writes
 		if del {
 			results = res.Deletes
 		}
+		var connErr error
 		for _, r := range results {
 			if r.Status == openfga.WriteStatusFailure {
-				failures = append(failures, bulkFailure{Tuple: r.TupleKey, Reason: clierr.Friendly(r.Err)})
+				failures = append(failures, bulkFailure{Tuple: r.TupleKey, Reason: failureReason(r.Err)})
+				if connErr == nil && clierr.IsConnErr(r.Err) {
+					connErr = r.Err
+				}
 				continue
 			}
 			succeeded = append(succeeded, r.TupleKey)
 		}
+		if connErr != nil {
+			// The server is unreachable, not merely unhappy with these tuples.
+			// Hammering it with the remaining windows would only repeat the
+			// failure, so stop and account for what was never attempted.
+			failures = append(failures, notAttempted(keys[end:], "not attempted: stopped after the server became unreachable")...)
+			return succeeded, failures, connErr
+		}
 		output.Progressf(cmd.ErrOrStderr(), "%s %d/%d tuples", verb, len(succeeded), len(keys))
 	}
-	return succeeded, failures
+	return succeeded, failures, nil
+}
+
+// notAttempted records keys that never reached the server, so the failure count
+// and --failed-file still account for every input tuple.
+func notAttempted(keys []openfga.TupleKey, reason string) []bulkFailure {
+	out := make([]bulkFailure, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, bulkFailure{Tuple: k, Reason: reason})
+	}
+	return out
+}
+
+// failureReason renders a per-tuple reason. clierr.Friendly's multi-line hints
+// are deliberately skipped for connection failures: the same three lines
+// repeated for every rejected tuple buries the summary. reportFailures prints
+// that hint once instead.
+func failureReason(err error) string {
+	if clierr.IsConnErr(err) {
+		return err.Error()
+	}
+	return clierr.Friendly(err)
 }
 
 // reportFailures prints the human summary followed by the rejected tuples and
 // their reasons, capped so a large import does not bury the summary.
-func reportFailures(cmd *cobra.Command, summary string, failures []bulkFailure, o bulkOpts) {
+func reportFailures(cmd *cobra.Command, summary string, failures []bulkFailure, o bulkOpts, connErr error) {
 	w := cmd.ErrOrStderr()
 	output.Errorf(w, "%s", summary)
 	for i, f := range failures {
@@ -192,7 +239,12 @@ func reportFailures(cmd *cobra.Command, summary string, failures []bulkFailure, 
 		}
 		output.Hintf(w, "%s: %s", fga.FormatTuple(f.Tuple), f.Reason)
 	}
-	if o.maxPerChunk > 1 {
+	switch {
+	case connErr != nil:
+		// Printed once, not once per tuple, and instead of the chunk hint:
+		// nothing about the chunk size is what went wrong here.
+		output.Hintf(w, "%s", clierr.Friendly(connErr))
+	case o.maxPerChunk > 1:
 		output.Hintf(w, "a rejected request fails its whole chunk; re-run with --max-tuples-per-write 1 to pin down the exact tuples")
 	}
 	if o.failedFile != "" {
@@ -214,11 +266,17 @@ func emitBulkResult(cmd *cobra.Command, c *cli.CLI, noun string, done int, keys,
 		})
 	}
 	if output.Plain {
-		return output.KeyValues(cmd.OutOrStdout(), [][2]string{
-			{noun, fmt.Sprint(done)},
-			{"total", fmt.Sprint(len(keys))},
-			{"complete", fmt.Sprint(len(failures) == 0)},
-		})
+		// A clean run stays the single row it has always been; total/complete
+		// are the legacy partial-failure rows and only appear when the run was
+		// in fact partial.
+		rows := [][2]string{{noun, fmt.Sprint(done)}}
+		if len(failures) > 0 {
+			rows = append(rows,
+				[2]string{"total", fmt.Sprint(len(keys))},
+				[2]string{"complete", "false"},
+			)
+		}
+		return output.KeyValues(cmd.OutOrStdout(), rows)
 	}
 	return nil
 }
