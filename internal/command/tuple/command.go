@@ -3,9 +3,7 @@
 package tuple
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -61,7 +59,7 @@ func (c *Command) RegisterSubCommands() {
 func (c *Command) writeCmd() *cobra.Command {
 	var (
 		dryRun                        bool
-		file                          string
+		file, fileFormat              string
 		fUser, fRel, fObj             string
 		fCondition, fConditionContext string
 	)
@@ -73,7 +71,9 @@ func (c *Command) writeCmd() *cobra.Command {
   ofga tuples write --user user:anne --relation viewer --object document:roadmap
   ofga tuples write user:anne viewer document:roadmap --condition non_expired_grant --condition-context '{"grant_duration":"10m"}'
   ofga tuples write --file tuples.json
-  cat tuples.json | ofga tuples write --file -`,
+  ofga tuples write --file tuples.csv
+  cat tuples.jsonl | ofga tuples write --file - --file-format jsonl`,
+		Long: "Write one relationship tuple, or many with --file.\n\n" + bulkFileHelp,
 		Args: cobra.MaximumNArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if fConditionContext != "" && fCondition == "" {
@@ -84,7 +84,11 @@ func (c *Command) writeCmd() *cobra.Command {
 					return clierr.WithCode(clierr.CodeUsage,
 						fmt.Errorf("--condition cannot be combined with --file; set a condition per tuple in the file instead"))
 				}
-				keys, err := bulkTuples(cmd, file, args, fUser, fRel, fObj, false)
+				format, err := resolveBulkFormat(file, fileFormat)
+				if err != nil {
+					return err
+				}
+				keys, err := bulkTuples(cmd, file, format, args, fUser, fRel, fObj, false)
 				if err != nil {
 					return err
 				}
@@ -160,7 +164,8 @@ func (c *Command) writeCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "show the tuple that would be written without writing it")
-	cmd.Flags().StringVar(&file, "file", "", "JSON file of tuples to write in bulk ('-' for stdin)")
+	cmd.Flags().StringVar(&file, "file", "", "file of tuples to write in bulk ('-' for stdin)")
+	cmd.Flags().StringVar(&fileFormat, "file-format", "", "format of --file: json|jsonl|yaml|csv (default: inferred from the extension; json for stdin)")
 	cmd.Flags().StringVar(&fUser, "user", "", "user (alternative to the positional arg)")
 	cmd.Flags().StringVar(&fRel, "relation", "", "relation (alternative to the positional arg)")
 	cmd.Flags().StringVar(&fObj, "object", "", "object (alternative to the positional arg)")
@@ -173,7 +178,7 @@ func (c *Command) deleteCmd() *cobra.Command {
 	var (
 		force             bool
 		dryRun            bool
-		file              string
+		file, fileFormat  string
 		fUser, fRel, fObj string
 	)
 	cmd := &cobra.Command{
@@ -182,11 +187,17 @@ func (c *Command) deleteCmd() *cobra.Command {
 		Short:   "Delete one relationship tuple, or many with --file",
 		Example: `  ofga tuples delete user:anne viewer document:roadmap
   ofga tuples delete --user user:anne --relation viewer --object document:roadmap
-  ofga tuples delete --file tuples.json`,
+  ofga tuples delete --file tuples.json
+  ofga tuples delete --file tuples.csv`,
+		Long: "Delete one relationship tuple, or many with --file.\n\n" + bulkFileHelp,
 		Args: cobra.MaximumNArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if file != "" {
-				keys, err := bulkTuples(cmd, file, args, fUser, fRel, fObj, true)
+				format, err := resolveBulkFormat(file, fileFormat)
+				if err != nil {
+					return err
+				}
+				keys, err := bulkTuples(cmd, file, format, args, fUser, fRel, fObj, true)
 				if err != nil {
 					return err
 				}
@@ -264,7 +275,8 @@ func (c *Command) deleteCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "skip the confirmation prompt")
 	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "show the tuple that would be deleted without deleting it")
-	cmd.Flags().StringVar(&file, "file", "", "JSON file of tuples to delete in bulk ('-' for stdin)")
+	cmd.Flags().StringVar(&file, "file", "", "file of tuples to delete in bulk ('-' for stdin)")
+	cmd.Flags().StringVar(&fileFormat, "file-format", "", "format of --file: json|jsonl|yaml|csv (default: inferred from the extension; json for stdin)")
 	cmd.Flags().StringVar(&fUser, "user", "", "user (alternative to the positional arg)")
 	cmd.Flags().StringVar(&fRel, "relation", "", "relation (alternative to the positional arg)")
 	cmd.Flags().StringVar(&fObj, "object", "", "object (alternative to the positional arg)")
@@ -437,32 +449,15 @@ func (c *Command) changesCmd() *cobra.Command {
 	return cmd
 }
 
-// tupleInput is one relationship tuple as it appears in a bulk --file: the
-// canonical user/relation/object triple, plus an optional ABAC condition.
-// Unknown JSON fields are rejected (see bulkTuples) so a mistyped field name
-// surfaces as a parse error instead of silently vanishing.
-type tupleInput struct {
-	User      string          `json:"user"`
-	Relation  string          `json:"relation"`
-	Object    string          `json:"object"`
-	Condition *conditionInput `json:"condition"`
-}
-
-// conditionInput is a bulk-file tuple's optional ABAC condition: a condition
-// name plus its context parameters.
-type conditionInput struct {
-	Name    string         `json:"name"`
-	Context map[string]any `json:"context"`
-}
-
 // bulkTuples reads and validates the tuples for a bulk --file operation. The
-// file (or stdin for "-") is a JSON array of {user,relation,object,condition}
-// objects, or an object {"tuples":[...]}. --file is mutually exclusive with
-// positional args and the --user/--relation/--object flags. Unknown fields on
-// any tuple entry are rejected rather than silently ignored. forDelete rejects
-// a condition on any entry: OpenFGA matches a delete by user/relation/object
-// only, so a condition on a delete input would otherwise be silently dropped.
-func bulkTuples(cmd *cobra.Command, file string, args []string, fUser, fRel, fObj string, forDelete bool) ([]openfga.TupleKey, error) {
+// file (or stdin for "-") is decoded in the format resolved from --file-format
+// or the file extension; see parseTupleFile for the shapes each format accepts.
+// --file is mutually exclusive with positional args and the
+// --user/--relation/--object flags. Unknown fields on any tuple entry are
+// rejected rather than silently ignored. forDelete rejects a condition on any
+// entry: OpenFGA matches a delete by user/relation/object only, so a condition
+// on a delete input would otherwise be silently dropped.
+func bulkTuples(cmd *cobra.Command, file string, format bulkFormat, args []string, fUser, fRel, fObj string, forDelete bool) ([]openfga.TupleKey, error) {
 	if len(args) > 0 || fUser != "" || fRel != "" || fObj != "" {
 		return nil, clierr.WithCode(clierr.CodeUsage,
 			fmt.Errorf("--file cannot be combined with positional args or --user/--relation/--object"))
@@ -477,14 +472,9 @@ func bulkTuples(cmd *cobra.Command, file string, args []string, fUser, fRel, fOb
 	if err != nil {
 		return nil, err
 	}
-	var wrapper struct {
-		Tuples []tupleInput `json:"tuples"`
-	}
-	var raw []tupleInput
-	if err := decodeStrict(data, &wrapper); err == nil && wrapper.Tuples != nil {
-		raw = wrapper.Tuples
-	} else if err := decodeStrict(data, &raw); err != nil {
-		return nil, clierr.WithCode(clierr.CodeUsage, fmt.Errorf("parse tuples file: %w", err))
+	raw, err := parseTupleFile(data, format, file)
+	if err != nil {
+		return nil, err
 	}
 	if len(raw) == 0 {
 		return nil, clierr.WithCode(clierr.CodeUsage, fmt.Errorf("no tuples in %s", file))
@@ -509,23 +499,6 @@ func bulkTuples(cmd *cobra.Command, file string, args []string, fUser, fRel, fOb
 		keys = append(keys, key)
 	}
 	return keys, nil
-}
-
-// decodeStrict JSON-decodes data into v, rejecting unknown fields anywhere in
-// the value so a mistyped field name surfaces as a parse error instead of
-// being silently dropped. It also rejects trailing data after the value,
-// matching json.Unmarshal's stricter behavior (json.Decoder.Decode alone only
-// reads one value and ignores what follows).
-func decodeStrict(data []byte, v any) error {
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(v); err != nil {
-		return err
-	}
-	if dec.More() {
-		return fmt.Errorf("unexpected trailing data after JSON value")
-	}
-	return nil
 }
 
 // writeInBatches writes (or deletes, when del is true) keys in chunks that stay
