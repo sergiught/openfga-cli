@@ -57,10 +57,12 @@ func newBulkCLI(t *testing.T, apiURL, mode string) *cli.CLI {
 		a.JSON = true
 	case "yaml":
 		a.YAML = true
-	case "plain":
-		output.Plain = true
-		t.Cleanup(func() { output.Plain = false })
 	}
+	// Set unconditionally rather than only for "plain": the human-mode cases
+	// assert that nothing reaches stdout, which would silently break if some
+	// other test in the package ever leaked output.Plain = true.
+	output.Plain = mode == "plain"
+	t.Cleanup(func() { output.Plain = false })
 
 	return a
 }
@@ -100,6 +102,16 @@ type writeRecorder struct {
 func (rec *writeRecorder) start(t *testing.T) string {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Route rather than accept everything: a regression that lost store
+		// scoping (POST /stores//write) or posted to the wrong endpoint would
+		// otherwise still be recorded and decoded here, and every test below
+		// would pass against a request the real server answers with a 404.
+		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/write") {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+			http.Error(w, `{"code":"not_found"}`, http.StatusNotFound)
+
+			return
+		}
 		var body openfga.WriteRequest
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Errorf("decode write request: %v", err)

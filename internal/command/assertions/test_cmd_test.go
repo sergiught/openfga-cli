@@ -102,10 +102,12 @@ func newAssertionsCLI(t *testing.T, apiURL, mode string) *cli.CLI {
 		a.JSON = true
 	case "yaml":
 		a.YAML = true
-	case "plain":
-		output.Plain = true
-		t.Cleanup(func() { output.Plain = false })
 	}
+	// Set unconditionally rather than only for "plain": the human-mode cases
+	// assert on exact rendering, which would silently change if some other test
+	// in the package ever leaked output.Plain = true.
+	output.Plain = mode == "plain"
+	t.Cleanup(func() { output.Plain = false })
 
 	return a
 }
