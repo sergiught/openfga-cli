@@ -308,7 +308,7 @@ func (m Model) handleQueryForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.editing = false
 			m.beginLoad()
 			m.resGen++
-			return m, expandCmd(m.ctx, m.client, m.storeID, m.modelID,
+			return m, expandCmd(m.reqCtx, m.client, m.storeID, m.modelID,
 				m.result.vals[0], m.result.vals[1], m.result.vals[2], m.resGen)
 		}
 		m.status = "run a check first (ctrl+r shows its resolution)"
@@ -392,13 +392,13 @@ func (m Model) advanceQueryForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = "running " + mode + "…"
 		switch mode {
 		case "check":
-			return m, checkCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx, gen)
+			return m, checkCmd(m.reqCtx, m.client, m.storeID, m.modelID, a, b, c, qctx, gen)
 		case "list-objects":
-			return m, listObjectsCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx, gen)
+			return m, listObjectsCmd(m.reqCtx, m.client, m.storeID, m.modelID, a, b, c, qctx, gen)
 		case "list-users":
-			return m, listUsersCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx, gen)
+			return m, listUsersCmd(m.reqCtx, m.client, m.storeID, m.modelID, a, b, c, qctx, gen)
 		case "list-relations":
-			return m, listRelationsCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, rels, qctx, gen)
+			return m, listRelationsCmd(m.reqCtx, m.client, m.storeID, m.modelID, a, b, rels, qctx, gen)
 		}
 	}
 	return m, cmd
@@ -425,11 +425,11 @@ func (m Model) rerunHistory(idx int) (tea.Model, tea.Cmd) {
 	m.status = "running " + queryModes[m.qmode] + "…"
 	switch queryModes[m.qmode] {
 	case "check":
-		return m, checkCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx, gen)
+		return m, checkCmd(m.reqCtx, m.client, m.storeID, m.modelID, a, b, c, qctx, gen)
 	case "list-objects":
-		return m, listObjectsCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx, gen)
+		return m, listObjectsCmd(m.reqCtx, m.client, m.storeID, m.modelID, a, b, c, qctx, gen)
 	case "list-users":
-		return m, listUsersCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx, gen)
+		return m, listUsersCmd(m.reqCtx, m.client, m.storeID, m.modelID, a, b, c, qctx, gen)
 	case "list-relations":
 		rels, err := m.graph.RelationsForObject(b)
 		if err != nil {
@@ -440,7 +440,7 @@ func (m Model) rerunHistory(idx int) (tea.Model, tea.Cmd) {
 			m.setQueryError(err.Error())
 			return m, nil
 		}
-		return m, listRelationsCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, rels, qctx, gen)
+		return m, listRelationsCmd(m.reqCtx, m.client, m.storeID, m.modelID, a, b, rels, qctx, gen)
 	}
 	return m, nil
 }
