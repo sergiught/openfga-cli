@@ -320,15 +320,32 @@ func decodeYAMLStrict(data []byte, v any) error {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(v); err != nil {
-		return err
+		return cleanYAMLErr(err)
 	}
 	var extra any
 	if err := dec.Decode(&extra); err == nil {
 		return errors.New("unexpected trailing YAML document")
 	} else if !errors.Is(err, io.EOF) {
-		return err
+		return cleanYAMLErr(err)
 	}
 	return nil
+}
+
+// cleanYAMLErr drops the Go type names yaml.v3 appends to unknown-field errors
+// ("field objekt not found in type tuple.tupleInput"), which mean nothing to
+// someone editing a tuples file.
+func cleanYAMLErr(err error) error {
+	msg := err.Error()
+	if !strings.Contains(msg, " in type ") {
+		return err
+	}
+	lines := strings.Split(msg, "\n")
+	for i, l := range lines {
+		if cut, _, ok := strings.Cut(l, " in type "); ok {
+			lines[i] = cut
+		}
+	}
+	return errors.New(strings.Join(lines, "\n"))
 }
 
 // parseCSVTuples decodes the official `fga` CLI's CSV contract. Column order is

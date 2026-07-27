@@ -238,6 +238,11 @@ func TestParseTupleFileRejectsUnknownFields(t *testing.T) {
 		if !strings.Contains(err.Error(), "tenant") {
 			t.Errorf("%s: error should name the unknown field: %q", c.format, err)
 		}
+		// yaml.v3 appends the Go type name ("... in type tuple.tupleInput"),
+		// which means nothing to whoever is editing the file.
+		if strings.Contains(err.Error(), "in type ") {
+			t.Errorf("%s: error should not leak the Go type name: %q", c.format, err)
+		}
 	}
 }
 
