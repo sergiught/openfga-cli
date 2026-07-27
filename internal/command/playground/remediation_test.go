@@ -14,6 +14,7 @@ import (
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/config"
+	"github.com/sergiught/openfga-cli/internal/configtest"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/ui/toast"
 )
@@ -680,6 +681,7 @@ func TestAssertionsLoadLatestResolutionCheckedAgainstActiveModel(t *testing.T) {
 // land afterward and repopulate the list from the wrong server — or, worse,
 // auto-select a store id that may not even exist on the new one.
 func TestStaleStoresLoadAfterReconnectDropped(t *testing.T) {
+	configtest.Isolate(t)
 	cfg := config.New()
 	cfg.Set("other", config.Profile{APIURL: "http://other:8080"})
 	cl, _ := openfga.NewClient("http://localhost:8080")
@@ -769,6 +771,7 @@ func TestStaleChangesReloadDropped(t *testing.T) {
 // storeID/modelID check (identical across profiles) and silently apply data
 // from the wrong server.
 func TestReconnectInvalidatesAllGenerationsSameIDs(t *testing.T) {
+	configtest.Isolate(t)
 	// client.New validates store/model ids as ULIDs, so the profiles (and the
 	// messages compared against them below) need well-formed ones even though
 	// other tests in this file use plain literals for message-only fields.

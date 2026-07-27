@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
 
+	"github.com/sergiught/openfga-cli/internal/configtest"
 	"github.com/sergiught/openfga-cli/internal/modeltest"
 	"github.com/sergiught/openfga-cli/internal/style"
 	shell "github.com/sergiught/openfga-cli/internal/ui/shell"
@@ -40,7 +41,7 @@ func manyRelationCoverage(n int) *modeltest.Coverage {
 // --- (1) up/k and down/j must scroll coverage, not an invisible tree selection ---
 
 func TestTestResultsArrowKeysScrollCoverageInsteadOfTree(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	mod := newTestModel().(Model)
 	wbSeedDocuments(&mod)
 	mod.wb.results = failingTestResults()
@@ -93,7 +94,7 @@ func TestTestResultsArrowKeysScrollCoverageInsteadOfTree(t *testing.T) {
 // When coverage is hidden, up/k and down/j must still move the tree
 // selection as before — only the coverage-visible case changes behavior.
 func TestTestResultsArrowKeysStillMoveTreeWhenCoverageHidden(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	mod := newTestModel().(Model)
 	wbSeedDocuments(&mod)
 	mod.wb.results = failingTestResults()
@@ -117,7 +118,7 @@ func TestTestResultsArrowKeysStillMoveTreeWhenCoverageHidden(t *testing.T) {
 // --- (2) clicking a visible row must select the same node keyboard nav would ---
 
 func TestTestResultsClickSelectsRowLikeKeyboard(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	mod := newTestModel().(Model)
 	wbSeedDocuments(&mod)
 	mod.wb.results = failingTestResults()
@@ -155,7 +156,7 @@ func TestTestResultsClickSelectsRowLikeKeyboard(t *testing.T) {
 // A click outside the Tests pane, or while coverage/spinner occupy it, must
 // not move the selection (there's nothing selectable drawn there).
 func TestTestResultsClickIgnoredOverCoverageAndWhileRunning(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	mod := newTestModel().(Model)
 	wbSeedDocuments(&mod)
 	mod.wb.results = failingTestResults()
@@ -184,7 +185,7 @@ func TestTestResultsClickIgnoredOverCoverageAndWhileRunning(t *testing.T) {
 }
 
 func TestTestResultsWheelIgnoredWhileRunning(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	mod := newTestModel().(Model)
 	wbSeedDocuments(&mod)
 	mod.section = secTestResults
@@ -283,7 +284,7 @@ func buildWbModel(nFiles, testsPerFile int) Model {
 // make this test flaky, while still catching a real re-introduction of the
 // per-row rescan.
 func TestWbTreeBodyRenderScalesRoughlyLinearlyNotQuadratically(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 
 	// best takes the minimum of several renders so scheduling noise on a
 	// shared machine doesn't inflate the measurement (noise can only make a
@@ -336,7 +337,7 @@ func TestRenderWorkbenchCoverageCapsEveryLine(t *testing.T) {
 // --- (6) commands while a run is in flight give visible feedback ---
 
 func TestTestResultsCommandsGiveRunningFeedbackWhileRunning(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	mod := newTestModel().(Model)
 	wbSeedDocuments(&mod)
 	mod.section = secTestResults
@@ -366,7 +367,7 @@ func TestTestResultsCommandsGiveRunningFeedbackWhileRunning(t *testing.T) {
 // --- (7) toggling verbose while coverage is visible must be truthful ---
 
 func TestShowingCoverageHidesVerboseDetail(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	mod := newTestModel().(Model)
 	wbSeedDocuments(&mod)
 	mod.section = secTestResults
@@ -386,7 +387,7 @@ func TestShowingCoverageHidesVerboseDetail(t *testing.T) {
 }
 
 func TestToggleVerboseWhileCoverageShownLeavesCoverageAndShowsExplanation(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	mod := newTestModel().(Model)
 	wbSeedDocuments(&mod)
 	mod.wb.results = failingTestResults()
@@ -435,7 +436,7 @@ func TestToggleVerboseWhileCoverageShownLeavesCoverageAndShowsExplanation(t *tes
 // --- (8) verbose tree+separator+detail must never exceed an extremely short pane ---
 
 func TestWbTreeBodyVerboseNeverExceedsShortPaneHeight(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	mod := newTestModel().(Model)
 	wbSeedDocuments(&mod)
 	mod.wb.results = failingTestResults()
@@ -453,7 +454,7 @@ func TestWbTreeBodyVerboseNeverExceedsShortPaneHeight(t *testing.T) {
 }
 
 func TestWbLayoutNeverOverflowsShortHeights(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	mod := newTestModel().(Model)
 	wbSeedDocuments(&mod)
 	mod.wb.results = failingTestResults()
@@ -475,7 +476,7 @@ func TestWbLayoutNeverOverflowsShortHeights(t *testing.T) {
 // --- (9) result grouping uses source paths, not ambiguous name splitting.
 
 func TestWbResultsByStemMatchesNestedWorkspaceRelativeFileIdentity(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	mod := newTestModel().(Model)
 
 	root := "/repo"

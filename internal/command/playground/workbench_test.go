@@ -14,12 +14,13 @@ import (
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/config"
+	"github.com/sergiught/openfga-cli/internal/configtest"
 	"github.com/sergiught/openfga-cli/internal/modeltest"
 	shell "github.com/sergiught/openfga-cli/internal/ui/shell"
 )
 
 func TestSeededModelHoldsWorkspace(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 
 	ws, err := modeltest.LoadWorkspace("../../modeltest/testdata/docs")
 	if err != nil {
@@ -48,7 +49,7 @@ func TestSeededModelHoldsWorkspace(t *testing.T) {
 // (the docs workspace has 1 test file, "documents", with 2 tests) and checks
 // it shows the file's stem alongside its last-run pass count.
 func TestWorkbenchListsFilesWithStatus(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 
 	ws, err := modeltest.LoadWorkspace("../../modeltest/testdata/docs")
 	if err != nil {
@@ -77,7 +78,7 @@ func TestWorkbenchListsFilesWithStatus(t *testing.T) {
 // section has no workspace to show (e.g. an ordinary, non-seeded playground
 // session).
 func TestWorkbenchFilesEmptyWorkspace(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 
 	m := newTestModel().(Model)
 	m.section = secTestResults
@@ -92,7 +93,7 @@ func TestWorkbenchFilesEmptyWorkspace(t *testing.T) {
 // (never run this session): the file list should still render, with a
 // "press r to run" hint rather than a bogus 0/0 status.
 func TestWorkbenchFilesNotRunYet(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 
 	ws, err := modeltest.LoadWorkspace("../../modeltest/testdata/docs")
 	if err != nil {
@@ -119,7 +120,7 @@ func TestWorkbenchFilesNotRunYet(t *testing.T) {
 // where the failure lives in the second file, so a fix that landed on the
 // wrong node would fail this.
 func TestSeededModelOpensOnFirstFailure(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 
 	ws := &modeltest.Workspace{
 		TestFiles: []*modeltest.TestFile{
@@ -161,7 +162,7 @@ func TestSeededModelOpensOnFirstFailure(t *testing.T) {
 // section entry point when the whole suite passed: the cursor should rest on
 // the first node (the first file) rather than any failure.
 func TestSeededModelOpensOnFileListWhenAllPass(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 
 	ws := &modeltest.Workspace{
 		TestFiles: []*modeltest.TestFile{
@@ -200,7 +201,7 @@ func seedTreeModel(t *testing.T) Model {
 	// Isolate config so constructing the model can never clobber the user's real
 	// config.toml (the documented repo gotcha) — enforced here so no caller can
 	// forget it.
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	ws, err := modeltest.LoadWorkspace("../../modeltest/testdata/docs")
 	if err != nil {
 		t.Fatal(err)
@@ -404,7 +405,7 @@ func TestWorkbenchEnterOnTestTogglesExplanation(t *testing.T) {
 // that owns the selected node: with a test node selected, they must operate on
 // its owning file, not no-op.
 func TestWorkbenchTreeTestNodeTargetsOwningFile(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	t.Setenv("EDITOR", "true") // so "e" resolves an editor and launches ExecProcess
 
 	root := copyDocsWorkspace(t)
@@ -457,7 +458,7 @@ func TestWorkbenchTreeTestNodeTargetsOwningFile(t *testing.T) {
 // m.wb.results from it. The docs workspace has 1 file with 2 tests, both
 // passing.
 func TestWorkbenchRunPopulatesResults(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 
 	ws, err := modeltest.LoadWorkspace("../../modeltest/testdata/docs")
 	if err != nil {
@@ -507,7 +508,7 @@ func TestWorkbenchRunPopulatesResults(t *testing.T) {
 // TestWorkbenchRunFileFiltersToSelectedFile drives "R": it should run only
 // the currently selected file, via a filter derived from its stem.
 func TestWorkbenchRunFileFiltersToSelectedFile(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 
 	ws, err := modeltest.LoadWorkspace("../../modeltest/testdata/docs")
 	if err != nil {
@@ -548,7 +549,7 @@ func TestWorkbenchRunFileFiltersToSelectedFile(t *testing.T) {
 // testsRanMsg) then "c": the section body should show the coverage report
 // (a type name plus a percent), and pressing "c" again should hide it.
 func TestWorkbenchCoverageToggle(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 
 	ws, err := modeltest.LoadWorkspace("../../modeltest/testdata/docs")
 	if err != nil {
@@ -608,7 +609,7 @@ func TestWorkbenchCoverageToggle(t *testing.T) {
 // session: it must not crash, and must not turn coverage on since there is
 // nothing to show yet.
 func TestWorkbenchCoverageBeforeRunHint(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 
 	ws, err := modeltest.LoadWorkspace("../../modeltest/testdata/docs")
 	if err != nil {
@@ -778,7 +779,7 @@ func writeMultiModelWorkspaceDir(t *testing.T) string {
 // lastCoverage nil, and — on "c" — surface the coverage-unavailable reason
 // rather than the generic "run first" hint.
 func TestWorkbenchRunMultiModelSucceedsWithoutCoverage(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 
 	ws, err := modeltest.LoadWorkspace(writeMultiModelWorkspaceDir(t))
 	if err != nil {
@@ -832,7 +833,7 @@ func TestWorkbenchRunMultiModelSucceedsWithoutCoverage(t *testing.T) {
 // Workspace with a nil Manifest. runSuiteCmd must guard that nil deref
 // rather than panic when the run is kicked off from the workbench.
 func TestWorkbenchRunBareTestFileDoesNotPanic(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 
 	dir := t.TempDir()
 	bare := "fixtures: [core-users]\ntests:\n  - name: owner-is-viewer\n    check:\n      - user: user:anne\n        object: document:1\n        assertions: {viewer: true, owner: true}\n  - name: stranger-denied\n    check:\n      - user: user:bob\n        object: document:1\n        assertions: {viewer: false}\n"
@@ -913,7 +914,7 @@ func seedWorkbenchModel(t *testing.T, root string) Model {
 	// Isolate config so constructing the model can never clobber the user's real
 	// config.toml (the documented repo gotcha) — enforced here so no caller can
 	// forget it.
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	ws, err := modeltest.LoadWorkspace(root)
 	if err != nil {
 		t.Fatal(err)
@@ -1206,7 +1207,7 @@ func wbFileIndexByBase(t *testing.T, files []*modeltest.TestFile, base string) i
 // m.wb.files, the workspace reload should leave the other file intact, and
 // a re-run should be dispatched (since tests remain).
 func TestWorkbenchDeleteRemovesFile(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 
 	dir := writeMultiModelWorkspaceDir(t)
 	ws, err := modeltest.LoadWorkspace(dir)
@@ -1266,7 +1267,7 @@ func TestWorkbenchDeleteRemovesFile(t *testing.T) {
 // TestWorkbenchDeleteCancel drives "d" then "n": the file must survive on
 // disk and in m.wb.files.
 func TestWorkbenchDeleteCancel(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 
 	dir := writeMultiModelWorkspaceDir(t)
 	ws, err := modeltest.LoadWorkspace(dir)
@@ -1310,7 +1311,7 @@ func TestWorkbenchDeleteCancel(t *testing.T) {
 // change in between (e.g. a race) and asserts the originally-selected file
 // is the one deleted.
 func TestWorkbenchDeleteWrongSelectionSafe(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 
 	dir := writeMultiModelWorkspaceDir(t)
 	ws, err := modeltest.LoadWorkspace(dir)
@@ -1367,7 +1368,7 @@ func TestWorkbenchDeleteWrongSelectionSafe(t *testing.T) {
 // test file: the workspace reload must not crash, m.wb.files should end up
 // empty, and no re-run should be dispatched (nothing left to run).
 func TestWorkbenchDeleteLastFileClearsList(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 
 	root := copyDocsWorkspace(t) // single test file: tests/documents.test.yaml
 	ws, err := modeltest.LoadWorkspace(root)

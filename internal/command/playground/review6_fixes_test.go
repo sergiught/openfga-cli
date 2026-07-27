@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/sergiught/go-openfga/openfga"
+	"github.com/sergiught/openfga-cli/internal/configtest"
 	"github.com/sergiught/openfga-cli/internal/ui/toast"
 )
 
@@ -11,7 +12,7 @@ import (
 // dedicated "no permission" notice, not an empty "no stores" list plus a red
 // error toast (which together misread as "this server has no stores").
 func TestStoresForbiddenShowsWarning(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	m := newTestModel()
 
 	forbidden := &openfga.AuthenticationError{ErrorResponse: &openfga.ErrorResponse{
@@ -67,7 +68,7 @@ func TestModelIDRE(t *testing.T) {
 // TUI-37: the one-time boot notice (e.g. a dropped invalid pinned model id) is
 // delivered through the Update loop as an Info toast.
 func TestBootNoticeSurfacesToast(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	m := newTestModel()
 
 	m, _ = m.Update(bootNoticeMsg{text: "ignored invalid pinned model id"})

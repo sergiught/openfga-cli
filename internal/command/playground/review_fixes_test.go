@@ -10,13 +10,14 @@ import (
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/config"
+	"github.com/sergiught/openfga-cli/internal/configtest"
 	"github.com/sergiught/openfga-cli/internal/ui/toast"
 )
 
 // TUI-30: "run all" assertions with any failure must surface an error toast, not
 // a green success — mirroring the CLI's non-zero exit on assertion failure.
 func TestAssertionRunAllFailedToast(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 
 	m := newTestModel()
 	m, _ = m.Update(assertTestMsg{passed: 1, total: 2, results: []assertResult{
@@ -42,7 +43,7 @@ func TestAssertionRunAllFailedToast(t *testing.T) {
 // verdict may be shown, and once it lands the verdict must reflect the actual
 // Check outcome.
 func TestAssertionEnterNoFalseDeny(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	m := newTestModel()
 	m, _ = m.Update(key("7"))     // jump to Assertions
 	m, _ = m.Update(key("enter")) // descend into the panel
@@ -70,7 +71,7 @@ func TestAssertionEnterNoFalseDeny(t *testing.T) {
 // TUI-25: a load result tagged with a store we've since switched away from must
 // be dropped, so a previous store's rows don't overwrite the current view.
 func TestStaleStoreLoadIgnored(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	m := newTestModel() // storeID "store-1", one tuple loaded
 	if got := len(m.(Model).tuples); got != 1 {
 		t.Fatalf("precondition: expected 1 tuple, got %d", got)
@@ -95,7 +96,7 @@ func TestStaleStoreLoadIgnored(t *testing.T) {
 // TUI-27: when the API URL came from a one-shot --api-url override, selecting a
 // store must NOT auto-persist its id onto the saved profile (whose URL differs).
 func TestNoPersistStoreUnderURLOverride(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	cl, _ := openfga.NewClient("http://localhost:8080")
 	a := cli.New(log.New(io.Discard), config.New(), "test")
 	a.Overrides.APIURL = "http://flag-override:9999"
@@ -111,7 +112,7 @@ func TestNoPersistStoreUnderURLOverride(t *testing.T) {
 
 // TUI-27 (control): without an override, selecting a store persists its id.
 func TestPersistStoreWithoutOverride(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	cl, _ := openfga.NewClient("http://localhost:8080")
 	a := cli.New(log.New(io.Discard), config.New(), "test")
 	m := newModel(context.Background(), a, cl, "", "")

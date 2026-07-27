@@ -23,6 +23,7 @@ import (
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/config"
+	"github.com/sergiught/openfga-cli/internal/configtest"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/style"
 	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
@@ -1690,6 +1691,7 @@ func TestResolvedProfileOwnsTUIPersistence(t *testing.T) {
 }
 
 func TestTUIPSwitchOverridesInitialEnvironmentSelection(t *testing.T) {
+	configtest.Isolate(t)
 	t.Setenv("OPENFGA_PROFILE", "staging")
 	cfg := config.New()
 	cfg.Set("staging", config.Profile{APIURL: "https://staging.example"})
@@ -1764,7 +1766,7 @@ func TestAssertionsReloadOnModelSwitch(t *testing.T) {
 // config plus a reload helper that re-reads the on-disk file.
 func loadIsolatedConfig(t *testing.T) (*config.Config, func() config.Profile) {
 	t.Helper()
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	cfg, err := config.Load()
 	if err != nil {
 		t.Fatalf("load config: %v", err)
