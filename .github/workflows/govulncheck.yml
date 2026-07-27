@@ -1,0 +1,41 @@
+name: govulncheck
+
+# Go vulnerability database scan of the pinned dependency tree.
+#
+# Split out of ci.yml so it can carry its own schedule: a CVE published against
+# an already-pinned dependency needs no repo activity to become exploitable, and
+# the push/PR-only job in ci.yml would not notice it until someone happened to
+# open a PR. Same standalone-workflow-with-a-cron shape as codeql.yml and
+# scorecard.yml; putting schedule: on ci.yml would run the whole matrix weekly.
+#
+# The push/PR triggers are kept so a vulnerable dependency still blocks the PR
+# that introduces it, instead of only surfacing on the next Monday.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '45 4 * * 1' # weekly Monday, clear of codeql (02:30) and scorecard (07:00)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: govulncheck-${{ github.ref }}
+  # Not cancel-in-progress: a scheduled run shares github.ref with pushes to
+  # main, so cancelling would let a push silently kill the weekly scan.
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: run govulncheck
+        run: make vuln
