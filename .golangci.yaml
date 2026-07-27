@@ -29,11 +29,6 @@ linters:
         - G204
   exclusions:
     rules:
-      # Test files use explicit interface types and throwaway assignments that
-      # staticcheck flags; keep it focused on production code.
-      - path: _test\.go
-        linters:
-          - staticcheck
       # G101 (hardcoded credentials) fires only on test fixtures — literal
       # tokens and client secrets the tests must contain to assert on masking
       # and keyring handling. It stays enabled for production code, where a
