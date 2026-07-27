@@ -396,7 +396,7 @@ func runSuiteCmd(ctx context.Context, ws *modeltest.Workspace, filter string) te
 		if err != nil {
 			return testsRanMsg{err: err}
 		}
-		defer eng.Close()
+		defer func() { _ = eng.Close() }()
 
 		res, err := modeltest.Run(ctx, ws, modeltest.Options{Run: filter, Coverage: true, Engine: eng})
 		return testsRanMsg{results: res, err: err}

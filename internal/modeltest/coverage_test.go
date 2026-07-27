@@ -200,7 +200,7 @@ tests:
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng, Coverage: true})
 	if err != nil {
@@ -254,7 +254,7 @@ func TestCoverageMarksResolvedRelationsCovered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng, Coverage: true})
 	if err != nil {
@@ -300,7 +300,7 @@ func TestCoverageConditionSideBySide(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng, Coverage: true, Run: "abac/condition-satisfied"})
 	if err != nil {
@@ -425,7 +425,7 @@ tests:
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer eng.Close()
+		defer func() { _ = eng.Close() }()
 		res, err := Run(context.Background(), ws, Options{Engine: eng, Coverage: true, Run: run})
 		if err != nil {
 			t.Fatalf("Run(%q): %v", run, err)
@@ -513,7 +513,7 @@ tests:
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 	res, err := Run(context.Background(), ws, Options{Engine: eng, Coverage: true})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -600,7 +600,7 @@ tests:
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng, Coverage: true})
 	if err != nil {
@@ -702,7 +702,7 @@ tests:
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng, Coverage: true})
 	if err != nil {
@@ -834,7 +834,7 @@ func TestCoverageGrantBasedCreditsOnlyGrantingArms(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng, Coverage: true})
 	if err != nil {
@@ -895,7 +895,7 @@ func TestCoverageGrantBasedIntersectionAndExclusion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng, Coverage: true})
 	if err != nil {

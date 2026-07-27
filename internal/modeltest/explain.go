@@ -221,7 +221,7 @@ func findRelationNode(t *fga.TypeNode, name string) *fga.Relation {
 // just the granting path when it unexpectedly came back true. For
 // list_objects/list_users it renders ar.Explain.SetDiff.
 func RenderExplain(w io.Writer, ar AssertionResult) {
-	fmt.Fprintf(w, "expected: %s    got: %s\n", style.Success.Render(formatExpectedGot(ar.Expected)), style.Failure.Render(formatExpectedGot(ar.Got)))
+	_, _ = fmt.Fprintf(w, "expected: %s    got: %s\n", style.Success.Render(formatExpectedGot(ar.Expected)), style.Failure.Render(formatExpectedGot(ar.Got)))
 
 	if ar.Explain == nil {
 		return
@@ -240,7 +240,7 @@ func RenderExplain(w io.Writer, ar AssertionResult) {
 		// Unexpected false: show every dead-ended branch, then the suggestion.
 		renderExplainTree(w, flooredRoot(ar.Explain.Tree, ar.Explain.Verdict), "", "")
 		if ar.Explain.NearestMiss != "" {
-			fmt.Fprintf(w, "nearest miss: %s\n", ar.Explain.NearestMiss)
+			_, _ = fmt.Fprintf(w, "nearest miss: %s\n", ar.Explain.NearestMiss)
 		}
 	case kindListObjects, kindListUsers:
 		if ar.Explain.SetDiff != nil {
@@ -263,11 +263,11 @@ func formatExpectedGot(v any) string {
 // prefix being the accumulated indentation and connector the "├─ "/"└─ "/""
 // glyph that leads into n.
 func renderExplainTree(w io.Writer, n *ExplainNode, prefix, connector string) {
-	fmt.Fprintf(w, "%s%s%s [%s]", style.Faint.Render(prefix), style.Faint.Render(connector), n.Label, resultMarker(n.Result))
+	_, _ = fmt.Fprintf(w, "%s%s%s [%s]", style.Faint.Render(prefix), style.Faint.Render(connector), n.Label, resultMarker(n.Result))
 	if n.Reason != "" {
-		fmt.Fprintf(w, "%s", style.Faint.Render(fmt.Sprintf(" — %s", n.Reason)))
+		_, _ = fmt.Fprintf(w, "%s", style.Faint.Render(fmt.Sprintf(" — %s", n.Reason)))
 	}
-	fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w)
 
 	childPrefix := prefix
 	if connector == "└─ " {
@@ -340,9 +340,9 @@ func resultMarker(result bool) string {
 // -missing lines.
 func renderSetDiff(w io.Writer, sd *SetDiff) {
 	if len(sd.Unexpected) > 0 {
-		fmt.Fprintf(w, "+unexpected: %s\n", strings.Join(sd.Unexpected, ", "))
+		_, _ = fmt.Fprintf(w, "+unexpected: %s\n", strings.Join(sd.Unexpected, ", "))
 	}
 	if len(sd.Missing) > 0 {
-		fmt.Fprintf(w, "-missing: %s\n", strings.Join(sd.Missing, ", "))
+		_, _ = fmt.Fprintf(w, "-missing: %s\n", strings.Join(sd.Missing, ", "))
 	}
 }

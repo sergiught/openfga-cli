@@ -36,7 +36,7 @@ func Confirm(cmd *cobra.Command, question string, force bool) error {
 	if !interactive(cmd) {
 		return errors.New("refusing to proceed without confirmation; pass --force to skip the prompt")
 	}
-	fmt.Fprintf(cmd.ErrOrStderr(), "%s [y/N]: ", question)
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s [y/N]: ", question)
 	switch readLine(cmd) {
 	case "y", "yes":
 		return nil
@@ -55,7 +55,7 @@ func ConfirmName(cmd *cobra.Command, action, expected string, force bool) error 
 	if !interactive(cmd) {
 		return errors.New("refusing to proceed without confirmation; pass --force to skip the prompt")
 	}
-	fmt.Fprintf(cmd.ErrOrStderr(), "%s\n  type %q to confirm: ", action, expected)
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s\n  type %q to confirm: ", action, expected)
 	line, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
 	if strings.TrimSpace(line) == expected {
 		return nil
@@ -76,9 +76,9 @@ func Ask(cmd *cobra.Command, question, def string) string {
 		return def
 	}
 	if def != "" {
-		fmt.Fprintf(cmd.ErrOrStderr(), "%s [%s]: ", question, def)
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s [%s]: ", question, def)
 	} else {
-		fmt.Fprintf(cmd.ErrOrStderr(), "%s: ", question)
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s: ", question)
 	}
 	line, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
 	if v := strings.TrimSpace(line); v != "" {
@@ -96,9 +96,9 @@ func AskSecret(cmd *cobra.Command, question string) string {
 	if !ok || !term.IsTerminal(f.Fd()) {
 		return ""
 	}
-	fmt.Fprintf(cmd.ErrOrStderr(), "%s: ", question)
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s: ", question)
 	b, err := term.ReadPassword(f.Fd())
-	fmt.Fprintln(cmd.ErrOrStderr())
+	_, _ = fmt.Fprintln(cmd.ErrOrStderr())
 	if err != nil {
 		return ""
 	}

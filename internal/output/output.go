@@ -314,7 +314,7 @@ func Successf(w io.Writer, format string, a ...any) {
 		return
 	}
 	dot := lipgloss.NewStyle().Foreground(style.Green).Render(style.IconDot)
-	fmt.Fprintf(w, "%s %s\n", dot, fmt.Sprintf(format, a...))
+	_, _ = fmt.Fprintf(w, "%s %s\n", dot, fmt.Sprintf(format, a...))
 }
 
 // Infof prints a muted informational line with a primary-colored dot
@@ -324,7 +324,7 @@ func Infof(w io.Writer, format string, a ...any) {
 		return
 	}
 	dot := lipgloss.NewStyle().Foreground(style.Primary).Render(style.IconDot)
-	fmt.Fprintf(w, "%s %s\n", dot, fmt.Sprintf(format, a...))
+	_, _ = fmt.Fprintf(w, "%s %s\n", dot, fmt.Sprintf(format, a...))
 }
 
 // Warnf prints a warning line with an amber dot (suppressed in Quiet/Plain).
@@ -333,7 +333,7 @@ func Warnf(w io.Writer, format string, a ...any) {
 		return
 	}
 	dot := lipgloss.NewStyle().Foreground(style.Amber).Render(style.IconDot)
-	fmt.Fprintf(w, "%s %s\n", dot, fmt.Sprintf(format, a...))
+	_, _ = fmt.Fprintf(w, "%s %s\n", dot, fmt.Sprintf(format, a...))
 }
 
 // Notef prints a neutral, faint note line with a faint dot (suppressed in
@@ -343,7 +343,7 @@ func Notef(w io.Writer, format string, a ...any) {
 		return
 	}
 	dot := lipgloss.NewStyle().Foreground(style.Faintc).Render(style.IconDot)
-	fmt.Fprintf(w, "%s %s\n", dot, style.Faint.Render(fmt.Sprintf(format, a...)))
+	_, _ = fmt.Fprintf(w, "%s %s\n", dot, style.Faint.Render(fmt.Sprintf(format, a...)))
 }
 
 // Progressf prints transient progress only for an interactive human session,
@@ -359,19 +359,19 @@ func Progressf(w io.Writer, format string, a ...any) {
 // never suppressed by Quiet — errors must always reach the user.
 func Errorf(w io.Writer, format string, a ...any) {
 	dot := lipgloss.NewStyle().Foreground(style.Red).Render(style.IconDot)
-	fmt.Fprintf(w, "%s %s\n", dot, sanitizeText(fmt.Sprintf(format, a...)))
+	_, _ = fmt.Fprintf(w, "%s %s\n", dot, sanitizeText(fmt.Sprintf(format, a...)))
 }
 
 // Hintf writes a faint, indented follow-up line (e.g. a "try this next" hint
 // after an error). Rendered on stderr by callers; not suppressed by --quiet so
 // remediation guidance always shows.
 func Hintf(w io.Writer, format string, a ...any) {
-	fmt.Fprintf(w, "  %s\n", style.Faint.Render(sanitizeText(fmt.Sprintf(format, a...))))
+	_, _ = fmt.Fprintf(w, "  %s\n", style.Faint.Render(sanitizeText(fmt.Sprintf(format, a...))))
 }
 
 // Title prints a bold violet title line.
 func Title(w io.Writer, s string) {
-	fmt.Fprintln(w, style.Title.Render(SanitizeField(s)))
+	_, _ = fmt.Fprintln(w, style.Title.Render(SanitizeField(s)))
 }
 
 // SanitizeField removes terminal control characters from untrusted values

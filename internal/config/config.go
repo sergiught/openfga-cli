@@ -597,21 +597,21 @@ func (c *Config) saveLocked() error {
 		return fail(fmt.Errorf("create config file: %w", err))
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName) // no-op after a successful rename
+	defer func() { _ = os.Remove(tmpName) }() // no-op after a successful rename
 
 	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fail(fmt.Errorf("secure config file: %w", err))
 	}
 	digest := sha256.New()
 	enc := toml.NewEncoder(io.MultiWriter(tmp, digest))
 	enc.Indent = "  "
 	if err := enc.Encode(c); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fail(fmt.Errorf("encode config: %w", err))
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fail(fmt.Errorf("sync config file: %w", err))
 	}
 	if err := tmp.Close(); err != nil {

@@ -24,7 +24,7 @@ func TestContainerEngineRunsAgainstRealServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start container engine: %v", err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	ws, err := LoadWorkspace("testdata/docs")
 	if err != nil {

@@ -28,7 +28,7 @@ func TestWriteJUnitHasTestcasePerAssertion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng})
 	if err != nil {
@@ -222,7 +222,7 @@ func TestWriteJUnitHasTimeAttributes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng})
 	if err != nil {
@@ -284,7 +284,7 @@ func TestWriteJSONReportStableShape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng})
 	if err != nil {

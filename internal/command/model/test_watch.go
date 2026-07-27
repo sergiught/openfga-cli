@@ -48,7 +48,7 @@ func runWatch(cmd *cobra.Command, a *cli.CLI, path string, wsOpts modeltest.Work
 	if err != nil {
 		return fmt.Errorf("start file watcher: %w", err)
 	}
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 	if err := addDirsRecursive(w, root); err != nil {
 		return fmt.Errorf("watch %s: %w", root, err)
 	}
@@ -61,14 +61,14 @@ func runWatch(cmd *cobra.Command, a *cli.CLI, path string, wsOpts modeltest.Work
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Fprintln(cmd.OutOrStdout())
+			_, _ = fmt.Fprintln(cmd.OutOrStdout())
 			return ctx.Err()
 		case err := <-watchErrs:
-			fmt.Fprintln(cmd.ErrOrStderr(), style.Failure.Render("● file watcher: "+err.Error()))
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), style.Failure.Render("● file watcher: "+err.Error()))
 		case <-changed:
 			// A change may have created new subdirectories; watch them too.
 			if err := addDirsRecursive(w, root); err != nil {
-				fmt.Fprintln(cmd.ErrOrStderr(), style.Failure.Render("● file watcher: "+err.Error()))
+				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), style.Failure.Render("● file watcher: "+err.Error()))
 			}
 			runOnceForWatch(cmd, a, root, path, wsOpts, cfg)
 		}
@@ -99,14 +99,14 @@ func runOnceForWatch(cmd *cobra.Command, a *cli.CLI, root, path string, wsOpts m
 	// Only clear the screen for an interactive terminal; `--watch > log` must
 	// not have escape sequences spewed into the redirected file.
 	if output.Interactive {
-		fmt.Fprint(out, "\033[2J\033[H") // clear screen + cursor home
+		_, _ = fmt.Fprint(out, "\033[2J\033[H") // clear screen + cursor home
 	}
 	header := fmt.Sprintf("watching %s — Ctrl-C to stop (%s)", root, time.Now().Format("15:04:05"))
-	fmt.Fprintf(out, "%s\n\n", style.Faint.Render(header))
+	_, _ = fmt.Fprintf(out, "%s\n\n", style.Faint.Render(header))
 
 	ws, err := modeltest.LoadWorkspaceWith(path, wsOpts)
 	if err != nil {
-		fmt.Fprintln(out, style.Failure.Render("● load workspace: "+err.Error()))
+		_, _ = fmt.Fprintln(out, style.Failure.Render("● load workspace: "+err.Error()))
 		return
 	}
 
@@ -116,10 +116,10 @@ func runOnceForWatch(cmd *cobra.Command, a *cli.CLI, root, path string, wsOpts m
 	}
 	eng, err := modeltest.NewEmbeddedEngine(serverOpts)
 	if err != nil {
-		fmt.Fprintln(out, style.Failure.Render("● start engine: "+err.Error()))
+		_, _ = fmt.Fprintln(out, style.Failure.Render("● start engine: "+err.Error()))
 		return
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := modeltest.Run(cmd.Context(), ws, modeltest.Options{
 		Run:      cfg.run,
@@ -130,7 +130,7 @@ func runOnceForWatch(cmd *cobra.Command, a *cli.CLI, root, path string, wsOpts m
 		Coverage: cfg.coverage,
 	})
 	if err != nil {
-		fmt.Fprintln(out, style.Failure.Render("● "+err.Error()))
+		_, _ = fmt.Fprintln(out, style.Failure.Render("● "+err.Error()))
 		return
 	}
 	_ = renderTestResults(cmd, a, res, cfg.explain, cfg.coverageDetail, false)

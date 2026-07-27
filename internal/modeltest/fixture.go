@@ -232,7 +232,7 @@ func loadYAMLTuples(path string) ([]TupleKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	// TupleKey.UnmarshalYAML rejects a misspelled key (instead of silently
 	// dropping it into a degenerate tuple) and accepts the compact
@@ -266,7 +266,7 @@ func loadJSONLTuples(path string) ([]TupleKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var tuples []TupleKey
 	scanner := bufio.NewScanner(f)
@@ -329,7 +329,7 @@ func loadCSVTuples(path string) ([]TupleKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	r := csv.NewReader(f)
 	r.FieldsPerRecord = -1

@@ -27,7 +27,7 @@ func TestRunIncludesWorkspaceRelativeSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(t.Context(), ws, Options{Engine: eng})
 	if err != nil {
