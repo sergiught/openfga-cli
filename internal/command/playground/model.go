@@ -1103,6 +1103,10 @@ func (m *Model) pushHistory(h histEntry) {
 // --- store selection ---
 
 func (m *Model) selectStore(s openfga.Store) tea.Cmd {
+	// Every read generation is bumped and all four loads re-dispatched below,
+	// so nothing in flight survives this call as current — cancel it outright
+	// rather than letting it run to completion just to be dropped on arrival.
+	m.renewReqCtx()
 	m.clearResourcePending()
 	m.storeID = s.ID
 	m.storeName = s.Name
@@ -1163,11 +1167,17 @@ func (m *Model) selectStore(s openfga.Store) tea.Cmd {
 
 // clearResourcePending invalidates work tied to the selected store/model while
 // preserving connection-wide store creation/deletion. Late completions retain
-// their origin and are dropped without disturbing newer work. It also renews
-// the request-scoped context, cancelling every in-flight generation-tracked
-// read dispatched before this call — see renewReqCtx.
+// their origin and are dropped without disturbing newer work.
+//
+// It deliberately does NOT renew the request context. This function bumps only
+// the three *mutation* generations, so the store-scoped reads in flight (tuples,
+// changes) are still current by the generation protocol — and its non-selectStore
+// callers (a model switch) re-dispatch only the model. Cancelling here would kill
+// a live tuples load that nothing re-issues, stranding the pane empty and, since
+// staleCancel drops cancellations silently, with no feedback at all. Cancellation
+// belongs where the whole batch is superseded *and* redispatched: selectStore and
+// activateResolved. See renewReqCtx.
 func (m *Model) clearResourcePending() {
-	m.renewReqCtx()
 	m.modelApplyGen++
 	m.tupleMutationGen++
 	m.assertionWriteGen++
@@ -1555,12 +1565,16 @@ func (m Model) staleMutation(origin mutationOrigin, currentGen int) bool {
 }
 
 // renewReqCtx cancels the previous request-scoped context (if any) and
-// installs a fresh one derived from m.ctx. Call it wherever a whole batch of
-// in-flight, generation-tracked work is superseded — clearResourcePending
-// (store/model switch) and activateResolved (reconnect) — so every command
-// still running under the old context loses it and can return early instead
-// of running to completion. It is also called once from newModel to install
-// the first context.
+// installs a fresh one derived from m.ctx, so every command still running
+// under the old context loses it and returns early instead of running to
+// completion.
+//
+// Only call it where a whole batch of in-flight work is both superseded and
+// re-dispatched: selectStore (bumps all eight read generations, restarts the
+// four loads) and activateResolved (reconnect). Cancelling somewhere that
+// invalidates only *part* of what's in flight would kill live requests nothing
+// re-issues — see clearResourcePending for the case that bit us. It is also
+// called once from newModel to install the first context.
 func (m *Model) renewReqCtx() {
 	if m.reqCancel != nil {
 		m.reqCancel()

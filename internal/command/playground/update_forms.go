@@ -272,7 +272,11 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.populateProfiles()
 			// Editing the active profile changes the live connection — reconnect.
 			if name == m.profile {
-				return m, m.activateResolved(activeResolved, activeClient, "updated profile "+name)
+				// Hoisted for the same reason as the Profiles-section enter
+				// handler: activateResolved renews reqCtx, and that mutation
+				// must reach the returned model.
+				cmd := m.activateResolved(activeResolved, activeClient, "updated profile "+name)
+				return m, cmd
 			}
 			m.status = "updated profile " + name
 			return m, m.toasts.Push(toast.Success, m.status)

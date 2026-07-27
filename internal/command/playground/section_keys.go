@@ -43,7 +43,12 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 		switch key {
 		case "enter":
 			if it, ok := m.profilesList.Selected(); ok {
-				return m, m.switchProfile(it.ID)
+				// Hoisted: switchProfile reaches activateResolved, which renews
+				// reqCtx. Losing that mutation would leave the model holding a
+				// cancelled context — every later read would fail instantly and
+				// staleCancel would drop it silently. See TUI-F8.
+				cmd := m.switchProfile(it.ID)
+				return m, cmd
 			}
 		case "a":
 			return m.enterForm(formAddProfile)

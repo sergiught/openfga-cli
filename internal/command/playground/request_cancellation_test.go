@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -50,10 +51,17 @@ func TestSelectStoreCancelsPreviousRequestContext(t *testing.T) {
 	}
 }
 
-// TestModelSwitchCancelsPreviousRequestContext covers clearResourcePending's
-// other call site: a fresh model load landing with a different model id than
-// the one currently active (see update.go's modelLoadedMsg handler).
-func TestModelSwitchCancelsPreviousRequestContext(t *testing.T) {
+// TestModelSwitchDoesNotCancelStoreScopedLoads pins the scope rule that makes
+// cancellation safe: cancel only where the whole batch is superseded *and*
+// re-dispatched.
+//
+// A model switch goes through clearResourcePending, which bumps only the three
+// mutation generations — the store-scoped tuples/changes loads in flight are
+// still current, and the model-switch paths re-dispatch only the model. So it
+// must NOT cancel: doing so kills a live tuples load nothing re-issues, leaving
+// the pane permanently empty and (because staleCancel drops cancellations
+// silently) with no toast, status or spinner to show for it.
+func TestModelSwitchDoesNotCancelStoreScopedLoads(t *testing.T) {
 	m := newTestModel().(Model)
 	m.modelID = "model-a"
 	oldCtx := m.reqCtx
@@ -61,13 +69,50 @@ func TestModelSwitchCancelsPreviousRequestContext(t *testing.T) {
 	tm, _ := m.Update(modelLoadedMsg{storeID: m.storeID, gen: m.modelGen, modelID: "model-b", graph: sampleGraph()})
 	mm := tm.(Model)
 
-	select {
-	case <-oldCtx.Done():
-	default:
-		t.Fatal("a model switch should cancel the previous model's request context")
+	if err := oldCtx.Err(); err != nil {
+		t.Fatalf("a model switch must not cancel store-scoped reads (got %v): "+
+			"clearResourcePending doesn't bump tuplesGen/changesGen and nothing re-dispatches them", err)
 	}
-	if mm.reqCtx.Err() != nil {
-		t.Fatal("the newly installed request context should not be cancelled")
+	if mm.reqCtx != oldCtx {
+		t.Fatal("a model switch should leave the request context in place, not renew it")
+	}
+	// The generation protocol is still what drops the superseded model response.
+	if mm.modelID != "model-b" {
+		t.Fatalf("model switch should have applied: modelID = %q, want model-b", mm.modelID)
+	}
+}
+
+// TestModelSwitchKeepsInFlightTupleLoadAlive is the behavioural half of the
+// rule above: the load must survive the switch and still populate its pane.
+func TestModelSwitchKeepsInFlightTupleLoadAlive(t *testing.T) {
+	m := newTestModel().(Model)
+	m.modelID = "model-a"
+	m.tuples = nil
+
+	// A tuples load is dispatched (as selectStore would) and still in flight
+	// when the user switches models.
+	inFlightGen := m.tuplesGen
+	inFlightCtx := m.reqCtx
+	m.beginLoad()
+
+	tm, _ := m.Update(modelLoadedMsg{storeID: m.storeID, gen: m.modelGen, modelID: "model-b", graph: sampleGraph()})
+	mm := tm.(Model)
+
+	if err := inFlightCtx.Err(); err != nil {
+		t.Fatalf("the in-flight tuples load was cancelled by the model switch: %v", err)
+	}
+
+	// It lands afterwards and must populate the pane rather than being dropped.
+	tm2, _ := mm.Update(tuplesLoadedMsg{storeID: mm.storeID, gen: inFlightGen, tuples: []openfga.Tuple{
+		{Key: openfga.TupleKey{User: "user:anne", Relation: "owner", Object: "document:roadmap"}},
+	}})
+	got := tm2.(Model)
+
+	if len(got.tuples) != 1 {
+		t.Fatalf("the tuples load that survived the model switch should have populated the pane, got %d tuples", len(got.tuples))
+	}
+	if got.pendingLoads != 0 {
+		t.Fatalf("pendingLoads = %d, want 0 — the completion must free its slot", got.pendingLoads)
 	}
 }
 
@@ -75,6 +120,10 @@ func TestModelSwitchCancelsPreviousRequestContext(t *testing.T) {
 // which resets connection-wide state without going through
 // clearResourcePending.
 func TestSwitchProfileCancelsPreviousRequestContext(t *testing.T) {
+	// switchProfile persists the active profile — isolate the config so the
+	// test never touches the developer's real one.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
 	cfg := config.New()
 	cfg.Set("default", config.Profile{APIURL: "http://server-a.example"})
 	cfg.Set("other", config.Profile{APIURL: "http://server-b.example"})
@@ -124,7 +173,6 @@ func TestReqCtxDerivedFromProgramContext(t *testing.T) {
 func TestSupersededLoadCancelsInFlightHTTPRequest(t *testing.T) {
 	requestStarted := make(chan struct{}, 1)
 	release := make(chan struct{})
-	defer close(release)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case requestStarted <- struct{}{}:
@@ -136,6 +184,11 @@ func TestSupersededLoadCancelsInFlightHTTPRequest(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
+	// Registered after srv.Close() so LIFO releases the parked handler *first*.
+	// The other order deadlocks: srv.Close() waits on a handler that is waiting
+	// on release, so a failed assertion would hang to the package timeout
+	// instead of reporting.
+	defer close(release)
 
 	cl, _ := openfga.NewClient(srv.URL)
 	a := cli.New(log.New(io.Discard), config.New(), "test")
@@ -176,18 +229,53 @@ func TestSupersededLoadCancelsInFlightHTTPRequest(t *testing.T) {
 // free its pendingLoads slot exactly once, same as any other dropped-stale
 // completion — never leaving the spinner stranded on.
 func TestCanceledLoadCompletionStillFreesPendingSlot(t *testing.T) {
-	m := newTestModel().(Model)
-	m.pendingLoads = 1
-	m.loading = true
-
-	tm, cmd := m.Update(modelLoadedMsg{storeID: m.storeID, gen: m.modelGen, err: context.Canceled})
-	got := tm.(Model)
-
-	if got.pendingLoads != 0 || got.loading {
-		t.Fatalf("a cancelled completion must free its pendingLoads slot, got pendingLoads=%d loading=%v", got.pendingLoads, got.loading)
+	// staleCancel is applied identically across ten handlers; sample the
+	// distinct shapes — a plain load, a store-scoped load, and the query
+	// handler, which carries its own extra pending-state bookkeeping.
+	tests := []struct {
+		name string
+		msg  func(Model) tea.Msg
+	}{
+		{"modelLoadedMsg", func(m Model) tea.Msg {
+			return modelLoadedMsg{storeID: m.storeID, gen: m.modelGen, err: context.Canceled}
+		}},
+		{"tuplesLoadedMsg", func(m Model) tea.Msg {
+			return tuplesLoadedMsg{storeID: m.storeID, gen: m.tuplesGen, err: context.Canceled}
+		}},
+		{"changesLoadedMsg", func(m Model) tea.Msg {
+			return changesLoadedMsg{storeID: m.storeID, gen: m.changesGen, err: context.Canceled}
+		}},
+		{"assertionsLoadedMsg", func(m Model) tea.Msg {
+			return assertionsLoadedMsg{storeID: m.storeID, modelID: m.modelID, gen: m.assertLoadGen, err: context.Canceled}
+		}},
+		{"queryResultMsg", func(m Model) tea.Msg {
+			return queryResultMsg{storeID: m.storeID, modelID: m.modelID, gen: m.queryGen, err: context.Canceled}
+		}},
 	}
-	if cmd != nil {
-		t.Fatal("a cancelled completion must not push an error toast or any other command")
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTestModel().(Model)
+			m.pendingLoads = 1
+			m.loading = true
+
+			tm, cmd := m.Update(tc.msg(m))
+			got := tm.(Model)
+
+			if got.pendingLoads != 0 || got.loading {
+				t.Fatalf("a cancelled completion must free its pendingLoads slot exactly once, got pendingLoads=%d loading=%v",
+					got.pendingLoads, got.loading)
+			}
+			if cmd != nil {
+				t.Fatal("a cancelled completion must not push an error toast or any other command")
+			}
+			if got.connLost {
+				t.Fatal("a cancelled completion must not be reported as a lost connection")
+			}
+			if got.status == "connection failed" || strings.Contains(got.status, "failed") {
+				t.Fatalf("a cancelled completion must not set a failure status, got %q", got.status)
+			}
+		})
 	}
 }
 
@@ -199,42 +287,73 @@ func TestCanceledLoadCompletionStillFreesPendingSlot(t *testing.T) {
 // every later request would fail instantly — and, because staleCancel now
 // drops cancellations silently, it would do so with no visible error at all.
 func TestStoreSelectionKeepsUsableRequestContext(t *testing.T) {
+	// The profile switcher needs a config with profiles in it; newTestModel's is
+	// empty, which would leave that case selecting nothing at all.
+	withProfiles := func() tea.Model {
+		cfg := config.New()
+		cfg.Set("default", config.Profile{APIURL: "http://server-a.example"})
+		cfg.Set("other", config.Profile{APIURL: "http://server-b.example"})
+		cl, _ := openfga.NewClient("http://server-a.example")
+		a := cli.New(log.New(io.Discard), cfg, "test")
+		var m tea.Model = newModel(context.Background(), a, cl, "store-1", "")
+		m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
+		return m
+	}
+
 	tests := []struct {
-		name string
-		run  func(tea.Model) tea.Model
+		name  string
+		start func() tea.Model
+		run   func(tea.Model) tea.Model
 	}{
-		{"auto-select on first stores load", func(m tea.Model) tea.Model {
+		{"auto-select on first stores load", newTestModel, func(m tea.Model) tea.Model {
 			mm := m.(Model)
 			mm.storeID = "" // nothing selected yet — triggers the auto-select path
 			out, _ := mm.Update(storesLoadedMsg{stores: []openfga.Store{{ID: "store-9", Name: "nine"}}})
 			return out
 		}},
-		{"enter on the stores list", func(m tea.Model) tea.Model {
+		{"enter on the stores list", newTestModel, func(m tea.Model) tea.Model {
 			mm := m.(Model)
 			mm.section = secStores
 			mm.focus = shell.FocusPanel // section keys only fire with the panel focused
 			out, _ := mm.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 			return out
 		}},
-		{"store created", func(m tea.Model) tea.Model {
+		{"store created", newTestModel, func(m tea.Model) tea.Model {
 			out, _ := m.Update(storeCreatedMsg{store: openfga.Store{ID: "store-new", Name: "new"}})
+			return out
+		}},
+		{"enter on the profiles list", withProfiles, func(m tea.Model) tea.Model {
+			// Reaches switchProfile -> activateResolved, the connection-wide
+			// renewal — the highest-consequence site of this hazard.
+			mm := m.(Model)
+			mm.section = secProfiles
+			mm.focus = shell.FocusPanel
+			// Move off the active profile first: switchProfile early-returns
+			// with "already on profile X" when the pick is the current one.
+			down, _ := mm.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+			out, _ := down.(Model).Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 			return out
 		}},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			start := newTestModel()
+			// selectStore persists the store and switchProfile the profile —
+			// isolate the config so neither touches the real one.
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+			start := tc.start()
 			oldCtx := start.(Model).reqCtx
 
 			got := tc.run(start).(Model)
 
-			// selectStore has no early return, so reaching it always renews the
-			// context. Identity therefore proves the call happened at all —
-			// without this the remaining assertions could pass vacuously on a
-			// handler that never selected a store.
+			// Renewal is unconditional once selectStore/activateResolved is
+			// reached, so a changed identity proves the handler got there.
+			// Without this the remaining assertions would pass vacuously on a
+			// handler that selected nothing (or, for profiles, early-returned
+			// on "already on profile X").
 			if got.reqCtx == oldCtx {
-				t.Fatal("selectStore never ran: the request context was not renewed")
+				t.Fatal("the renewing call never ran: the request context is unchanged")
 			}
 			if !errors.Is(oldCtx.Err(), context.Canceled) {
 				t.Fatalf("the superseded selection's context should be cancelled, got %v", oldCtx.Err())
