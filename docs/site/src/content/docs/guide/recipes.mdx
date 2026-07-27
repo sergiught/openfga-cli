@@ -57,6 +57,28 @@ latest model, so it needs no argument beyond the user and the object. Pass
 `--relation` (repeatable) to test only the ones you name. It runs on top of
 `batch-check`, so it needs OpenFGA >= 1.8.0.
 
+## Trading consistency for latency
+
+Reads default to `HIGHER_CONSISTENCY`, which bypasses the server's caches so a
+check never sees a stale answer right after a write. That costs latency. On
+read paths where a slightly stale answer is fine — a dashboard listing, a
+warm-up query — `--consistency MINIMIZE_LATENCY` lets the server serve from
+cache instead.
+
+```bash
+# Correctness matters: the default, no flag needed.
+ofga query check user:anne viewer document:roadmap
+
+# Latency matters more than freshness.
+ofga query list-objects document viewer user:anne --consistency MINIMIZE_LATENCY
+ofga tuples read --object document:roadmap --consistency MINIMIZE_LATENCY
+```
+
+The flag is available on `query check`, `query batch-check`, `query expand`,
+`query list-objects`, `query list-users`, `query list-relations` and
+`tuples read`. `UNSPECIFIED` hands
+the choice back to the server's own default.
+
 ## Multi-environment profiles
 
 A profile bundles an API URL, store/model ID, and auth. Add one per

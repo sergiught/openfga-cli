@@ -290,6 +290,7 @@ func (c *Command) readCmd() *cobra.Command {
 		user, relation, object string
 		pageSize               int
 		maxResults             int
+		fConsistency           string
 	)
 	cmd := &cobra.Command{
 		Use:   "read",
@@ -308,6 +309,10 @@ func (c *Command) readCmd() *cobra.Command {
 			if pageSize < 0 {
 				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--page-size must be non-negative"))
 			}
+			ropts, err := cli.ConsistencyOption(fConsistency)
+			if err != nil {
+				return err
+			}
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
@@ -318,7 +323,7 @@ func (c *Command) readCmd() *cobra.Command {
 			}
 			output.Progressf(cmd.ErrOrStderr(), "fetching tuples…")
 			var tuples []openfga.Tuple
-			for t, err := range cl.Tuples.ReadAll(cmd.Context(), req) {
+			for t, err := range cl.Tuples.ReadAll(cmd.Context(), req, ropts...) {
 				if err != nil {
 					return err
 				}
@@ -365,6 +370,7 @@ func (c *Command) readCmd() *cobra.Command {
 	f.IntVar(&pageSize, "page-size", 50, "per-request page size (0 = server default; not a total cap)")
 	f.IntVar(&maxResults, "max-results", 0, "cap the total number of tuples returned (0 = unbounded)")
 	f.IntVar(&maxResults, "limit", 0, "alias for --max-results")
+	cli.RegisterConsistencyFlag(f, &fConsistency)
 	return cmd
 }
 

@@ -117,6 +117,7 @@ func (c *Command) checkCmd() *cobra.Command {
 		contextJSON       string
 		ctxTuples         []string
 		fUser, fRel, fObj string
+		fConsistency      string
 	)
 	cmd := &cobra.Command{
 		Use:   "check [user] [relation] [object]",
@@ -144,6 +145,10 @@ func (c *Command) checkCmd() *cobra.Command {
 			if err != nil {
 				return clierr.WithCode(clierr.CodeUsage, err)
 			}
+			ropts, err := cli.ConsistencyOption(fConsistency)
+			if err != nil {
+				return err
+			}
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
@@ -153,7 +158,7 @@ func (c *Command) checkCmd() *cobra.Command {
 				Context:          cx,
 				ContextualTuples: ct,
 			}
-			res, err := cl.Relationships.Check(cmd.Context(), req)
+			res, err := cl.Relationships.Check(cmd.Context(), req, ropts...)
 			if err != nil {
 				return err
 			}
@@ -176,11 +181,15 @@ func (c *Command) checkCmd() *cobra.Command {
 	f.StringVar(&fObj, "object", "", "object (alternative to the positional arg)")
 	f.StringVar(&contextJSON, "context", "", "JSON object of condition context")
 	f.StringArrayVar(&ctxTuples, "contextual-tuple", nil, "contextual tuple as user,relation,object (repeatable)")
+	cli.RegisterConsistencyFlag(f, &fConsistency)
 	return cmd
 }
 
 func (c *Command) batchCheckCmd() *cobra.Command {
-	var checks []string
+	var (
+		checks       []string
+		fConsistency string
+	)
 	cmd := &cobra.Command{
 		Use:     "batch-check --check user,relation,object [...]",
 		Short:   "Run several checks in one request",
@@ -220,14 +229,19 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 				})
 				labels = append(labels, fmt.Sprintf("%s %s %s", key.User, key.Relation, key.Object))
 			}
+			ropts, err := cli.ConsistencyOption(fConsistency)
+			if err != nil {
+				return err
+			}
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
 			}
 			// BatchCheckAll chunks Checks into requests of at most the server's
 			// 50-item /batch-check cap and merges the results; BatchCheck alone
-			// would send everything as one request and 400 past 50 items.
-			res, callErr := cl.Relationships.BatchCheckAll(cmd.Context(), &openfga.BatchCheckRequest{Checks: items})
+			// would send everything as one request and 400 past 50 items. The
+			// consistency option rides along on every chunk.
+			res, callErr := cl.Relationships.BatchCheckAll(cmd.Context(), &openfga.BatchCheckRequest{Checks: items}, ropts...)
 			if res == nil {
 				return callErr
 			}
@@ -265,11 +279,15 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 	}
 	cmd.Flags().StringArrayVar(&checks, "check", nil, "a check as user,relation,object (repeatable)")
 	_ = cmd.MarkFlagRequired("check")
+	cli.RegisterConsistencyFlag(cmd.Flags(), &fConsistency)
 	return cmd
 }
 
 func (c *Command) expandCmd() *cobra.Command {
-	var fRel, fObj string
+	var (
+		fRel, fObj   string
+		fConsistency string
+	)
 	cmd := &cobra.Command{
 		Use:   "expand [relation] [object]",
 		Short: "Expand the userset tree that grants a relation (JSON)",
@@ -285,12 +303,16 @@ func (c *Command) expandCmd() *cobra.Command {
 			if err := fga.ValidateObjectRef(object); err != nil {
 				return clierr.WithCode(clierr.CodeUsage, err)
 			}
+			ropts, err := cli.ConsistencyOption(fConsistency)
+			if err != nil {
+				return err
+			}
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
 			}
 			req := &openfga.ExpandRequest{TupleKey: openfga.CheckRequestTupleKey{Relation: relation, Object: object}}
-			res, err := cl.Relationships.Expand(cmd.Context(), req)
+			res, err := cl.Relationships.Expand(cmd.Context(), req, ropts...)
 			if err != nil {
 				return err
 			}
@@ -305,15 +327,17 @@ func (c *Command) expandCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&fRel, "relation", "", "relation (alternative to the positional arg)")
 	cmd.Flags().StringVar(&fObj, "object", "", "object (alternative to the positional arg)")
+	cli.RegisterConsistencyFlag(cmd.Flags(), &fConsistency)
 	return cmd
 }
 
 func (c *Command) listRelationsCmd() *cobra.Command {
 	var (
-		contextJSON string
-		ctxTuples   []string
-		relations   []string
-		fUser, fObj string
+		contextJSON  string
+		ctxTuples    []string
+		relations    []string
+		fUser, fObj  string
+		fConsistency string
 	)
 	cmd := &cobra.Command{
 		Use:     "list-relations [user] [object]",
@@ -350,6 +374,10 @@ func (c *Command) listRelationsCmd() *cobra.Command {
 			if err != nil {
 				return clierr.WithCode(clierr.CodeUsage, err)
 			}
+			ropts, err := cli.ConsistencyOption(fConsistency)
+			if err != nil {
+				return err
+			}
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
@@ -373,7 +401,7 @@ func (c *Command) listRelationsCmd() *cobra.Command {
 				Relations:        candidates,
 				Context:          cx,
 				ContextualTuples: ct,
-			})
+			}, ropts...)
 			if err != nil {
 				return err
 			}
@@ -405,6 +433,7 @@ func (c *Command) listRelationsCmd() *cobra.Command {
 		"relation to test (repeatable; default: every relation on the object's type)")
 	cmd.Flags().StringVar(&contextJSON, "context", "", "JSON object of condition context")
 	cmd.Flags().StringArrayVar(&ctxTuples, "contextual-tuple", nil, "contextual tuple as user,relation,object (repeatable)")
+	cli.RegisterConsistencyFlag(cmd.Flags(), &fConsistency)
 	return cmd
 }
 
@@ -427,6 +456,7 @@ func (c *Command) listObjectsCmd() *cobra.Command {
 		contextJSON           string
 		ctxTuples             []string
 		objectType, rel, user string
+		fConsistency          string
 	)
 	cmd := &cobra.Command{
 		Use:     "list-objects [type] [relation] [user]",
@@ -453,12 +483,16 @@ func (c *Command) listObjectsCmd() *cobra.Command {
 			if err != nil {
 				return clierr.WithCode(clierr.CodeUsage, err)
 			}
+			ropts, err := cli.ConsistencyOption(fConsistency)
+			if err != nil {
+				return err
+			}
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
 			}
 			req := &openfga.ListObjectsRequest{Type: values[0], Relation: values[1], User: values[2], Context: cx, ContextualTuples: ct}
-			res, err := cl.Relationships.ListObjects(cmd.Context(), req)
+			res, err := cl.Relationships.ListObjects(cmd.Context(), req, ropts...)
 			if err != nil {
 				return err
 			}
@@ -489,15 +523,17 @@ func (c *Command) listObjectsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&objectType, "type", "", "object type")
 	cmd.Flags().StringVar(&rel, "relation", "", "relation")
 	cmd.Flags().StringVar(&user, "user", "", "user")
+	cli.RegisterConsistencyFlag(cmd.Flags(), &fConsistency)
 	return cmd
 }
 
 func (c *Command) listUsersCmd() *cobra.Command {
 	var (
-		contextJSON string
-		ctxTuples   []string
-		userTypes   []string
-		object, rel string
+		contextJSON  string
+		ctxTuples    []string
+		userTypes    []string
+		object, rel  string
+		fConsistency string
 	)
 	cmd := &cobra.Command{
 		Use:     "list-users [object] [relation] --type <user-type>",
@@ -524,6 +560,10 @@ func (c *Command) listUsersCmd() *cobra.Command {
 			if err != nil {
 				return clierr.WithCode(clierr.CodeUsage, err)
 			}
+			ropts, err := cli.ConsistencyOption(fConsistency)
+			if err != nil {
+				return err
+			}
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
@@ -543,7 +583,7 @@ func (c *Command) listUsersCmd() *cobra.Command {
 				Context:          cx,
 				ContextualTuples: ct,
 			}
-			res, err := cl.Relationships.ListUsers(cmd.Context(), req)
+			res, err := cl.Relationships.ListUsers(cmd.Context(), req, ropts...)
 			if err != nil {
 				return err
 			}
@@ -574,6 +614,7 @@ func (c *Command) listUsersCmd() *cobra.Command {
 	cmd.Flags().StringVar(&rel, "relation", "", "relation")
 	cmd.Flags().StringVar(&contextJSON, "context", "", "JSON object of condition context")
 	cmd.Flags().StringArrayVar(&ctxTuples, "contextual-tuple", nil, "contextual tuple as user,relation,object (repeatable)")
+	cli.RegisterConsistencyFlag(cmd.Flags(), &fConsistency)
 	_ = cmd.MarkFlagRequired("type")
 	return cmd
 }
