@@ -1,27 +1,26 @@
 ---
-title: "ofga query list-objects"
-description: "List objects of a type a user has a relation with"
+title: "ofga query list-relations"
+description: "List the relations a user has on an object"
 sidebar:
-  order: 103
+  order: 104
 ---
 
-import CommandDemo from '../../../../components/CommandDemo.astro';
+List the relations a user has on an object. Without --relation, every relation defined on the object's type in the latest authorization model is tested; --relation narrows that to the ones you name (repeatable).
 
-<CommandDemo slug="query-list-objects" />
-
-List objects of a type a user has a relation with
+This issues one batch-check per chunk of relations, so it needs OpenFGA >= 1.8.0.
 
 ## Usage
 
 ```sh
-ofga query list-objects [type] [relation] [user] [flags]
+ofga query list-relations [user] [object] [flags]
 ```
 
 ## Examples
 
 ```sh
-  ofga query list-objects --type document --relation viewer --user user:anne
-  ofga query list-objects document viewer user:anne
+  ofga query list-relations user:anne document:roadmap
+  ofga query list-relations --user user:anne --object document:roadmap
+  ofga query list-relations user:anne document:roadmap --relation viewer --relation editor
 ```
 
 ## Flags
@@ -30,9 +29,9 @@ ofga query list-objects [type] [relation] [user] [flags]
 | --- | --- | --- |
 | `--context` | JSON object of condition context |   |
 | `--contextual-tuple` | contextual tuple as user,relation,object (repeatable) | `[]` |
-| `--relation` | relation |   |
-| `--type` | object type |   |
-| `--user` | user |   |
+| `--object` | object (alternative to the positional arg) |   |
+| `--relation` | relation to test (repeatable; default: every relation on the object's type) | `[]` |
+| `--user` | user (alternative to the positional arg) |   |
 
 <details>
 <summary>Global flags</summary>
@@ -66,5 +65,5 @@ ofga query list-objects [type] [relation] [user] [flags]
 - [ofga query batch-check](../batch-check/)
 - [ofga query check](../check/)
 - [ofga query expand](../expand/)
-- [ofga query list-relations](../list-relations/)
+- [ofga query list-objects](../list-objects/)
 - [ofga query list-users](../list-users/)

@@ -39,6 +39,7 @@ func New(cli *cli.CLI) *Command {
 			"  check        <user> <relation> <object>   (user first)\n" +
 			"  list-objects <type> <relation> <user>     (user last)\n" +
 			"  list-users   <object> <relation>          (object first, --type for the user filter)\n" +
+			"  list-relations <user> <object>            (user first)\n" +
 			"  expand       <relation> <object>\n" +
 			"Use the named flags (--user/--relation/--object) where available if the order is easy to mix up.",
 	}
@@ -57,6 +58,7 @@ func (c *Command) RegisterSubCommands() {
 		c.expandCmd(),
 		c.listObjectsCmd(),
 		c.listUsersCmd(),
+		c.listRelationsCmd(),
 	)
 }
 
@@ -279,6 +281,120 @@ func (c *Command) expandCmd() *cobra.Command {
 	cmd.Flags().StringVar(&fRel, "relation", "", "relation (alternative to the positional arg)")
 	cmd.Flags().StringVar(&fObj, "object", "", "object (alternative to the positional arg)")
 	return cmd
+}
+
+func (c *Command) listRelationsCmd() *cobra.Command {
+	var (
+		contextJSON string
+		ctxTuples   []string
+		relations   []string
+		fUser, fObj string
+	)
+	cmd := &cobra.Command{
+		Use:     "list-relations [user] [object]",
+		Aliases: []string{"relations"},
+		Short:   "List the relations a user has on an object",
+		Example: "  ofga query list-relations user:anne document:roadmap\n" +
+			"  ofga query list-relations --user user:anne --object document:roadmap\n" +
+			"  ofga query list-relations user:anne document:roadmap --relation viewer --relation editor",
+		Long: "List the relations a user has on an object. Without --relation, every relation " +
+			"defined on the object's type in the latest authorization model is tested; " +
+			"--relation narrows that to the ones you name (repeatable).\n\n" +
+			"This issues one batch-check per chunk of relations, so it needs OpenFGA >= 1.8.0.",
+		Args: cobra.MaximumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			values, err := resolveArgs(args, []string{fUser, fObj}, []string{"user", "object"})
+			if err != nil {
+				return clierr.WithCode(clierr.CodeUsage, err)
+			}
+			user, object := values[0], values[1]
+			if err := fga.ValidateUserRef(user); err != nil {
+				return clierr.WithCode(clierr.CodeUsage, err)
+			}
+			if err := fga.ValidateObjectRef(object); err != nil {
+				return clierr.WithCode(clierr.CodeUsage, err)
+			}
+			if dup, ok := firstDuplicate(relations); ok {
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--relation %q given more than once", dup))
+			}
+			cx, err := parseContext(contextJSON)
+			if err != nil {
+				return clierr.WithCode(clierr.CodeUsage, err)
+			}
+			ct, err := parseContextualTuples(ctxTuples)
+			if err != nil {
+				return clierr.WithCode(clierr.CodeUsage, err)
+			}
+			cl, _, err := c.cli.ClientWithStore()
+			if err != nil {
+				return err
+			}
+			candidates := relations
+			if len(candidates) == 0 {
+				// No --relation: the candidate set is whatever the object's type
+				// declares, which only the model knows.
+				m, err := cl.AuthorizationModels.ReadLatest(cmd.Context())
+				if err != nil {
+					return err
+				}
+				candidates, err = fga.ParseModel(m).RelationsForObject(object)
+				if err != nil {
+					return clierr.WithCode(clierr.CodeUsage, err)
+				}
+			}
+			allowed, err := cl.Relationships.ListRelations(cmd.Context(), &openfga.ListRelationsRequest{
+				User:             user,
+				Object:           object,
+				Relations:        candidates,
+				Context:          cx,
+				ContextualTuples: ct,
+			})
+			if err != nil {
+				return err
+			}
+			if c.cli.JSON || c.cli.YAML {
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, allowed)
+			}
+			if len(allowed) == 0 {
+				output.Infof(cmd.ErrOrStderr(), "no relations")
+				return nil
+			}
+			for _, r := range allowed {
+				safe := output.SanitizeField(r)
+				if output.Plain {
+					if _, err := fmt.Fprintln(cmd.OutOrStdout(), safe); err != nil {
+						return err
+					}
+				} else {
+					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", style.Bullet(), safe); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&fUser, "user", "", "user (alternative to the positional arg)")
+	cmd.Flags().StringVar(&fObj, "object", "", "object (alternative to the positional arg)")
+	cmd.Flags().StringArrayVar(&relations, "relation", nil,
+		"relation to test (repeatable; default: every relation on the object's type)")
+	cmd.Flags().StringVar(&contextJSON, "context", "", "JSON object of condition context")
+	cmd.Flags().StringArrayVar(&ctxTuples, "contextual-tuple", nil, "contextual tuple as user,relation,object (repeatable)")
+	return cmd
+}
+
+// firstDuplicate reports the first value that appears twice. The SDK rejects a
+// duplicate relation, but as a runtime error; catching it here keeps a typo in
+// repeated --relation flags a usage error.
+func firstDuplicate(vals []string) (string, bool) {
+	seen := make(map[string]struct{}, len(vals))
+	for _, v := range vals {
+		if _, ok := seen[v]; ok {
+			return v, true
+		}
+		seen[v] = struct{}{}
+	}
+	return "", false
 }
 
 func (c *Command) listObjectsCmd() *cobra.Command {

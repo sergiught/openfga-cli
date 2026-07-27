@@ -56,6 +56,32 @@ type Graph struct {
 	src *openfga.AuthorizationModel
 }
 
+// RelationsForObject returns every relation defined on the type of object (the
+// part before the ":"), in the graph's sorted order. It backs the
+// list-relations query, which tests a user against all of them. It errors when
+// object carries no type, the type is absent from the model, or the type has no
+// relations — none of which yield anything to test.
+func (g Graph) RelationsForObject(object string) ([]string, error) {
+	typ, _, ok := strings.Cut(object, ":")
+	if !ok || typ == "" {
+		return nil, fmt.Errorf("object %q has no type (expected type:id)", object)
+	}
+	for _, t := range g.Types {
+		if t.Name != typ {
+			continue
+		}
+		if len(t.Relations) == 0 {
+			return nil, fmt.Errorf("type %q has no relations to test", typ)
+		}
+		rels := make([]string, len(t.Relations))
+		for i, r := range t.Relations {
+			rels[i] = r.Name
+		}
+		return rels, nil
+	}
+	return nil, fmt.Errorf("type %q is not defined in the model", typ)
+}
+
 // RenderWeightedDiagram draws the fully-expanded weighted graph (relation,
 // operator, direct-grouping and terminal-type nodes with per-terminal-type
 // weights), in the style of openfga/model-visualizer. It is built lazily so the

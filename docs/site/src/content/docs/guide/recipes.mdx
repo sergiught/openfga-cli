@@ -47,7 +47,15 @@ fi
 
 # Which documents can anne view?
 ofga query list-objects document viewer user:anne --plain | wc -l
+
+# What can anne do with this one document? (every relation on document, tested)
+ofga query list-relations user:anne document:roadmap --plain
 ```
+
+`list-relations` derives its candidate relations from the object's type in the
+latest model, so it needs no argument beyond the user and the object. Pass
+`--relation` (repeatable) to test only the ones you name. It runs on top of
+`batch-check`, so it needs OpenFGA >= 1.8.0.
 
 ## Multi-environment profiles
 

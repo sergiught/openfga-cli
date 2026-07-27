@@ -38,12 +38,12 @@ func TestQueryFieldCount(t *testing.T) {
 func TestRelationsForType(t *testing.T) {
 	g := sampleGraph() // type document has relations owner, viewer
 
-	got, err := relationsForType(g, "document:roadmap")
+	got, err := g.RelationsForObject("document:roadmap")
 	if err != nil {
-		t.Fatalf("relationsForType(document:roadmap) errored: %v", err)
+		t.Fatalf("RelationsForObject(document:roadmap) errored: %v", err)
 	}
 	if want := []string{"owner", "viewer"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("relationsForType(document:roadmap) = %v, want %v", got, want)
+		t.Errorf("RelationsForObject(document:roadmap) = %v, want %v", got, want)
 	}
 }
 
@@ -52,8 +52,8 @@ func TestRelationsForType(t *testing.T) {
 func TestRelationsForTypeErrors(t *testing.T) {
 	g := sampleGraph()
 	for _, object := range []string{"roadmap", "widget:x", "user:anne"} {
-		if _, err := relationsForType(g, object); err == nil {
-			t.Errorf("relationsForType(%q) = nil error, want error", object)
+		if _, err := g.RelationsForObject(object); err == nil {
+			t.Errorf("RelationsForObject(%q) = nil error, want error", object)
 		}
 	}
 }
