@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -93,6 +94,11 @@ func TestModelSwitchKeepsInFlightTupleLoadAlive(t *testing.T) {
 	// when the user switches models.
 	inFlightGen := m.tuplesGen
 	inFlightCtx := m.reqCtx
+	// Two slots: the tuples load in flight, and the model load whose completion
+	// is delivered below (its own handler frees that one). Without the second,
+	// the model switch would drain the counter to zero and endLoad's clamp would
+	// make the accounting assertion at the end hold no matter what.
+	m.beginLoad()
 	m.beginLoad()
 
 	tm, _ := m.Update(modelLoadedMsg{storeID: m.storeID, gen: m.modelGen, modelID: "model-b", graph: sampleGraph()})
@@ -100,6 +106,9 @@ func TestModelSwitchKeepsInFlightTupleLoadAlive(t *testing.T) {
 
 	if err := inFlightCtx.Err(); err != nil {
 		t.Fatalf("the in-flight tuples load was cancelled by the model switch: %v", err)
+	}
+	if mm.pendingLoads == 0 {
+		t.Fatal("the in-flight tuples load must still hold a pending slot after the model switch")
 	}
 
 	// It lands afterwards and must populate the pane rather than being dropped.
@@ -111,8 +120,8 @@ func TestModelSwitchKeepsInFlightTupleLoadAlive(t *testing.T) {
 	if len(got.tuples) != 1 {
 		t.Fatalf("the tuples load that survived the model switch should have populated the pane, got %d tuples", len(got.tuples))
 	}
-	if got.pendingLoads != 0 {
-		t.Fatalf("pendingLoads = %d, want 0 — the completion must free its slot", got.pendingLoads)
+	if want := mm.pendingLoads - 1; got.pendingLoads != want {
+		t.Fatalf("pendingLoads = %d, want %d — the completion must free exactly its own slot", got.pendingLoads, want)
 	}
 }
 
@@ -221,6 +230,77 @@ func TestSupersededLoadCancelsInFlightHTTPRequest(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("superseded load kept running instead of being cancelled")
+	}
+}
+
+// TestStoreSwitchDoesNotCancelTheStoresRefresh is the inverse of the test
+// above, pinning the one read deliberately kept off the request-scoped
+// context. The stores list is connection-scoped: selectStore neither bumps
+// storesGen nor re-dispatches loadStoresCmd, so cancelling a refresh that is
+// still current (the Stores section's "r" key) would strand the list on its
+// previous contents with no toast, status or spinner — the same hazard
+// clearResourcePending was fixed for, one call frame up.
+func TestStoreSwitchDoesNotCancelTheStoresRefresh(t *testing.T) {
+	requestStarted := make(chan struct{}, 1)
+	release := make(chan struct{})
+	releaseOnce := sync.OnceFunc(func() { close(release) })
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case requestStarted <- struct{}{}:
+		default:
+		}
+		select {
+		case <-release:
+			_, _ = w.Write([]byte(`{"stores":[{"id":"store-a","name":"A"}]}`))
+		case <-r.Context().Done():
+		}
+	}))
+	defer srv.Close()
+	// Registered after srv.Close() so LIFO releases the parked handler first —
+	// see the note in TestSupersededLoadCancelsInFlightHTTPRequest.
+	defer releaseOnce()
+
+	cl, _ := openfga.NewClient(srv.URL)
+	a := cli.New(log.New(io.Discard), config.New(), "test")
+	m := newModel(context.Background(), a, cl, "store-a", "")
+
+	cmd := loadStoresCmd(m.ctx, m.client, m.storesGen)
+
+	done := make(chan tea.Msg, 1)
+	go func() { done <- cmd() }()
+
+	select {
+	case <-requestStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the stores refresh never reached the mock server")
+	}
+
+	m.selectStore(openfga.Store{ID: "store-b", Name: "B"})
+
+	// Assert it is still parked *before* releasing: if the switch cancelled it,
+	// the handler has already returned and the result lands here. Releasing
+	// first would make both select arms ready in the handler and the test flaky.
+	select {
+	case msg := <-done:
+		t.Fatalf("the store switch cut the stores refresh short: %#v", msg)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	releaseOnce()
+	select {
+	case msg := <-done:
+		got, ok := msg.(storesLoadedMsg)
+		if !ok {
+			t.Fatalf("expected storesLoadedMsg, got %T", msg)
+		}
+		if got.err != nil {
+			t.Fatalf("the stores refresh must survive a store switch, got err=%v", got.err)
+		}
+		if len(got.stores) != 1 {
+			t.Fatalf("the surviving stores refresh should carry its page, got %d stores", len(got.stores))
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the stores refresh never completed")
 	}
 }
 

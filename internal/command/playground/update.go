@@ -469,13 +469,12 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.beginLoad()
 		m.storesGen++
 		// Sequenced explicitly: selectStore mutates m through a pointer (renewing
-		// reqCtx), and Go orders only the function calls in an expression, not
-		// the plain reads of m.reqCtx / m among them. Statements make the
-		// dependency unambiguous — the stores refresh must ride the *renewed*
-		// context, and m must be read after every mutation.
+		// reqCtx among other things), and Go orders only the function calls in an
+		// expression, not the plain read of m among them. Statements make the
+		// dependency unambiguous — m must be read after every mutation.
 		toastCmd := m.toasts.Push(toast.Success, m.status)
 		selectCmd := m.selectStore(msg.store)
-		cmds := tea.Batch(toastCmd, selectCmd, loadStoresCmd(m.reqCtx, m.client, m.storesGen))
+		cmds := tea.Batch(toastCmd, selectCmd, loadStoresCmd(m.ctx, m.client, m.storesGen))
 		return m, cmds
 
 	case storeDeletedMsg:
@@ -513,7 +512,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Bump storesGen: this refresh must not lose a race to (or win one
 		// against) another in-flight stores dispatch out of order.
 		m.storesGen++
-		cmds = append(cmds, loadStoresCmd(m.reqCtx, m.client, m.storesGen))
+		cmds = append(cmds, loadStoresCmd(m.ctx, m.client, m.storesGen))
 		return m, tea.Batch(cmds...)
 
 	case tupleWrittenMsg:

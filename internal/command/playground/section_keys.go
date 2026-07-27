@@ -153,7 +153,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			// triggers (or another manual reload) must not let the older of
 			// the two overwrite the newer list.
 			m.storesGen++
-			return m, loadStoresCmd(m.reqCtx, m.client, m.storesGen)
+			return m, loadStoresCmd(m.ctx, m.client, m.storesGen)
 		}
 		cmd := m.storesList.Update(msg)
 		return m, cmd

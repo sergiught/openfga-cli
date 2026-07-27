@@ -208,6 +208,13 @@ type queryResultMsg struct {
 
 // --- command builders ---
 
+// loadStoresCmd is the one read deliberately dispatched with the program
+// context rather than the request-scoped one: the stores list is
+// connection-scoped, not store-scoped, so selectStore — which renews the
+// request context — must not cancel a refresh that is still current and that
+// it does not re-issue. It stays protected by storesGen, and it is a single
+// cheap list call, so letting a superseded one run to completion costs nothing
+// worth a scope exception.
 func loadStoresCmd(ctx context.Context, cl *openfga.Client, gen int) tea.Cmd {
 	return func() tea.Msg {
 		var stores []openfga.Store

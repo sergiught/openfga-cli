@@ -552,7 +552,7 @@ func initialPendingLoads(storeID string) int {
 
 // Init kicks off initial loads.
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.spinner.Tick, loadStoresCmd(m.reqCtx, m.client, m.storesGen)}
+	cmds := []tea.Cmd{m.spinner.Tick, loadStoresCmd(m.ctx, m.client, m.storesGen)}
 	if m.bootNotice != "" {
 		notice := m.bootNotice
 		cmds = append(cmds, func() tea.Msg { return bootNoticeMsg{text: notice} })
@@ -1103,9 +1103,11 @@ func (m *Model) pushHistory(h histEntry) {
 // --- store selection ---
 
 func (m *Model) selectStore(s openfga.Store) tea.Cmd {
-	// Every read generation is bumped and all four loads re-dispatched below,
-	// so nothing in flight survives this call as current — cancel it outright
-	// rather than letting it run to completion just to be dropped on arrival.
+	// Every store-scoped read generation is bumped and all four loads
+	// re-dispatched below, so no store-scoped request in flight survives this
+	// call as current — cancel it outright rather than letting it run to
+	// completion just to be dropped on arrival. The stores list is the one read
+	// this must not reach, which is why loadStoresCmd rides m.ctx instead.
 	m.renewReqCtx()
 	m.clearResourcePending()
 	m.storeID = s.ID
@@ -1448,7 +1450,7 @@ func (m *Model) activateResolved(r config.Resolved, cl *openfga.Client, status s
 	m.queryGen++
 	m.resGen++
 	m.assertGen++
-	cmds := []tea.Cmd{loadStoresCmd(m.reqCtx, m.client, m.storesGen)}
+	cmds := []tea.Cmd{loadStoresCmd(m.ctx, m.client, m.storesGen)}
 	if m.storeID != "" {
 		m.beginLoad()
 		m.beginLoad()
@@ -1570,11 +1572,12 @@ func (m Model) staleMutation(origin mutationOrigin, currentGen int) bool {
 // completion.
 //
 // Only call it where a whole batch of in-flight work is both superseded and
-// re-dispatched: selectStore (bumps all eight read generations, restarts the
-// four loads) and activateResolved (reconnect). Cancelling somewhere that
-// invalidates only *part* of what's in flight would kill live requests nothing
-// re-issues — see clearResourcePending for the case that bit us. It is also
-// called once from newModel to install the first context.
+// re-dispatched: selectStore (bumps all eight store-scoped read generations,
+// restarts the four loads) and activateResolved (reconnect). Cancelling
+// somewhere that invalidates only *part* of what's in flight would kill live
+// requests nothing re-issues — see clearResourcePending for the case that bit
+// us, and loadStoresCmd for the read kept off this context for the same
+// reason. It is also called once from newModel to install the first context.
 func (m *Model) renewReqCtx() {
 	if m.reqCancel != nil {
 		m.reqCancel()
