@@ -9,7 +9,29 @@ import CommandDemo from '../../../../components/CommandDemo.astro';
 
 <CommandDemo slug="tuples-delete" />
 
-Delete one relationship tuple, or many with --file
+Delete one relationship tuple, or many with --file.
+
+--file accepts json, jsonl, yaml and csv. The format is inferred from the file
+extension (.json, .jsonl/.ndjson, .yaml/.yml, .csv) and can be forced with
+--file-format. Stdin ("--file -") has no extension, so it is read as json
+unless --file-format says otherwise.
+
+json and yaml accept three shapes:
+  - an array of \{user, relation, object, condition} tuples
+  - an object \{"tuples": [ ... ]}
+  - the \{"key": \{...}, "timestamp": ...} array that 'ofga tuples read --json'
+    emits, so an export feeds straight back in (timestamp is ignored)
+
+jsonl is one such tuple (or read-export entry) per line.
+
+csv columns, in any order (unknown columns are an error):
+  user_type, user_id, user_relation, relation, object_type, object_id,
+  condition_name, condition_context
+  user_type, user_id, relation, object_type and object_id are required.
+  user_relation builds a userset subject (group:eng#member).
+  condition_context is a JSON object inside a single csv field.
+
+Unknown fields are rejected rather than silently ignored.
 
 ## Usage
 
@@ -23,6 +45,7 @@ ofga tuples delete [user] [relation] [object] [flags]
   ofga tuples delete user:anne viewer document:roadmap
   ofga tuples delete --user user:anne --relation viewer --object document:roadmap
   ofga tuples delete --file tuples.json
+  ofga tuples delete --file tuples.csv
 ```
 
 ## Flags
@@ -30,9 +53,14 @@ ofga tuples delete [user] [relation] [object] [flags]
 | Flag | Description | Default |
 | --- | --- | --- |
 | `-n, --dry-run` | show the tuple that would be deleted without deleting it | `false` |
-| `--file` | JSON file of tuples to delete in bulk ('-' for stdin) |   |
+| `--failed-file` | write the tuples that could not be deleted to this path, in the same format as --file, ready to re-run |   |
+| `--file` | file of tuples to delete in bulk ('-' for stdin) |   |
+| `--file-format` | format of --file: json\|jsonl\|yaml\|csv (default: inferred from the extension; json for stdin) |   |
 | `-f, --force` | skip the confirmation prompt | `false` |
+| `--max-parallel-requests` | --file requests to keep in flight at once | `1` |
+| `--max-tuples-per-write` | tuples per --file request | `100` |
 | `--object` | object (alternative to the positional arg) |   |
+| `--on-missing` | how --file handles a tuple that does not exist: error\|ignore (requires OpenFGA >= 1.10 for ignore) | `error` |
 | `--relation` | relation (alternative to the positional arg) |   |
 | `--user` | user (alternative to the positional arg) |   |
 

@@ -3,7 +3,6 @@
 package tuple
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -62,6 +61,7 @@ func (c *Command) writeCmd() *cobra.Command {
 		file, fileFormat              string
 		fUser, fRel, fObj             string
 		fCondition, fConditionContext string
+		bulk                          bulkOpts
 	)
 	cmd := &cobra.Command{
 		Use:     "write [user] [relation] [object]",
@@ -88,6 +88,10 @@ func (c *Command) writeCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				bulk.format = format
+				if err := bulk.validate(false); err != nil {
+					return err
+				}
 				keys, err := bulkTuples(cmd, file, format, args, fUser, fRel, fObj, false)
 				if err != nil {
 					return err
@@ -106,19 +110,7 @@ func (c *Command) writeCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				written, err := writeInBatches(cmd.Context(), cl, keys, false)
-				if err != nil {
-					_ = emitBatchResult(cmd, c.cli, "written", written, len(keys), false)
-					return err
-				}
-				if c.cli.JSON || c.cli.YAML {
-					return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]int{"written": len(keys)})
-				}
-				if output.Plain {
-					return output.KeyValues(cmd.OutOrStdout(), [][2]string{{"written", fmt.Sprint(len(keys))}})
-				}
-				output.Successf(cmd.ErrOrStderr(), "wrote %d tuple(s)", len(keys))
-				return nil
+				return runBulk(cmd, c.cli, cl, keys, false, bulk)
 			}
 			user, relation, object, err := fga.Triple(args, fUser, fRel, fObj)
 			if err != nil {
@@ -171,7 +163,21 @@ func (c *Command) writeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&fObj, "object", "", "object (alternative to the positional arg)")
 	cmd.Flags().StringVar(&fCondition, "condition", "", "ABAC condition name to attach to the tuple")
 	cmd.Flags().StringVar(&fConditionContext, "condition-context", "", "JSON object of condition context parameters (requires --condition)")
+	cmd.Flags().StringVar(&bulk.onDuplicate, "on-duplicate", string(openfga.OnDuplicateError),
+		"how --file handles a tuple that already exists: error|ignore (requires OpenFGA >= 1.10 for ignore)")
+	registerBulkThroughputFlags(cmd, &bulk, "written")
 	return cmd
+}
+
+// registerBulkThroughputFlags adds the --file execution flags shared by write
+// and delete. done is the past participle used in the help text.
+func registerBulkThroughputFlags(cmd *cobra.Command, bulk *bulkOpts, done string) {
+	cmd.Flags().StringVar(&bulk.failedFile, "failed-file", "",
+		"write the tuples that could not be "+done+" to this path, in the same format as --file, ready to re-run")
+	cmd.Flags().IntVar(&bulk.maxPerChunk, "max-tuples-per-write", maxTuplesPerWrite,
+		"tuples per --file request")
+	cmd.Flags().IntVar(&bulk.maxParallel, "max-parallel-requests", 1,
+		"--file requests to keep in flight at once")
 }
 
 func (c *Command) deleteCmd() *cobra.Command {
@@ -180,6 +186,7 @@ func (c *Command) deleteCmd() *cobra.Command {
 		dryRun            bool
 		file, fileFormat  string
 		fUser, fRel, fObj string
+		bulk              bulkOpts
 	)
 	cmd := &cobra.Command{
 		Use:     "delete [user] [relation] [object]",
@@ -195,6 +202,10 @@ func (c *Command) deleteCmd() *cobra.Command {
 			if file != "" {
 				format, err := resolveBulkFormat(file, fileFormat)
 				if err != nil {
+					return err
+				}
+				bulk.format = format
+				if err := bulk.validate(true); err != nil {
 					return err
 				}
 				keys, err := bulkTuples(cmd, file, format, args, fUser, fRel, fObj, true)
@@ -219,19 +230,7 @@ func (c *Command) deleteCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				deleted, err := writeInBatches(cmd.Context(), cl, keys, true)
-				if err != nil {
-					_ = emitBatchResult(cmd, c.cli, "deleted", deleted, len(keys), false)
-					return err
-				}
-				if c.cli.JSON || c.cli.YAML {
-					return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]int{"deleted": len(keys)})
-				}
-				if output.Plain {
-					return output.KeyValues(cmd.OutOrStdout(), [][2]string{{"deleted", fmt.Sprint(len(keys))}})
-				}
-				output.Successf(cmd.ErrOrStderr(), "deleted %d tuple(s)", len(keys))
-				return nil
+				return runBulk(cmd, c.cli, cl, keys, true, bulk)
 			}
 			user, relation, object, err := fga.Triple(args, fUser, fRel, fObj)
 			if err != nil {
@@ -280,6 +279,9 @@ func (c *Command) deleteCmd() *cobra.Command {
 	cmd.Flags().StringVar(&fUser, "user", "", "user (alternative to the positional arg)")
 	cmd.Flags().StringVar(&fRel, "relation", "", "relation (alternative to the positional arg)")
 	cmd.Flags().StringVar(&fObj, "object", "", "object (alternative to the positional arg)")
+	cmd.Flags().StringVar(&bulk.onMissing, "on-missing", string(openfga.OnMissingError),
+		"how --file handles a tuple that does not exist: error|ignore (requires OpenFGA >= 1.10 for ignore)")
+	registerBulkThroughputFlags(cmd, &bulk, "deleted")
 	return cmd
 }
 
@@ -499,42 +501,4 @@ func bulkTuples(cmd *cobra.Command, file string, format bulkFormat, args []strin
 		keys = append(keys, key)
 	}
 	return keys, nil
-}
-
-// writeInBatches writes (or deletes, when del is true) keys in chunks that stay
-// under OpenFGA's per-request limit.
-func writeInBatches(ctx context.Context, cl *openfga.Client, keys []openfga.TupleKey, del bool) (int, error) {
-	completed := 0
-	for i := 0; i < len(keys); i += maxTuplesPerWrite {
-		end := min(i+maxTuplesPerWrite, len(keys))
-		chunk := keys[i:end]
-		req := &openfga.WriteRequest{}
-		if del {
-			req.Deletes = &openfga.WriteRequestTuples{TupleKeys: chunk}
-		} else {
-			req.Writes = &openfga.WriteRequestTuples{TupleKeys: chunk}
-		}
-		if err := cl.Tuples.Write(ctx, req); err != nil {
-			return completed, clierr.WithPartialResult(fmt.Errorf("tuples %d-%d failed after %d of %d tuple(s) were committed: %w",
-				i+1, end, completed, len(keys), err))
-		}
-		completed = end
-	}
-	return completed, nil
-}
-
-func emitBatchResult(cmd *cobra.Command, c *cli.CLI, field string, completed, total int, complete bool) error {
-	if c.JSON || c.YAML {
-		return output.Emit(cmd.OutOrStdout(), c.YAML, map[string]any{
-			field: completed, "total": total, "complete": complete,
-		})
-	}
-	if output.Plain {
-		return output.KeyValues(cmd.OutOrStdout(), [][2]string{
-			{field, fmt.Sprint(completed)},
-			{"total", fmt.Sprint(total)},
-			{"complete", fmt.Sprint(complete)},
-		})
-	}
-	return nil
 }

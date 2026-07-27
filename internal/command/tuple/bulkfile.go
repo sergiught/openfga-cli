@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -373,7 +374,7 @@ func csvHeaderIndex(header []string) (map[string]int, error) {
 	for i, raw := range header {
 		// A UTF-8 BOM ahead of the first column would otherwise make it unknown.
 		name := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(raw, "\ufeff")))
-		if !slicesContains(csvColumns, name) {
+		if !slices.Contains(csvColumns, name) {
 			return nil, fmt.Errorf("line 1: unknown column %q", raw)
 		}
 		if _, dup := index[name]; dup {
@@ -445,16 +446,6 @@ func csvLineErr(err error) error {
 		return fmt.Errorf("line %d: %w", pe.Line, pe.Err)
 	}
 	return err
-}
-
-// slicesContains reports whether s contains v.
-func slicesContains(s []string, v string) bool {
-	for _, e := range s {
-		if e == v {
-			return true
-		}
-	}
-	return false
 }
 
 // schemaErr wraps a decode failure with the source, the format it was read as,

@@ -27,10 +27,14 @@ sidebar:
   pretty-printing JSON, adding only a missing final newline.
 
 Bulk tuple writes/deletes are sent in server-sized batches and are not
-transactional across batches. If a later batch fails, JSON/YAML and plain
-output report `written`/`deleted`, `total`, and `complete: false` before the
-command exits non-zero. Automation should inspect the exit status and treat
-the reported count as already committed.
+transactional across batches. A rejected batch no longer aborts the run: the
+remaining tuples are still attempted, and JSON/YAML and plain output report
+`written`/`deleted`, `total` and `complete: false` before the command exits
+non-zero. JSON/YAML output additionally carries a `successful` array of tuples
+and a `failed` array of `{tuple, reason}` objects; `--failed-file <path>` writes
+the failed tuples on their own, in the input's format, ready to re-run.
+Automation should inspect the exit status and treat the reported count as
+already committed.
 
 > **Note:** `ofga tuples read`, `ofga tuples changes`, `ofga stores list`, and
 > `ofga model list` auto-paginate and return **all** rows by default
