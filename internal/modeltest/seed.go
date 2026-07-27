@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	openfgav1 "github.com/openfga/api/proto/openfga/v1"
@@ -96,7 +97,11 @@ func Seed(ctx context.Context, ws *Workspace, sel string, opts Options) (endpoin
 		return "", "", "", nil, fmt.Errorf("seed %s: listen: %w", tk.name, err)
 	}
 
-	httpSrv := &http.Server{Handler: mux}
+	// ReadHeaderTimeout bounds how long a connection can hold the server open
+	// while dribbling out request headers. The listener is loopback-only, so
+	// this is defense in depth rather than an exposure fix; the timeout covers
+	// only the header phase, so it can't cut a slow in-flight query short.
+	httpSrv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = httpSrv.Serve(lis) }()
 
 	var stopOnce sync.Once
