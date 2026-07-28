@@ -44,7 +44,12 @@ func TestNoTestIsolatesConfigViaXDG(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if !strings.Contains(string(b), `t.Setenv("XDG_CONFIG_HOME"`) {
+		src := string(b)
+		// Two forms reach the same dead end: setting the variable for this
+		// process, and building a child process's env with it. #62's SIGTERM
+		// e2e used the second and slipped past a check for only the first.
+		if !strings.Contains(src, `t.Setenv("XDG_CONFIG_HOME"`) &&
+			!strings.Contains(src, `"XDG_CONFIG_HOME="`) {
 			return nil
 		}
 		rel, _ := filepath.Rel(root, path)

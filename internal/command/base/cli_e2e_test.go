@@ -346,9 +346,11 @@ func TestSIGTERMCancelsGracefully(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	home := t.TempDir()
+	// OPENFGA_CONFIG rather than XDG_CONFIG_HOME, which macOS ignores — see
+	// runOfga.
 	env := []string{
-		"XDG_CONFIG_HOME=" + home, "NO_COLOR=1", "PATH=" + os.Getenv("PATH"),
+		"OPENFGA_CONFIG=" + filepath.Join(t.TempDir(), "config.toml"),
+		"NO_COLOR=1", "PATH=" + os.Getenv("PATH"),
 		"OPENFGA_API_URL=" + srv.URL,
 	}
 	for _, key := range []string{"DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"} {

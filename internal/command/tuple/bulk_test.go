@@ -15,6 +15,7 @@ import (
 
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/configtest"
 	"github.com/sergiught/openfga-cli/internal/output"
 )
 
@@ -50,7 +51,7 @@ var bulkKinds = []struct {
 // newBulkCLI builds a CLI rendering in the given output mode.
 func newBulkCLI(t *testing.T, apiURL, mode string) *cli.CLI {
 	t.Helper()
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	a := newHumanTupleCLI(t, apiURL)
 	switch mode {
 	case "json":

@@ -18,6 +18,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/config"
+	"github.com/sergiught/openfga-cli/internal/configtest"
 	"github.com/sergiught/openfga-cli/internal/output"
 )
 
@@ -93,7 +94,7 @@ func assertionKey(k openfga.CheckRequestTupleKey) string {
 // newAssertionsCLI builds a CLI rendering in the given output mode.
 func newAssertionsCLI(t *testing.T, apiURL, mode string) *cli.CLI {
 	t.Helper()
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	cfg := config.New()
 	cfg.Set("default", config.Profile{APIURL: apiURL, StoreID: storeID})
 	a := cli.New(log.New(io.Discard), cfg, "test")

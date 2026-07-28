@@ -845,10 +845,18 @@ func TestGraphSpringScrollSettles(t *testing.T) {
 		t.Fatal("expected a scrollable graph viewport")
 	}
 
-	// "end" springs the viewport to the bottom; pump runs every animation frame
-	// until the spring settles.
+	// "end" springs the viewport to the bottom. Step the frames directly rather
+	// than through pump: each frame arrives as a 16ms tea.Tick, and pump's
+	// runCmd abandons any command that takes longer than 40ms, so on a loaded
+	// runner a single late frame drops the tick and strands the spring short of
+	// its target. The spring is deterministic (fixed dt), so feeding frames
+	// straight in settles in a fixed count with no wall clock involved.
 	var m2 tea.Model = mod
-	m2 = pump(t, m2, key("end"))
+	m2, _ = m2.Update(key("end"))
+	// 600 frames is ten seconds at graphFPS, far past the settle.
+	for i := 0; i < 600 && m2.(Model).graphAnimating; i++ {
+		m2, _ = m2.Update(graphTickMsg(time.Time{}))
+	}
 
 	final := m2.(Model)
 	if final.graphAnimating {
