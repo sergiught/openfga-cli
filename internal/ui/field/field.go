@@ -325,6 +325,10 @@ func (f *Form) FocusIndex(i int) tea.Cmd {
 	return f.fields[i].focus()
 }
 
+// FocusedIndex returns the index of the currently focused field. Used to
+// capture focus before a form rebuild so it can be restored via FocusIndex.
+func (f *Form) FocusedIndex() int { return f.focus }
+
 func (f *Form) submit() {
 	ok := true
 	firstInvalid := -1

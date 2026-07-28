@@ -795,7 +795,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				if m.confirm.input == m.confirm.require {
 					run := m.confirm.run
 					m.confirm = nil
-					return m, run(&m)
+					cmd := run(&m)
+					return m, cmd
 				}
 				m.status = "confirmation did not match"
 			case "backspace":
@@ -814,7 +815,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "y":
 			run := m.confirm.run
 			m.confirm = nil
-			return m, run(&m)
+			cmd := run(&m)
+			return m, cmd
 		case "esc", "n", "enter":
 			// Enter cancels (matching the CLI's [y/N] default) so a reflexive
 			// Enter can't permanently delete a store and all its data.
