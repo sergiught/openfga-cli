@@ -3,6 +3,7 @@ package playground
 import (
 	"context"
 	"io"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -250,6 +251,60 @@ func TestFilterKeyFromSidebarIsTuplesOnly(t *testing.T) {
 	m, _ := tea.Model(mm).Update(key("f"))
 	if got := m.(Model).focus; got != shell.FocusSidebar {
 		t.Fatalf("f outside Tuples must leave sidebar focus alone, got %v", got)
+	}
+}
+
+func TestMainTitleShowsActiveTupleFilter(t *testing.T) {
+	m := newTestModel().(Model)
+	m.section = secTuples
+	if got := m.mainTitle(); strings.Contains(got, "filter:") {
+		t.Fatalf("no filter should mean a plain title, got %q", got)
+	}
+	m.tupleFilter = tupleFilter{user: "user:anne", object: "document:"}
+	got := m.mainTitle()
+	for _, want := range []string{"filter:", "user=user:anne", "object=document:"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("title %q should contain %q", got, want)
+		}
+	}
+	if strings.Contains(got, "relation=") {
+		t.Fatalf("unset fields should not render, got %q", got)
+	}
+}
+
+func TestSectionStatusMarksFilteredTuples(t *testing.T) {
+	m := newTestModel().(Model)
+	m.section = secTuples
+	m.tupleFilter = tupleFilter{object: "document:roadmap"}
+	if got := m.sectionStatus(); !strings.Contains(got, "matching tuple") {
+		t.Fatalf("filtered count should say matching, got %q", got)
+	}
+	m.tuplesCapped = true
+	if got := m.sectionStatus(); !strings.Contains(got, "matching") || !strings.Contains(got, "more exist") {
+		t.Fatalf("capped filtered count should keep both markers, got %q", got)
+	}
+}
+
+func TestTupleHintFilterAware(t *testing.T) {
+	if got := tupleHint("", true); got != "Select a store first — press 2" {
+		t.Fatalf("no-store hint must win, got %q", got)
+	}
+	if got := tupleHint("store-1", false); !strings.Contains(got, "press a to add") {
+		t.Fatalf("unfiltered empty hint should suggest adding, got %q", got)
+	}
+	if got := tupleHint("store-1", true); !strings.Contains(got, "press f") {
+		t.Fatalf("filtered empty hint should point at f, got %q", got)
+	}
+}
+
+// The Tuples key hints must advertise f, and must keep / distinct from it so
+// the client-side and server-side filters aren't confused for each other.
+func TestHelpAdvertisesTupleFilterKey(t *testing.T) {
+	m := newTestModel().(Model)
+	m.section = secTuples
+	body := m.helpBody()
+	if !strings.Contains(body, "/read") {
+		t.Fatalf("Tuples help should label f as the server-side /read filter, got:\n%s", body)
 	}
 }
 

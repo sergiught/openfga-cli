@@ -103,7 +103,12 @@ func (m Model) helpBody() string {
 	case secModel:
 		section = [][2]string{{"↑↓ k/j", "scroll"}, {"←→ h/l", "pan"}, {"pgup/pgdn b/f/space", "page"}, {"g/G home/end", "top/bottom"}, {"v", "weighted graph"}, {"e", "edit DSL"}, {"m", "switch model"}, {"r", "reload"}}
 	case secTuples:
-		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"a", "add"}, {"d", "delete"}, {"r", "reload"}}
+		section = [][2]string{
+			{"↑↓", "move"},
+			{"/", "find in the loaded rows"},
+			{"f", "server-side filter (/read)"},
+			{"a", "add"}, {"d", "delete"}, {"r", "reload"},
+		}
 	case secChanges:
 		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"r", "reload"}}
 	case secQuery:
@@ -155,8 +160,26 @@ func (m Model) mainTitle() string {
 		return base + " ▸ Switch model"
 	case m.section == secQuery && m.showRes:
 		return base + " ▸ Resolution"
+	case m.section == secTuples && m.tupleFilter.active():
+		return base + " ▸ " + tupleFilterLabel(m.tupleFilter)
 	}
 	return base
+}
+
+// tupleFilterLabel renders the active server-side filter compactly for the
+// panel header, e.g. "filter: user=user:anne object=document:".
+func tupleFilterLabel(f tupleFilter) string {
+	parts := []string{"filter:"}
+	if f.user != "" {
+		parts = append(parts, "user="+safeText(f.user))
+	}
+	if f.relation != "" {
+		parts = append(parts, "relation="+safeText(f.relation))
+	}
+	if f.object != "" {
+		parts = append(parts, "object="+safeText(f.object))
+	}
+	return strings.Join(parts, " ")
 }
 
 func (m Model) dialogContent() (string, string) {
@@ -323,7 +346,7 @@ func (m Model) sectionBody() string {
 		case m.loading && m.storeID != "" && len(m.tuples) == 0:
 			body = m.spinner.View() + " loading tuples…"
 		case len(m.tuples) == 0:
-			body = style.Faint.Render(tupleHint(m.storeID))
+			body = style.Faint.Render(tupleHint(m.storeID, m.tupleFilter.active()))
 		case m.compact:
 			body = m.tuplesList.View()
 		default:
@@ -1033,10 +1056,14 @@ func (m Model) sectionStatus() string {
 	case secStores:
 		return plural(len(m.stores), "store")
 	case secTuples:
-		if m.tuplesCapped {
-			return fmt.Sprintf("first %d tuples (more exist)", len(m.tuples))
+		noun := "tuple"
+		if m.tupleFilter.active() {
+			noun = "matching tuple"
 		}
-		return plural(len(m.tuples), "tuple")
+		if m.tuplesCapped {
+			return fmt.Sprintf("first %d %ss (more exist)", len(m.tuples), noun)
+		}
+		return plural(len(m.tuples), noun)
 	case secChanges:
 		if m.changesCapped {
 			return fmt.Sprintf("latest %d of %d changes", len(m.changes), m.changesTotal)
@@ -1052,9 +1079,12 @@ func itoa(n int) string { return strconv.Itoa(n) }
 
 // --- helpers ---
 
-func tupleHint(storeID string) string {
+func tupleHint(storeID string, filtered bool) string {
 	if storeID == "" {
 		return "Select a store first — press 2"
+	}
+	if filtered {
+		return "No tuples match the filter — press f to edit or clear it"
 	}
 	return "No tuples yet — press a to add one"
 }
