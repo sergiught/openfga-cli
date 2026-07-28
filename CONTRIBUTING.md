@@ -35,8 +35,13 @@ The interactive TUI writes to the config file on first run. When testing it,
 isolate your config so it can't clobber your real profiles:
 
 ```bash
-XDG_CONFIG_HOME=$(mktemp -d) go run ./cmd/ofga
+OPENFGA_CONFIG=$(mktemp -d)/config.toml go run ./cmd/ofga
 ```
+
+Use `OPENFGA_CONFIG` rather than `XDG_CONFIG_HOME`: only the former is honored
+on every platform. On macOS the config lives under `~/Library/Application
+Support` and `XDG_CONFIG_HOME` is ignored outright, so it would isolate nothing
+and the TUI would write your real config on exit.
 
 ## Commit messages
 

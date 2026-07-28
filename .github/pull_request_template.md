@@ -30,7 +30,7 @@ make check   # fmt, vet, lint, test
 ```
 
 <!-- If it affects the TUI, note how you drove it (isolate config first):
-     XDG_CONFIG_HOME=$(mktemp -d) go run ./cmd/ofga -->
+     OPENFGA_CONFIG=$(mktemp -d)/config.toml go run ./cmd/ofga -->
 
 ## 📋 Checklist
 
