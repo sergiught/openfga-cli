@@ -111,3 +111,162 @@ func TestStoreDryRunShorthand(t *testing.T) {
 		}
 	}
 }
+
+// storeCreateServer returns a test server that answers Stores.Create with a
+// fixed store ID.
+func storeCreateServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(openfga.Store{
+			ID:        "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+			Name:      "acme",
+			CreatedAt: time.Unix(1600000000, 0).UTC(),
+			UpdatedAt: time.Unix(1600000000, 0).UTC(),
+		})
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// TestCreateUseHonorsEnvProfileOverride reproduces CLI-74/CLI-83: with
+// OPENFGA_PROFILE set, `stores create --use` must save the new store ID into
+// the env-selected profile, not the file-active one.
+func TestCreateUseHonorsEnvProfileOverride(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	srv := storeCreateServer(t)
+
+	cfg := config.New()
+	cfg.Active = "dev"
+	cfg.Set("dev", config.Profile{APIURL: srv.URL})
+	cfg.Set("prod", config.Profile{APIURL: srv.URL})
+	c := cli.New(log.New(io.Discard), cfg, "test")
+
+	t.Setenv("OPENFGA_PROFILE", "prod")
+
+	cmd := New(c).createCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"acme", "--use"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	if p, _ := cfg.Get("prod"); p.StoreID != "01ARZ3NDEKTSV4RRFFQ69G5FAV" {
+		t.Errorf("prod profile StoreID = %q, want the new store ID", p.StoreID)
+	}
+	if p, _ := cfg.Get("dev"); p.StoreID != "" {
+		t.Errorf("dev (file-active) profile StoreID = %q, want empty; env override was ignored", p.StoreID)
+	}
+}
+
+// TestCreateUseFlagBeatsEnvProfile checks --profile takes precedence over
+// OPENFGA_PROFILE, matching config.ActiveName's documented precedence.
+func TestCreateUseFlagBeatsEnvProfile(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	srv := storeCreateServer(t)
+
+	cfg := config.New()
+	cfg.Active = "dev"
+	cfg.Set("dev", config.Profile{APIURL: srv.URL})
+	cfg.Set("prod", config.Profile{APIURL: srv.URL})
+	cfg.Set("staging", config.Profile{APIURL: srv.URL})
+	c := cli.New(log.New(io.Discard), cfg, "test")
+	c.Overrides.Profile = "staging"
+
+	t.Setenv("OPENFGA_PROFILE", "prod")
+
+	cmd := New(c).createCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"acme", "--use"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	if p, _ := cfg.Get("staging"); p.StoreID != "01ARZ3NDEKTSV4RRFFQ69G5FAV" {
+		t.Errorf("staging profile StoreID = %q, want the new store ID", p.StoreID)
+	}
+	if p, _ := cfg.Get("prod"); p.StoreID != "" {
+		t.Errorf("prod profile StoreID = %q, want empty; --profile should beat OPENFGA_PROFILE", p.StoreID)
+	}
+}
+
+// missingProfileScenario builds a CLI whose resolved profile ("dev") is
+// removed from the config while the create request is in flight, simulating
+// another process (or the TUI) changing the profile set between this
+// command's connection resolve and its post-create save. This is the only
+// way a profile the command already resolved against can be gone by the time
+// it tries to persist the new store ID.
+func missingProfileScenario(t *testing.T) *cli.CLI {
+	t.Helper()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	cfg := config.New()
+	cfg.Active = "dev"
+	cfg.Set("dev", config.Profile{})
+
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		delete(cfg.Profiles, "dev")
+		_ = json.NewEncoder(w).Encode(openfga.Store{
+			ID:        "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+			Name:      "acme",
+			CreatedAt: time.Unix(1600000000, 0).UTC(),
+			UpdatedAt: time.Unix(1600000000, 0).UTC(),
+		})
+	}))
+	t.Cleanup(srv.Close)
+	cfg.Profiles["dev"] = config.Profile{APIURL: srv.URL}
+
+	return cli.New(log.New(io.Discard), cfg, "test")
+}
+
+// TestCreateUseMissingProfileWarnsAndReportsNotSaved covers the resolved
+// profile not existing at save time: the command must not claim the store ID
+// was saved, must warn on stderr, and machine output must report the save
+// outcome.
+func TestCreateUseMissingProfileWarnsAndReportsNotSaved(t *testing.T) {
+	t.Run("human", func(t *testing.T) {
+		c := missingProfileScenario(t)
+		cmd := New(c).createCmd()
+		var out, errOut bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&errOut)
+		cmd.SetArgs([]string{"acme", "--use"})
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(errOut.String(), `profile "dev" not found`) || !strings.Contains(errOut.String(), "not saved") {
+			t.Errorf("stderr = %q, want a warning that profile %q was not found and not saved", errOut.String(), "dev")
+		}
+		if strings.Contains(errOut.String(), "set as") {
+			t.Errorf("stderr = %q, must not claim the store was set as a profile's store", errOut.String())
+		}
+	})
+
+	t.Run("json", func(t *testing.T) {
+		c := missingProfileScenario(t)
+		c.JSON = true
+		cmd := New(c).createCmd()
+		var out, errOut bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&errOut)
+		cmd.SetArgs([]string{"acme", "--use"})
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		var got map[string]any
+		if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+			t.Fatalf("json.Unmarshal: %v; out=%s", err, out.String())
+		}
+		saved, ok := got["saved_to_profile"]
+		if !ok {
+			t.Fatalf("json output missing %q field: %s", "saved_to_profile", out.String())
+		}
+		if saved != "" {
+			t.Errorf("saved_to_profile = %v, want empty (profile does not exist)", saved)
+		}
+	})
+}

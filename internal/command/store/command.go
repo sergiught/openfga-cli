@@ -99,20 +99,27 @@ func (c *Command) createCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			var savedToProfile string
 			if use {
-				name := c.cli.Config.Active
-				if c.cli.Overrides.Profile != "" {
-					name = c.cli.Overrides.Profile
-				}
+				name := c.cli.Config.ActiveName(c.cli.Overrides)
 				if p, ok := c.cli.Config.Get(name); ok {
 					p.StoreID = st.ID
 					c.cli.Config.Set(name, p)
 					if err := c.cli.SaveConfig(); err != nil {
 						return err
 					}
+					savedToProfile = name
+				} else {
+					output.Warnf(cmd.ErrOrStderr(), "profile %q not found; store ID not saved", name)
 				}
 			}
 			if c.cli.JSON || c.cli.YAML {
+				if use {
+					return output.Emit(cmd.OutOrStdout(), c.cli.YAML, struct {
+						*openfga.Store
+						SavedToProfile string `json:"saved_to_profile"`
+					}{Store: st, SavedToProfile: savedToProfile})
+				}
 				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, st)
 			}
 			output.Successf(cmd.ErrOrStderr(), "created store %s", style.Bold.Render(output.SanitizeField(st.Name)))
@@ -123,8 +130,8 @@ func (c *Command) createCmd() *cobra.Command {
 			}); err != nil {
 				return err
 			}
-			if use {
-				output.Infof(cmd.ErrOrStderr(), "set as the active profile's store")
+			if use && savedToProfile != "" {
+				output.Infof(cmd.ErrOrStderr(), "set as %s profile's store", style.Bold.Render(savedToProfile))
 			}
 			return nil
 		},
