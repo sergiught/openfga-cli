@@ -283,10 +283,29 @@ func loadModelsCmd(ctx context.Context, cl *openfga.Client, storeID string, gen 
 	}
 }
 
-func loadTuplesCmd(ctx context.Context, cl *openfga.Client, storeID string, gen int) tea.Cmd {
+// tupleFilter is the tuples section's server-side /read filter; the zero
+// value means no filter.
+type tupleFilter struct {
+	user, relation, object string
+}
+
+func (f tupleFilter) active() bool { return f != (tupleFilter{}) }
+
+// tupleReadRequest builds the tuples pane's /read request, attaching the
+// tuple_key filter only when one is set — the same shape the CLI's
+// `tuples read` sends.
+func tupleReadRequest(f tupleFilter) *openfga.ReadRequest {
+	req := &openfga.ReadRequest{PageSize: 100}
+	if f.active() {
+		req.TupleKey = &openfga.ReadRequestTupleKey{User: f.user, Relation: f.relation, Object: f.object}
+	}
+	return req
+}
+
+func loadTuplesCmd(ctx context.Context, cl *openfga.Client, storeID string, f tupleFilter, gen int) tea.Cmd {
 	return func() tea.Msg {
 		var tuples []openfga.Tuple
-		req := &openfga.ReadRequest{PageSize: 100}
+		req := tupleReadRequest(f)
 		capped := false
 		for t, err := range cl.Tuples.ReadAll(ctx, req, openfga.WithStore(storeID)) {
 			if err != nil {

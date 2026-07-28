@@ -293,7 +293,8 @@ type Model struct {
 
 	tuples       []openfga.Tuple
 	tuplesList   *uilist.List
-	tuplesCapped bool // more tuples exist than are shown (hit the display cap)
+	tuplesCapped bool        // more tuples exist than are shown (hit the display cap)
+	tupleFilter  tupleFilter // active server-side /read filter (zero value = none)
 
 	models       []openfga.AuthorizationModel
 	modelsList   *uilist.List
@@ -566,7 +567,7 @@ func (m Model) Init() tea.Cmd {
 	if m.storeID != "" {
 		cmds = append(cmds,
 			m.startModelCmd(),
-			loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tuplesGen),
+			loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tupleFilter, m.tuplesGen),
 			loadChangesCmd(m.reqCtx, m.client, m.storeID, m.changesGen),
 			loadAssertionsCmd(m.reqCtx, m.client, m.storeID, m.modelID, m.assertLoadGen),
 		)
@@ -1117,6 +1118,9 @@ func (m *Model) selectStore(s openfga.Store) tea.Cmd {
 	m.graph = fga.Graph{}
 	m.models = nil // the previous store's models must not linger in the picker
 	m.tuples = nil
+	// A /read filter names types and ids from the store it was written for, so
+	// it is cleared here alongside the data it filtered.
+	m.tupleFilter = tupleFilter{}
 	m.changes = nil
 	m.assertions = nil
 	m.assertResults = nil
@@ -1161,7 +1165,7 @@ func (m *Model) selectStore(s openfga.Store) tea.Cmd {
 	m.beginLoad()
 	return tea.Batch(extra,
 		loadModelCmd(m.reqCtx, m.client, m.storeID, m.modelGen),
-		loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tuplesGen),
+		loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tupleFilter, m.tuplesGen),
 		loadChangesCmd(m.reqCtx, m.client, m.storeID, m.changesGen),
 		loadAssertionsCmd(m.reqCtx, m.client, m.storeID, m.modelID, m.assertLoadGen),
 	)
@@ -1461,7 +1465,7 @@ func (m *Model) activateResolved(r config.Resolved, cl *openfga.Client, status s
 		m.changesStale = false
 		cmds = append(cmds,
 			m.startModelCmd(),
-			loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tuplesGen),
+			loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tupleFilter, m.tuplesGen),
 			loadChangesCmd(m.reqCtx, m.client, m.storeID, m.changesGen),
 			loadAssertionsCmd(m.reqCtx, m.client, m.storeID, m.modelID, m.assertLoadGen),
 		)

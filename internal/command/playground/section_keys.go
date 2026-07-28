@@ -259,7 +259,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			if m.storeID != "" {
 				m.beginLoad()
 				m.tuplesGen++
-				return m, loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tuplesGen)
+				return m, loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tupleFilter, m.tuplesGen)
 			}
 		}
 		cmd := m.tuplesList.Update(msg)

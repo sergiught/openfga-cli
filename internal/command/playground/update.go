@@ -554,7 +554,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.changesGen++
 		return m, tea.Batch(
 			m.toasts.Push(toast.Success, m.status),
-			loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tuplesGen),
+			loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tupleFilter, m.tuplesGen),
 		)
 
 	case queryResultMsg:
