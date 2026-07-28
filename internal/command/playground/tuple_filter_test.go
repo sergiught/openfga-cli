@@ -36,6 +36,56 @@ func TestTupleReadRequestWithFilter(t *testing.T) {
 	}
 }
 
+// vFilterObject allows type:id AND bare-type "type:" (unlike vObject), stays
+// lenient on empty, and rejects colon-less or userset-shaped values.
+func TestVFilterObject(t *testing.T) {
+	for _, tc := range []struct {
+		in string
+		ok bool
+	}{
+		{"", true},
+		{"document:roadmap", true},
+		{"document:", true},
+		{"  document:  ", true},
+		{"document", false},
+		{"document:1#viewer", false},
+		{":roadmap", false},
+	} {
+		err := vFilterObject(tc.in)
+		if (err == nil) != tc.ok {
+			t.Errorf("vFilterObject(%q) = %v, want ok=%v", tc.in, err, tc.ok)
+		}
+	}
+}
+
+// validateTupleFilter mirrors the server's /read rule: object type required,
+// and object id and user not both empty. All-empty is valid (it clears).
+func TestValidateTupleFilter(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		f    tupleFilter
+		ok   bool
+	}{
+		{"empty clears", tupleFilter{}, true},
+		{"object type:id", tupleFilter{object: "document:roadmap"}, true},
+		{"bare type + user", tupleFilter{object: "document:", user: "user:anne"}, true},
+		{"type:id + relation", tupleFilter{object: "document:roadmap", relation: "viewer"}, true},
+		{"bare type alone", tupleFilter{object: "document:"}, false},
+		{"user alone", tupleFilter{user: "user:anne"}, false},
+		{"relation alone", tupleFilter{relation: "viewer"}, false},
+		{"user + relation, no object", tupleFilter{user: "user:anne", relation: "viewer"}, false},
+		// The server splits the object on its first colon, so a colon-less or
+		// leading-colon object has no type and is rejected even with a user set.
+		{"colon-less object with user", tupleFilter{object: "document", user: "user:anne"}, false},
+		{"leading colon with user", tupleFilter{object: ":roadmap", user: "user:anne"}, false},
+	} {
+		err := validateTupleFilter(tc.f)
+		if (err == nil) != tc.ok {
+			t.Errorf("%s: validateTupleFilter(%+v) = %v, want ok=%v", tc.name, tc.f, err, tc.ok)
+		}
+	}
+}
+
 // A filter is store-specific: switching stores must clear it.
 func TestSelectStoreClearsTupleFilter(t *testing.T) {
 	configtest.Isolate(t)
