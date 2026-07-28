@@ -74,8 +74,9 @@ type changesLoadedMsg struct {
 	gen     int    // request generation the load ran under, to drop a response
 	// superseded by a newer changes load against the same store (e.g. a manual
 	// reload racing the lazy first-entry load)
-	changes []openfga.TupleChange
-	capped  bool // more changes exist than were loaded (hit the display cap)
+	changes []openfga.TupleChange // the latest changesDisplayCap changes, newest first
+	capped  bool                  // the feed has more changes than were kept (total > changesDisplayCap)
+	total   int                   // the feed's true size, known exactly because it is fully drained
 	err     error
 }
 
@@ -294,21 +295,50 @@ func loadTuplesCmd(ctx context.Context, cl *openfga.Client, storeID string, gen 
 	}
 }
 
+// loadChangesCmd drains the store's entire change feed (ChangesAll always
+// iterates oldest-to-newest until caught up) but keeps only the LAST
+// changesDisplayCap entries, since it's the most recent activity a debugging
+// user wants to see, not the oldest. It reports the feed's true size (total),
+// known exactly because the feed is fully drained regardless of the cap.
 func loadChangesCmd(ctx context.Context, cl *openfga.Client, storeID string, gen int) tea.Cmd {
 	return func() tea.Msg {
-		var changes []openfga.TupleChange
-		capped := false
+		changes := make([]openfga.TupleChange, 0, changesDisplayCap)
+		total := 0
+		pos := 0 // once the buffer is full, the next (oldest) slot to overwrite
 		for ch, err := range cl.Tuples.ChangesAll(ctx, &openfga.ReadChangesOptions{}, openfga.WithStore(storeID)) {
 			if err != nil {
 				return changesLoadedMsg{storeID: storeID, gen: gen, err: err}
 			}
-			if len(changes) >= changesDisplayCap {
-				capped = true
-				break
+			total++
+			if len(changes) < changesDisplayCap {
+				changes = append(changes, ch)
+			} else {
+				// Circular buffer: O(1) per entry instead of shifting the
+				// whole window — memory stays bounded at changesDisplayCap,
+				// and the wrap is unrotated once, after the drain completes.
+				changes[pos] = ch
+				pos = (pos + 1) % changesDisplayCap
 			}
-			changes = append(changes, ch)
 		}
-		return changesLoadedMsg{storeID: storeID, gen: gen, changes: changes, capped: capped}
+		// Once wrapped, pos is the oldest surviving entry's slot (the next one
+		// due to be overwritten); rotate so the buffer reads oldest-to-newest,
+		// then reverse in place so the pane renders newest-first.
+		if total > changesDisplayCap {
+			rotated := make([]openfga.TupleChange, 0, len(changes))
+			rotated = append(rotated, changes[pos:]...)
+			rotated = append(rotated, changes[:pos]...)
+			changes = rotated
+		}
+		for i, j := 0, len(changes)-1; i < j; i, j = i+1, j-1 {
+			changes[i], changes[j] = changes[j], changes[i]
+		}
+		return changesLoadedMsg{
+			storeID: storeID,
+			gen:     gen,
+			changes: changes,
+			capped:  total > changesDisplayCap,
+			total:   total,
+		}
 	}
 }
 

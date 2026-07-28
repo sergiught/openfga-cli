@@ -262,6 +262,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			if m.storeID != "" {
 				m.beginLoad()
 				m.changesGen++
+				m.changesStale = false
 				return m, loadChangesCmd(m.ctx, m.client, m.storeID, m.changesGen)
 			}
 		}
