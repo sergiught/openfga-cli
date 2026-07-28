@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"charm.land/log/v2"
@@ -592,6 +593,120 @@ func TestListRelationsUsageErrors(t *testing.T) {
 	}
 }
 
+// consistencyRecorder captures the request bodies a command sends so a test can
+// assert what actually reached the wire, since --consistency has no visible
+// effect on the response.
+type consistencyRecorder struct {
+	srv    *httptest.Server
+	mu     sync.Mutex
+	bodies []string
+}
+
+func newConsistencyRecorder(t *testing.T, response string) *consistencyRecorder {
+	t.Helper()
+	r := &consistencyRecorder{}
+	r.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		body, _ := io.ReadAll(req.Body)
+		r.mu.Lock()
+		r.bodies = append(r.bodies, string(body))
+		r.mu.Unlock()
+		_, _ = w.Write([]byte(response))
+	}))
+	t.Cleanup(r.srv.Close)
+	return r
+}
+
+func (r *consistencyRecorder) first(t *testing.T) string {
+	t.Helper()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.bodies) == 0 {
+		t.Fatal("no request reached the server")
+	}
+	return r.bodies[0]
+}
+
+func TestConsistencyFlagRegisteredOnReadCommands(t *testing.T) {
+	cmds := map[string]*cobra.Command{
+		"check":          (&Command{}).checkCmd(),
+		"batch-check":    (&Command{}).batchCheckCmd(),
+		"expand":         (&Command{}).expandCmd(),
+		"list-objects":   (&Command{}).listObjectsCmd(),
+		"list-users":     (&Command{}).listUsersCmd(),
+		"list-relations": (&Command{}).listRelationsCmd(),
+	}
+	for name, cmd := range cmds {
+		if cmd.Flags().Lookup("consistency") == nil {
+			t.Errorf("%s missing --consistency flag", name)
+		}
+	}
+}
+
+func TestConsistencyFlagReachesTheWire(t *testing.T) {
+	tests := []struct {
+		name     string
+		response string
+		cmd      func(*cli.CLI) *cobra.Command
+		args     []string
+	}{
+		{"check", `{"allowed":true}`, func(a *cli.CLI) *cobra.Command { return New(a).checkCmd() },
+			[]string{"user:anne", "viewer", "doc:1"}},
+		// The result must carry the command's own correlation ID (c0 for the
+		// first --check): batch-check resolves each item by ID and treats a
+		// missing entry as a failure rather than a denial, so an empty result
+		// map would fail the command before the body assertion is reached.
+		{"batch-check", `{"result":{"c0":{"allowed":true}}}`, func(a *cli.CLI) *cobra.Command { return New(a).batchCheckCmd() },
+			[]string{"--check", "user:anne,viewer,doc:1"}},
+		{"expand", `{"tree":{"root":"doc:1#viewer"}}`, func(a *cli.CLI) *cobra.Command { return New(a).expandCmd() },
+			[]string{"viewer", "doc:1"}},
+		{"list-objects", `{"objects":[]}`, func(a *cli.CLI) *cobra.Command { return New(a).listObjectsCmd() },
+			[]string{"document", "viewer", "user:anne"}},
+		{"list-users", `{"users":[]}`, func(a *cli.CLI) *cobra.Command { return New(a).listUsersCmd() },
+			[]string{"document:roadmap", "viewer", "--type", "user"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Run("explicit value is sent", func(t *testing.T) {
+				rec := newConsistencyRecorder(t, tt.response)
+				cmd := tt.cmd(newQueryCLI(t, rec.srv.URL))
+				cmd.SetOut(io.Discard)
+				cmd.SetErr(io.Discard)
+				cmd.SetArgs(append(append([]string{}, tt.args...), "--consistency", "minimize_latency"))
+				if err := cmd.Execute(); err != nil {
+					t.Fatal(err)
+				}
+				if got := rec.first(t); !strings.Contains(got, `"consistency":"MINIMIZE_LATENCY"`) {
+					t.Fatalf("request body = %s, want MINIMIZE_LATENCY", got)
+				}
+			})
+			t.Run("unset keeps the higher-consistency default", func(t *testing.T) {
+				rec := newConsistencyRecorder(t, tt.response)
+				cmd := tt.cmd(newQueryCLI(t, rec.srv.URL))
+				cmd.SetOut(io.Discard)
+				cmd.SetErr(io.Discard)
+				cmd.SetArgs(tt.args)
+				if err := cmd.Execute(); err != nil {
+					t.Fatal(err)
+				}
+				if got := rec.first(t); !strings.Contains(got, `"consistency":"HIGHER_CONSISTENCY"`) {
+					t.Fatalf("request body = %s, want HIGHER_CONSISTENCY", got)
+				}
+			})
+			t.Run("unknown value is a usage error", func(t *testing.T) {
+				rec := newConsistencyRecorder(t, tt.response)
+				cmd := tt.cmd(newQueryCLI(t, rec.srv.URL))
+				cmd.SetOut(io.Discard)
+				cmd.SetErr(io.Discard)
+				cmd.SetArgs(append(append([]string{}, tt.args...), "--consistency", "eventual"))
+				err := cmd.Execute()
+				if got := clierr.Code(err); got != clierr.CodeUsage {
+					t.Fatalf("exit code = %d, want usage; err=%v", got, err)
+				}
+			})
+		})
+	}
+}
+
 func TestListRelationsUnknownTypeIsUsageError(t *testing.T) {
 	srv := newListRelationsServer(t, nil)
 	cmd := New(newQueryCLI(t, srv.srv.URL)).listRelationsCmd()
@@ -603,5 +718,19 @@ func TestListRelationsUnknownTypeIsUsageError(t *testing.T) {
 	err := cmd.Execute()
 	if got := clierr.Code(err); got != clierr.CodeUsage {
 		t.Fatalf("exit code = %d, want usage; err=%v", got, err)
+	}
+}
+
+func TestExplicitUnspecifiedConsistencyIsSent(t *testing.T) {
+	rec := newConsistencyRecorder(t, `{"allowed":true}`)
+	cmd := New(newQueryCLI(t, rec.srv.URL)).checkCmd()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"user:anne", "viewer", "doc:1", "--consistency", "UNSPECIFIED"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got := rec.first(t); !strings.Contains(got, `"consistency":"UNSPECIFIED"`) {
+		t.Fatalf("request body = %s, want the explicit UNSPECIFIED to survive the client default", got)
 	}
 }

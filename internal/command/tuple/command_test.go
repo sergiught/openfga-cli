@@ -547,3 +547,49 @@ func TestWriteDryRunMentionsCondition(t *testing.T) {
 		t.Errorf("dry-run output = %q, want it to mention the condition", errOut.String())
 	}
 }
+
+// TestReadConsistencyFlag pins the flag onto the wire: --consistency has no
+// visible effect on the output, so only the request body proves it was sent.
+func TestReadConsistencyFlag(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"explicit value is sent", []string{"--consistency", "minimize_latency"}, `"consistency":"MINIMIZE_LATENCY"`},
+		{"unset keeps the higher-consistency default", nil, `"consistency":"HIGHER_CONSISTENCY"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var body string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				b, _ := io.ReadAll(r.Body)
+				body = string(b)
+				_ = json.NewEncoder(w).Encode(openfga.ReadResponse{})
+			}))
+			defer srv.Close()
+
+			cmd := New(newHumanTupleCLI(t, srv.URL)).readCmd()
+			cmd.SetOut(io.Discard)
+			cmd.SetErr(io.Discard)
+			cmd.SetArgs(tt.args)
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(body, tt.want) {
+				t.Fatalf("request body = %s, want %s", body, tt.want)
+			}
+		})
+	}
+}
+
+func TestReadRejectsUnknownConsistency(t *testing.T) {
+	cmd := New(newHumanTupleCLI(t, "http://127.0.0.1:1")).readCmd()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--consistency", "eventual"})
+	err := cmd.Execute()
+	if got := clierr.Code(err); got != clierr.CodeUsage {
+		t.Fatalf("exit code = %d, want usage; err=%v", got, err)
+	}
+}
