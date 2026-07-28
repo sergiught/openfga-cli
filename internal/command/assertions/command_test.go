@@ -73,9 +73,32 @@ func TestToTupleKey(t *testing.T) {
 }
 
 func TestWriteHasExplicitReplacementGate(t *testing.T) {
-	cmd := (&Command{}).writeCmd()
-	if cmd.Flags().Lookup("force") == nil {
+	if (&Command{}).writeCmd().Flags().Lookup("force") == nil {
 		t.Fatal("assertions write must expose --force for non-interactive replacement")
+	}
+
+	// Without --force a non-interactive run must be refused before any
+	// assertions are replaced.
+	s := &stubFGA{modelID: latestID}
+	cmd := silenced(New(newAssertionsCLI(t, s.start(t), "json")).writeCmd())
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetIn(strings.NewReader(""))
+	cmd.SetArgs([]string{"--file", writeTemp(t, assertionsPayloads[0].data)})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("a non-interactive replacement without --force must be refused")
+	}
+	if !strings.Contains(err.Error(), "--force") {
+		t.Errorf("error = %q, want it to point at --force", err.Error())
+	}
+	if len(s.written) != 0 {
+		t.Errorf("refused replacement still wrote %d request(s)", len(s.written))
+	}
+	if out.Len() != 0 {
+		t.Errorf("refused replacement wrote to stdout: %q", out.String())
 	}
 }
 
