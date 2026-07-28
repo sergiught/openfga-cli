@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -39,19 +40,29 @@ func ofgaBin(t *testing.T) string {
 	return binPath
 }
 
-// runOfga runs the binary with an isolated config dir. extraEnv is appended to a
-// clean environment; args are the command. It returns stdout, stderr and the
-// exit code.
+// runOfga runs the binary with an isolated config file inside cfgHome. extraEnv
+// is appended to a clean environment; args are the command. It returns stdout,
+// stderr and the exit code.
 func runOfga(t *testing.T, cfgHome string, stdin string, extraEnv []string, args ...string) (string, string, int) {
 	t.Helper()
 	cmd := exec.Command(ofgaBin(t), args...)
 	// A clean base env keeps the developer's real OpenFGA config and auth out of
-	// the test. But the CLI stores secrets in the OS keyring, which lives behind
-	// the session D-Bus on Linux, so forward the vars that let the child reach
-	// it — without them secretsAvailable() reports the keyring missing and every
-	// secret write fails (fast locally, after a long dbus autolaunch stall in CI).
-	env := []string{"XDG_CONFIG_HOME=" + cfgHome, "NO_COLOR=1", "PATH=" + os.Getenv("PATH")}
-	for _, key := range []string{"DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"} {
+	// the test. OPENFGA_CONFIG pins the config file directly rather than through
+	// XDG_CONFIG_HOME, which macOS ignores — there the default lives under
+	// ~/Library/Application Support, so an XDG-only child would write the
+	// developer's real config.
+	//
+	// The CLI stores secrets in the OS keyring, so forward the vars that let the
+	// child reach it: the session D-Bus on Linux, and HOME on macOS, where
+	// `security` resolves the login keychain through it. Without them
+	// secretsAvailable() reports the keyring missing and every secret write
+	// fails (fast locally, after a long dbus autolaunch stall in CI).
+	env := []string{
+		"OPENFGA_CONFIG=" + filepath.Join(cfgHome, "config.toml"),
+		"NO_COLOR=1",
+		"PATH=" + os.Getenv("PATH"),
+	}
+	for _, key := range []string{"DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR", "HOME"} {
 		if v, ok := os.LookupEnv(key); ok {
 			env = append(env, key+"="+v)
 		}

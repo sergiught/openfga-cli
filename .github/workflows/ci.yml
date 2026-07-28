@@ -55,6 +55,37 @@ jobs:
             go test -race ./...
           '
 
+  test-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # macOS is the second platform users install on, and it diverges where it
+      # matters: the config lives under ~/Library/Application Support rather than
+      # $XDG_CONFIG_HOME, and secrets go to the login keychain rather than the
+      # Secret Service. Formatting, vet, tidiness and docs are platform-neutral
+      # and stay in the ubuntu job; this one only builds and tests.
+      - name: provision an unlocked keychain for secret-store e2e tests
+        # The runner's login keychain is not guaranteed to be unlocked for a
+        # non-GUI session, and a locked one makes `security add-generic-password`
+        # fail with an interaction error. A throwaway keychain with no auto-lock
+        # timeout, made the default and put on the search list, is the macOS
+        # equivalent of the gnome-keyring session the ubuntu job starts.
+        run: |
+          security create-keychain -p '' ofga-ci.keychain
+          security set-keychain-settings ofga-ci.keychain
+          security unlock-keychain -p '' ofga-ci.keychain
+          security list-keychains -d user -s ofga-ci.keychain $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s ofga-ci.keychain
+      - name: test
+        # As on ubuntu: fail loudly rather than skip if the provisioned keychain
+        # ever stops working.
+        env:
+          OFGA_E2E_REQUIRE_KEYRING: '1'
+        run: go test -race ./...
+
   lint:
     runs-on: ubuntu-latest
     steps:

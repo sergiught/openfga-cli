@@ -17,6 +17,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/apilog"
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/config"
+	"github.com/sergiught/openfga-cli/internal/configtest"
 )
 
 func TestMutationCompletionsDroppedAfterConnectionSwitch(t *testing.T) {
@@ -58,6 +59,7 @@ func TestMutationCompletionsDroppedAfterConnectionSwitch(t *testing.T) {
 }
 
 func TestStoreCreateCompletionDroppedInProfileAToBRace(t *testing.T) {
+	configtest.Isolate(t)
 	cfg := config.New()
 	cfg.Set("default", config.Profile{APIURL: "http://server-a:8080"})
 	cfg.Set("other", config.Profile{APIURL: "http://server-b:8080"})

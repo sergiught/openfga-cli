@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/sergiught/openfga-cli/internal/configtest"
 	"github.com/sergiught/openfga-cli/internal/modeltest"
 	shell "github.com/sergiught/openfga-cli/internal/ui/shell"
 )
@@ -53,7 +54,7 @@ func failingTestResults() []modeltest.TestResult {
 }
 
 func TestTestResultsBodyRendersFailure(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	m := newTestModel().(Model)
 	wbSeedDocuments(&m)
 	m.wb.results = failingTestResults()
@@ -67,7 +68,7 @@ func TestTestResultsBodyRendersFailure(t *testing.T) {
 }
 
 func TestTestResultsEmptyState(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	m := newTestModel().(Model)
 	m.section = secTestResults
 
@@ -78,7 +79,7 @@ func TestTestResultsEmptyState(t *testing.T) {
 }
 
 func TestDigit9JumpsToTestResults(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	mod := newTestModel().(Model)
 	wbSeedDocuments(&mod)
 	mod.wb.results = failingTestResults()
@@ -99,7 +100,7 @@ func TestDigit9JumpsToTestResults(t *testing.T) {
 }
 
 func TestDigit9JumpsToTestResultsFromPanel(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	mod := newTestModel().(Model)
 	mod.wb.results = failingTestResults()
 	mod.focus = shell.FocusPanel
@@ -127,7 +128,7 @@ func TestFirstFailedTestIndex(t *testing.T) {
 }
 
 func TestTestResultsSelectionMovesDown(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	mod := newTestModel().(Model)
 	wbSeedDocuments(&mod)
 	mod.wb.results = failingTestResults()

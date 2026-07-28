@@ -3,19 +3,19 @@ package modeltest
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/sergiught/go-openfga/openfga"
+
+	"github.com/sergiught/openfga-cli/internal/configtest"
 )
 
 // TestSeedServesCheckableStore boots a live embedded server for one test's
 // world and asserts an SDK Check answers TRUE over HTTP, without writing any
-// config under an isolated XDG_CONFIG_HOME.
+// config to the isolated config path.
 func TestSeedServesCheckableStore(t *testing.T) {
-	xdg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", xdg)
+	cfgPath := configtest.Isolate(t)
 
 	ws, err := LoadWorkspace("testdata/docs")
 	if err != nil {
@@ -51,25 +51,15 @@ func TestSeedServesCheckableStore(t *testing.T) {
 		t.Fatalf("check allowed = false, want true (anne is owner, so viewer)")
 	}
 
-	// The seed path must never write config: walk the isolated XDG dir and
-	// fail on any config.toml.
-	err = filepath.WalkDir(xdg, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !d.IsDir() && d.Name() == "config.toml" {
-			t.Errorf("seed wrote config at %s, want none", path)
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("walk xdg dir: %v", err)
+	// The seed path must never write config.
+	if _, err := os.Stat(cfgPath); !os.IsNotExist(err) {
+		t.Errorf("seed wrote config at %s, want none (stat err = %v)", cfgPath, err)
 	}
 }
 
 // TestSeedNoMatch reports a clear error when the selector matches nothing.
 func TestSeedNoMatch(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 
 	ws, err := LoadWorkspace("testdata/docs")
 	if err != nil {
