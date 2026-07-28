@@ -69,7 +69,7 @@ func TestBulkTuples(t *testing.T) {
 
 	// Bare array.
 	p := writeTemp(t, `[{"user":"user:anne","relation":"viewer","object":"doc:1"},{"user":"user:bob","relation":"editor","object":"doc:2"}]`)
-	keys, err := bulkTuples(cmd, p, nil, "", "", "")
+	keys, err := bulkTuples(cmd, p, nil, "", "", "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,17 +79,17 @@ func TestBulkTuples(t *testing.T) {
 
 	// Wrapper object.
 	p = writeTemp(t, `{"tuples":[{"user":"user:anne","relation":"viewer","object":"doc:1"}]}`)
-	if keys, err = bulkTuples(cmd, p, nil, "", "", ""); err != nil || len(keys) != 1 {
+	if keys, err = bulkTuples(cmd, p, nil, "", "", "", false); err != nil || len(keys) != 1 {
 		t.Fatalf("wrapper form: keys=%v err=%v", keys, err)
 	}
 
 	// --file is mutually exclusive with positional args / field flags.
-	if _, err := bulkTuples(cmd, p, []string{"user:anne"}, "", "", ""); err == nil {
+	if _, err := bulkTuples(cmd, p, []string{"user:anne"}, "", "", "", false); err == nil {
 		t.Error("--file with positional args should error")
 	} else if clierr.Code(err) != clierr.CodeUsage {
 		t.Errorf("mixed tuple inputs exit code = %d, want usage", clierr.Code(err))
 	}
-	if _, err := bulkTuples(cmd, p, nil, "user:anne", "", ""); err == nil {
+	if _, err := bulkTuples(cmd, p, nil, "user:anne", "", "", false); err == nil {
 		t.Error("--file with --user should error")
 	} else if clierr.Code(err) != clierr.CodeUsage {
 		t.Errorf("mixed tuple flags exit code = %d, want usage", clierr.Code(err))
@@ -97,7 +97,7 @@ func TestBulkTuples(t *testing.T) {
 
 	// A malformed triple is rejected.
 	p = writeTemp(t, `[{"user":"anne","relation":"viewer","object":"doc:1"}]`)
-	if _, err := bulkTuples(cmd, p, nil, "", "", ""); err == nil {
+	if _, err := bulkTuples(cmd, p, nil, "", "", "", false); err == nil {
 		t.Error("malformed user should be rejected")
 	} else if clierr.Code(err) != clierr.CodeUsage {
 		t.Errorf("malformed tuple exit code = %d, want usage", clierr.Code(err))
@@ -105,10 +105,66 @@ func TestBulkTuples(t *testing.T) {
 
 	// Empty file.
 	p = writeTemp(t, `[]`)
-	if _, err := bulkTuples(cmd, p, nil, "", "", ""); err == nil {
+	if _, err := bulkTuples(cmd, p, nil, "", "", "", false); err == nil {
 		t.Error("empty tuple list should error")
 	} else if clierr.Code(err) != clierr.CodeUsage {
 		t.Errorf("empty tuple list exit code = %d, want usage", clierr.Code(err))
+	}
+
+	// Trailing garbage after the JSON value is rejected, not silently ignored.
+	p = writeTemp(t, `[{"user":"user:anne","relation":"viewer","object":"doc:1"}] garbage`)
+	if _, err := bulkTuples(cmd, p, nil, "", "", "", false); err == nil {
+		t.Error("trailing garbage should be rejected")
+	} else if clierr.Code(err) != clierr.CodeUsage {
+		t.Errorf("trailing garbage exit code = %d, want usage", clierr.Code(err))
+	}
+}
+
+func TestBulkTuplesCondition(t *testing.T) {
+	cmd := &cobra.Command{}
+
+	// A condition name and context land on the resulting TupleKey.
+	p := writeTemp(t, `[{"user":"user:anne","relation":"viewer","object":"doc:1","condition":{"name":"non_expired_grant","context":{"grant_duration":"10m"}}}]`)
+	keys, err := bulkTuples(cmd, p, nil, "", "", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 1 || keys[0].Condition == nil {
+		t.Fatalf("unexpected keys: %+v", keys)
+	}
+	if keys[0].Condition.Name != "non_expired_grant" {
+		t.Errorf("condition name = %q, want non_expired_grant", keys[0].Condition.Name)
+	}
+	if keys[0].Condition.Context["grant_duration"] != "10m" {
+		t.Errorf("condition context = %+v, want grant_duration=10m", keys[0].Condition.Context)
+	}
+
+	// An unrecognized field is a parse error naming it, rather than being
+	// silently dropped.
+	p = writeTemp(t, `[{"user":"user:anne","relation":"viewer","object":"doc:1","condition_ctx":{"name":"x"}}]`)
+	if _, err := bulkTuples(cmd, p, nil, "", "", "", false); err == nil {
+		t.Error("unknown field should be rejected")
+	} else if clierr.Code(err) != clierr.CodeUsage {
+		t.Errorf("unknown field exit code = %d, want usage", clierr.Code(err))
+	} else if !strings.Contains(err.Error(), "condition_ctx") {
+		t.Errorf("error = %v, want it to name the unknown field", err)
+	}
+
+	// A condition with an empty name is rejected.
+	p = writeTemp(t, `[{"user":"user:anne","relation":"viewer","object":"doc:1","condition":{"context":{"x":1}}}]`)
+	if _, err := bulkTuples(cmd, p, nil, "", "", "", false); err == nil {
+		t.Error("condition with empty name should be rejected")
+	} else if clierr.Code(err) != clierr.CodeUsage {
+		t.Errorf("empty condition name exit code = %d, want usage", clierr.Code(err))
+	}
+
+	// Deletes cannot carry a condition: OpenFGA deletes match by
+	// user/relation/object only, so silently accepting it would mislead.
+	p = writeTemp(t, `[{"user":"user:anne","relation":"viewer","object":"doc:1","condition":{"name":"non_expired_grant"}}]`)
+	if _, err := bulkTuples(cmd, p, nil, "", "", "", true); err == nil {
+		t.Error("condition on a delete input should be rejected")
+	} else if clierr.Code(err) != clierr.CodeUsage {
+		t.Errorf("condition-on-delete exit code = %d, want usage", clierr.Code(err))
 	}
 }
 
@@ -135,7 +191,7 @@ func TestNegativePaginationRejectedBeforeClientCreation(t *testing.T) {
 }
 
 func TestTupleFileReadFailureRemainsRuntimeError(t *testing.T) {
-	_, err := bulkTuples(&cobra.Command{}, "definitely-does-not-exist.json", nil, "", "", "")
+	_, err := bulkTuples(&cobra.Command{}, "definitely-does-not-exist.json", nil, "", "", "", false)
 	if got := clierr.Code(err); got != clierr.CodeError {
 		t.Fatalf("missing file exit code = %d, want runtime error; err=%v", got, err)
 	}
@@ -364,5 +420,110 @@ func TestChangesPrintsCountFooterOnStderr(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "change(s)") {
 		t.Errorf("count footer leaked onto stdout:\n%s", out.String())
+	}
+}
+
+// captureWriteRequest starts a server that decodes each request body into req
+// and always answers with an empty success body.
+func captureWriteRequest(t *testing.T, req *openfga.WriteRequest) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(body, req); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestBulkWriteFileConditionReachesRequest(t *testing.T) {
+	var captured openfga.WriteRequest
+	srv := captureWriteRequest(t, &captured)
+
+	p := writeTemp(t, `[{"user":"user:anne","relation":"viewer","object":"doc:1","condition":{"name":"non_expired_grant","context":{"grant_duration":"10m"}}}]`)
+
+	cmd := New(newHumanTupleCLI(t, srv.URL)).writeCmd()
+	cmd.SetArgs([]string{"--file", p})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if captured.Writes == nil || len(captured.Writes.TupleKeys) != 1 {
+		t.Fatalf("captured request = %+v", captured)
+	}
+	got := captured.Writes.TupleKeys[0].Condition
+	if got == nil || got.Name != "non_expired_grant" || got.Context["grant_duration"] != "10m" {
+		t.Fatalf("condition = %+v, want name=non_expired_grant context.grant_duration=10m", got)
+	}
+}
+
+func TestWriteSingleTupleConditionFlags(t *testing.T) {
+	var captured openfga.WriteRequest
+	srv := captureWriteRequest(t, &captured)
+
+	cmd := New(newHumanTupleCLI(t, srv.URL)).writeCmd()
+	cmd.SetArgs([]string{
+		"user:anne", "viewer", "document:roadmap",
+		"--condition", "non_expired_grant",
+		"--condition-context", `{"grant_duration":"10m"}`,
+	})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if captured.Writes == nil || len(captured.Writes.TupleKeys) != 1 {
+		t.Fatalf("captured request = %+v", captured)
+	}
+	got := captured.Writes.TupleKeys[0].Condition
+	if got == nil || got.Name != "non_expired_grant" || got.Context["grant_duration"] != "10m" {
+		t.Fatalf("condition = %+v, want name=non_expired_grant context.grant_duration=10m", got)
+	}
+}
+
+func TestConditionContextWithoutConditionIsUsageError(t *testing.T) {
+	cmd := New(newHumanTupleCLI(t, "http://unused.invalid")).writeCmd()
+	cmd.SetArgs([]string{"user:anne", "viewer", "document:roadmap", "--condition-context", `{"x":1}`})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	err := cmd.Execute()
+	if clierr.Code(err) != clierr.CodeUsage {
+		t.Fatalf("exit code = %d, want usage; err=%v", clierr.Code(err), err)
+	}
+}
+
+func TestWriteFileWithConditionFlagIsUsageError(t *testing.T) {
+	p := writeTemp(t, `[{"user":"user:anne","relation":"viewer","object":"doc:1"}]`)
+	cmd := New(newHumanTupleCLI(t, "http://unused.invalid")).writeCmd()
+	cmd.SetArgs([]string{"--file", p, "--condition", "non_expired_grant"})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	err := cmd.Execute()
+	if clierr.Code(err) != clierr.CodeUsage {
+		t.Fatalf("exit code = %d, want usage; err=%v", clierr.Code(err), err)
+	}
+}
+
+func TestWriteDryRunMentionsCondition(t *testing.T) {
+	cmd := New(newHumanTupleCLI(t, "http://unused.invalid")).writeCmd()
+	cmd.SetArgs([]string{
+		"user:anne", "viewer", "document:roadmap",
+		"--condition", "non_expired_grant", "--dry-run",
+	})
+	var errOut bytes.Buffer
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(&errOut)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(errOut.String(), "non_expired_grant") {
+		t.Errorf("dry-run output = %q, want it to mention the condition", errOut.String())
 	}
 }
