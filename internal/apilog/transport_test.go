@@ -112,7 +112,9 @@ func TestTransportSkipsStreamedBody(t *testing.T) {
 	stub := &stubRT{resp: newResp(200, `{"result":{}}`)}
 	rt := Transport(stub, rec, "https://api.example")
 	req, _ := http.NewRequest(http.MethodPost, "https://api.example/stores/1/streamed-list-objects", nil)
-	rt.RoundTrip(req)
+	if _, err := rt.RoundTrip(req); err != nil {
+		t.Fatalf("round trip: %v", err)
+	}
 	if !strings.Contains(string(rec.Snapshot()[0].RespBody), "streamed") {
 		t.Fatal("streamed endpoint response body must not be buffered")
 	}

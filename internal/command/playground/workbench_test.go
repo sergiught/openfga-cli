@@ -963,7 +963,7 @@ func TestWorkbenchEditLaunchesEditor(t *testing.T) {
 
 	mod := seedWorkbenchModel(t, copyDocsWorkspace(t))
 	var tm tea.Model = mod
-	tm, cmd := tm.Update(key("e"))
+	_, cmd := tm.Update(key("e"))
 	if cmd == nil {
 		t.Fatal("e should launch the editor (return an ExecProcess command)")
 	}

@@ -19,7 +19,10 @@ import (
 func (c *Command) helpFunc(cmd *cobra.Command, _ []string) {
 	// Cobra renders --help after parsing flags but before PersistentPreRunE.
 	// Apply color/theme flags here too so --no-color/--theme affect help.
-	c.applyEnvironment()
+	// The only error it can return is an unknown --theme value, and a HelpFunc
+	// has nowhere to return it; rendering help in the default theme beats
+	// refusing to print help at all, so the failure is deliberately dropped.
+	_ = c.applyEnvironment()
 
 	var b strings.Builder
 
@@ -85,7 +88,7 @@ func (c *Command) helpFunc(cmd *cobra.Command, _ []string) {
 		b.WriteString("\n" + indentText(style.Faint.Render(hint), 2) + "\n")
 	}
 
-	fmt.Fprint(cmd.OutOrStdout(), b.String())
+	_, _ = fmt.Fprint(cmd.OutOrStdout(), b.String())
 }
 
 // envList renders the environment variables ofga honors, aligned like the flag

@@ -9,6 +9,24 @@ import (
 	"testing"
 )
 
+// stageDir and stageFile write the on-disk fixtures these tests load. They fail
+// the test when a write doesn't land: an unchecked setup write makes every
+// later assertion vacuous, so the failure has to be loud.
+func stageDir(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatalf("stage dir %s: %v", path, err)
+	}
+}
+
+func stageFile(t *testing.T, path string, content []byte) {
+	t.Helper()
+	stageDir(t, filepath.Dir(path))
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatalf("stage file %s: %v", path, err)
+	}
+}
+
 func TestLoadWorkspaceDiscoversManifest(t *testing.T) {
 	ws, err := LoadWorkspace("testdata/docs")
 	if err != nil {
@@ -29,7 +47,7 @@ func TestLoadWorkspaceDetectsOfficialFile(t *testing.T) {
 	dir := t.TempDir()
 	official := []byte("name: x\nmodel_file: ./m.fga\ntuples: []\ntests: []\n")
 	p := filepath.Join(dir, "store.fga.yaml")
-	os.WriteFile(p, official, 0o600)
+	stageFile(t, p, official)
 	_, err := LoadWorkspace(p)
 	if err == nil || !strings.Contains(err.Error(), "official openfga CLI store file") {
 		t.Fatalf("want official-file detection error, got %v", err)
@@ -38,7 +56,7 @@ func TestLoadWorkspaceDetectsOfficialFile(t *testing.T) {
 
 func TestLoadWorkspaceMissingReferencedModelNamesBothPaths(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "ofga.yaml"), []byte("version: 1\nmodel: ./missing.fga\ntests: []\n"), 0o600)
+	stageFile(t, filepath.Join(dir, "ofga.yaml"), []byte("version: 1\nmodel: ./missing.fga\ntests: []\n"))
 	_, err := LoadWorkspace(dir)
 	if err == nil || !strings.Contains(err.Error(), "./missing.fga") || !strings.Contains(err.Error(), dir) {
 		t.Fatalf("error must name declared value and resolved path, got %v", err)
@@ -48,7 +66,7 @@ func TestLoadWorkspaceMissingReferencedModelNamesBothPaths(t *testing.T) {
 func TestLoadWorkspaceMissingModelErrorPathIsAbsoluteForRelativeFileArg(t *testing.T) {
 	dir := t.TempDir()
 	manifest := filepath.Join(dir, "ofga.yaml")
-	os.WriteFile(manifest, []byte("version: 1\nmodel: ./missing.fga\ntests: []\n"), 0o600)
+	stageFile(t, manifest, []byte("version: 1\nmodel: ./missing.fga\ntests: []\n"))
 
 	t.Chdir(dir)
 
@@ -91,8 +109,8 @@ func TestLoadWorkspaceSingleFileWalksUpToManifest(t *testing.T) {
 
 func TestLoadWorkspaceAllowsDuplicateBasenames(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "ofga.yaml"), []byte("version: 1\nmodel: ./model.fga\ntests:\n  - \"tests/**/*.test.yaml\"\n"), 0o600)
-	os.WriteFile(filepath.Join(dir, "model.fga"), []byte("model\n  schema 1.1\n\ntype user\n"), 0o600)
+	stageFile(t, filepath.Join(dir, "ofga.yaml"), []byte("version: 1\nmodel: ./model.fga\ntests:\n  - \"tests/**/*.test.yaml\"\n"))
+	stageFile(t, filepath.Join(dir, "model.fga"), []byte("model\n  schema 1.1\n\ntype user\n"))
 
 	testYAML := `model: ./model.fga
 tests:
@@ -102,10 +120,10 @@ tests:
         object: document:1
         assertions: {viewer: true}
 `
-	os.MkdirAll(filepath.Join(dir, "tests", "a"), 0o755)
-	os.MkdirAll(filepath.Join(dir, "tests", "b"), 0o755)
-	os.WriteFile(filepath.Join(dir, "tests", "a", "foo.test.yaml"), []byte(testYAML), 0o600)
-	os.WriteFile(filepath.Join(dir, "tests", "b", "foo.test.yaml"), []byte(testYAML), 0o600)
+	stageDir(t, filepath.Join(dir, "tests", "a"))
+	stageDir(t, filepath.Join(dir, "tests", "b"))
+	stageFile(t, filepath.Join(dir, "tests", "a", "foo.test.yaml"), []byte(testYAML))
+	stageFile(t, filepath.Join(dir, "tests", "b", "foo.test.yaml"), []byte(testYAML))
 
 	ws, err := LoadWorkspace(dir)
 	if err != nil {
@@ -122,12 +140,12 @@ func TestLoadWorkspaceDedupesOverlappingTestGlobs(t *testing.T) {
 	dir := t.TempDir()
 	// Two overlapping patterns both match tests/a.test.yaml. The file must be
 	// loaded once, not flagged as a self-duplicate.
-	os.WriteFile(filepath.Join(dir, "ofga.yaml"), []byte("version: 1\nmodel: ./model.fga\ntests:\n  - \"tests/**/*.test.yaml\"\n  - \"tests/*.test.yaml\"\n"), 0o600)
-	os.WriteFile(filepath.Join(dir, "model.fga"), []byte("model\n  schema 1.1\n\ntype user\n"), 0o600)
+	stageFile(t, filepath.Join(dir, "ofga.yaml"), []byte("version: 1\nmodel: ./model.fga\ntests:\n  - \"tests/**/*.test.yaml\"\n  - \"tests/*.test.yaml\"\n"))
+	stageFile(t, filepath.Join(dir, "model.fga"), []byte("model\n  schema 1.1\n\ntype user\n"))
 
 	testYAML := "tests:\n  - name: t\n    check:\n      - user: user:anne\n        object: document:1\n        assertions: {viewer: true}\n"
-	os.MkdirAll(filepath.Join(dir, "tests"), 0o755)
-	os.WriteFile(filepath.Join(dir, "tests", "a.test.yaml"), []byte(testYAML), 0o600)
+	stageDir(t, filepath.Join(dir, "tests"))
+	stageFile(t, filepath.Join(dir, "tests", "a.test.yaml"), []byte(testYAML))
 
 	ws, err := LoadWorkspace(dir)
 	if err != nil {
@@ -140,8 +158,8 @@ func TestLoadWorkspaceDedupesOverlappingTestGlobs(t *testing.T) {
 
 func TestLoadWorkspaceSingleFileIgnoresUnrelatedDuplicateStems(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "ofga.yaml"), []byte("version: 1\nmodel: ./model.fga\ntests:\n  - \"tests/**/*.test.yaml\"\n"), 0o600)
-	os.WriteFile(filepath.Join(dir, "model.fga"), []byte("model\n  schema 1.1\n\ntype user\n"), 0o600)
+	stageFile(t, filepath.Join(dir, "ofga.yaml"), []byte("version: 1\nmodel: ./model.fga\ntests:\n  - \"tests/**/*.test.yaml\"\n"))
+	stageFile(t, filepath.Join(dir, "model.fga"), []byte("model\n  schema 1.1\n\ntype user\n"))
 
 	testYAML := `model: ./model.fga
 tests:
@@ -151,13 +169,13 @@ tests:
         object: document:1
         assertions: {viewer: true}
 `
-	os.MkdirAll(filepath.Join(dir, "tests", "a"), 0o755)
-	os.MkdirAll(filepath.Join(dir, "tests", "u1"), 0o755)
-	os.MkdirAll(filepath.Join(dir, "tests", "u2"), 0o755)
+	stageDir(t, filepath.Join(dir, "tests", "a"))
+	stageDir(t, filepath.Join(dir, "tests", "u1"))
+	stageDir(t, filepath.Join(dir, "tests", "u2"))
 	targetFile := filepath.Join(dir, "tests", "a", "target.test.yaml")
-	os.WriteFile(targetFile, []byte(testYAML), 0o600)
-	os.WriteFile(filepath.Join(dir, "tests", "u1", "dup.test.yaml"), []byte(testYAML), 0o600)
-	os.WriteFile(filepath.Join(dir, "tests", "u2", "dup.test.yaml"), []byte(testYAML), 0o600)
+	stageFile(t, targetFile, []byte(testYAML))
+	stageFile(t, filepath.Join(dir, "tests", "u1", "dup.test.yaml"), []byte(testYAML))
+	stageFile(t, filepath.Join(dir, "tests", "u2", "dup.test.yaml"), []byte(testYAML))
 
 	ws, err := LoadWorkspace(targetFile)
 	if err != nil {
@@ -177,8 +195,8 @@ tests:
 
 func TestLoadWorkspaceAllowsDifferentlyNamedTestFiles(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "ofga.yaml"), []byte("version: 1\nmodel: ./model.fga\ntests:\n  - \"tests/**/*.test.yaml\"\n"), 0o600)
-	os.WriteFile(filepath.Join(dir, "model.fga"), []byte("model\n  schema 1.1\n\ntype user\n"), 0o600)
+	stageFile(t, filepath.Join(dir, "ofga.yaml"), []byte("version: 1\nmodel: ./model.fga\ntests:\n  - \"tests/**/*.test.yaml\"\n"))
+	stageFile(t, filepath.Join(dir, "model.fga"), []byte("model\n  schema 1.1\n\ntype user\n"))
 
 	testYAML := `model: ./model.fga
 tests:
@@ -188,10 +206,10 @@ tests:
         object: document:1
         assertions: {viewer: true}
 `
-	os.MkdirAll(filepath.Join(dir, "tests", "a"), 0o755)
-	os.MkdirAll(filepath.Join(dir, "tests", "b"), 0o755)
-	os.WriteFile(filepath.Join(dir, "tests", "a", "foo.test.yaml"), []byte(testYAML), 0o600)
-	os.WriteFile(filepath.Join(dir, "tests", "b", "bar.test.yaml"), []byte(testYAML), 0o600)
+	stageDir(t, filepath.Join(dir, "tests", "a"))
+	stageDir(t, filepath.Join(dir, "tests", "b"))
+	stageFile(t, filepath.Join(dir, "tests", "a", "foo.test.yaml"), []byte(testYAML))
+	stageFile(t, filepath.Join(dir, "tests", "b", "bar.test.yaml"), []byte(testYAML))
 
 	ws, err := LoadWorkspace(dir)
 	if err != nil {
@@ -213,7 +231,7 @@ tests:
         object: document:1
         assertions: {viewer: true}
 `
-	os.WriteFile(testFile, []byte(standalone), 0o600)
+	stageFile(t, testFile, []byte(standalone))
 
 	ws, err := LoadWorkspace(testFile)
 	if err != nil {
@@ -269,8 +287,8 @@ func TestExpandFixturesAllowsDuplicateBasenamesWithQualifiedRefs(t *testing.T) {
 	dir := t.TempDir()
 	for _, rel := range []string{"fixtures/a/org.yaml", "fixtures/b/org.yaml"} {
 		p := filepath.Join(dir, rel)
-		os.MkdirAll(filepath.Dir(p), 0o755)
-		os.WriteFile(p, []byte("- {user: user:a, relation: x, object: y:1}\n"), 0o600)
+		stageDir(t, filepath.Dir(p))
+		stageFile(t, p, []byte("- {user: user:a, relation: x, object: y:1}\n"))
 	}
 	reg, err := expandFixtures(dir, []string{"fixtures/**/*.yaml"})
 	if err != nil {
@@ -339,7 +357,7 @@ func TestFixturesAndTuplesKeywordsInterchangeable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 	res, err := Run(context.Background(), ws, Options{Engine: eng})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -388,7 +406,7 @@ func TestTestLevelFixturesTuplesAcceptRefsAndInlineObjects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 	res, err := Run(context.Background(), ws, Options{Engine: eng})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -441,7 +459,7 @@ func TestCompactTupleStringsEverywhere(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 	res, err := Run(context.Background(), ws, Options{Engine: eng})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -497,7 +515,7 @@ func TestListUsersAssertionAcceptsFlatAndWrappedForms(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 	res, err := Run(context.Background(), ws, Options{Engine: eng})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -589,7 +607,7 @@ func TestCheckGroupingUsersAndObjects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 	res, err := Run(context.Background(), ws, Options{Engine: eng})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -693,7 +711,7 @@ func TestVersionlessManifestWithTuplesAliasIsNotOfficialFile(t *testing.T) {
 	// `tuples` is a legitimate manifest alias for `fixtures`; a versionless
 	// manifest using it should get the accurate "version required" schema error,
 	// not be misdiagnosed as an official openfga store file.
-	os.WriteFile(filepath.Join(dir, "ofga.yaml"), []byte("model: ./m.fga\ntuples:\n  - \"fixtures/**/*.yaml\"\ntests: []\n"), 0o600)
+	stageFile(t, filepath.Join(dir, "ofga.yaml"), []byte("model: ./m.fga\ntuples:\n  - \"fixtures/**/*.yaml\"\ntests: []\n"))
 	_, err := LoadWorkspace(dir)
 	if err == nil {
 		t.Fatal("versionless manifest must error")
@@ -753,7 +771,7 @@ func TestCoverageDiffReportsAddedBranches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng, Coverage: true, DiffBaseModel: base, DiffBaseName: "base"})
 	if err != nil {

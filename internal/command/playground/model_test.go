@@ -1387,7 +1387,7 @@ func TestAssertionWriteErrorShowsDialog(t *testing.T) {
 // TestFooterLabelsAndFullModelID verifies the footer shows the selected store's
 // name and the model id in full (no truncation).
 func TestFooterLabelsAndFullModelID(t *testing.T) {
-	var m tea.Model = newTestModel()
+	m := newTestModel()
 	// The footer now leads with a Profile chip; widen the terminal so the full
 	// (untruncated) model id still fits alongside it.
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 140, Height: 32})
@@ -1454,7 +1454,7 @@ func TestAssertionAddFormErrorShowsDialog(t *testing.T) {
 // TestFooterStoreNameAndLatestTag verifies the footer shows the store *name*
 // (not id) and tags the model "(latest)" only when it is the store's newest.
 func TestFooterStoreNameAndLatestTag(t *testing.T) {
-	var m tea.Model = newTestModel()
+	m := newTestModel()
 	// Wide enough for the chips to sit alongside the (verbose) key hints.
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 140, Height: 32})
 	// A ReadLatest load is tagged latest.
@@ -1851,7 +1851,7 @@ func TestRunSeededDoesNotPersistConfig(t *testing.T) {
 	mdl := newModel(context.Background(), a, cl, "seeded-store", "")
 	var m tea.Model = mdl
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
-	m, _ = m.Update(modelLoadedMsg{modelID: "seeded-model-ulid", graph: sampleGraph()})
+	_, _ = m.Update(modelLoadedMsg{modelID: "seeded-model-ulid", graph: sampleGraph()})
 
 	got := reload()
 	if got.StoreID != "real-store" || got.ModelID != "real-model" {
@@ -1977,7 +1977,7 @@ func TestProfilesTabAddAndSwitch(t *testing.T) {
 
 	// Select the new profile (list is sorted: default, staging) and switch to it.
 	m, _ = m.Update(key("down"))  // highlight "staging"
-	m, _ = m.Update(key("enter")) // switch active profile
+	_, _ = m.Update(key("enter")) // switch active profile
 	if c, _ := config.Load(); c.Active != "staging" {
 		t.Fatalf("switching profiles must persist active_profile; got %q", c.Active)
 	}
@@ -2107,7 +2107,7 @@ func TestProfilesTabEditStoreAndModel(t *testing.T) {
 	m, _ = m.Update(key("enter")) // -> store_id
 	m, _ = m.Update(key("enter")) // -> model_id
 	m, _ = m.Update(key("enter")) // -> auth method
-	m, _ = m.Update(key("enter")) // submit
+	_, _ = m.Update(key("enter")) // submit
 
 	c, _ := config.Load()
 	p, _ := c.Get("prod")

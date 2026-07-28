@@ -184,7 +184,7 @@ func TestEditProfileConfigSaveFailureRollsBack(t *testing.T) {
 	mdl.profileEditName = "default"
 	mdl.profileAuthMethod = config.AuthNone
 	nm, _ := mdl.enterForm(formEditProfile)
-	var m tea.Model = nm
+	m := nm
 	if m.(Model).formKind != formEditProfile {
 		t.Fatalf("precondition: expected the edit-profile form to be open, got kind=%d", m.(Model).formKind)
 	}
@@ -411,7 +411,7 @@ func TestSelectStoreConcurrentLoadsKeepSpinnerOn(t *testing.T) {
 // each needs its own begin so the first landing can't stop the spinner while
 // the other is still in flight.
 func TestAssertionEnterConcurrentLoadsKeepSpinnerOn(t *testing.T) {
-	var m tea.Model = newTestModel()
+	m := newTestModel()
 	m, _ = m.Update(key("7"))     // Assertions section
 	m, _ = m.Update(key("enter")) // descend into the panel
 

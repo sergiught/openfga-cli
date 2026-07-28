@@ -344,7 +344,7 @@ func (c *Command) applySecretFiles() error {
 			return "", err
 		}
 		if warning := readlimit.SecretPermissionWarning(path, label); warning != "" {
-			fmt.Fprintln(c.cmd.ErrOrStderr(), warning)
+			_, _ = fmt.Fprintln(c.cmd.ErrOrStderr(), warning)
 		}
 		value := strings.TrimSpace(string(data))
 		if value == "" {

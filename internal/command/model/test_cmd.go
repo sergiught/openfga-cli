@@ -196,7 +196,7 @@ func (c *Command) testCmd() *cobra.Command {
 				// or CI-network server, but warn if it looks remote so tuples and
 				// results aren't sent in the clear unknowingly.
 				if !isLocalAddr(serverAddr) {
-					fmt.Fprintln(cmd.ErrOrStderr(), style.Warn.Render("warning: --server-addr uses plaintext gRPC (no TLS); avoid sending real data to a non-local server this way"))
+					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), style.Warn.Render("warning: --server-addr uses plaintext gRPC (no TLS); avoid sending real data to a non-local server this way"))
 				}
 				if !machineOut {
 					output.Progressf(cmd.ErrOrStderr(), "connecting to %s…", serverAddr)
@@ -211,7 +211,7 @@ func (c *Command) testCmd() *cobra.Command {
 				}
 				return fmt.Errorf("start engine: %w", err)
 			}
-			defer eng.Close()
+			defer func() { _ = eng.Close() }()
 
 			res, err := modeltest.Run(cmd.Context(), ws, modeltest.Options{
 				Run:           run,
@@ -267,7 +267,13 @@ func (c *Command) testCmd() *cobra.Command {
 					if err != nil {
 						return err
 					}
-					defer f.Close()
+					// FIXME(report-file): unlike every other Close in this
+					// package this one is on a file we *wrote*, so a failed
+					// flush (ENOSPC, EDQUOT, an NFS commit) currently leaves a
+					// truncated report behind while the command still exits 0.
+					// Handling it changes behaviour, so it is tracked
+					// separately rather than fixed in this lint pass.
+					defer func() { _ = f.Close() }()
 					w = f
 				}
 				if err := modeltest.WriteReport(report, w, res); err != nil {
@@ -528,9 +534,9 @@ func renderSlowest(w io.Writer, res *modeltest.Results, n int) {
 	if n > len(tests) {
 		n = len(tests)
 	}
-	fmt.Fprintf(w, "\n%s\n", style.Faint.Render(fmt.Sprintf("%d slowest test(s):", n)))
+	_, _ = fmt.Fprintf(w, "\n%s\n", style.Faint.Render(fmt.Sprintf("%d slowest test(s):", n)))
 	for _, t := range tests[:n] {
-		fmt.Fprintf(w, "  %s  %s\n", formatDuration(t.DurationMs), t.Name)
+		_, _ = fmt.Fprintf(w, "  %s  %s\n", formatDuration(t.DurationMs), t.Name)
 	}
 }
 
@@ -577,7 +583,7 @@ func summaryLine(w io.Writer, res *modeltest.Results) {
 		// can be styled: Errorf sanitizes its formatted message for untrusted
 		// error text, which strips the ANSI it would otherwise carry.
 		dot := lipgloss.NewStyle().Foreground(style.Red).Render(style.IconDot)
-		fmt.Fprintf(w, "%s %s/%d test(s) failed (%s)\n", dot, style.Failure.Render(fmt.Sprintf("%d", s.Failed)), s.Total, dur)
+		_, _ = fmt.Fprintf(w, "%s %s/%d test(s) failed (%s)\n", dot, style.Failure.Render(fmt.Sprintf("%d", s.Failed)), s.Total, dur)
 		return
 	}
 	output.Successf(w, "%s/%d test(s) passed (%s)", style.Success.Render(fmt.Sprintf("%d", s.Passed)), s.Total, dur)

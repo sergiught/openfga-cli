@@ -24,7 +24,7 @@ func TestNarratorTreeAgreesWithEngineCheck(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	workspaces := 0
 	checked := 0

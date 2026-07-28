@@ -341,7 +341,7 @@ condition in_business_hours(current_hour: int) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng})
 	if err != nil {

@@ -129,28 +129,28 @@ func scaffoldWorkspace(cmd *cobra.Command, dir string, force bool) error {
 		}
 		tmpName := tmp.Name()
 		if _, err := tmp.WriteString(f.content); err != nil {
-			tmp.Close()
-			os.Remove(tmpName)
+			_ = tmp.Close()
+			_ = os.Remove(tmpName)
 			return fmt.Errorf("write %s: %w", dest, err)
 		}
 		if err := tmp.Close(); err != nil {
-			os.Remove(tmpName)
+			_ = os.Remove(tmpName)
 			return fmt.Errorf("write %s: %w", dest, err)
 		}
 		if err := os.Chmod(tmpName, 0o644); err != nil {
-			os.Remove(tmpName)
+			_ = os.Remove(tmpName)
 			return fmt.Errorf("chmod %s: %w", dest, err)
 		}
 		if err := os.Rename(tmpName, dest); err != nil {
-			os.Remove(tmpName)
+			_ = os.Remove(tmpName)
 			return fmt.Errorf("install %s: %w", dest, err)
 		}
-		fmt.Fprintf(out, "  %s %s\n", style.Success.Render("created"), dest)
+		_, _ = fmt.Fprintf(out, "  %s %s\n", style.Success.Render("created"), dest)
 	}
 	next := "ofga model test"
 	if filepath.Clean(dir) != "." {
 		next += " " + filepath.Clean(dir)
 	}
-	fmt.Fprintf(out, "\n%s\n", style.Faint.Render(fmt.Sprintf("Scaffolded a model-test workspace. Run `%s` to try it.", next)))
+	_, _ = fmt.Fprintf(out, "\n%s\n", style.Faint.Render(fmt.Sprintf("Scaffolded a model-test workspace. Run `%s` to try it.", next)))
 	return nil
 }

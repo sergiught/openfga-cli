@@ -116,7 +116,7 @@ func TestRunListUsersWithContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng})
 	if err != nil {
@@ -140,7 +140,7 @@ func TestRunPopulatesExplainOnFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng})
 	if err != nil {
@@ -218,7 +218,7 @@ func TestCoverageSurfacesTraceFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer embedded.Close()
+	defer func() { _ = embedded.Close() }()
 
 	res, err := Run(t.Context(), ws, Options{Engine: expandFailureEngine{Engine: embedded}, Coverage: true})
 	if err != nil {
@@ -244,7 +244,7 @@ func TestCoverageTracePreservesInfrastructureFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer embedded.Close()
+	defer func() { _ = embedded.Close() }()
 
 	_, err = Run(t.Context(), ws, Options{Engine: expandNetworkFailureEngine{Engine: embedded}, Coverage: true})
 	if clierr.Code(err) != clierr.CodeNetwork {
@@ -267,7 +267,7 @@ func TestCoverageTraceDeadlineFailsOnlyItsTest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer embedded.Close()
+	defer func() { _ = embedded.Close() }()
 
 	res, err := Run(t.Context(), ws, Options{Engine: expandDeadlineEngine{Engine: embedded}, Coverage: true})
 	if err != nil {
@@ -287,7 +287,7 @@ func TestRunDoesNotPopulateExplainOnPassByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng})
 	if err != nil {
@@ -314,7 +314,7 @@ func TestRunPopulatesExplainOnPassWhenExplainFull(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng, Explain: "full"})
 	if err != nil {
@@ -346,7 +346,7 @@ func TestRunAllPassesDocsWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng})
 	if err != nil {
@@ -375,7 +375,7 @@ func TestRunPopulatesDurations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng})
 	if err != nil {
@@ -416,7 +416,7 @@ func TestRunPopulatesDurationsWithCoverage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng, Coverage: true})
 	if err != nil {
@@ -499,7 +499,7 @@ func TestRunIsolatesExecutionErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng})
 	if err != nil {
@@ -582,7 +582,7 @@ func TestRunNameOnlyPatternMatchesAcrossFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng, Run: "common"})
 	if err != nil {
@@ -612,7 +612,7 @@ func TestRunGlobStarPatternMatchesMultipleTestsInOneFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng, Run: "a/*"})
 	if err != nil {
@@ -640,7 +640,7 @@ func TestRunFilterSelectsSingleTest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng, Run: "documents/owner-is-viewer"})
 	if err != nil {
@@ -660,7 +660,7 @@ func TestRunZeroMatchesIsError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	_, err = Run(context.Background(), ws, Options{Engine: eng, Run: "nope/nope"})
 	if err == nil {
@@ -746,7 +746,7 @@ func TestRunParallelDeterministic(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer eng.Close()
+		defer func() { _ = eng.Close() }()
 
 		res, err := Run(context.Background(), ws, Options{Engine: eng, Parallel: 4})
 		if err != nil {
@@ -840,7 +840,7 @@ func TestRunCoverageMultiModelIsNonFatal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng, Coverage: true})
 	if err != nil {
@@ -900,7 +900,7 @@ func TestRunCoverageUsesTestFileOverrideModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng, Coverage: true})
 	if err != nil {
@@ -962,7 +962,7 @@ func TestRunNearestMissOnlyOnFailedCheck(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng, Explain: "full"})
 	if err != nil {
@@ -1043,7 +1043,7 @@ func TestRunListObjectsExpectedDuplicatePasses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng})
 	if err != nil {
@@ -1098,7 +1098,7 @@ func TestRunFailFastStopsAfterFirstFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng, FailFast: true, Parallel: 1})
 	if err != nil {
@@ -1126,7 +1126,7 @@ func TestRunSurfacesTestDescription(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer eng.Close()
+	defer func() { _ = eng.Close() }()
 
 	res, err := Run(context.Background(), ws, Options{Engine: eng})
 	if err != nil {
