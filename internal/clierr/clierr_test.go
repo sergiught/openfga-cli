@@ -1,6 +1,7 @@
 package clierr
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -226,5 +227,34 @@ func TestSilent(t *testing.T) {
 	// Wrapping preserves the silent sentinel.
 	if !IsSilent(fmt.Errorf("wrapped: %w", Silent(CodeError))) {
 		t.Error("IsSilent(wrapped Silent) = false, want true")
+	}
+}
+
+func TestWithPartialResult(t *testing.T) {
+	if WithPartialResult(nil) != nil {
+		t.Error("WithPartialResult(nil) should be nil")
+	}
+
+	inner := fmt.Errorf("tuples 26-50 failed after 25 of 100 tuple(s) were committed: %w", context.Canceled)
+	err := WithPartialResult(inner)
+
+	if err.Error() != inner.Error() {
+		t.Errorf("Error() = %q, want %q", err.Error(), inner.Error())
+	}
+
+	var pr *PartialResult
+	if !errors.As(err, &pr) {
+		t.Fatal("errors.As should find the PartialResult")
+	}
+	if pr.Err != inner {
+		t.Errorf("pr.Err = %v, want %v", pr.Err, inner)
+	}
+
+	// Unwrapping and classification still work through the wrapper.
+	if !errors.Is(err, context.Canceled) {
+		t.Error("errors.Is(err, context.Canceled) = false, want true")
+	}
+	if got := Code(err); got != CodeCanceled {
+		t.Errorf("Code(err) = %d, want %d", got, CodeCanceled)
 	}
 }

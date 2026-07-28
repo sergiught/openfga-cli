@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -61,6 +62,10 @@ func TestWriteInBatchesReportsCommittedCount(t *testing.T) {
 	}
 	if completed != 100 {
 		t.Fatalf("completed = %d, want 100", completed)
+	}
+	var pr *clierr.PartialResult
+	if !errors.As(err, &pr) {
+		t.Fatal("writeInBatches error should carry a clierr.PartialResult so a cancellation handler can report what committed")
 	}
 }
 

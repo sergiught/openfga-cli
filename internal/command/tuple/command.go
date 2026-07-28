@@ -542,8 +542,8 @@ func writeInBatches(ctx context.Context, cl *openfga.Client, keys []openfga.Tupl
 			req.Writes = &openfga.WriteRequestTuples{TupleKeys: chunk}
 		}
 		if err := cl.Tuples.Write(ctx, req); err != nil {
-			return completed, fmt.Errorf("tuples %d-%d failed after %d of %d tuple(s) were committed: %w",
-				i+1, end, completed, len(keys), err)
+			return completed, clierr.WithPartialResult(fmt.Errorf("tuples %d-%d failed after %d of %d tuple(s) were committed: %w",
+				i+1, end, completed, len(keys), err))
 		}
 		completed = end
 	}

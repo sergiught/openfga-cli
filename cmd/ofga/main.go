@@ -42,7 +42,7 @@ func ignoreBrokenPipeSignal() {
 func main() {
 	ignoreBrokenPipeSignal()
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	// Config loads before cobra parses flags, so --config is read from argv here
@@ -100,11 +100,12 @@ func main() {
 		}
 		logger.Debugf("command failed: %+v", err)
 		if ctx.Err() != nil {
-			// A signal (Ctrl-C) cancelled the request context. signal.NotifyContext
-			// cancels with a signalError cause rather than context.Canceled, so the
-			// wrapped request error would otherwise be misread as a network failure.
-			// The context's own Err() is context.Canceled regardless of cause.
-			output.Errorf(root.ErrWriter(), "canceled")
+			// A signal (Ctrl-C or SIGTERM) cancelled the request context.
+			// signal.NotifyContext cancels with a signalError cause rather than
+			// context.Canceled, so the wrapped request error would otherwise be
+			// misread as a network failure. The context's own Err() is
+			// context.Canceled regardless of cause.
+			reportCanceled(root.ErrWriter(), err)
 			os.Exit(clierr.CodeCanceled)
 		}
 		if clierr.IsSilent(err) {
@@ -131,6 +132,19 @@ func main() {
 			output.Hintf(root.ErrWriter(), "run with -d/--debug for more detail")
 		}
 		os.Exit(code)
+	}
+}
+
+// reportCanceled prints the "canceled" message for a Ctrl-C/SIGTERM
+// interrupted command. When err carries a clierr.PartialResult (a bulk write
+// stopped partway through a batch), its "N of M committed" detail is also
+// printed so the user still learns what landed instead of losing that report
+// to the cancellation.
+func reportCanceled(w io.Writer, err error) {
+	output.Errorf(w, "canceled")
+	var partial *clierr.PartialResult
+	if errors.As(err, &partial) {
+		output.Hintf(w, "%s", partial.Error())
 	}
 }
 

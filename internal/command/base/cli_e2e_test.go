@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // sharedBin builds the ofga binary once for the whole package's e2e tests.
@@ -327,5 +329,64 @@ func TestGlobalStructuredOutputContracts(t *testing.T) {
 	}
 	if !strings.Contains(out, "available:") || !strings.Contains(out, "current:") {
 		t.Fatalf("theme --yaml returned human output: %q", out)
+	}
+}
+
+// TestSIGTERMCancelsGracefully covers CLI-77: a kill/CI-runner cancellation
+// (SIGTERM) must take the same graceful path as Ctrl-C (os.Interrupt) —
+// "canceled" on stderr and exit code 130 — rather than an unhandled kill.
+func TestSIGTERMCancelsGracefully(t *testing.T) {
+	gotRequest := make(chan struct{}, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case gotRequest <- struct{}{}:
+		default:
+		}
+		<-r.Context().Done() // hang until the client cancels the in-flight request
+	}))
+	defer srv.Close()
+
+	home := t.TempDir()
+	env := []string{
+		"XDG_CONFIG_HOME=" + home, "NO_COLOR=1", "PATH=" + os.Getenv("PATH"),
+		"OPENFGA_API_URL=" + srv.URL,
+	}
+	for _, key := range []string{"DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"} {
+		if v, ok := os.LookupEnv(key); ok {
+			env = append(env, key+"="+v)
+		}
+	}
+
+	cmd := exec.Command(ofgaBin(t), "stores", "list")
+	cmd.Env = env
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start ofga: %v", err)
+	}
+
+	select {
+	case <-gotRequest:
+	case <-time.After(10 * time.Second):
+		_ = cmd.Process.Kill()
+		t.Fatal("ofga never reached the mock server")
+	}
+
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatalf("signal ofga: %v", err)
+	}
+
+	waitErr := cmd.Wait()
+	code := 0
+	if exit, ok := waitErr.(*exec.ExitError); ok {
+		code = exit.ExitCode()
+	} else if waitErr != nil {
+		t.Fatalf("wait ofga: %v", waitErr)
+	}
+	if code != 130 {
+		t.Errorf("exit code = %d, want 130; stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "canceled") {
+		t.Errorf("stderr should report cancellation: %q", stderr.String())
 	}
 }
