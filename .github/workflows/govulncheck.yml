@@ -30,7 +30,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  scan:
+  # Keep the job name it had in ci.yml: branch protection pins required checks by
+  # job name, so renaming it here would leave main waiting forever on a check that
+  # no longer reports.
+  vulnerability-scan:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
