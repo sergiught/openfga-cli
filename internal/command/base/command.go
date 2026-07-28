@@ -104,7 +104,11 @@ source <(ofga completion bash)`,
 			if err := c.applySecretFiles(); err != nil {
 				return err
 			}
-			return c.applyEnvironment()
+			if err := c.applyEnvironment(); err != nil {
+				return err
+			}
+			c.warnConfigLoadErr(cmd)
+			return nil
 		},
 	}
 
@@ -332,6 +336,20 @@ func (c *Command) applyEnvironment() error {
 		style.Apply(theme.Default())
 	}
 	return nil
+}
+
+// warnConfigLoadErr surfaces a deferred config parse/version error (recorded
+// by config.LoadFrom on cfg.LoadErr) on stderr for every command — not just
+// `profiles` and `config init` — so a corrupt config file is never silently
+// ignored while the CLI runs on defaults. Warn-only: the command still
+// proceeds. Suppressed by --quiet, like other incidental output.
+func (c *Command) warnConfigLoadErr(cmd *cobra.Command) {
+	if c.cli.Quiet {
+		return
+	}
+	if err := c.cli.Config.LoadErr(); err != nil {
+		output.Errorf(cmd.ErrOrStderr(), "warning: %v", err)
+	}
 }
 
 func (c *Command) applySecretFiles() error {
