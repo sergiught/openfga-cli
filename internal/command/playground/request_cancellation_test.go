@@ -17,6 +17,7 @@ import (
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/config"
+	"github.com/sergiught/openfga-cli/internal/configtest"
 	"github.com/sergiught/openfga-cli/internal/ui/shell"
 )
 
@@ -131,7 +132,7 @@ func TestModelSwitchKeepsInFlightTupleLoadAlive(t *testing.T) {
 func TestSwitchProfileCancelsPreviousRequestContext(t *testing.T) {
 	// switchProfile persists the active profile — isolate the config so the
 	// test never touches the developer's real one.
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 
 	cfg := config.New()
 	cfg.Set("default", config.Profile{APIURL: "http://server-a.example"})
@@ -420,7 +421,7 @@ func TestStoreSelectionKeepsUsableRequestContext(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// selectStore persists the store and switchProfile the profile —
 			// isolate the config so neither touches the real one.
-			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			configtest.Isolate(t)
 
 			start := tc.start()
 			oldCtx := start.(Model).reqCtx
