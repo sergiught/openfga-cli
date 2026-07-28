@@ -135,7 +135,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// this one has no store id of its own to check, so it needs its own
 		// generation or it could repopulate the list from the wrong server, or
 		// even auto-select a store id that doesn't exist there.
-		stale := staleGen(msg.gen, m.storesGen)
+		stale := staleGen(msg.gen, m.storesGen) || staleCancel(msg.err)
 		m.endLoad()
 		if stale {
 			return m, nil
@@ -169,7 +169,11 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// First run with nothing selected yet: adopt the first store (and persist
 		// it) so the playground opens on a live store and the config records it.
 		if m.storeID == "" && len(m.stores) > 0 {
-			return m, m.selectStore(m.stores[0])
+			// Hoisted for the same reason as the Stores-section enter handler:
+			// selectStore's mutations (including the reqCtx renewal) must be
+			// sequenced before m is read as the return value.
+			cmd := m.selectStore(m.stores[0])
+			return m, cmd
 		}
 		return m, nil
 
@@ -178,7 +182,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// request against the same store — e.g. two quick picks in the model
 		// switcher) must still free its load slot; only the state it carries is
 		// dropped.
-		stale := staleStore(msg.storeID, m.storeID) || staleGen(msg.gen, m.modelGen)
+		stale := staleStore(msg.storeID, m.storeID) || staleGen(msg.gen, m.modelGen) || staleCancel(msg.err)
 		m.endLoad()
 		if stale {
 			return m, nil
@@ -193,7 +197,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.modelID = ""
 				m.beginLoad()
 				m.modelGen++
-				return m, loadModelCmd(m.ctx, m.client, m.storeID, m.modelGen)
+				return m, loadModelCmd(m.reqCtx, m.client, m.storeID, m.modelGen)
 			}
 			cmd := m.toastErr("model", msg.err)
 			if !m.connLost {
@@ -250,13 +254,13 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// can't clobber it.
 		m.beginLoad()
 		m.modelGen++
-		return m, tea.Batch(m.toasts.Push(toast.Success, m.status), loadModelCmd(m.ctx, m.client, m.storeID, m.modelGen))
+		return m, tea.Batch(m.toasts.Push(toast.Success, m.status), loadModelCmd(m.reqCtx, m.client, m.storeID, m.modelGen))
 
 	case modelsListedMsg:
 		// A rapid close/reopen of the model switcher can have two list loads in
 		// flight against the same store; only storeID was checked here before,
 		// so the older of the two could win a race and show a stale list.
-		stale := staleStore(msg.storeID, m.storeID) || staleGen(msg.gen, m.modelsGen)
+		stale := staleStore(msg.storeID, m.storeID) || staleGen(msg.gen, m.modelsGen) || staleCancel(msg.err)
 		m.endLoad()
 		if stale {
 			return m, nil // a load from a store we've since switched away from, or superseded by a newer list open
@@ -270,7 +274,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tuplesLoadedMsg:
-		stale := staleStore(msg.storeID, m.storeID) || staleGen(msg.gen, m.tuplesGen)
+		stale := staleStore(msg.storeID, m.storeID) || staleGen(msg.gen, m.tuplesGen) || staleCancel(msg.err)
 		m.endLoad()
 		if stale {
 			return m, nil // a load from a store we've since switched away from, or superseded by a newer reload
@@ -285,7 +289,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case changesLoadedMsg:
-		stale := staleStore(msg.storeID, m.storeID) || staleGen(msg.gen, m.changesGen)
+		stale := staleStore(msg.storeID, m.storeID) || staleGen(msg.gen, m.changesGen) || staleCancel(msg.err)
 		m.endLoad()
 		if stale {
 			return m, nil // a load from a store we've since switched away from, or superseded by a newer reload
@@ -308,7 +312,8 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// longer current, so it's compared against the active model when one is
 		// known (an unknown m.modelID means nothing to compare against yet, so
 		// the resolved latest is accepted).
-		stale := staleStore(msg.storeID, m.storeID) || staleGen(msg.gen, m.assertLoadGen) || staleModelKnown(msg.modelID, m.modelID)
+		stale := staleStore(msg.storeID, m.storeID) || staleGen(msg.gen, m.assertLoadGen) ||
+			staleModelKnown(msg.modelID, m.modelID) || staleCancel(msg.err)
 		m.endLoad()
 		if stale {
 			return m, nil // a load from a store/model we've since switched away from, or superseded by a newer reload
@@ -333,7 +338,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.beginLoad()
 			m.assertGen++
 			m.status = "running assertions…"
-			return m, runAssertionsCmd(m.ctx, m.client, m.storeID, m.assertModelID, m.assertions, m.assertGen)
+			return m, runAssertionsCmd(m.reqCtx, m.client, m.storeID, m.assertModelID, m.assertions, m.assertGen)
 		}
 		return m, nil
 
@@ -345,7 +350,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// still match and wrongly accept a now-stale result. staleModelKnown
 		// catches that by also checking against m.modelID when it's known.
 		stale := staleStore(msg.storeID, m.storeID) || staleModel(msg.modelID, m.assertModelID) ||
-			staleModelKnown(msg.modelID, m.modelID) || staleGen(msg.gen, m.assertGen)
+			staleModelKnown(msg.modelID, m.modelID) || staleGen(msg.gen, m.assertGen) || staleCancel(msg.err)
 		m.endLoad()
 		if stale {
 			return m, nil // superseded by a newer assertion run against the same store
@@ -371,7 +376,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// active model, since the latter can change before the former catches
 		// up on the next Assertions reload.
 		stale := staleStore(msg.storeID, m.storeID) || staleModel(msg.modelID, m.assertModelID) ||
-			staleModelKnown(msg.modelID, m.modelID) || staleGen(msg.gen, m.assertGen)
+			staleModelKnown(msg.modelID, m.modelID) || staleGen(msg.gen, m.assertGen) || staleCancel(msg.err)
 		m.endLoad()
 		if stale {
 			return m, nil // superseded by a newer assertion run against the same store
@@ -418,7 +423,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.beginLoad()
 		m.assertLoadGen++
 		return m, tea.Batch(m.toasts.Push(toast.Success, m.status),
-			loadAssertionsCmd(m.ctx, m.client, m.storeID, msg.modelID, m.assertLoadGen))
+			loadAssertionsCmd(m.reqCtx, m.client, m.storeID, msg.modelID, m.assertLoadGen))
 
 	case resolutionMsg:
 		// resolutionMsg is dispatched with either m.modelID (Query section's
@@ -427,7 +432,8 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// scoping; staleModelKnown additionally rejects it if the *active*
 		// model has since changed to something else, catching a race where the
 		// user switches models before this resolution lands.
-		stale := staleStore(msg.storeID, m.storeID) || staleGen(msg.gen, m.resGen) || staleModelKnown(msg.modelID, m.modelID)
+		stale := staleStore(msg.storeID, m.storeID) || staleGen(msg.gen, m.resGen) ||
+			staleModelKnown(msg.modelID, m.modelID) || staleCancel(msg.err)
 		m.endLoad()
 		if stale {
 			return m, nil // superseded by a newer resolution request against the same store
@@ -462,7 +468,14 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the older of the two must not be allowed to win.
 		m.beginLoad()
 		m.storesGen++
-		return m, tea.Batch(m.toasts.Push(toast.Success, m.status), m.selectStore(msg.store), loadStoresCmd(m.ctx, m.client, m.storesGen))
+		// Sequenced explicitly: selectStore mutates m through a pointer (renewing
+		// reqCtx among other things), and Go orders only the function calls in an
+		// expression, not the plain read of m among them. Statements make the
+		// dependency unambiguous — m must be read after every mutation.
+		toastCmd := m.toasts.Push(toast.Success, m.status)
+		selectCmd := m.selectStore(msg.store)
+		cmds := tea.Batch(toastCmd, selectCmd, loadStoresCmd(m.ctx, m.client, m.storesGen))
+		return m, cmds
 
 	case storeDeletedMsg:
 		m.endLoad()
@@ -541,11 +554,12 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.changesGen++
 		return m, tea.Batch(
 			m.toasts.Push(toast.Success, m.status),
-			loadTuplesCmd(m.ctx, m.client, m.storeID, m.tuplesGen),
+			loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tuplesGen),
 		)
 
 	case queryResultMsg:
-		stale := staleStore(msg.storeID, m.storeID) || staleModel(msg.modelID, m.modelID) || staleGen(msg.gen, m.queryGen)
+		stale := staleStore(msg.storeID, m.storeID) || staleModel(msg.modelID, m.modelID) ||
+			staleGen(msg.gen, m.queryGen) || staleCancel(msg.err)
 		m.endLoad()
 		if stale {
 			return m, nil // superseded by a newer query submission or rerun
@@ -1050,7 +1064,7 @@ func (m Model) handleModelPicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			// stale response overwrite the newer pick's graph/DSL.
 			m.beginLoad()
 			m.modelGen++
-			return m, loadModelByIDCmd(m.ctx, m.client, m.storeID, id, m.modelGen)
+			return m, loadModelByIDCmd(m.reqCtx, m.client, m.storeID, id, m.modelGen)
 		}
 		return m, nil
 	case "esc":
@@ -1080,7 +1094,7 @@ func (m Model) onEnterSection() (tea.Model, tea.Cmd) {
 			// whichever landed later.
 			m.changesGen++
 			m.changesStale = false
-			return m, loadChangesCmd(m.ctx, m.client, m.storeID, m.changesGen)
+			return m, loadChangesCmd(m.reqCtx, m.client, m.storeID, m.changesGen)
 		}
 	case secAssertions:
 		// Assertions are stored per authorization model, so reload them when the
@@ -1091,7 +1105,7 @@ func (m Model) onEnterSection() (tea.Model, tea.Cmd) {
 		if m.storeID != "" && (m.assertions == nil || (m.modelID != "" && m.assertModelID != m.modelID)) {
 			m.beginLoad()
 			m.assertLoadGen++
-			return m, loadAssertionsCmd(m.ctx, m.client, m.storeID, m.modelID, m.assertLoadGen)
+			return m, loadAssertionsCmd(m.reqCtx, m.client, m.storeID, m.modelID, m.assertLoadGen)
 		}
 	case secQuery:
 		// Descending into the panel starts in the first field, ready to type

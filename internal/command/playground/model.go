@@ -122,6 +122,17 @@ type Model struct {
 	cli    *cli.CLI
 	client *openfga.Client
 	ctx    context.Context
+	// reqCtx is derived from ctx and passed to every generation-tracked async
+	// read (loads, queries, resolution, assertion runs — mutations keep using
+	// ctx directly, see renewReqCtx). It is renewed — cancelling the previous
+	// one — whenever a whole batch of in-flight work is superseded (a store
+	// or model switch, or a reconnect), so a request the generation protocol
+	// has already decided to drop also stops running instead of consuming
+	// API budget and holding its spinner slot until it finishes on its own.
+	// Being a child of ctx, it is also cancelled for free on program
+	// shutdown, so nothing needs separate teardown wiring.
+	reqCtx    context.Context
+	reqCancel context.CancelFunc
 
 	recorder      *apilog.Recorder
 	apiLogSel     int  // selection index into Snapshot, 0 = newest (top)
@@ -514,6 +525,7 @@ func newModel(ctx context.Context, cli *cli.CLI, cl *openfga.Client, storeID, mo
 		fl.list.SetFilterPlaceholder(fl.placeholder)
 	}
 
+	m.renewReqCtx()
 	m.qmode = 0
 	m.populatePalette()
 	m.populateProfiles()
@@ -554,9 +566,9 @@ func (m Model) Init() tea.Cmd {
 	if m.storeID != "" {
 		cmds = append(cmds,
 			m.startModelCmd(),
-			loadTuplesCmd(m.ctx, m.client, m.storeID, m.tuplesGen),
-			loadChangesCmd(m.ctx, m.client, m.storeID, m.changesGen),
-			loadAssertionsCmd(m.ctx, m.client, m.storeID, m.modelID, m.assertLoadGen),
+			loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tuplesGen),
+			loadChangesCmd(m.reqCtx, m.client, m.storeID, m.changesGen),
+			loadAssertionsCmd(m.reqCtx, m.client, m.storeID, m.modelID, m.assertLoadGen),
 		)
 	}
 	return tea.Batch(cmds...)
@@ -573,9 +585,9 @@ func (m Model) Init() tea.Cmd {
 // generation newModel already seeded, matching initialPendingLoads' budget.
 func (m Model) startModelCmd() tea.Cmd {
 	if m.modelID != "" {
-		return loadModelByIDCmd(m.ctx, m.client, m.storeID, m.modelID, m.modelGen)
+		return loadModelByIDCmd(m.reqCtx, m.client, m.storeID, m.modelID, m.modelGen)
 	}
-	return loadModelCmd(m.ctx, m.client, m.storeID, m.modelGen)
+	return loadModelCmd(m.reqCtx, m.client, m.storeID, m.modelGen)
 }
 
 // modelIDRE matches a ULID, mirroring the SDK's own authorization-model-id
@@ -1091,6 +1103,12 @@ func (m *Model) pushHistory(h histEntry) {
 // --- store selection ---
 
 func (m *Model) selectStore(s openfga.Store) tea.Cmd {
+	// Every store-scoped read generation is bumped and all four loads
+	// re-dispatched below, so no store-scoped request in flight survives this
+	// call as current — cancel it outright rather than letting it run to
+	// completion just to be dropped on arrival. The stores list is the one read
+	// this must not reach, which is why loadStoresCmd rides m.ctx instead.
+	m.renewReqCtx()
 	m.clearResourcePending()
 	m.storeID = s.ID
 	m.storeName = s.Name
@@ -1142,16 +1160,25 @@ func (m *Model) selectStore(s openfga.Store) tea.Cmd {
 	m.beginLoad()
 	m.beginLoad()
 	return tea.Batch(extra,
-		loadModelCmd(m.ctx, m.client, m.storeID, m.modelGen),
-		loadTuplesCmd(m.ctx, m.client, m.storeID, m.tuplesGen),
-		loadChangesCmd(m.ctx, m.client, m.storeID, m.changesGen),
-		loadAssertionsCmd(m.ctx, m.client, m.storeID, m.modelID, m.assertLoadGen),
+		loadModelCmd(m.reqCtx, m.client, m.storeID, m.modelGen),
+		loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tuplesGen),
+		loadChangesCmd(m.reqCtx, m.client, m.storeID, m.changesGen),
+		loadAssertionsCmd(m.reqCtx, m.client, m.storeID, m.modelID, m.assertLoadGen),
 	)
 }
 
 // clearResourcePending invalidates work tied to the selected store/model while
 // preserving connection-wide store creation/deletion. Late completions retain
 // their origin and are dropped without disturbing newer work.
+//
+// It deliberately does NOT renew the request context. This function bumps only
+// the three *mutation* generations, so the store-scoped reads in flight (tuples,
+// changes) are still current by the generation protocol — and its non-selectStore
+// callers (a model switch) re-dispatch only the model. Cancelling here would kill
+// a live tuples load that nothing re-issues, stranding the pane empty and, since
+// staleCancel drops cancellations silently, with no feedback at all. Cancellation
+// belongs where the whole batch is superseded *and* redispatched: selectStore and
+// activateResolved. See renewReqCtx.
 func (m *Model) clearResourcePending() {
 	m.modelApplyGen++
 	m.tupleMutationGen++
@@ -1352,6 +1379,11 @@ func (m *Model) resolvedClient() (config.Resolved, *openfga.Client, error) {
 }
 
 func (m *Model) activateResolved(r config.Resolved, cl *openfga.Client, status string) tea.Cmd {
+	// Reconnecting supersedes every in-flight generation-tracked read against
+	// the old connection; cancel its request context outright rather than
+	// waiting for the generation bumps below to make each response stale on
+	// arrival.
+	m.renewReqCtx()
 	m.connGen++
 	m.storeCreateGen++
 	m.storeDeleteGen++
@@ -1429,9 +1461,9 @@ func (m *Model) activateResolved(r config.Resolved, cl *openfga.Client, status s
 		m.changesStale = false
 		cmds = append(cmds,
 			m.startModelCmd(),
-			loadTuplesCmd(m.ctx, m.client, m.storeID, m.tuplesGen),
-			loadChangesCmd(m.ctx, m.client, m.storeID, m.changesGen),
-			loadAssertionsCmd(m.ctx, m.client, m.storeID, m.modelID, m.assertLoadGen),
+			loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tuplesGen),
+			loadChangesCmd(m.reqCtx, m.client, m.storeID, m.changesGen),
+			loadAssertionsCmd(m.reqCtx, m.client, m.storeID, m.modelID, m.assertLoadGen),
 		)
 	}
 	return tea.Batch(cmds...)
@@ -1492,6 +1524,16 @@ func staleGen(msgGen, current int) bool {
 	return msgGen != 0 && msgGen != current
 }
 
+// staleCancel reports whether an async read failed only because its
+// request-scoped context was cancelled — i.e. renewReqCtx superseded it. That
+// is the same category as the staleXxx checks above (this response is no
+// longer wanted), not a failure: the user asked for something newer, so it is
+// dropped silently instead of surfacing as an error toast, an emptied pane or
+// a spurious "connection failed" status.
+func staleCancel(err error) bool {
+	return errors.Is(err, context.Canceled)
+}
+
 func (m Model) mutationOrigin(storeID, modelID string, gen ...int) mutationOrigin {
 	mutationGen := 0
 	if len(gen) > 0 {
@@ -1522,6 +1564,25 @@ func (m Model) staleMutation(origin mutationOrigin, currentGen int) bool {
 		return true
 	}
 	return staleModelKnown(origin.modelID, m.modelID)
+}
+
+// renewReqCtx cancels the previous request-scoped context (if any) and
+// installs a fresh one derived from m.ctx, so every command still running
+// under the old context loses it and returns early instead of running to
+// completion.
+//
+// Only call it where a whole batch of in-flight work is both superseded and
+// re-dispatched: selectStore (bumps all eight store-scoped read generations,
+// restarts the four loads) and activateResolved (reconnect). Cancelling
+// somewhere that invalidates only *part* of what's in flight would kill live
+// requests nothing re-issues — see clearResourcePending for the case that bit
+// us, and loadStoresCmd for the read kept off this context for the same
+// reason. It is also called once from newModel to install the first context.
+func (m *Model) renewReqCtx() {
+	if m.reqCancel != nil {
+		m.reqCancel()
+	}
+	m.reqCtx, m.reqCancel = context.WithCancel(m.ctx)
 }
 
 // beginLoad registers one more in-flight async load, keeping the spinner

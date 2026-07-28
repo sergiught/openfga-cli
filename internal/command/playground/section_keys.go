@@ -43,7 +43,12 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 		switch key {
 		case "enter":
 			if it, ok := m.profilesList.Selected(); ok {
-				return m, m.switchProfile(it.ID)
+				// Hoisted: switchProfile reaches activateResolved, which renews
+				// reqCtx. Losing that mutation would leave the model holding a
+				// cancelled context — every later read would fail instantly and
+				// staleCancel would drop it silently. See TUI-F8.
+				cmd := m.switchProfile(it.ID)
+				return m, cmd
 			}
 		case "a":
 			return m.enterForm(formAddProfile)
@@ -110,7 +115,11 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 		switch key {
 		case "enter":
 			if it, ok := m.storesList.Selected(); ok && it.Index < len(m.stores) {
-				return m, m.selectStore(m.stores[it.Index])
+				// Hoisted: selectStore mutates m through a pointer (renewing
+				// reqCtx among other state), and Go leaves the plain read of m
+				// unordered against that call — see TUI-F8.
+				cmd := m.selectStore(m.stores[it.Index])
+				return m, cmd
 			}
 		case "a", "n":
 			return m.enterForm(formCreateStore)
@@ -177,12 +186,12 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			// response (from a previous open) overwrite the model list a newer
 			// open already applied.
 			m.modelsGen++
-			return m, loadModelsCmd(m.ctx, m.client, m.storeID, m.modelsGen)
+			return m, loadModelsCmd(m.reqCtx, m.client, m.storeID, m.modelsGen)
 		case "r":
 			if m.storeID != "" {
 				m.beginLoad()
 				m.modelGen++
-				return m, loadModelCmd(m.ctx, m.client, m.storeID, m.modelGen)
+				return m, loadModelCmd(m.reqCtx, m.client, m.storeID, m.modelGen)
 			}
 		case "v":
 			if len(m.graph.Types) == 0 {
@@ -250,7 +259,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			if m.storeID != "" {
 				m.beginLoad()
 				m.tuplesGen++
-				return m, loadTuplesCmd(m.ctx, m.client, m.storeID, m.tuplesGen)
+				return m, loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tuplesGen)
 			}
 		}
 		cmd := m.tuplesList.Update(msg)
@@ -263,7 +272,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 				m.beginLoad()
 				m.changesGen++
 				m.changesStale = false
-				return m, loadChangesCmd(m.ctx, m.client, m.storeID, m.changesGen)
+				return m, loadChangesCmd(m.reqCtx, m.client, m.storeID, m.changesGen)
 			}
 		}
 		cmd := m.changesList.Update(msg)
@@ -306,7 +315,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			if m.hasResult && m.result.badge {
 				m.beginLoad()
 				m.resGen++
-				return m, expandCmd(m.ctx, m.client, m.storeID, m.modelID,
+				return m, expandCmd(m.reqCtx, m.client, m.storeID, m.modelID,
 					m.result.vals[0], m.result.vals[1], m.result.vals[2], m.resGen)
 			}
 			m.status = "run a check first (r shows its resolution)"
@@ -401,8 +410,8 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 				m.resGen++
 				m.status = "resolving assertion…"
 				return m, tea.Batch(
-					runOneAssertionCmd(m.ctx, m.client, m.storeID, m.assertModelID, it.Index, a, m.assertGen),
-					expandCmd(m.ctx, m.client, m.storeID, m.assertModelID, u, rel, obj, m.resGen),
+					runOneAssertionCmd(m.reqCtx, m.client, m.storeID, m.assertModelID, it.Index, a, m.assertGen),
+					expandCmd(m.reqCtx, m.client, m.storeID, m.assertModelID, u, rel, obj, m.resGen),
 				)
 			}
 			return m, nil
@@ -414,12 +423,12 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			m.beginLoad()
 			m.assertGen++
 			m.status = "running assertions…"
-			return m, runAssertionsCmd(m.ctx, m.client, m.storeID, m.assertModelID, m.assertions, m.assertGen)
+			return m, runAssertionsCmd(m.reqCtx, m.client, m.storeID, m.assertModelID, m.assertions, m.assertGen)
 		case "r":
 			if m.storeID != "" {
 				m.beginLoad()
 				m.assertLoadGen++
-				return m, loadAssertionsCmd(m.ctx, m.client, m.storeID, m.modelID, m.assertLoadGen)
+				return m, loadAssertionsCmd(m.reqCtx, m.client, m.storeID, m.modelID, m.assertLoadGen)
 			}
 		}
 		cmd := m.assertionsList.Update(msg)
