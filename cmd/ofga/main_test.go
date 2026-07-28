@@ -54,7 +54,10 @@ func TestDebugFlagsEnableDebugLogging(t *testing.T) {
 }
 
 func TestMainFileRunsStandalone(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Generous, because this is a hang guard rather than a performance budget:
+	// go run links the whole binary from a cache the -race test run never warms,
+	// and on a loaded CI runner that alone can outlast a tight timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "go", "run", "main.go", "--help")
 	cmd.Env = append(os.Environ(), "NO_COLOR=1")

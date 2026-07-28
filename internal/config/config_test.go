@@ -217,7 +217,13 @@ func TestConcurrentInitialSaveAllowsOnlyOneCreator(t *testing.T) {
 }
 
 func TestLoadFromSymlinkSavesCanonicalConfig(t *testing.T) {
-	dir := t.TempDir()
+	// LoadFrom canonicalizes the whole path, so the expectation has to be
+	// canonical too. On macOS t.TempDir() sits under /var, itself a symlink to
+	// /private/var, and an uncanonicalized target would never match.
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	target := filepath.Join(dir, "config.toml")
 	cfg, err := LoadFrom(target)
 	if err != nil {
