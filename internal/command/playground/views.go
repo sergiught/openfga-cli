@@ -193,6 +193,9 @@ func (m Model) dialogContent() (string, string) {
 		return "Create Store", m.form.View() + "\n" + style.Faint.Render("↵ create · esc cancel")
 	case m.formKind == formWriteTuple:
 		return "Write Tuple", m.form.View() + "\n" + style.Faint.Render("tab move · ctrl+s submit · esc cancel")
+	case m.formKind == formTupleFilter:
+		return "Filter Tuples", m.form.View() + "\n" +
+			style.Faint.Render("tab move · ctrl+s apply · submit all-empty to clear · esc cancel")
 	case m.formKind == formWriteAssertion:
 		title := "Add Assertion"
 		if m.assertEditIdx >= 0 {

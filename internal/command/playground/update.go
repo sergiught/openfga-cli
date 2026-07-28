@@ -1025,10 +1025,17 @@ func (m Model) handleSidebarKey(key string) (tea.Model, tea.Cmd) {
 		m.fading = true
 		nm, cmd := m.onEnterSection()
 		return nm, tea.Batch(cmd, fadeTick())
-	case "n", "a", "e", "d":
+	case "n", "a", "e", "d", "f":
 		// Empty-state call-to-action keys ("press n to create one") are panel
 		// actions. Descend into the panel and replay the key so a new user's very
 		// first keystroke works, instead of being a silent no-op on the sidebar.
+		//
+		// f is such a key only in Tuples ("press f to edit or clear it" when a
+		// filter matches nothing); elsewhere it is panel-local paging, which must
+		// not yank focus out of the sidebar.
+		if key == "f" && m.section != secTuples {
+			return m, nil
+		}
 		m.focus = shell.FocusPanel
 		nm, cmd := m.onEnterSection()
 		mm, ok := nm.(Model)

@@ -69,6 +69,7 @@ const (
 	formWriteAssertion
 	formAddProfile
 	formEditProfile
+	formTupleFilter
 )
 
 var queryModes = []string{"check", "list-objects", "list-users", "list-relations"}

@@ -78,6 +78,22 @@ func buildWriteTupleForm(w int) *field.Form {
 	return f
 }
 
+// buildTupleFilterForm builds the tuples section's server-side /read filter
+// form, pre-filled with the active filter so editing an existing filter is
+// cumulative. All three fields are optional; submitting them all empty clears
+// the filter.
+// Values() = [user, relation, object].
+func buildTupleFilterForm(w int, cur tupleFilter) *field.Form {
+	f := field.NewForm(
+		field.New("User", "user:anne").WithValidate(vUser),
+		field.New("Relation", "viewer"),
+		field.New("Object", "document:roadmap or document:").WithValidate(vFilterObject),
+	)
+	f.SetWidth(w)
+	f.SetValues([]string{cur.user, cur.relation, cur.object})
+	return f
+}
+
 // buildWriteAssertionForm builds the add/edit-assertion form.
 // Values() = [user, relation, object, expect, contextual_tuples, context_json].
 func buildWriteAssertionForm(w int) *field.Form {

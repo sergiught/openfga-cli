@@ -34,6 +34,8 @@ func (m Model) enterForm(kind formKind) (tea.Model, tea.Cmd) {
 		m.form = buildCreateStoreForm(dw)
 	case formWriteTuple:
 		m.form = buildWriteTupleForm(dw)
+	case formTupleFilter:
+		m.form = buildTupleFilterForm(dw, m.tupleFilter)
 	case formWriteAssertion:
 		m.form = buildWriteAssertionForm(dw)
 	case formAddProfile:
@@ -149,6 +151,24 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = m.mutationStatus
 			return m, writeTupleCmd(m.ctx, m.client,
 				m.mutationOrigin(m.storeID, m.modelID, m.tupleMutationGen), key, false)
+		case formTupleFilter:
+			f := tupleFilter{
+				user:     strings.TrimSpace(vals[0]),
+				relation: strings.TrimSpace(vals[1]),
+				object:   strings.TrimSpace(vals[2]),
+			}
+			if err := validateTupleFilter(f); err != nil {
+				return resume(err.Error())
+			}
+			m.tupleFilter = f
+			m.beginLoad()
+			m.tuplesGen++
+			if f.active() {
+				m.status = "filtering tuples…"
+			} else {
+				m.status = "cleared the tuple filter"
+			}
+			return m, loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tupleFilter, m.tuplesGen)
 		case formWriteAssertion:
 			key, err := fga.ParseTuple(vals[0], vals[1], vals[2])
 			if err != nil {

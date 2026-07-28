@@ -233,6 +233,12 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 				return m, nil
 			}
 			return m.enterForm(formWriteTuple)
+		case "f":
+			if m.storeID == "" {
+				m.status = "select a store first"
+				return m, nil
+			}
+			return m.enterForm(formTupleFilter)
 		case "d":
 			if it, ok := m.tuplesList.Selected(); ok && it.Index < len(m.tuples) {
 				k := m.tuples[it.Index].Key

@@ -5,6 +5,7 @@ import (
 	"io"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/log/v2"
 
 	"github.com/sergiught/go-openfga/openfga"
@@ -12,6 +13,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/configtest"
+	"github.com/sergiught/openfga-cli/internal/ui/shell"
 )
 
 // The tuples pane's /read request carries a tuple_key filter only when a
@@ -83,6 +85,171 @@ func TestValidateTupleFilter(t *testing.T) {
 		if (err == nil) != tc.ok {
 			t.Errorf("%s: validateTupleFilter(%+v) = %v, want ok=%v", tc.name, tc.f, err, tc.ok)
 		}
+	}
+}
+
+func ctrlS() tea.KeyPressMsg { return tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl} }
+
+// tuplesPanelModel returns a ready model sitting in the Tuples section with
+// the panel focused, which is what section keys require.
+func tuplesPanelModel() Model {
+	m := newTestModel().(Model)
+	m.section = secTuples
+	m.focus = shell.FocusPanel
+	return m
+}
+
+// openTupleFilter drives a ready model to the Tuples section and opens the
+// filter form with the f key.
+func openTupleFilter(t *testing.T) tea.Model {
+	t.Helper()
+	m, _ := tea.Model(tuplesPanelModel()).Update(key("f"))
+	if m.(Model).formKind != formTupleFilter {
+		t.Fatalf("f should open the tuple filter form, got kind=%d", m.(Model).formKind)
+	}
+	return m
+}
+
+func TestTupleFilterKeyRequiresStore(t *testing.T) {
+	cl, _ := openfga.NewClient("http://localhost:8080")
+	a := cli.New(log.New(io.Discard), config.New(), "test")
+	mdl := newModel(context.Background(), a, cl, "", "")
+	var m tea.Model = mdl
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
+	mm := m.(Model)
+	mm.section = secTuples
+	mm.focus = shell.FocusPanel
+	m, _ = tea.Model(mm).Update(key("f"))
+	if m.(Model).formKind != formNone {
+		t.Fatal("f without a store must not open the filter form")
+	}
+	if m.(Model).status != "select a store first" {
+		t.Fatalf("status = %q, want the select-a-store hint", m.(Model).status)
+	}
+}
+
+func TestTupleFilterSubmitAppliesAndReloads(t *testing.T) {
+	m := openTupleFilter(t)
+	mm := m.(Model)
+	genBefore := mm.tuplesGen
+	mm.form.SetValues([]string{"user:anne", "", "document:"})
+	m, cmd := tea.Model(mm).Update(ctrlS())
+	mm = m.(Model)
+	if mm.formKind != formNone {
+		t.Fatalf("valid submit should close the form, kind=%d err=%q", mm.formKind, mm.formErr)
+	}
+	if want := (tupleFilter{user: "user:anne", object: "document:"}); mm.tupleFilter != want {
+		t.Fatalf("tupleFilter = %+v, want %+v", mm.tupleFilter, want)
+	}
+	if mm.tuplesGen != genBefore+1 {
+		t.Fatalf("submit should bump tuplesGen for the reload, got %d want %d", mm.tuplesGen, genBefore+1)
+	}
+	if cmd == nil {
+		t.Fatal("submit should dispatch a tuples reload command")
+	}
+}
+
+// Submitted values are trimmed, so a stray space can't produce a filter that
+// looks inactive in the header but still narrows the read.
+func TestTupleFilterSubmitTrimsValues(t *testing.T) {
+	m := openTupleFilter(t)
+	mm := m.(Model)
+	mm.form.SetValues([]string{"  user:anne  ", "  ", " document:roadmap "})
+	m, _ = tea.Model(mm).Update(ctrlS())
+	mm = m.(Model)
+	if want := (tupleFilter{user: "user:anne", object: "document:roadmap"}); mm.tupleFilter != want {
+		t.Fatalf("tupleFilter = %+v, want %+v", mm.tupleFilter, want)
+	}
+}
+
+func TestTupleFilterInvalidSubmitResumes(t *testing.T) {
+	m := openTupleFilter(t)
+	mm := m.(Model)
+	mm.form.SetValues([]string{"user:anne", "", ""}) // user alone: server would reject
+	m, _ = tea.Model(mm).Update(ctrlS())
+	mm = m.(Model)
+	if mm.formKind != formTupleFilter || mm.formErr == "" {
+		t.Fatalf("invalid combination should resume the form with an error, kind=%d err=%q", mm.formKind, mm.formErr)
+	}
+	if mm.tupleFilter.active() {
+		t.Fatalf("invalid submit must not set the filter, got %+v", mm.tupleFilter)
+	}
+}
+
+func TestTupleFilterEmptySubmitClears(t *testing.T) {
+	m := openTupleFilter(t)
+	mm := m.(Model)
+	mm.tupleFilter = tupleFilter{object: "document:roadmap"}
+	mm.form.SetValues([]string{"", "", ""})
+	m, cmd := tea.Model(mm).Update(ctrlS())
+	mm = m.(Model)
+	if mm.tupleFilter.active() {
+		t.Fatalf("empty submit should clear the filter, got %+v", mm.tupleFilter)
+	}
+	if cmd == nil {
+		t.Fatal("clearing should dispatch an unfiltered reload")
+	}
+}
+
+func TestTupleFilterFormPrefilledFromActiveFilter(t *testing.T) {
+	mm := tuplesPanelModel()
+	mm.tupleFilter = tupleFilter{user: "user:anne", relation: "viewer", object: "document:"}
+	m, _ := tea.Model(mm).Update(key("f"))
+	got := m.(Model).form.Values()
+	if got[0] != "user:anne" || got[1] != "viewer" || got[2] != "document:" {
+		t.Fatalf("form should pre-fill the active filter, got %v", got)
+	}
+}
+
+func TestTupleFilterPersistsAcrossRefresh(t *testing.T) {
+	mm := tuplesPanelModel()
+	mm.tupleFilter = tupleFilter{object: "document:roadmap"}
+	nm, cmd := tea.Model(mm).Update(key("r"))
+	got := nm.(Model)
+	if want := (tupleFilter{object: "document:roadmap"}); got.tupleFilter != want {
+		t.Fatalf("r must keep the filter, got %+v", got.tupleFilter)
+	}
+	if cmd == nil {
+		t.Fatal("r should dispatch a reload")
+	}
+}
+
+func TestTupleFilterEscLeavesFilterUntouched(t *testing.T) {
+	m := openTupleFilter(t)
+	mm := m.(Model)
+	mm.tupleFilter = tupleFilter{object: "document:roadmap"}
+	m, _ = tea.Model(mm).Update(key("esc"))
+	mm = m.(Model)
+	if mm.formKind != formNone {
+		t.Fatal("esc should close the form")
+	}
+	if want := (tupleFilter{object: "document:roadmap"}); mm.tupleFilter != want {
+		t.Fatalf("esc must not change the filter, got %+v", mm.tupleFilter)
+	}
+}
+
+// The Tuples empty state tells the user to "press f"; that must work from the
+// sidebar too, like the a/d call-to-action keys, not only once the panel is
+// focused.
+func TestTupleFilterKeyReachesPanelFromSidebar(t *testing.T) {
+	mm := newTestModel().(Model)
+	mm.section = secTuples
+	mm.focus = shell.FocusSidebar
+	m, _ := tea.Model(mm).Update(key("f"))
+	if m.(Model).formKind != formTupleFilter {
+		t.Fatalf("f on the sidebar should open the tuple filter, got kind=%d", m.(Model).formKind)
+	}
+}
+
+// f is page-down in the Model section; the Tuples-only sidebar shortcut must
+// not pull focus into other panels.
+func TestFilterKeyFromSidebarIsTuplesOnly(t *testing.T) {
+	mm := newTestModel().(Model)
+	mm.section = secModel
+	mm.focus = shell.FocusSidebar
+	m, _ := tea.Model(mm).Update(key("f"))
+	if got := m.(Model).focus; got != shell.FocusSidebar {
+		t.Fatalf("f outside Tuples must leave sidebar focus alone, got %v", got)
 	}
 }
 
