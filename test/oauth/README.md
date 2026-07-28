@@ -46,7 +46,7 @@ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/stores   # -> 401
 Use an isolated config dir so this never touches your real `ofga` config:
 
 ```bash
-export XDG_CONFIG_HOME=$(mktemp -d)
+export OPENFGA_CONFIG=$(mktemp -d)/config.toml
 
 ofga profiles add local --api-url http://localhost:8080
 ofga profiles use local
@@ -66,7 +66,7 @@ If the token were invalid (wrong audience/issuer/signature) OpenFGA would answer
 ## 3. private_key_jwt
 
 ```bash
-export XDG_CONFIG_HOME=$(mktemp -d)
+export OPENFGA_CONFIG=$(mktemp -d)/config.toml
 openssl genrsa -out /tmp/ofga-pkjwt.pem 2048
 
 ofga profiles add pk --api-url http://localhost:8080

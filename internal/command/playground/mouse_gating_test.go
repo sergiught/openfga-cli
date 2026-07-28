@@ -6,6 +6,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/sergiught/go-openfga/openfga"
+
+	"github.com/sergiught/openfga-cli/internal/configtest"
 )
 
 // --- TUI-F4: mouse wheel must be gated under the takeover-form dialogs and
@@ -20,7 +22,7 @@ func threeTuples() []openfga.Tuple {
 }
 
 func TestWheelGatedUnderTakeoverForm(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	mod := newTestModel().(Model)
 	var tm tea.Model = mod
 	tm, _ = tm.Update(tuplesLoadedMsg{tuples: threeTuples()})
@@ -45,7 +47,7 @@ func TestWheelGatedUnderTakeoverForm(t *testing.T) {
 }
 
 func TestWheelRoutedToModelPickerList(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	mod := newTestModel().(Model)
 	var tm tea.Model = mod
 	tm, _ = tm.Update(modelsListedMsg{models: []openfga.AuthorizationModel{

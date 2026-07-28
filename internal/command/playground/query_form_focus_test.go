@@ -6,6 +6,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/sergiught/go-openfga/openfga"
+
+	"github.com/sergiught/openfga-cli/internal/configtest"
 )
 
 // --- TUI-F3 (+F14): resize() must not yank focus off a field the user is
@@ -14,7 +16,7 @@ import (
 // unconditionally and refocus field 0 via qform.Init().
 
 func TestQueryFormFocusSurvivesBackgroundAssertionsLoad(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	mod := newTestModel().(Model)
 	mod.section = secQuery
 	mod.editing = true
@@ -44,7 +46,7 @@ func TestQueryFormFocusSurvivesBackgroundAssertionsLoad(t *testing.T) {
 }
 
 func TestQueryFormFocusSurvivesSameWidthWindowResize(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	mod := newTestModel().(Model) // already sized to 110x32
 	mod.section = secQuery
 	mod.editing = true
