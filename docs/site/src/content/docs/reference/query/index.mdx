@@ -11,6 +11,7 @@ Positional argument order mirrors the OpenFGA API for each call, so it differs b
   check        \<user> \<relation> \<object>   (user first)
   list-objects \<type> \<relation> \<user>     (user last)
   list-users   \<object> \<relation>          (object first, --type for the user filter)
+  list-relations \<user> \<object>            (user first)
   expand       \<relation> \<object>
 Use the named flags (--user/--relation/--object) where available if the order is easy to mix up.
 
@@ -20,4 +21,5 @@ Use the named flags (--user/--relation/--object) where available if the order is
 | [check](check/) | Check whether a user has a relation on an object |
 | [expand](expand/) | Expand the userset tree that grants a relation (JSON) |
 | [list-objects](list-objects/) | List objects of a type a user has a relation with |
+| [list-relations](list-relations/) | List the relations a user has on an object |
 | [list-users](list-users/) | List users that have a relation on an object |

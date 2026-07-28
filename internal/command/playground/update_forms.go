@@ -380,7 +380,7 @@ func (m Model) advanceQueryForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var rels []string
 		if mode == "list-relations" {
 			var rerr error
-			if rels, rerr = relationsForType(m.graph, b); rerr != nil {
+			if rels, rerr = m.graph.RelationsForObject(b); rerr != nil {
 				m.setQueryError(rerr.Error())
 				return m, nil
 			}
@@ -431,7 +431,7 @@ func (m Model) rerunHistory(idx int) (tea.Model, tea.Cmd) {
 	case "list-users":
 		return m, listUsersCmd(m.ctx, m.client, m.storeID, m.modelID, a, b, c, qctx, gen)
 	case "list-relations":
-		rels, err := relationsForType(m.graph, b)
+		rels, err := m.graph.RelationsForObject(b)
 		if err != nil {
 			// The load begun above never actually dispatched a request — free
 			// its slot immediately instead of leaving the spinner stuck on it.

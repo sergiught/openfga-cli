@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -593,32 +591,6 @@ func listUsersCmd(ctx context.Context, cl *openfga.Client, storeID, modelID, obj
 		}
 		return queryResultMsg{storeID: storeID, modelID: modelID, gen: gen, title: title, lines: lines, ms: ms, vals: vals, mode: "list-users", qctx: qc}
 	}
-}
-
-// relationsForType returns every relation defined on the type of object (the
-// part before the ":") in the parsed model, in the graph's sorted order. It
-// backs list-relations, which tests a user against all of them. It errors when
-// object carries no type, the type is absent from the model, or the type has no
-// relations — none of which yield anything to test.
-func relationsForType(g fga.Graph, object string) ([]string, error) {
-	typ, _, ok := strings.Cut(object, ":")
-	if !ok || typ == "" {
-		return nil, fmt.Errorf("object %q has no type (expected type:id)", object)
-	}
-	for _, t := range g.Types {
-		if t.Name != typ {
-			continue
-		}
-		if len(t.Relations) == 0 {
-			return nil, fmt.Errorf("type %q has no relations to test", typ)
-		}
-		rels := make([]string, len(t.Relations))
-		for i, r := range t.Relations {
-			rels[i] = r.Name
-		}
-		return rels, nil
-	}
-	return nil, fmt.Errorf("type %q is not defined in the model", typ)
 }
 
 // listRelationsCmd tests user against each of relations on object and reports

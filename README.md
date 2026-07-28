@@ -41,7 +41,7 @@ Manage stores, authorization models, relationship tuples, and run checks from yo
 
 `ofga` is a single, dependency-free binary that gives you two ways to work with an OpenFGA server:
 
-- 🧰 **A scriptable CLI**: create stores, write and inspect authorization models, manage relationship tuples, run `check`/`list-objects`/`list-users`, and run assertion suites. Read commands provide consistent JSON/YAML output, tabular commands support `--plain`, and failures return meaningful exit codes.
+- 🧰 **A scriptable CLI**: create stores, write and inspect authorization models, manage relationship tuples, run `check`/`list-objects`/`list-users`/`list-relations`, and run assertion suites. Read commands provide consistent JSON/YAML output, tabular commands support `--plain`, and failures return meaningful exit codes.
 - 🖥 **A full-screen TUI**: launch it by running `ofga` with no arguments. Browse stores, visualize a model as a colored relation graph, edit tuples, run queries and expand their resolution trees, and manage assertions, all with the keyboard **or the mouse**.
 
 It talks to any OpenFGA-compatible server and reuses your connection **profiles** so you can switch between local, staging, and production in one flag.
