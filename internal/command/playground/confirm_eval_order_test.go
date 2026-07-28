@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/sergiught/openfga-cli/internal/configtest"
 )
 
 // --- TUI-F8: the confirm modal's "enter"/"y" paths mutate the model through a
@@ -15,7 +17,7 @@ import (
 // regress it.
 
 func TestConfirmModalRequirePathAppliesMutation(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	mod := newTestModel().(Model)
 	applied := false
 	mod.confirm = &confirmAction{
@@ -50,7 +52,7 @@ func TestConfirmModalRequirePathAppliesMutation(t *testing.T) {
 }
 
 func TestConfirmModalYesPathAppliesMutation(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	mod := newTestModel().(Model)
 	applied := false
 	mod.confirm = &confirmAction{

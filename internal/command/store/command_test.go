@@ -17,6 +17,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/config"
+	"github.com/sergiught/openfga-cli/internal/configtest"
 	"github.com/sergiught/openfga-cli/internal/output"
 )
 
@@ -132,7 +133,7 @@ func storeCreateServer(t *testing.T) *httptest.Server {
 // OPENFGA_PROFILE set, `stores create --use` must save the new store ID into
 // the env-selected profile, not the file-active one.
 func TestCreateUseHonorsEnvProfileOverride(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	srv := storeCreateServer(t)
 
 	cfg := config.New()
@@ -163,7 +164,7 @@ func TestCreateUseHonorsEnvProfileOverride(t *testing.T) {
 // TestCreateUseFlagBeatsEnvProfile checks --profile takes precedence over
 // OPENFGA_PROFILE, matching config.ActiveName's documented precedence.
 func TestCreateUseFlagBeatsEnvProfile(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 	srv := storeCreateServer(t)
 
 	cfg := config.New()
@@ -201,14 +202,13 @@ func TestCreateUseFlagBeatsEnvProfile(t *testing.T) {
 // it tries to persist the new store ID.
 func missingProfileScenario(t *testing.T) *cli.CLI {
 	t.Helper()
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configtest.Isolate(t)
 
 	cfg := config.New()
 	cfg.Active = "dev"
 	cfg.Set("dev", config.Profile{})
 
-	var srv *httptest.Server
-	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		delete(cfg.Profiles, "dev")
 		_ = json.NewEncoder(w).Encode(openfga.Store{
 			ID:        "01ARZ3NDEKTSV4RRFFQ69G5FAV",
