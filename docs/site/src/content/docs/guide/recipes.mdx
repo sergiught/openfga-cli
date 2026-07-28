@@ -77,10 +77,12 @@ OPENFGA_PROFILE=prod ofga stores list
 
 ## Bulk tuple writes from a file
 
-`tuples write --file` takes a JSON array of `{"user", "relation", "object"}`
-objects (or `{"tuples": [...]}`), reading from stdin with `-`. Writes are sent
-in server-sized batches and are **not** transactional across batches. See
-[scripting](../scripting/) for the full automation contract.
+`tuples write --file` (and `tuples delete --file`) accepts JSON, JSONL, YAML and
+CSV, reading from stdin with `-`. The format is inferred from the extension and
+can be forced with `--file-format`; stdin has no extension, so it is read as
+JSON unless you say otherwise. Writes are sent in server-sized batches and are
+**not** transactional across batches. See [scripting](../scripting/) for the
+full automation contract.
 
 ```bash
 cat > tuples.json <<'EOF'
@@ -95,10 +97,43 @@ EOF
 ofga tuples write --file tuples.json
 ```
 
-If a later batch fails, the command reports `written`/`deleted`, `total`, and
-`complete: false` (in JSON/YAML/plain output) before exiting non-zero.
-Automation should check the exit status and treat the reported count as
-already committed rather than retrying the whole file.
+The same tuples as CSV, using the column names the official `fga` CLI uses.
+Columns may appear in any order, only `user_type`, `user_id`, `relation`,
+`object_type` and `object_id` are required, and an unknown column is an error:
+
+```bash
+cat > tuples.csv <<'EOF'
+user_type,user_id,relation,object_type,object_id
+user,bob,member,organization,org1
+user,carol,member,organization,org1
+EOF
+
+ofga tuples write --file tuples.csv
+```
+
+A bulk run no longer stops at the first rejected tuple: it keeps going and
+reports `wrote X, failed Y of N tuple(s)` on stderr, followed by each failed
+tuple and its reason, then exits non-zero. In JSON/YAML output the payload
+carries `successful` and `failed` arrays alongside the existing
+`written`/`deleted`, `total` and `complete` fields. Automation should check the
+exit status and treat the reported count as already committed rather than
+retrying the whole file.
+
+`--failed-file` writes just the rejected tuples, in the same format as the
+input and with the reasons stripped, so the file can be fixed and re-run
+directly. Because a rejected request fails its whole chunk, re-run with
+`--max-tuples-per-write 1` when you need per-tuple attribution:
+
+```bash
+ofga tuples write --file tuples.csv --failed-file failed.csv
+# fix the rows, then:
+ofga tuples write --file failed.csv
+```
+
+`--max-tuples-per-write` (default 100) and `--max-parallel-requests` (default 1)
+tune throughput for large imports. `--on-duplicate ignore` (write) and
+`--on-missing ignore` (delete) make an already-existing or already-absent tuple
+a no-op instead of an error; both require OpenFGA 1.10 or newer.
 
 ## Raw API escape hatch
 
@@ -122,11 +157,12 @@ consumer.
 ## Exporting tuples for backup or re-import
 
 `tuples read --json` auto-pages and returns every tuple as
-`{"key": {"user", "relation", "object"}, "timestamp"}`, which doesn't match
-the flatter shape `tuples write --file` expects. Reshape it with `jq` first.
+`{"key": {"user", "relation", "object"}, "timestamp"}`. `tuples write --file`
+accepts that shape directly, so an export feeds straight back in — no `jq`
+reshaping required. The `timestamp` field is ignored on import.
 
 ```bash
-ofga tuples read --json | jq '[.[].key]' > backup.json
+ofga tuples read --json > backup.json
 
 # ...later, against the same or a different store:
 ofga tuples write --file backup.json

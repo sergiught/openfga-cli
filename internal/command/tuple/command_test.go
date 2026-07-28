@@ -2,7 +2,6 @@ package tuple
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -12,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -35,11 +35,19 @@ func writeTemp(t *testing.T, content string) string {
 	return p
 }
 
-func TestWriteInBatchesReportsCommittedCount(t *testing.T) {
+// TestBulkWriteReportsCommittedCount is the successor to the pre-overhaul
+// TestWriteInBatchesReportsCommittedCount: writeInBatches is gone, but a bulk
+// write whose second chunk is rejected must still report the 100 tuples that
+// landed and still carry a clierr.PartialResult for the cancellation handler.
+func TestBulkWriteReportsCommittedCount(t *testing.T) {
+	var mu sync.Mutex
 	calls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
 		calls++
-		if calls == 1 {
+		first := calls == 1
+		mu.Unlock()
+		if first {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{}`))
 			return
@@ -48,24 +56,31 @@ func TestWriteInBatchesReportsCommittedCount(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cl, err := openfga.NewClient(srv.URL, openfga.WithStoreID("01ARZ3NDEKTSV4RRFFQ69G5FAV"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	keys := make([]openfga.TupleKey, 101)
-	for i := range keys {
-		keys[i] = openfga.TupleKey{User: "user:anne", Relation: "viewer", Object: "doc:1"}
-	}
-	completed, err := writeInBatches(context.Background(), cl, keys, false)
+	p := bulkFileOf(t, 101, formatJSON)
+	a := newHumanTupleCLI(t, srv.URL)
+	a.JSON = true
+	cmd := New(a).writeCmd()
+	cmd.SetArgs([]string{"--file", p})
+	out, _ := silenced(cmd)
+
+	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("second batch should fail")
 	}
-	if completed != 100 {
-		t.Fatalf("completed = %d, want 100", completed)
+	var got struct {
+		Written  int  `json:"written"`
+		Total    int  `json:"total"`
+		Complete bool `json:"complete"`
+	}
+	if jsonErr := json.Unmarshal([]byte(out.String()), &got); jsonErr != nil {
+		t.Fatalf("decode %q: %v", out.String(), jsonErr)
+	}
+	if got.Written != 100 || got.Total != 101 || got.Complete {
+		t.Fatalf("written/total/complete = %d/%d/%v, want 100/101/false", got.Written, got.Total, got.Complete)
 	}
 	var pr *clierr.PartialResult
 	if !errors.As(err, &pr) {
-		t.Fatal("writeInBatches error should carry a clierr.PartialResult so a cancellation handler can report what committed")
+		t.Fatal("a bulk write error should carry a clierr.PartialResult so a cancellation handler can report what committed")
 	}
 }
 
@@ -74,7 +89,7 @@ func TestBulkTuples(t *testing.T) {
 
 	// Bare array.
 	p := writeTemp(t, `[{"user":"user:anne","relation":"viewer","object":"doc:1"},{"user":"user:bob","relation":"editor","object":"doc:2"}]`)
-	keys, err := bulkTuples(cmd, p, nil, "", "", "", false)
+	keys, err := bulkTuples(cmd, p, formatJSON, nil, "", "", "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,17 +99,17 @@ func TestBulkTuples(t *testing.T) {
 
 	// Wrapper object.
 	p = writeTemp(t, `{"tuples":[{"user":"user:anne","relation":"viewer","object":"doc:1"}]}`)
-	if keys, err = bulkTuples(cmd, p, nil, "", "", "", false); err != nil || len(keys) != 1 {
+	if keys, err = bulkTuples(cmd, p, formatJSON, nil, "", "", "", false); err != nil || len(keys) != 1 {
 		t.Fatalf("wrapper form: keys=%v err=%v", keys, err)
 	}
 
 	// --file is mutually exclusive with positional args / field flags.
-	if _, err := bulkTuples(cmd, p, []string{"user:anne"}, "", "", "", false); err == nil {
+	if _, err := bulkTuples(cmd, p, formatJSON, []string{"user:anne"}, "", "", "", false); err == nil {
 		t.Error("--file with positional args should error")
 	} else if clierr.Code(err) != clierr.CodeUsage {
 		t.Errorf("mixed tuple inputs exit code = %d, want usage", clierr.Code(err))
 	}
-	if _, err := bulkTuples(cmd, p, nil, "user:anne", "", "", false); err == nil {
+	if _, err := bulkTuples(cmd, p, formatJSON, nil, "user:anne", "", "", false); err == nil {
 		t.Error("--file with --user should error")
 	} else if clierr.Code(err) != clierr.CodeUsage {
 		t.Errorf("mixed tuple flags exit code = %d, want usage", clierr.Code(err))
@@ -102,7 +117,7 @@ func TestBulkTuples(t *testing.T) {
 
 	// A malformed triple is rejected.
 	p = writeTemp(t, `[{"user":"anne","relation":"viewer","object":"doc:1"}]`)
-	if _, err := bulkTuples(cmd, p, nil, "", "", "", false); err == nil {
+	if _, err := bulkTuples(cmd, p, formatJSON, nil, "", "", "", false); err == nil {
 		t.Error("malformed user should be rejected")
 	} else if clierr.Code(err) != clierr.CodeUsage {
 		t.Errorf("malformed tuple exit code = %d, want usage", clierr.Code(err))
@@ -110,7 +125,7 @@ func TestBulkTuples(t *testing.T) {
 
 	// Empty file.
 	p = writeTemp(t, `[]`)
-	if _, err := bulkTuples(cmd, p, nil, "", "", "", false); err == nil {
+	if _, err := bulkTuples(cmd, p, formatJSON, nil, "", "", "", false); err == nil {
 		t.Error("empty tuple list should error")
 	} else if clierr.Code(err) != clierr.CodeUsage {
 		t.Errorf("empty tuple list exit code = %d, want usage", clierr.Code(err))
@@ -118,7 +133,7 @@ func TestBulkTuples(t *testing.T) {
 
 	// Trailing garbage after the JSON value is rejected, not silently ignored.
 	p = writeTemp(t, `[{"user":"user:anne","relation":"viewer","object":"doc:1"}] garbage`)
-	if _, err := bulkTuples(cmd, p, nil, "", "", "", false); err == nil {
+	if _, err := bulkTuples(cmd, p, formatJSON, nil, "", "", "", false); err == nil {
 		t.Error("trailing garbage should be rejected")
 	} else if clierr.Code(err) != clierr.CodeUsage {
 		t.Errorf("trailing garbage exit code = %d, want usage", clierr.Code(err))
@@ -130,7 +145,7 @@ func TestBulkTuplesCondition(t *testing.T) {
 
 	// A condition name and context land on the resulting TupleKey.
 	p := writeTemp(t, `[{"user":"user:anne","relation":"viewer","object":"doc:1","condition":{"name":"non_expired_grant","context":{"grant_duration":"10m"}}}]`)
-	keys, err := bulkTuples(cmd, p, nil, "", "", "", false)
+	keys, err := bulkTuples(cmd, p, formatJSON, nil, "", "", "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +162,7 @@ func TestBulkTuplesCondition(t *testing.T) {
 	// An unrecognized field is a parse error naming it, rather than being
 	// silently dropped.
 	p = writeTemp(t, `[{"user":"user:anne","relation":"viewer","object":"doc:1","condition_ctx":{"name":"x"}}]`)
-	if _, err := bulkTuples(cmd, p, nil, "", "", "", false); err == nil {
+	if _, err := bulkTuples(cmd, p, formatJSON, nil, "", "", "", false); err == nil {
 		t.Error("unknown field should be rejected")
 	} else if clierr.Code(err) != clierr.CodeUsage {
 		t.Errorf("unknown field exit code = %d, want usage", clierr.Code(err))
@@ -157,7 +172,7 @@ func TestBulkTuplesCondition(t *testing.T) {
 
 	// A condition with an empty name is rejected.
 	p = writeTemp(t, `[{"user":"user:anne","relation":"viewer","object":"doc:1","condition":{"context":{"x":1}}}]`)
-	if _, err := bulkTuples(cmd, p, nil, "", "", "", false); err == nil {
+	if _, err := bulkTuples(cmd, p, formatJSON, nil, "", "", "", false); err == nil {
 		t.Error("condition with empty name should be rejected")
 	} else if clierr.Code(err) != clierr.CodeUsage {
 		t.Errorf("empty condition name exit code = %d, want usage", clierr.Code(err))
@@ -166,7 +181,7 @@ func TestBulkTuplesCondition(t *testing.T) {
 	// Deletes cannot carry a condition: OpenFGA deletes match by
 	// user/relation/object only, so silently accepting it would mislead.
 	p = writeTemp(t, `[{"user":"user:anne","relation":"viewer","object":"doc:1","condition":{"name":"non_expired_grant"}}]`)
-	if _, err := bulkTuples(cmd, p, nil, "", "", "", true); err == nil {
+	if _, err := bulkTuples(cmd, p, formatJSON, nil, "", "", "", true); err == nil {
 		t.Error("condition on a delete input should be rejected")
 	} else if clierr.Code(err) != clierr.CodeUsage {
 		t.Errorf("condition-on-delete exit code = %d, want usage", clierr.Code(err))
@@ -196,7 +211,7 @@ func TestNegativePaginationRejectedBeforeClientCreation(t *testing.T) {
 }
 
 func TestTupleFileReadFailureRemainsRuntimeError(t *testing.T) {
-	_, err := bulkTuples(&cobra.Command{}, "definitely-does-not-exist.json", nil, "", "", "", false)
+	_, err := bulkTuples(&cobra.Command{}, "definitely-does-not-exist.json", formatJSON, nil, "", "", "", false)
 	if got := clierr.Code(err); got != clierr.CodeError {
 		t.Fatalf("missing file exit code = %d, want runtime error; err=%v", got, err)
 	}
