@@ -106,9 +106,8 @@ func (m Model) helpBody() string {
 		section = [][2]string{
 			{"↑↓", "move"},
 			{"/", "find in the loaded rows"},
-			{"f", "server-side filter (/read)"},
+			{"f", "filter on the server"},
 			{"a", "add"}, {"d", "delete"}, {"r", "reload"},
-			{"v", "compact view"},
 		}
 	case secChanges:
 		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"r", "reload"}}
@@ -161,22 +160,23 @@ func (m Model) mainTitle() string {
 		return base + " ▸ Switch model"
 	case m.section == secQuery && m.showRes:
 		return base + " ▸ Resolution"
-	case m.section == secTuples && m.tupleFilter.active():
-		return base + " ▸ " + tupleFilterLabel(m.tupleFilter)
+	case m.section == secTuples && m.tupleFilters.applied.active():
+		label := base + " ▸ filter: " + tupleFilterFields(m.tupleFilters.applied)
+		if m.tuplesCapped {
+			label += " (first " + strconv.Itoa(tuplesDisplayCap) + ")"
+		}
+		return label
 	case m.section == secTuples && m.tuplesCapped:
 		// "/" can only search what was loaded, so at the cap it cannot reach the
-		// rows the user is missing — point at the filter that can.
-		return base + " ▸ press f to filter beyond the first " + strconv.Itoa(tuplesDisplayCap)
+		// rows the user is missing — point at the filter that reads a different
+		// slice of the store rather than a bigger one.
+		return base + " ▸ first " + strconv.Itoa(tuplesDisplayCap) + " — f narrows the read"
 	}
 	return base
 }
 
-// tupleFilterLabel renders the active server-side filter compactly for the
-// panel header, e.g. "filter: object=document: user=user:anne".
-func tupleFilterLabel(f tupleFilter) string { return "filter: " + tupleFilterFields(f) }
-
-// tupleFilterFields renders the filter's set fields, e.g.
-// "object=document: user=user:anne".
+// tupleFilterFields renders the filter's set fields compactly for the panel
+// header, e.g. "object=document: user=user:anne".
 func tupleFilterFields(f tupleFilter) string {
 	// Object leads: it is the field the server requires, and the header
 	// truncates from the right on narrow panes.
@@ -229,9 +229,9 @@ func (m Model) dialogContent() (string, string) {
 		return "Write Tuple", m.form.View() + "\n" + style.Faint.Render("tab move · ctrl+s submit · esc cancel")
 	case m.formKind == formTupleFilter:
 		return "Filter Tuples", style.Faint.Render(
-			"Re-reads from the server (/read), not just the rows already loaded.") +
+			"Re-reads from the server; blank fields clear it.") +
 			"\n\n" + m.form.View() + "\n" +
-			style.Faint.Render("tab move · ctrl+s apply · all blank to clear · esc cancel")
+			style.Faint.Render("tab move · ctrl+s apply · esc cancel")
 	case m.formKind == formWriteAssertion:
 		title := "Add Assertion"
 		if m.assertEditIdx >= 0 {
@@ -359,7 +359,9 @@ func (m Model) sectionBody() string {
 		case m.loading && m.storeID != "" && len(m.tuples) == 0:
 			body = m.spinner.View() + " loading tuples…"
 		case len(m.tuples) == 0:
-			body = style.Faint.Render(tupleHint(m.storeID, m.tupleFilter.active()))
+			body = style.Faint.Render(tupleHint(m.storeID, m.tupleFilters.applied.active()))
+		case len(m.tuplesList.Model.VisibleItems()) == 0:
+			body = style.Faint.Render(findHidesAllHint(len(m.tuples)))
 		case m.compact:
 			body = m.tuplesList.View()
 		default:
@@ -1073,7 +1075,7 @@ func (m Model) sectionStatus() string {
 		return plural(len(m.stores), "store")
 	case secTuples:
 		noun := "tuple"
-		if m.tupleFilter.active() {
+		if m.tupleFilters.applied.active() {
 			noun = "matching tuple"
 		}
 		if m.tuplesCapped {
@@ -1100,9 +1102,18 @@ func tupleHint(storeID string, filtered bool) string {
 		return "Select a store first — press 2"
 	}
 	if filtered {
-		return "No tuples match the filter — press f to edit or clear it"
+		// Shorter than it wants to be: at 80 columns the longer phrasing clipped
+		// exactly the half that says what to do about it.
+		return "No matches — press f to edit or clear the filter"
 	}
 	return "No tuples yet — press a to add one"
+}
+
+// findHidesAllHint explains an empty pane that holds rows: the "/" find is
+// hiding them, and an applied find is otherwise invisible — the list reverts
+// its title bar to the key hint, so nothing on screen names the cause.
+func findHidesAllHint(rows int) string {
+	return "The / find hides all " + itoa(rows) + " loaded rows — press / then esc to clear it"
 }
 
 func changeHint(storeID string) string {

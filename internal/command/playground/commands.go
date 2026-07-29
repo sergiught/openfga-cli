@@ -19,11 +19,10 @@ import (
 const (
 	tuplesDisplayCap  = 500
 	changesDisplayCap = 200
+	// tuplesPageSize is the /read page size the tuples pane requests; ReadAll
+	// pages until the display cap is reached.
+	tuplesPageSize = 100
 )
-
-// tuplesPageSize is the /read page size the tuples pane requests; ReadAll pages
-// until the display cap is reached.
-const tuplesPageSize = 100
 
 // --- async messages ---
 
@@ -296,6 +295,37 @@ type tupleFilter struct {
 
 func (f tupleFilter) active() bool { return f != (tupleFilter{}) }
 
+// tupleFilters tracks the tuples section's filter across the three states it
+// can be in at once. They differ only while a submit is in flight, and after
+// the server refuses one.
+type tupleFilters struct {
+	// applied is the filter the rows in m.tuples were read with. The header,
+	// the count and the empty-state hint all describe what is on screen, so
+	// they read this one.
+	applied tupleFilter
+	// wanted is the filter the next read sends. Every reload path dispatches
+	// it, so a reload racing a submit cannot drop the submitted filter.
+	wanted tupleFilter
+	// draft is what the form offers for editing. It outlives a rejection, so a
+	// filter the server refused comes back for a fix instead of being retyped.
+	draft tupleFilter
+}
+
+// request records a submitted filter as the one to read with next.
+func (s *tupleFilters) request(f tupleFilter) { s.wanted, s.draft = f, f }
+
+// confirm adopts a filter the server has answered for.
+func (s *tupleFilters) confirm(f tupleFilter) { s.applied, s.wanted, s.draft = f, f, f }
+
+// reject backs out of a filter the server refused: later reloads go back to
+// reading what is already on screen, while the draft keeps the user's text.
+func (s *tupleFilters) reject() { s.wanted = s.applied }
+
+// reset drops the filter entirely — for a store switch, a reconnect or the
+// deletion of the store it was written for, all of which invalidate the types
+// and ids it names.
+func (s *tupleFilters) reset() { *s = tupleFilters{} }
+
 // tupleReadRequest builds the tuples pane's /read request, attaching the
 // tuple_key filter only when one is set — the same shape the CLI's
 // `tuples read` sends.
@@ -305,6 +335,15 @@ func tupleReadRequest(f tupleFilter) *openfga.ReadRequest {
 		req.TupleKey = &openfga.ReadRequestTupleKey{User: f.user, Relation: f.relation, Object: f.object}
 	}
 	return req
+}
+
+// tuplesReloadCmd builds a tuples reload. Every reload path goes through it so
+// none can drift back to reading the applied filter instead of the wanted one —
+// they differ only when a reload races a filter submit, which is exactly when
+// the difference is hard to notice. Callers still own beginLoad and the
+// generation bump, since most of them dispatch several loads at once.
+func (m Model) tuplesReloadCmd() tea.Cmd {
+	return loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tupleFilters.wanted, m.tuplesGen)
 }
 
 func loadTuplesCmd(ctx context.Context, cl *openfga.Client, storeID string, f tupleFilter, gen int) tea.Cmd {

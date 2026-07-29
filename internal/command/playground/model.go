@@ -294,15 +294,8 @@ type Model struct {
 
 	tuples       []openfga.Tuple
 	tuplesList   *uilist.List
-	tuplesCapped bool // more tuples exist than are shown (hit the display cap)
-	// tupleFilter is the server-side /read filter the rows in m.tuples were read
-	// with — it describes what is on screen, so the header, count and empty-state
-	// hint all read from it. tupleFilterPending is the filter the next read will
-	// use: the two differ only while a filter submit is in flight (or after the
-	// server rejected one). Every reload dispatches the pending filter; only a
-	// load the server answered promotes it into tupleFilter.
-	tupleFilter        tupleFilter
-	tupleFilterPending tupleFilter
+	tuplesCapped bool         // more tuples exist than are shown (hit the display cap)
+	tupleFilters tupleFilters // server-side /read filter; see the type
 
 	models       []openfga.AuthorizationModel
 	modelsList   *uilist.List
@@ -539,7 +532,7 @@ func newModel(ctx context.Context, cli *cli.CLI, cl *openfga.Client, storeID, mo
 	// wraps, and the overflow drops the status bar entirely.
 	m.tuplesList.SetFilterHint("/ find · f filter")
 	m.tuplesList.SetFilterPrompt("find: ")
-	m.tuplesList.SetFilterPlaceholder("find in these rows")
+	m.tuplesList.SetFilterPlaceholder("match any field")
 
 	m.renewReqCtx()
 	m.qmode = 0
@@ -582,7 +575,7 @@ func (m Model) Init() tea.Cmd {
 	if m.storeID != "" {
 		cmds = append(cmds,
 			m.startModelCmd(),
-			loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tupleFilterPending, m.tuplesGen),
+			m.tuplesReloadCmd(),
 			loadChangesCmd(m.reqCtx, m.client, m.storeID, m.changesGen),
 			loadAssertionsCmd(m.reqCtx, m.client, m.storeID, m.modelID, m.assertLoadGen),
 		)
@@ -922,10 +915,7 @@ func (m *Model) selectCurrentStore() {
 	m.storesList.SelectID(m.storeID)
 }
 
-// populateTuples rebuilds the tuples list. The returned command re-runs an
-// applied "/" find over the new rows; dropping it leaves the pane empty until
-// the user cancels the find, so every caller must pass it on.
-func (m *Model) populateTuples() tea.Cmd {
+func (m *Model) populateTuples() {
 	userW := 0
 	if m.compact {
 		for _, t := range m.tuples {
@@ -953,12 +943,11 @@ func (m *Model) populateTuples() tea.Cmd {
 		}
 	}
 	m.tuplesList.SetCompact(m.compact)
-	cmd := m.tuplesList.SetItems(items)
+	m.tuplesList.SetItems(items)
 	if m.pendingTupleSelect != "" {
 		m.tuplesList.SelectID(m.pendingTupleSelect)
 		m.pendingTupleSelect = ""
 	}
-	return cmd
 }
 
 func (m *Model) populateModels() {
@@ -1137,9 +1126,7 @@ func (m *Model) selectStore(s openfga.Store) tea.Cmd {
 	m.graph = fga.Graph{}
 	m.models = nil // the previous store's models must not linger in the picker
 	m.tuples = nil
-	// A /read filter names types and ids from the store it was written for, so
-	// it is cleared here alongside the data it filtered.
-	m.tupleFilter, m.tupleFilterPending = tupleFilter{}, tupleFilter{}
+	m.tupleFilters.reset()
 	m.changes = nil
 	m.assertions = nil
 	m.assertResults = nil
@@ -1184,7 +1171,7 @@ func (m *Model) selectStore(s openfga.Store) tea.Cmd {
 	m.beginLoad()
 	return tea.Batch(extra,
 		loadModelCmd(m.reqCtx, m.client, m.storeID, m.modelGen),
-		loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tupleFilterPending, m.tuplesGen),
+		m.tuplesReloadCmd(),
 		loadChangesCmd(m.reqCtx, m.client, m.storeID, m.changesGen),
 		loadAssertionsCmd(m.reqCtx, m.client, m.storeID, m.modelID, m.assertLoadGen),
 	)
@@ -1426,9 +1413,7 @@ func (m *Model) activateResolved(r config.Resolved, cl *openfga.Client, status s
 	m.graph = fga.Graph{}
 	m.models = nil
 	m.tuples = nil
-	// Like a store switch, a reconnect drops the /read filter: it names types and
-	// ids from the store — and here the server — it was written for.
-	m.tupleFilter, m.tupleFilterPending = tupleFilter{}, tupleFilter{}
+	m.tupleFilters.reset()
 	m.changes = nil
 	m.assertions = nil
 	m.assertResults = nil
@@ -1487,7 +1472,7 @@ func (m *Model) activateResolved(r config.Resolved, cl *openfga.Client, status s
 		m.changesStale = false
 		cmds = append(cmds,
 			m.startModelCmd(),
-			loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tupleFilterPending, m.tuplesGen),
+			m.tuplesReloadCmd(),
 			loadChangesCmd(m.reqCtx, m.client, m.storeID, m.changesGen),
 			loadAssertionsCmd(m.reqCtx, m.client, m.storeID, m.modelID, m.assertLoadGen),
 		)

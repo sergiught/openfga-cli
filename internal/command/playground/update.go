@@ -280,12 +280,13 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil // a load from a store we've since switched away from, or superseded by a newer reload
 		}
 		if msg.err != nil {
-			// Neither filter field moves here. m.tupleFilter describes the rows still
-			// on screen, which this failed load did not replace — adopting a rejected
-			// filter would leave the header claiming the visible rows were filtered
-			// when they are the previous ones. m.tupleFilterPending keeps what the
-			// user typed, so reopening f offers it for editing instead of making them
-			// retype a filter the server explained was wrong.
+			// The applied filter stays put: it describes the rows still on screen,
+			// which this failed load did not replace, so adopting a rejected filter
+			// would leave the header claiming they were filtered. Back out of it for
+			// later reloads, or a filter the server refuses once would go on failing
+			// every r and every write reload with no sign of why. The draft keeps the
+			// user's text, so f offers it back for a fix.
+			m.tupleFilters.reject()
 			return m, m.toastErr("tuples", msg.err)
 		}
 		m.connLost = false
@@ -293,20 +294,20 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// truncates on a narrow pane — so say it out loud, in both directions.
 		var note string
 		switch {
-		case m.tupleFilter.active() && !msg.filter.active():
-			note = "cleared the tuple filter"
-		case msg.filter.active() && msg.filter != m.tupleFilter:
+		case m.tupleFilters.applied.active() && !msg.filter.active():
+			note = "cleared the filter"
+		case msg.filter.active() && msg.filter != m.tupleFilters.applied:
 			note = "filtering on " + tupleFilterFields(msg.filter)
 		}
 		m.tuples = msg.tuples
 		m.tuplesCapped = msg.capped
-		m.tupleFilter, m.tupleFilterPending = msg.filter, msg.filter
-		cmd := m.populateTuples()
+		m.tupleFilters.confirm(msg.filter)
+		m.populateTuples()
 		if note != "" {
 			m.status = note
-			return m, tea.Batch(cmd, m.toasts.Push(toast.Info, m.status))
+			return m, m.toasts.Push(toast.Info, m.status)
 		}
-		return m, cmd
+		return m, nil
 
 	case changesLoadedMsg:
 		stale := staleStore(msg.storeID, m.storeID) || staleGen(msg.gen, m.changesGen) || staleCancel(msg.err)
@@ -517,7 +518,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.modelIsLatest = false
 			m.graph = fga.Graph{}
 			m.models, m.tuples, m.changes, m.assertions, m.assertResults = nil, nil, nil, nil, nil
-			m.tupleFilter, m.tupleFilterPending = tupleFilter{}, tupleFilter{}
+			m.tupleFilters.reset()
 			m.history, m.hasResult = nil, false
 			// The store itself is genuinely gone (the delete API call already
 			// succeeded) regardless of whether clearing its id from the saved
@@ -575,7 +576,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.changesGen++
 		return m, tea.Batch(
 			m.toasts.Push(toast.Success, m.status),
-			loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tupleFilterPending, m.tuplesGen),
+			m.tuplesReloadCmd(),
 		)
 
 	case queryResultMsg:

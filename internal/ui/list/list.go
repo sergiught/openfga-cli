@@ -110,15 +110,26 @@ func (l *List) Restyle() {
 	l.Model.SetDelegate(&l.delegate)
 }
 
-// SetItems replaces the list items.
-func (l *List) SetItems(items []Item) tea.Cmd {
+// SetItems replaces the list items, re-running an applied "/" filter over them.
+//
+// bubbles hands that re-run back as a command carrying a FilterMatchesMsg, but
+// that message is applied by whichever list receives it — so a caller that
+// routes messages by "the section on screen" can hand one list's matches to
+// another, or drop it entirely and leave a filtered list rendering nothing. It
+// is pure fuzzy matching over the items just set, with nothing to wait on, so
+// it runs inline here instead and never escapes. (bubbles does the same in its
+// own Model.setFilter.)
+func (l *List) SetItems(items []Item) {
 	rows := make([]list.Item, len(items))
 	for i, it := range items {
 		rows[i] = it
 	}
-	cmd := l.Model.SetItems(rows)
+	if cmd := l.Model.SetItems(rows); cmd != nil {
+		if msg := cmd(); msg != nil {
+			l.Model, _ = l.Model.Update(msg)
+		}
+	}
 	l.applyFilterHint()
-	return cmd
 }
 
 // SetFilterHint sets the faint helper text shown in place of the title while
@@ -135,9 +146,8 @@ func (l *List) SetFilterPlaceholder(ph string) {
 	l.Model.FilterInput.Placeholder = ph
 }
 
-// SetFilterPrompt overrides the "filter: " label on the "/" input. A section
-// that also offers a server-side filter needs this one named apart, or the two
-// read as the same thing.
+// SetFilterPrompt overrides the "filter: " label shown at the head of the "/"
+// input.
 func (l *List) SetFilterPrompt(p string) {
 	l.Model.FilterInput.Prompt = p
 }

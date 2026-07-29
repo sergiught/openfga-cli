@@ -26,7 +26,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 		switch m.section {
 		case secTuples, secChanges, secAssertions:
 			m.compact = !m.compact
-			cmd := m.populateTuples()
+			m.populateTuples()
 			m.populateChanges()
 			m.populateAssertions()
 			m.resize()
@@ -35,7 +35,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			} else {
 				m.status = "detail view"
 			}
-			return m, cmd
+			return m, nil
 		}
 	}
 	switch m.section {
@@ -268,7 +268,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			if m.storeID != "" {
 				m.beginLoad()
 				m.tuplesGen++
-				return m, loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tupleFilterPending, m.tuplesGen)
+				return m, m.tuplesReloadCmd()
 			}
 		}
 		cmd := m.tuplesList.Update(msg)

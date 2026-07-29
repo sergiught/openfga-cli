@@ -172,3 +172,44 @@ func TestIndexAtAccountsForPersistentTitleRow(t *testing.T) {
 		t.Fatalf("second compact item row mapped to %d, want 1", got)
 	}
 }
+
+// SetFilterPrompt renames the "/" input's label, for a section that also offers
+// a filter of its own and needs the two named apart.
+func TestSetFilterPrompt(t *testing.T) {
+	l := New()
+	l.SetSize(40, 10)
+	l.SetFilterPrompt("find: ")
+	l.SetItems([]Item{{TitleText: "alpha"}})
+	l.Model.KeyMap.Filter.SetEnabled(true)
+	l.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	got := ansi.Strip(l.View())
+	if !strings.Contains(got, "find:") {
+		t.Fatalf("the input should carry the overridden prompt, got:\n%s", got)
+	}
+	if strings.Contains(got, "filter:") {
+		t.Fatalf("the default prompt should be gone, got:\n%s", got)
+	}
+}
+
+// SetItems re-runs an applied filter over the new items itself. bubbles hands
+// that back as a command, and a caller that routes messages by "the list on
+// screen" would deliver it to the wrong list or drop it — leaving a filtered
+// list rendering nothing.
+func TestSetItemsReappliesFilter(t *testing.T) {
+	l := New()
+	l.SetSize(40, 10)
+	l.SetItems([]Item{{TitleText: "alpha", Filter: "alpha"}, {TitleText: "beta", Filter: "beta"}})
+	l.Model.SetFilterText("alpha") // applies the filter synchronously
+	if got := len(l.Model.VisibleItems()); got != 1 {
+		t.Fatalf("the filter should narrow two items to one, got %d", got)
+	}
+
+	l.SetItems([]Item{
+		{TitleText: "alpha", Filter: "alpha"},
+		{TitleText: "beta", Filter: "beta"},
+		{TitleText: "gamma", Filter: "gamma"},
+	})
+	if got := len(l.Model.VisibleItems()); got != 1 {
+		t.Fatalf("replacing the items must re-run the applied filter, got %d visible", got)
+	}
+}

@@ -35,7 +35,7 @@ func (m Model) enterForm(kind formKind) (tea.Model, tea.Cmd) {
 	case formWriteTuple:
 		m.form = buildWriteTupleForm(dw)
 	case formTupleFilter:
-		m.form = buildTupleFilterForm(dw, m.tupleFilterPending)
+		m.form = buildTupleFilterForm(dw, m.tupleFilters.draft)
 	case formWriteAssertion:
 		m.form = buildWriteAssertionForm(dw)
 	case formAddProfile:
@@ -165,10 +165,10 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// still on screen. The candidate becomes the pending filter — so a
 			// reload racing this one can't drop it — and is promoted only once
 			// the server answers (see the tuplesLoadedMsg handler).
-			m.tupleFilterPending = f
+			m.tupleFilters.request(f)
 			m.beginLoad()
 			m.tuplesGen++
-			return m, loadTuplesCmd(m.reqCtx, m.client, m.storeID, f, m.tuplesGen)
+			return m, m.tuplesReloadCmd()
 		case formWriteAssertion:
 			key, err := fga.ParseTuple(vals[0], vals[1], vals[2])
 			if err != nil {
