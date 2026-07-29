@@ -50,6 +50,15 @@ jobs:
         env:
           OFGA_E2E_REQUIRE_KEYRING: '1'
         run: |
+          # Both vars must point at throwaway dirs, because this recipe gets
+          # copy-pasted to reproduce CI locally and dbus-run-session isolates
+          # only the bus. XDG_DATA_HOME is where gnome-keyring keeps the login
+          # keyring; XDG_RUNTIME_DIR holds keyring/control, which --unlock uses
+          # to reach an already-running daemon. Since `echo ""` leaves the
+          # daemon believing the login password is a literal newline, an
+          # unisolated run re-keys the developer's real login keyring to that
+          # newline and their password stops unlocking it at every login.
+          export XDG_DATA_HOME="$(mktemp -d)" XDG_RUNTIME_DIR="$(mktemp -d)"
           dbus-run-session -- bash -c '
             echo "" | gnome-keyring-daemon --unlock --components=secrets >/dev/null 2>&1
             go test -race ./...
