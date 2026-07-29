@@ -2,13 +2,18 @@ package playground
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"charm.land/log/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sergiught/go-openfga/openfga"
 
@@ -190,6 +195,26 @@ func TestTupleFilterRejectedLoadKeepsHeaderHonest(t *testing.T) {
 	}
 }
 
+// Applying is announced too: the header breadcrumb is the only other sign, and
+// it truncates on a narrow pane.
+func TestTupleFilterApplyAnnouncesItself(t *testing.T) {
+	mm := tuplesPanelModel()
+	f := tupleFilter{object: "document:roadmap"}
+	got, cmd := landTuples(t, tea.Model(mm), tuplesLoadedMsg{filter: f})
+	if !strings.Contains(got.status, "object=document:roadmap") {
+		t.Fatalf("status = %q, want the applied filter named", got.status)
+	}
+	if cmd == nil {
+		t.Fatal("applying should raise a visible toast")
+	}
+	// Re-reading the same filter is not news.
+	got.status = ""
+	got2, _ := landTuples(t, tea.Model(got), tuplesLoadedMsg{filter: f})
+	if strings.Contains(got2.status, "filtering on") {
+		t.Fatalf("an unchanged filter should not re-announce, got %q", got2.status)
+	}
+}
+
 // Clearing has no other visible confirmation once the rows come back, so it
 // must say so — and only after the server has answered.
 func TestTupleFilterClearAnnouncesItself(t *testing.T) {
@@ -258,11 +283,68 @@ func TestTupleFilterEmptySubmitClears(t *testing.T) {
 
 func TestTupleFilterFormPrefilledFromActiveFilter(t *testing.T) {
 	mm := tuplesPanelModel()
-	mm.tupleFilter = tupleFilter{user: "user:anne", relation: "viewer", object: "document:"}
+	f := tupleFilter{user: "user:anne", relation: "viewer", object: "document:"}
+	mm.tupleFilter, mm.tupleFilterPending = f, f
 	m, _ := tea.Model(mm).Update(key("f"))
 	got := m.(Model).form.Values()
 	if got[0] != "user:anne" || got[1] != "viewer" || got[2] != "document:" {
 		t.Fatalf("form should pre-fill the active filter, got %v", got)
+	}
+}
+
+// A filter the server rejected is still what the user asked for, so reopening
+// the form must offer it back for editing rather than making them retype it.
+func TestTupleFilterFormKeepsRejectedInput(t *testing.T) {
+	m := openTupleFilter(t)
+	mm := m.(Model)
+	mm.form.SetValues([]string{"user:anne", "can view", "document:"})
+	m, _ = tea.Model(mm).Update(ctrlS())
+	mm, _ = landTuples(t, m, tuplesLoadedMsg{err: errors.New("400 invalid tuple_key")})
+	m, _ = tea.Model(mm).Update(key("f"))
+	got := m.(Model).form.Values()
+	if got[0] != "user:anne" || got[1] != "can view" || got[2] != "document:" {
+		t.Fatalf("a rejected filter should come back for editing, got %v", got)
+	}
+}
+
+// A reload dispatched while a filter submit is in flight must carry the
+// submitted filter, not the one still on screen — otherwise the reload lands
+// last and the user's filter vanishes with no error and no toast.
+func TestTupleFilterSurvivesConcurrentReload(t *testing.T) {
+	m := openTupleFilter(t)
+	mm := m.(Model)
+	mm.form.SetValues([]string{"user:anne", "", "document:"})
+	m, _ = tea.Model(mm).Update(ctrlS())
+	want := tupleFilter{user: "user:anne", object: "document:"}
+	if got := m.(Model).tupleFilterPending; got != want {
+		t.Fatalf("submit should record the pending filter, got %+v", got)
+	}
+	// r, racing the submitted load, must re-send the same filter.
+	m, _ = m.Update(key("r"))
+	if got := m.(Model).tupleFilterPending; got != want {
+		t.Fatalf("a racing reload must keep the pending filter, got %+v", got)
+	}
+	mm, _ = landTuples(t, m, tuplesLoadedMsg{filter: want})
+	if mm.tupleFilter != want {
+		t.Fatalf("tupleFilter = %+v, want %+v", mm.tupleFilter, want)
+	}
+}
+
+// Deleting the active store leaves no store to filter, and f refuses to open
+// without one — so a filter left behind here could never be cleared.
+func TestStoreDeleteClearsTupleFilter(t *testing.T) {
+	configtest.Isolate(t)
+	mm := tuplesPanelModel()
+	mm.tupleFilter = tupleFilter{object: "document:roadmap"}
+	mm.tupleFilterPending = mm.tupleFilter
+	mm.storeDeleting = true
+	m, _ := tea.Model(mm).Update(storeDeletedMsg{
+		origin: mm.mutationOrigin(mm.storeID, mm.modelID, mm.storeDeleteGen),
+		id:     mm.storeID,
+	})
+	if got := m.(Model); got.tupleFilter.active() || got.tupleFilterPending.active() {
+		t.Fatalf("deleting the active store must clear the filter, got %+v / %+v",
+			got.tupleFilter, got.tupleFilterPending)
 	}
 }
 
@@ -438,5 +520,104 @@ func TestSelectStoreClearsTupleFilter(t *testing.T) {
 
 	if m.tupleFilter.active() {
 		t.Fatalf("store switch must clear the tuple filter, got %+v", m.tupleFilter)
+	}
+}
+
+// --- wire-level: the filter must actually reach /read, and the filter the
+// model adopts must be the one that load ran with. Both halves are load
+// bearing and neither is visible from a hand-built message.
+
+func TestLoadTuplesCmdSendsTupleKeyAndEchoesFilter(t *testing.T) {
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		_ = json.NewEncoder(w).Encode(openfga.ReadResponse{})
+	}))
+	t.Cleanup(srv.Close)
+	cl, err := openfga.NewClient(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	f := tupleFilter{user: "user:anne", relation: "viewer", object: "document:roadmap"}
+	msg := loadTuplesCmd(context.Background(), cl, "store-1", f, 7)().(tuplesLoadedMsg)
+	if msg.err != nil {
+		t.Fatalf("read failed: %v", msg.err)
+	}
+	if msg.filter != f {
+		t.Fatalf("the load must echo the filter it ran with, got %+v want %+v", msg.filter, f)
+	}
+	tk, _ := body["tuple_key"].(map[string]any)
+	if tk == nil {
+		t.Fatalf("an active filter must reach the wire as tuple_key, body = %v", body)
+	}
+	if tk["user"] != "user:anne" || tk["relation"] != "viewer" || tk["object"] != "document:roadmap" {
+		t.Fatalf("tuple_key = %v, want the submitted filter", tk)
+	}
+}
+
+func TestLoadTuplesCmdOmitsTupleKeyWhenUnfiltered(t *testing.T) {
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		_ = json.NewEncoder(w).Encode(openfga.ReadResponse{})
+	}))
+	t.Cleanup(srv.Close)
+	cl, _ := openfga.NewClient(srv.URL)
+
+	msg := loadTuplesCmd(context.Background(), cl, "store-1", tupleFilter{}, 1)().(tuplesLoadedMsg)
+	if msg.filter.active() {
+		t.Fatalf("an unfiltered load must echo the zero filter, got %+v", msg.filter)
+	}
+	if _, ok := body["tuple_key"]; ok {
+		t.Fatalf("no filter must mean no tuple_key on the wire, body = %v", body)
+	}
+}
+
+// --- layout: the Tuples pane carries two hints in a ~21-column master pane.
+// Overflowing it wraps the list and drops the status bar entirely, which is
+// how the f advertisement got silently deleted once already.
+
+func TestTuplesPaneFitsAndKeepsAdvertisingF(t *testing.T) {
+	for _, w := range []int{80, 100, 120} {
+		mm := tuplesPanelModel()
+		m, _ := tea.Model(mm).Update(tea.WindowSizeMsg{Width: w, Height: 30})
+		view := ansi.Strip(m.(Model).viewString())
+		if !strings.Contains(view, "f filter") {
+			t.Fatalf("w=%d: the footer must advertise f, got:\n%s", w, view)
+		}
+		for _, line := range strings.Split(view, "\n") {
+			if got := lipgloss.Width(line); got > w {
+				t.Fatalf("w=%d: line overflows the frame by %d cols: %q", w, got-w, line)
+			}
+		}
+	}
+}
+
+// An applied "/" find must survive a reload: SetItems' command is what re-runs
+// it over the new rows, and dropping it leaves the pane reading "No items."
+// under a header that says rows are there.
+func TestClientFindSurvivesTupleReload(t *testing.T) {
+	mm := tuplesPanelModel()
+	var m tea.Model = mm
+	m, _ = m.Update(key("/"))
+	for _, r := range "anne" {
+		m, _ = m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	m, _ = m.Update(key("enter"))
+	if got := len(m.(Model).tuplesList.Model.VisibleItems()); got == 0 {
+		t.Fatal("the find should match the seeded tuple")
+	}
+
+	mm, cmd := landTuples(t, m, tuplesLoadedMsg{tuples: []openfga.Tuple{
+		{Key: openfga.TupleKey{User: "user:anne", Relation: "owner", Object: "document:roadmap"}},
+	}})
+	if cmd == nil {
+		t.Fatal("a reload under an applied find must return the command that re-runs it")
+	}
+	var m2 tea.Model = mm
+	m2, _ = m2.Update(cmd())
+	if got := len(m2.(Model).tuplesList.Model.VisibleItems()); got == 0 {
+		t.Fatal("the applied find must be re-run over the reloaded rows, got an empty list")
 	}
 }

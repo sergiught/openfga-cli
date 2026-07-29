@@ -35,7 +35,7 @@ func (m Model) enterForm(kind formKind) (tea.Model, tea.Cmd) {
 	case formWriteTuple:
 		m.form = buildWriteTupleForm(dw)
 	case formTupleFilter:
-		m.form = buildTupleFilterForm(dw, m.tupleFilter)
+		m.form = buildTupleFilterForm(dw, m.tupleFilterPending)
 	case formWriteAssertion:
 		m.form = buildWriteAssertionForm(dw)
 	case formAddProfile:
@@ -156,10 +156,16 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if err := validateTupleFilter(f); err != nil {
 				return resume(err.Error())
 			}
-			// m.tupleFilter is deliberately not set here: the candidate rides
-			// along with the load and is adopted only once the server has
-			// accepted it, so the header never describes rows the server
-			// refused to return (see the tuplesLoadedMsg handler).
+			if m.storeID == "" {
+				// The store can go away while the form is open (a delete landing
+				// behind it); reading with no store id only yields an SDK error.
+				return resume("select a store first")
+			}
+			// m.tupleFilter is deliberately not set here: it describes the rows
+			// still on screen. The candidate becomes the pending filter — so a
+			// reload racing this one can't drop it — and is promoted only once
+			// the server answers (see the tuplesLoadedMsg handler).
+			m.tupleFilterPending = f
 			m.beginLoad()
 			m.tuplesGen++
 			return m, loadTuplesCmd(m.reqCtx, m.client, m.storeID, f, m.tuplesGen)

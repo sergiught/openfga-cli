@@ -135,6 +135,13 @@ func (l *List) SetFilterPlaceholder(ph string) {
 	l.Model.FilterInput.Placeholder = ph
 }
 
+// SetFilterPrompt overrides the "filter: " label on the "/" input. A section
+// that also offers a server-side filter needs this one named apart, or the two
+// read as the same thing.
+func (l *List) SetFilterPrompt(p string) {
+	l.Model.FilterInput.Prompt = p
+}
+
 // applyFilterHint shows the hint only when there are rows to filter.
 func (l *List) applyFilterHint() {
 	if len(l.Model.Items()) == 0 {

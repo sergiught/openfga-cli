@@ -108,6 +108,7 @@ func (m Model) helpBody() string {
 			{"/", "find in the loaded rows"},
 			{"f", "server-side filter (/read)"},
 			{"a", "add"}, {"d", "delete"}, {"r", "reload"},
+			{"v", "compact view"},
 		}
 	case secChanges:
 		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"r", "reload"}}
@@ -162,16 +163,24 @@ func (m Model) mainTitle() string {
 		return base + " ▸ Resolution"
 	case m.section == secTuples && m.tupleFilter.active():
 		return base + " ▸ " + tupleFilterLabel(m.tupleFilter)
+	case m.section == secTuples && m.tuplesCapped:
+		// "/" can only search what was loaded, so at the cap it cannot reach the
+		// rows the user is missing — point at the filter that can.
+		return base + " ▸ press f to filter beyond the first " + strconv.Itoa(tuplesDisplayCap)
 	}
 	return base
 }
 
 // tupleFilterLabel renders the active server-side filter compactly for the
 // panel header, e.g. "filter: object=document: user=user:anne".
-func tupleFilterLabel(f tupleFilter) string {
+func tupleFilterLabel(f tupleFilter) string { return "filter: " + tupleFilterFields(f) }
+
+// tupleFilterFields renders the filter's set fields, e.g.
+// "object=document: user=user:anne".
+func tupleFilterFields(f tupleFilter) string {
 	// Object leads: it is the field the server requires, and the header
 	// truncates from the right on narrow panes.
-	parts := []string{"filter:"}
+	var parts []string
 	if f.object != "" {
 		parts = append(parts, "object="+safeText(f.object))
 	}
@@ -220,8 +229,7 @@ func (m Model) dialogContent() (string, string) {
 		return "Write Tuple", m.form.View() + "\n" + style.Faint.Render("tab move · ctrl+s submit · esc cancel")
 	case m.formKind == formTupleFilter:
 		return "Filter Tuples", style.Faint.Render(
-			"Re-reads from the server (/read), not just the loaded rows.\n"+
-				"Needs an object: document:roadmap, or document: with a user.") +
+			"Re-reads from the server (/read), not just the rows already loaded.") +
 			"\n\n" + m.form.View() + "\n" +
 			style.Faint.Render("tab move · ctrl+s apply · all blank to clear · esc cancel")
 	case m.formKind == formWriteAssertion:
