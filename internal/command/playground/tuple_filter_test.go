@@ -35,16 +35,6 @@ func TestTupleReadRequestNoFilter(t *testing.T) {
 	}
 }
 
-func TestTupleReadRequestWithFilter(t *testing.T) {
-	req := tupleReadRequest(tupleFilter{user: "user:anne", object: "document:"})
-	if req.TupleKey == nil {
-		t.Fatal("active filter should set tuple_key")
-	}
-	if req.TupleKey.User != "user:anne" || req.TupleKey.Relation != "" || req.TupleKey.Object != "document:" {
-		t.Fatalf("tuple_key = %+v, want user:anne / \"\" / document:", req.TupleKey)
-	}
-}
-
 // vFilterObject allows type:id AND bare-type "type:" (unlike vObject), stays
 // lenient on empty, and rejects colon-less or userset-shaped values.
 func TestVFilterObject(t *testing.T) {
@@ -88,6 +78,7 @@ func TestValidateTupleFilter(t *testing.T) {
 		// object id or the user.
 		{"bare type + relation only", tupleFilter{object: "document:", relation: "viewer"}, false},
 		{"padded leading colon with user", tupleFilter{object: " :roadmap", user: "user:anne"}, false},
+		{"padded user with bare type", tupleFilter{object: "document:", user: " user:anne "}, true},
 		{"user alone", tupleFilter{user: "user:anne"}, false},
 		{"relation alone", tupleFilter{relation: "viewer"}, false},
 		{"user + relation, no object", tupleFilter{user: "user:anne", relation: "viewer"}, false},
@@ -115,6 +106,39 @@ func applyFind(t *testing.T, m tea.Model, term string) tea.Model {
 		msgs = append(msgs, tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
 	return pump(t, pump(t, m, msgs...), key("enter"))
+}
+
+// readBody starts a server that records the last /read body it was sent.
+func readBody(t *testing.T) (*openfga.Client, func() map[string]any) {
+	t.Helper()
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var b map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&b)
+		body = b
+		_ = json.NewEncoder(w).Encode(openfga.ReadResponse{})
+	}))
+	t.Cleanup(srv.Close)
+	cl, err := openfga.NewClient(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cl, func() map[string]any { return body }
+}
+
+// rejectedFilterModel submits a filter the server refuses (the relation has a
+// space, which its proto rule rejects) and lands the refusal.
+func rejectedFilterModel(t *testing.T, cl *openfga.Client) Model {
+	t.Helper()
+	m := openTupleFilter(t)
+	mm := m.(Model)
+	if cl != nil {
+		mm.client = cl
+	}
+	mm.form.SetValues([]string{"user:anne", "can view", "document:"})
+	m, _ = tea.Model(mm).Update(ctrlS())
+	mm, _ = landTuples(t, m, tuplesLoadedMsg{err: errors.New("400 invalid tuple_key")})
+	return mm
 }
 
 // landTuples delivers the server's answer to the load the model just
@@ -166,7 +190,7 @@ func TestTupleFilterKeyRequiresStore(t *testing.T) {
 	}
 }
 
-func TestTupleFilterSubmitAppliesAndReloads(t *testing.T) {
+func TestTupleFilterSubmitDefersAdoptionUntilTheLoadLands(t *testing.T) {
 	m := openTupleFilter(t)
 	mm := m.(Model)
 	genBefore := mm.tuplesGen
@@ -256,6 +280,13 @@ func TestTupleFilterClearAnnouncesItself(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("clearing should raise a visible toast, not just set m.status")
 	}
+
+	// An ordinary unfiltered reload has nothing to announce.
+	mm.status = ""
+	again, _ := landTuples(t, tea.Model(mm), tuplesLoadedMsg{})
+	if strings.Contains(again.status, "cleared") {
+		t.Fatalf("a reload with no filter to clear must stay quiet, got %q", again.status)
+	}
 }
 
 // Submitted values are trimmed, so a stray space can't produce a filter that
@@ -284,23 +315,6 @@ func TestTupleFilterInvalidSubmitResumes(t *testing.T) {
 	}
 }
 
-func TestTupleFilterEmptySubmitClears(t *testing.T) {
-	m := openTupleFilter(t)
-	mm := m.(Model)
-	mm.tupleFilters.applied = tupleFilter{object: "document:roadmap"}
-	mm.form.SetValues([]string{"", "", ""})
-	m, cmd := tea.Model(mm).Update(ctrlS())
-	if m.(Model).formKind != formNone {
-		t.Fatal("an all-empty submit is valid and should close the form")
-	}
-	if cmd == nil {
-		t.Fatal("clearing should dispatch an unfiltered reload")
-	}
-	if mm, _ := landTuples(t, m, tuplesLoadedMsg{}); mm.tupleFilters.applied.active() {
-		t.Fatalf("empty submit should clear the filter, got %+v", mm.tupleFilters.applied)
-	}
-}
-
 func TestTupleFilterFormPrefilledFromActiveFilter(t *testing.T) {
 	mm := tuplesPanelModel()
 	f := tupleFilter{user: "user:anne", relation: "viewer", object: "document:"}
@@ -309,21 +323,6 @@ func TestTupleFilterFormPrefilledFromActiveFilter(t *testing.T) {
 	got := m.(Model).form.Values()
 	if got[0] != "user:anne" || got[1] != "viewer" || got[2] != "document:" {
 		t.Fatalf("form should pre-fill the active filter, got %v", got)
-	}
-}
-
-// A filter the server rejected is still what the user asked for, so reopening
-// the form must offer it back for editing rather than making them retype it.
-func TestTupleFilterFormKeepsRejectedInput(t *testing.T) {
-	m := openTupleFilter(t)
-	mm := m.(Model)
-	mm.form.SetValues([]string{"user:anne", "can view", "document:"})
-	m, _ = tea.Model(mm).Update(ctrlS())
-	mm, _ = landTuples(t, m, tuplesLoadedMsg{err: errors.New("400 invalid tuple_key")})
-	m, _ = tea.Model(mm).Update(key("f"))
-	got := m.(Model).form.Values()
-	if got[0] != "user:anne" || got[1] != "can view" || got[2] != "document:" {
-		t.Fatalf("a rejected filter should come back for editing, got %v", got)
 	}
 }
 
@@ -396,7 +395,7 @@ func TestTupleFilterKeyReachesPanelFromSidebar(t *testing.T) {
 
 // f is page-down in the Model section; the Tuples-only sidebar shortcut must
 // not pull focus into other panels.
-func TestFilterKeyFromSidebarIsTuplesOnly(t *testing.T) {
+func TestTupleFilterKeyFromSidebarIsTuplesOnly(t *testing.T) {
 	mm := newTestModel().(Model)
 	mm.section = secModel
 	mm.focus = shell.FocusSidebar
@@ -440,6 +439,16 @@ func TestSectionStatusMarksFilteredTuples(t *testing.T) {
 // The hint that names f in an empty filtered pane is what makes the sidebar
 // call-to-action path mean anything; test it through the render, not just the
 // function.
+func TestWriteHiddenByFilterSaysSo(t *testing.T) {
+	mm := tuplesPanelModel()
+	mm.tupleFilters.confirm(tupleFilter{object: "document:roadmap"})
+	mm.pendingTupleSelect = "folder:secret#viewer@user:zed" // not in the result
+	mm.populateTuples()
+	if !strings.Contains(mm.status, "filter hides it") {
+		t.Fatalf("a write the filter excludes must say so, got %q", mm.status)
+	}
+}
+
 func TestFilteredEmptyPaneNamesF(t *testing.T) {
 	mm := tuplesPanelModel()
 	mm.tupleFilters.confirm(tupleFilter{object: "document:roadmap"})
@@ -447,6 +456,21 @@ func TestFilteredEmptyPaneNamesF(t *testing.T) {
 	mm.populateTuples()
 	if body := ansi.Strip(mm.sectionBody()); !strings.Contains(body, "press f") {
 		t.Fatalf("a filtered empty pane must point at f, got:\n%s", body)
+	}
+}
+
+// reject() cannot tell a 400 from a dead socket, so the notice must not blame
+// the filter when the read never arrived — the user would edit one that is fine.
+func TestFilterDialogDistinguishesAConnectionFailure(t *testing.T) {
+	mm := rejectedFilterModel(t, nil)
+	mm.connLost = true
+	m, _ := tea.Model(mm).Update(key("f"))
+	body := ansi.Strip(func() string { _, b := m.(Model).dialogContent(); return b }())
+	if strings.Contains(body, "refused") {
+		t.Fatalf("a connection failure must not be reported as a refusal, got:\n%s", body)
+	}
+	if !strings.Contains(body, "never reached the server") {
+		t.Fatalf("a connection failure should say so, got:\n%s", body)
 	}
 }
 
@@ -599,6 +623,11 @@ func TestTuplesPaneFitsAndKeepsAdvertisingF(t *testing.T) {
 		if !strings.Contains(view, "f filter") {
 			t.Fatalf("w=%d: the footer must advertise f, got:\n%s", w, view)
 		}
+		// The key row is truncated from the right, so the last keycap surviving
+		// is what proves the row still fits.
+		if !strings.Contains(view, "? help") {
+			t.Fatalf("w=%d: the key row is truncated, got:\n%s", w, view)
+		}
 		for _, line := range strings.Split(view, "\n") {
 			if got := lipgloss.Width(line); got > w {
 				t.Fatalf("w=%d: line overflows the frame by %d cols: %q", w, got-w, line)
@@ -679,47 +708,6 @@ func TestFindHintStaysOutOfTheWayWhileTyping(t *testing.T) {
 	}
 }
 
-// Every reload path builds its command through tuplesReloadCmd, so one
-// wire-level check covers all of them: what the user asked for is what gets
-// sent, not the filter the rows on screen happen to carry.
-func TestTuplesReloadCmdSendsTheWantedFilter(t *testing.T) {
-	var body map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		_ = json.NewEncoder(w).Encode(openfga.ReadResponse{})
-	}))
-	t.Cleanup(srv.Close)
-	cl, _ := openfga.NewClient(srv.URL)
-
-	mm := tuplesPanelModel()
-	mm.client = cl
-	mm.tupleFilters.confirm(tupleFilter{object: "document:old"}) // what is on screen
-	mm.tupleFilters.request(tupleFilter{object: "document:new"}) // what was just asked for
-	mm.tuplesReloadCmd()()
-
-	tk, _ := body["tuple_key"].(map[string]any)
-	if tk == nil || tk["object"] != "document:new" {
-		t.Fatalf("a reload must send the wanted filter, got %v", body)
-	}
-}
-
-// A filter the server refuses must not stay armed: it would go on failing every
-// later reload — r, and the reload each tuple write triggers — with nothing on
-// screen saying why. The user's text survives for the form regardless.
-func TestRejectedFilterDoesNotPoisonLaterReloads(t *testing.T) {
-	m := openTupleFilter(t)
-	mm := m.(Model)
-	mm.form.SetValues([]string{"user:anne", "can view", "document:"})
-	m, _ = tea.Model(mm).Update(ctrlS())
-	mm, _ = landTuples(t, m, tuplesLoadedMsg{err: errors.New("400 invalid tuple_key")})
-	if mm.tupleFilters.wanted.active() {
-		t.Fatalf("a refused filter must not stay armed for later reloads, got %+v", mm.tupleFilters.wanted)
-	}
-	if !mm.tupleFilters.draft.active() {
-		t.Fatal("the draft must keep the refused text so f can offer it back")
-	}
-}
-
 // The header names every set field, object first, and never renders raw
 // terminal escapes from a value the user typed.
 func TestTupleFilterFieldsRendersEveryField(t *testing.T) {
@@ -727,13 +715,20 @@ func TestTupleFilterFieldsRendersEveryField(t *testing.T) {
 	if want := "object=document:roadmap user=user:anne relation=viewer"; got != want {
 		t.Fatalf("tupleFilterFields = %q, want %q", got, want)
 	}
-	if got := tupleFilterFields(tupleFilter{object: "doc\x1b]0;pwned\x07:1"}); strings.ContainsRune(got, 0x1b) {
-		t.Fatalf("filter values must be sanitized for the header, got %q", got)
+	const evil = "a\x1b]0;pwned\x07:1"
+	for name, f := range map[string]tupleFilter{
+		"user":     {user: evil, object: "document:roadmap"},
+		"relation": {relation: evil, object: "document:roadmap"},
+		"object":   {object: evil},
+	} {
+		if got := tupleFilterFields(f); strings.ContainsRune(got, 0x1b) {
+			t.Errorf("%s must be sanitized for the header, got %q", name, got)
+		}
 	}
 }
 
 // The form's own field validators must actually be wired, not just correct.
-func TestTupleFilterFormValidatesFields(t *testing.T) {
+func TestTupleFilterFormValidatesUser(t *testing.T) {
 	m := openTupleFilter(t)
 	mm := m.(Model)
 	mm.form.SetValues([]string{"anne", "", "document:roadmap"}) // user with no colon
@@ -760,24 +755,6 @@ func TestTupleFilterSubmitWithoutStoreIsRefused(t *testing.T) {
 
 // --- the reload paths, at the wire. tuplesReloadCmd is the single builder, but
 // only a request that actually leaves each call site proves the site uses it.
-
-// readBody starts a server that records the last /read body it was sent.
-func readBody(t *testing.T) (*openfga.Client, func() map[string]any) {
-	t.Helper()
-	var body map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var b map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&b)
-		body = b
-		_ = json.NewEncoder(w).Encode(openfga.ReadResponse{})
-	}))
-	t.Cleanup(srv.Close)
-	cl, err := openfga.NewClient(srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return cl, func() map[string]any { return body }
-}
 
 // r and the reload a write triggers must both send the filter the user asked
 // for, not the one the rows on screen were read with.
@@ -815,12 +792,7 @@ func TestReloadPathsSendTheWantedFilter(t *testing.T) {
 // the store the way the rows on screen were read — unfiltered here.
 func TestReloadAfterRejectionSendsNoFilter(t *testing.T) {
 	cl, body := readBody(t)
-	m := openTupleFilter(t)
-	mm := m.(Model)
-	mm.client = cl
-	mm.form.SetValues([]string{"user:anne", "can view", "document:"})
-	m, _ = tea.Model(mm).Update(ctrlS())
-	mm, _ = landTuples(t, m, tuplesLoadedMsg{err: errors.New("400 invalid tuple_key")})
+	mm := rejectedFilterModel(t, cl)
 
 	_, cmd := tea.Model(mm).Update(key("r"))
 	if cmd == nil {
@@ -836,13 +808,9 @@ func TestReloadAfterRejectionSendsNoFilter(t *testing.T) {
 // A refused filter is still owed to the user: an unrelated reload landing in
 // between must not wipe it out of the form.
 func TestRejectedDraftSurvivesAnUnrelatedReload(t *testing.T) {
-	m := openTupleFilter(t)
-	mm := m.(Model)
-	mm.form.SetValues([]string{"user:anne", "can view", "document:"})
-	m, _ = tea.Model(mm).Update(ctrlS())
-	mm, _ = landTuples(t, m, tuplesLoadedMsg{err: errors.New("400 invalid tuple_key")})
+	mm := rejectedFilterModel(t, nil)
 	mm, _ = landTuples(t, tea.Model(mm), tuplesLoadedMsg{}) // e.g. the reload a write triggers
-	m, _ = tea.Model(mm).Update(key("f"))
+	m, _ := tea.Model(mm).Update(key("f"))
 	if got := m.(Model).form.Values(); got[1] != "can view" {
 		t.Fatalf("the refused filter should still be in the form, got %v", got)
 	}
@@ -858,7 +826,7 @@ func TestMainTitleAtTheDisplayCap(t *testing.T) {
 	}
 	m.tupleFilters.confirm(tupleFilter{object: "document:roadmap"})
 	got := m.mainTitle()
-	if !strings.Contains(got, "object=document:roadmap") || !strings.Contains(got, "(first 500)") {
+	if !strings.Contains(got, "object=document:roadmap") || !strings.Contains(got, "first 500") {
 		t.Fatalf("a capped filtered pane should show both the filter and the cap, got %q", got)
 	}
 }
@@ -885,12 +853,8 @@ func TestFilterDialogExplainsItself(t *testing.T) {
 // A rejection with nothing applied leaves the header showing no filter while
 // the form holds the refused text; the dialog has to reconcile the two.
 func TestFilterDialogFlagsARefusedDraft(t *testing.T) {
-	m := openTupleFilter(t)
-	mm := m.(Model)
-	mm.form.SetValues([]string{"user:anne", "can view", "document:"})
-	m, _ = tea.Model(mm).Update(ctrlS())
-	mm, _ = landTuples(t, m, tuplesLoadedMsg{err: errors.New("400 invalid tuple_key")})
-	m, _ = tea.Model(mm).Update(key("f"))
+	mm := rejectedFilterModel(t, nil)
+	m, _ := tea.Model(mm).Update(key("f"))
 	_, body := m.(Model).dialogContent()
 	if !strings.Contains(ansi.Strip(body), "refused") {
 		t.Fatalf("the dialog should say the filter was refused, got:\n%s", ansi.Strip(body))

@@ -944,8 +944,13 @@ func (m *Model) populateTuples() {
 	m.tuplesList.SetCompact(m.compact)
 	m.tuplesList.SetItems(items)
 	if m.pendingTupleSelect != "" {
-		m.tuplesList.SelectID(m.pendingTupleSelect)
+		found := m.tuplesList.SelectID(m.pendingTupleSelect)
 		m.pendingTupleSelect = ""
+		// The row the user just wrote is not in the result: without this the pane
+		// is byte-identical under a "wrote …" toast, and the write looks lost.
+		if !found && m.tupleFilters.applied.active() {
+			m.status = "written — the active filter hides it (press f)"
+		}
 	}
 }
 
@@ -1126,6 +1131,9 @@ func (m *Model) selectStore(s openfga.Store) tea.Cmd {
 	m.models = nil // the previous store's models must not linger in the picker
 	m.tuples = nil
 	m.tupleFilters.reset()
+	// A "/" find belongs to the rows it was typed against, the same as the /read
+	// filter cleared beside it.
+	m.tuplesList.Model.ResetFilter()
 	m.changes = nil
 	m.assertions = nil
 	m.assertResults = nil
@@ -1413,6 +1421,9 @@ func (m *Model) activateResolved(r config.Resolved, cl *openfga.Client, status s
 	m.models = nil
 	m.tuples = nil
 	m.tupleFilters.reset()
+	// A "/" find belongs to the rows it was typed against, the same as the /read
+	// filter cleared beside it.
+	m.tuplesList.Model.ResetFilter()
 	m.changes = nil
 	m.assertions = nil
 	m.assertResults = nil

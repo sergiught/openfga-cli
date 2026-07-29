@@ -68,14 +68,20 @@ func TestSelectIDUsesFilteredIndex(t *testing.T) {
 	l.SetItems([]Item{
 		{TitleText: "dev", Filter: "dev", ID: "dev"},
 		{TitleText: "prod", Filter: "prod", ID: "prod"},
+		{TitleText: "prod2", Filter: "prod2", ID: "prod2"},
 	})
+	// Two rows survive the filter, so landing on the right one takes an actual
+	// move — with a single match the cursor is already there either way.
 	l.Model.SetFilterText("prod")
-	if !l.SelectID("prod") {
-		t.Fatal("visible prod row was not found")
+	if got := len(l.Model.VisibleItems()); got != 2 {
+		t.Fatalf("the filter should leave two rows, got %d", got)
+	}
+	if !l.SelectID("prod2") {
+		t.Fatal("visible prod2 row was not found")
 	}
 	selected, ok := l.Selected()
-	if !ok || selected.ID != "prod" {
-		t.Fatalf("selected = %+v, %t; want prod", selected, ok)
+	if !ok || selected.ID != "prod2" {
+		t.Fatalf("selected = %+v, %t; want prod2", selected, ok)
 	}
 }
 
@@ -289,6 +295,50 @@ func TestSetItemsKeepsFilteredListWithinItsHeight(t *testing.T) {
 		}
 		if got := lipgloss.Height(l.View()); got > 20 {
 			t.Errorf("compact=%v: list renders %d lines, more than the %d it was given", compact, got, 20)
+		}
+	}
+}
+
+// An applied filter hides its own input, so the title bar has to name the term
+// or the narrowing is invisible — and it has to stay inside the pane, since an
+// overflowing title wraps and pushes the app's footer off screen.
+func TestApplyFilterHintNamesTheAppliedTerm(t *testing.T) {
+	l := New()
+	l.SetSize(24, 10)
+	l.SetFilterHint("/ find")
+	l.SetFilterPrompt("find: ")
+	l.SetItems([]Item{{TitleText: "alpha", Filter: "alpha"}, {TitleText: "beta", Filter: "beta"}})
+	if got := ansi.Strip(l.View()); !strings.Contains(got, "/ find") {
+		t.Fatalf("an unfiltered list should advertise the key, got:\n%s", got)
+	}
+
+	l.Model.SetFilterText("alpha")
+	l.applyFilterHint()
+	if got := ansi.Strip(l.View()); !strings.Contains(got, "find: alpha") {
+		t.Fatalf("an applied filter should name its term, got:\n%s", got)
+	}
+
+	l.Model.SetFilterText(strings.Repeat("x", 80))
+	l.applyFilterHint()
+	for _, line := range strings.Split(ansi.Strip(l.View()), "\n") {
+		if got := lipgloss.Width(line); got > 24 {
+			t.Fatalf("a long term must be truncated, got a %d-column line: %q", got, line)
+		}
+	}
+}
+
+// hintWidth's budget is measured rather than derived, so pin the measurement:
+// bubbles truncates the title against the pane width but renders it in a padded
+// bar, and an overflowing title wraps — which costs the app a row and pushes its
+// footer off screen.
+func TestTitleBarBudget(t *testing.T) {
+	for _, w := range []int{21, 24, 40, 80} {
+		l := New()
+		l.SetSize(w, 10)
+		l.SetItems([]Item{{TitleText: "alpha", Filter: "alpha"}})
+		l.Model.Title = strings.Repeat("t", l.hintWidth())
+		if got := lipgloss.Width(ansi.Strip(l.View())); got > w {
+			t.Errorf("w=%d: a title of hintWidth()=%d renders %d columns", w, l.hintWidth(), got)
 		}
 	}
 }

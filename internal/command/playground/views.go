@@ -161,11 +161,13 @@ func (m Model) mainTitle() string {
 	case m.section == secQuery && m.showRes:
 		return base + " ▸ Resolution"
 	case m.section == secTuples && m.tupleFilters.applied.active():
-		label := base + " ▸ filter: " + tupleFilterFields(m.tupleFilters.applied)
+		label := base + " ▸ "
 		if m.tuplesCapped {
-			label += " (first " + itoa(tuplesDisplayCap) + ")"
+			// Ahead of the fields: the header truncates from the right, and a long
+			// filter would otherwise always eat the cap marker.
+			label += "first " + itoa(tuplesDisplayCap) + " · "
 		}
-		return label
+		return label + "filter: " + tupleFilterFields(m.tupleFilters.applied)
 	case m.section == secTuples && m.tuplesCapped:
 		// "/" can only search what was loaded, so at the cap it cannot reach the
 		// rows the user is missing — point at the filter that reads a different
@@ -228,12 +230,15 @@ func (m Model) dialogContent() (string, string) {
 	case m.formKind == formWriteTuple:
 		return "Write Tuple", m.form.View() + "\n" + style.Faint.Render("tab move · ctrl+s submit · esc cancel")
 	case m.formKind == formTupleFilter:
-		subtitle := "Re-reads from the server; blank fields clear it."
+		subtitle := "Re-reads from the server.\nSubmit all blank to clear."
 		if m.tupleFilters.draft != m.tupleFilters.wanted {
-			subtitle = "The server refused this one — fix it and apply again."
+			subtitle = "The server refused this filter.\nFix it and apply again."
+			if m.connLost {
+				subtitle = "The last read never reached the server.\nTry again."
+			}
 		}
 		return "Filter Tuples", style.Faint.Render(subtitle) +
-			"\n\n" + m.form.View() + "\n" +
+			"\n" + m.form.View() + "\n" +
 			style.Faint.Render("tab move · ctrl+s apply · esc cancel")
 	case m.formKind == formWriteAssertion:
 		title := "Add Assertion"
@@ -987,7 +992,12 @@ func (m Model) statusKeys() []string {
 	case secModel:
 		return []string{"↑↓/hjkl pan", m.graphViewHint(), "e edit DSL", "m switch", "r reload", "esc"}
 	case secTuples:
-		return []string{"↑↓", "/ find", "f filter", "a add", "d del", "r reload", m.compactHint(), "esc"}
+		if m.width < 120 {
+			// The count on the other side of the footer is worth more than the
+			// compact-view hint, which the ? overlay also carries.
+			return []string{"↑↓", "/ find", "f filter", "a add", "d del", "r reload", "esc"}
+		}
+		return []string{"↑↓", "/ find", "f filter", "a add", "d delete", "r reload", m.compactHint(), "esc"}
 	case secChanges:
 		return []string{"↑↓", "/ filter", "r reload", m.compactHint(), "esc"}
 	case secQuery:
