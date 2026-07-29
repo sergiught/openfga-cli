@@ -241,7 +241,7 @@ func TestTupleFilterRejectedLoadKeepsHeaderHonest(t *testing.T) {
 	mm.tuples = []openfga.Tuple{{Key: openfga.TupleKey{User: "user:anne", Relation: "viewer", Object: "document:roadmap"}}}
 	mm.form.SetValues([]string{"user:anne", "", "document:"})
 	m, _ = tea.Model(mm).Update(ctrlS())
-	mm, _ = landTuples(t, m, tuplesLoadedMsg{err: errors.New("400 invalid tuple_key")})
+	mm, _ = landTuples(t, m, tuplesLoadedMsg{err: errRefused})
 	if mm.tupleFilters.applied.active() {
 		t.Fatalf("a rejected filter must not be adopted, got %+v", mm.tupleFilters.applied)
 	}
@@ -278,7 +278,7 @@ func TestTupleFilterClearAnnouncesItself(t *testing.T) {
 	mm.tupleFilters.applied = tupleFilter{object: "document:roadmap"}
 	mm.form.SetValues([]string{"", "", ""})
 	m, _ = tea.Model(mm).Update(ctrlS())
-	if m.(Model).tupleFilters.applied.active() != true {
+	if !m.(Model).tupleFilters.applied.active() {
 		t.Fatal("the filter should still describe the rows on screen until the reload lands")
 	}
 	mm, cmd := landTuples(t, m, tuplesLoadedMsg{})
@@ -633,16 +633,7 @@ func TestSelectStoreClearsTupleFilter(t *testing.T) {
 // bearing and neither is visible from a hand-built message.
 
 func TestLoadTuplesCmdSendsTupleKeyAndEchoesFilter(t *testing.T) {
-	var body map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		_ = json.NewEncoder(w).Encode(openfga.ReadResponse{})
-	}))
-	t.Cleanup(srv.Close)
-	cl, err := openfga.NewClient(srv.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	cl, body := readBody(t)
 
 	f := tupleFilter{user: "user:anne", relation: "viewer", object: "document:roadmap"}
 	msg := loadTuplesCmd(context.Background(), cl, "store-1", f, 7)().(tuplesLoadedMsg)
@@ -652,9 +643,9 @@ func TestLoadTuplesCmdSendsTupleKeyAndEchoesFilter(t *testing.T) {
 	if msg.filter != f {
 		t.Fatalf("the load must echo the filter it ran with, got %+v want %+v", msg.filter, f)
 	}
-	tk, _ := body["tuple_key"].(map[string]any)
+	tk, _ := body()["tuple_key"].(map[string]any)
 	if tk == nil {
-		t.Fatalf("an active filter must reach the wire as tuple_key, body = %v", body)
+		t.Fatalf("an active filter must reach the wire as tuple_key, body = %v", body())
 	}
 	if tk["user"] != "user:anne" || tk["relation"] != "viewer" || tk["object"] != "document:roadmap" {
 		t.Fatalf("tuple_key = %v, want the submitted filter", tk)
@@ -662,20 +653,14 @@ func TestLoadTuplesCmdSendsTupleKeyAndEchoesFilter(t *testing.T) {
 }
 
 func TestLoadTuplesCmdOmitsTupleKeyWhenUnfiltered(t *testing.T) {
-	var body map[string]any
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		_ = json.NewEncoder(w).Encode(openfga.ReadResponse{})
-	}))
-	t.Cleanup(srv.Close)
-	cl, _ := openfga.NewClient(srv.URL)
+	cl, body := readBody(t)
 
 	msg := loadTuplesCmd(context.Background(), cl, "store-1", tupleFilter{}, 1)().(tuplesLoadedMsg)
 	if msg.filter.active() {
 		t.Fatalf("an unfiltered load must echo the zero filter, got %+v", msg.filter)
 	}
-	if _, ok := body["tuple_key"]; ok {
-		t.Fatalf("no filter must mean no tuple_key on the wire, body = %v", body)
+	if _, ok := body()["tuple_key"]; ok {
+		t.Fatalf("no filter must mean no tuple_key on the wire, body = %v", body())
 	}
 }
 
@@ -691,10 +676,12 @@ func TestTuplesPaneFitsAndKeepsAdvertisingF(t *testing.T) {
 		if !strings.Contains(view, "f filter") {
 			t.Fatalf("w=%d: the footer must advertise f, got:\n%s", w, view)
 		}
-		// The key row is truncated from the right, so the last keycap surviving
-		// is what proves the row still fits.
-		if !strings.Contains(view, "? help") {
-			t.Fatalf("w=%d: the key row is truncated, got:\n%s", w, view)
+		// The list's own title bar also says "f filter", so scope the check to
+		// the footer — and the last keycap surviving is what proves the key row
+		// still fits, since it is truncated from the right.
+		footer := lastNonEmptyLine(view)
+		if !strings.Contains(footer, "f filter") || !strings.Contains(footer, "? help") {
+			t.Fatalf("w=%d: footer must advertise f and not be truncated, got %q", w, footer)
 		}
 		for _, line := range strings.Split(view, "\n") {
 			if got := lipgloss.Width(line); got > w {
@@ -804,8 +791,8 @@ func TestTupleFilterFormValidatesUser(t *testing.T) {
 	if m.(Model).formKind != formTupleFilter {
 		t.Fatal("a malformed user must keep the form open")
 	}
-	if got := ansi.Strip(m.(Model).form.View()); !strings.Contains(got, "user") && !strings.Contains(got, "User") {
-		t.Fatalf("the error should name the user field, got:\n%s", got)
+	if got := ansi.Strip(m.(Model).form.View()); !strings.Contains(got, "type:id") {
+		t.Fatalf("the user field's own validator should be the one complaining, got:\n%s", got)
 	}
 }
 
@@ -970,5 +957,80 @@ func TestTupleFilterFormValidatesObject(t *testing.T) {
 	m, _ = tea.Model(mm).Update(ctrlS())
 	if m.(Model).formKind != formTupleFilter {
 		t.Fatal("a userset-shaped object must keep the form open")
+	}
+}
+
+// lastNonEmptyLine returns the bottom rendered row — the footer.
+func lastNonEmptyLine(view string) string {
+	lines := strings.Split(view, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.TrimSpace(lines[i]) != "" {
+			return lines[i]
+		}
+	}
+	return ""
+}
+
+// A refusal is owed to the user until they act on it, so an unrelated reload
+// landing in between must not relabel it or wipe the notice.
+func TestRefusalOutlivesAnUnrelatedReload(t *testing.T) {
+	mm := rejectedFilterModel(t, nil, errRefused)
+	// A later read fails for its own reasons; it says nothing about the draft.
+	mm, _ = landTuples(t, tea.Model(mm), tuplesLoadedMsg{err: errUnreachable})
+	mm, _ = landTuples(t, tea.Model(mm), tuplesLoadedMsg{})
+	m, _ := tea.Model(mm).Update(key("f"))
+	body := ansi.Strip(func() string { _, b := m.(Model).dialogContent(); return b }())
+	if !strings.Contains(body, "refused") {
+		t.Fatalf("the refusal must survive an unrelated reload, got:\n%s", body)
+	}
+}
+
+// A clear the server never accepted leaves the filter on screen, so the form
+// must still offer that filter rather than the blank the user asked for —
+// otherwise there is no way back to it.
+func TestRefusedClearLeavesTheFilterEditable(t *testing.T) {
+	applied := tupleFilter{object: "document:roadmap"}
+	mm := tuplesPanelModel()
+	mm.tupleFilters.confirm(applied)
+	m, _ := tea.Model(mm).Update(key("f"))
+	mm = m.(Model)
+	mm.form.SetValues([]string{"", "", ""})
+	m, _ = tea.Model(mm).Update(ctrlS())
+	mm, _ = landTuples(t, m, tuplesLoadedMsg{err: errUnreachable})
+
+	if mm.tupleFilters.applied != applied {
+		t.Fatalf("a failed clear must leave the filter applied, got %+v", mm.tupleFilters.applied)
+	}
+	m, _ = tea.Model(mm).Update(key("f"))
+	if got := m.(Model).form.Values(); got[2] != "document:roadmap" {
+		t.Fatalf("the form should offer the filter still on screen, got %v", got)
+	}
+	if _, body := m.(Model).dialogContent(); strings.Contains(ansi.Strip(body), "refused") {
+		t.Fatalf("a failed clear leaves nothing to fix, got:\n%s", ansi.Strip(body))
+	}
+}
+
+// The wide footer tier carries the same advertisement as the narrow one.
+func TestWideFooterAdvertisesTupleFilterKey(t *testing.T) {
+	m := tuplesPanelModel()
+	m.width = 140
+	if keys := strings.Join(m.statusKeys(), " "); !strings.Contains(keys, "f filter") {
+		t.Fatalf("the wide footer must advertise f too, got %q", keys)
+	}
+}
+
+// Every field goes, including the draft a refusal left behind.
+func TestStoreSwitchClearsTheDraftToo(t *testing.T) {
+	configtest.Isolate(t)
+	cl, _ := openfga.NewClient("http://localhost:8080")
+	a := cli.New(log.New(io.Discard), config.New(), "test")
+	m := newModel(context.Background(), a, cl, "store-1", "")
+	m.tupleFilters.request(tupleFilter{object: "document:roadmap"})
+	m.tupleFilters.reject(true)
+
+	m.selectStore(openfga.Store{ID: "store-2", Name: "other"})
+
+	if m.tupleFilters != (tupleFilters{}) {
+		t.Fatalf("a store switch must clear every field, draft included, got %+v", m.tupleFilters)
 	}
 }

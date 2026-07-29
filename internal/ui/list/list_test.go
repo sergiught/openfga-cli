@@ -364,7 +364,7 @@ func TestTruncateHint(t *testing.T) {
 		w    int
 		want string
 	}{
-		{"abcdefghij", 10, "abcdefghij"}, // an exact fit is not truncated
+		{"abcdefghij", 10, "abcdefghij"}, // exact fit
 		{"abcdefghij", 20, "abcdefghij"},
 		{"abcdefghij", 9, "abcdefgh…"},
 		{"abcdefghij", 3, "ab…"},
@@ -402,5 +402,57 @@ func TestApplyFilterHintNamesTheTermOverAnEmptyResult(t *testing.T) {
 	l.applyFilterHint()
 	if got := ansi.Strip(l.View()); !strings.Contains(got, "find: zzzz") {
 		t.Fatalf("an applied filter matching nothing should still name itself, got:\n%s", got)
+	}
+}
+
+// An applied term outranks the empty-list case: a filter that matches nothing
+// is exactly when the user most needs to see what is hiding the rows.
+func TestAppliedTermSurvivesAnEmptiedList(t *testing.T) {
+	l := New()
+	l.SetSize(40, 10)
+	l.SetFilterHint("/ find")
+	l.SetFilterPrompt("find: ")
+	l.SetItems([]Item{{TitleText: "alpha", Filter: "alpha"}})
+	l.Model.SetFilterText("alpha")
+	l.SetItems(nil)
+	if got := ansi.Strip(l.View()); !strings.Contains(got, "find: alpha") {
+		t.Fatalf("the applied term should outlive an emptied list, got:\n%s", got)
+	}
+}
+
+// The key hint shares the title bar with the applied term, so it needs the same
+// budget: a hint longer than the pane wraps, and the row it costs is the app's
+// footer. This is how the footer disappeared once already.
+func TestFilterHintIsTruncatedToo(t *testing.T) {
+	l := New()
+	l.SetSize(20, 10)
+	l.SetFilterHint("a hint far longer than this narrow pane can hold")
+	l.SetItems([]Item{{TitleText: "alpha", Filter: "alpha"}})
+	for _, line := range strings.Split(ansi.Strip(l.View()), "\n") {
+		if got := lipgloss.Width(line); got > 20 {
+			t.Fatalf("an over-long hint must be truncated: %d columns, %q", got, line)
+		}
+	}
+}
+
+// A narrower pane makes an already-rendered title too long. Nothing else
+// recomputes it, so a resize has to — an overflowing title wraps, and the row
+// it costs is the one the app's footer sits on.
+func TestSetSizeRetruncatesTheTitle(t *testing.T) {
+	l := New()
+	l.SetSize(120, 20)
+	l.SetFilterPrompt("find: ")
+	l.SetItems([]Item{{TitleText: "alpha", Filter: "alpha"}})
+	l.Model.SetFilterText(strings.Repeat("a", 60))
+	l.applyFilterHint()
+
+	l.SetSize(30, 20)
+	if got := lipgloss.Width(l.Model.Title); got > l.hintWidth() {
+		t.Fatalf("title is %d columns after shrinking to a %d-column budget", got, l.hintWidth())
+	}
+	for _, line := range strings.Split(ansi.Strip(l.View()), "\n") {
+		if got := lipgloss.Width(line); got > 30 {
+			t.Fatalf("line overflows the pane after a resize: %d columns, %q", got, line)
+		}
 	}
 }

@@ -107,14 +107,14 @@ func (m Model) helpBody() string {
 			{"↑↓", "move"},
 			{"/", "find in the loaded rows"},
 			{"f", "filter on the server"},
-			{"a", "add"}, {"d", "delete"}, {"r", "reload"},
+			{"a", "add"}, {"d", "delete"}, {"r", "reload"}, {"v", "compact view"},
 		}
 	case secChanges:
-		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"r", "reload"}}
+		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"r", "reload"}, {"v", "compact view"}}
 	case secQuery:
 		section = [][2]string{{"i / ↵", "edit query"}, {"tab", "cycle mode"}, {"1–5", "rerun recent"}, {"r", "resolve"}}
 	case secAssertions:
-		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"↵", "run + resolve"}, {"a", "add"}, {"e", "edit"}, {"d", "delete"}, {"t", "run all"}}
+		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"↵", "run + resolve"}, {"a", "add"}, {"e", "edit"}, {"d", "delete"}, {"t", "run all"}, {"v", "compact view"}}
 	case secAPILogs:
 		section = [][2]string{
 			{"↑↓", "select request"},
@@ -1123,8 +1123,8 @@ func tupleHint(storeID string, filtered bool) string {
 }
 
 // findHidesAllHint explains an empty pane that holds rows: the "/" find is
-// hiding them, and an applied find is otherwise invisible — the list reverts
-// its title bar to the key hint, so nothing on screen names the cause.
+// hiding them. The list names the applied term in its own title bar, but this
+// branch replaces the list entirely, so the pane would otherwise be blank.
 func findHidesAllHint(rows int) string {
 	return "The / find hides " + plural(rows, "loaded row") + " — press / then esc to clear it"
 }

@@ -338,7 +338,22 @@ func (s *tupleFilters) confirm(f tupleFilter) {
 // reading what is already on screen, while the draft keeps the user's text.
 // answered separates a filter the server refused from one whose read never got
 // there — the same backing out, a different thing to tell the user.
-func (s *tupleFilters) reject(answered bool) { s.wanted, s.answered = s.applied, answered }
+func (s *tupleFilters) reject(answered bool) {
+	if s.wanted == s.applied {
+		// Nothing was in flight to back out of, so this failure belongs to some
+		// later read and says nothing about the draft. Recording it here would
+		// relabel a filter the server refused as one that never reached it.
+		return
+	}
+	if !s.wanted.active() {
+		// A refused clear leaves nothing to fix: keeping the blank draft would
+		// offer an empty form over a filter that is still applied, with no way
+		// back to it.
+		s.wanted, s.draft = s.applied, s.applied
+		return
+	}
+	s.wanted, s.answered = s.applied, answered
+}
 
 // reset drops the filter entirely — for a store switch, a reconnect or the
 // deletion of the store it was written for, all of which invalidate the types

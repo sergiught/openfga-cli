@@ -131,5 +131,7 @@ whole type (`document:`) or one object (`document:roadmap`). A bare type on its
 own also needs a user; a relation can't stand in for either. Object ids match
 literally, so wildcards (`document:*`) are rejected rather than quietly matching
 nothing, as are usersets (`document:1#viewer`) — the object is an object. The
-user field takes a `type:id` reference. Submitting all three fields blank clears
-the filter and re-reads the store.
+user field takes any `type:id` reference, including a userset (`team:eng#member`)
+or a wildcard (`user:*`). Submitting all three fields blank clears the filter and
+re-reads the store, and switching store or profile clears it for you — the types
+and ids it names belong to the store it was written for.

@@ -179,7 +179,7 @@ func (l *List) applyFilterHint() {
 	case len(l.Model.Items()) == 0:
 		l.Model.Title = ""
 	default:
-		l.Model.Title = l.filterHint
+		l.Model.Title = truncateHint(l.filterHint, l.hintWidth())
 	}
 }
 
@@ -203,6 +203,11 @@ func truncateHint(s string, w int) string {
 func (l *List) SetSize(width, height int) {
 	l.Model.SetWidth(width)
 	l.Model.SetHeight(height)
+	// The title is truncated against the pane, so a narrower pane needs it
+	// recomputed — otherwise a title sized for the old width overflows, wraps,
+	// and costs the app the row its footer sits on until some message happens to
+	// reach this list again.
+	l.applyFilterHint()
 	l.Restyle()
 }
 
