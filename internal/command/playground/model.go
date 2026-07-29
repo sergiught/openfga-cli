@@ -969,6 +969,8 @@ func (m *Model) populateTuples() {
 				m.status = "written — the active filter hides it (press f)"
 			case m.tupleContains(id):
 				m.status = "written — the / find hides it"
+			case m.tuplesCapped:
+				m.status = "written — beyond the " + itoa(tuplesDisplayCap) + " rows shown"
 			}
 		}
 	}

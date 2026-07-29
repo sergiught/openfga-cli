@@ -612,6 +612,8 @@ func TestReadRejectsFiltersTheServerWouldRefuse(t *testing.T) {
 		{"userset object", []string{"--object", "document:1#viewer"}, "not a userset"},
 		{"user without a type", []string{"--user", "anne", "--object", "document:roadmap"}, "--user"},
 		{"padded object with no type", []string{"--object", "  document  ", "--user", "user:anne"}, "--object"},
+		// Both flags are wrong: the user is reported first, so the order is pinned.
+		{"both malformed", []string{"--user", "anne", "--object", "document"}, "--user"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cmd := New(newHumanTupleCLI(t, "http://127.0.0.1:1")).readCmd()
@@ -696,12 +698,12 @@ func TestReadTrimsFilterFlags(t *testing.T) {
 	cmd := New(newHumanTupleCLI(t, srv.URL)).readCmd()
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
-	cmd.SetArgs([]string{"--object", "  document:roadmap  ", "--user", " user:anne "})
+	cmd.SetArgs([]string{"--object", "  document:roadmap  ", "--user", " user:anne ", "--relation", "  viewer  "})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
 	tk, _ := body["tuple_key"].(map[string]any)
-	if tk == nil || tk["object"] != "document:roadmap" || tk["user"] != "user:anne" {
+	if tk == nil || tk["object"] != "document:roadmap" || tk["user"] != "user:anne" || tk["relation"] != "viewer" {
 		t.Fatalf("padded flags must reach the wire trimmed, got %v", body)
 	}
 

@@ -302,9 +302,16 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tuples = msg.tuples
 		m.tuplesCapped = msg.capped
 		m.tupleFilters.confirm(msg.filter)
+		before := m.status
 		m.populateTuples()
-		if note != "" {
+		// A single load can both adopt a new filter and consume a pending write
+		// selection. If populateTuples had something to say about the write, it
+		// outranks the filter note — the user can see the filter in the header.
+		if note != "" && m.status == before {
 			m.status = note
+			return m, m.toasts.Push(toast.Info, m.status)
+		}
+		if m.status != before {
 			return m, m.toasts.Push(toast.Info, m.status)
 		}
 		return m, nil

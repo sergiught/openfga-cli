@@ -414,8 +414,17 @@ func TestWriteHiddenByFilterStaysQuietOtherwise(t *testing.T) {
 	unfiltered := tuplesPanelModel()
 	unfiltered.pendingTupleSelect = fga.FormatTuple(openfga.TupleKey{User: "user:zed", Relation: "viewer", Object: "folder:secret"})
 	unfiltered.populateTuples()
-	if strings.Contains(unfiltered.status, "filter hides it") {
-		t.Fatalf("with no filter there is nothing to blame, got %q", unfiltered.status)
+	if strings.Contains(unfiltered.status, "hides it") {
+		t.Fatalf("with nothing hiding it there is nothing to blame, got %q", unfiltered.status)
+	}
+
+	// Unless the row is simply past the cap, which hides it just as effectively.
+	capped := tuplesPanelModel()
+	capped.tuplesCapped = true
+	capped.pendingTupleSelect = fga.FormatTuple(openfga.TupleKey{User: "user:zed", Relation: "viewer", Object: "folder:secret"})
+	capped.populateTuples()
+	if !strings.Contains(capped.status, "beyond the 500") {
+		t.Fatalf("a row past the cap should say so, got %q", capped.status)
 	}
 
 	inflight := tuplesPanelModel()
@@ -529,8 +538,6 @@ func TestHelpAdvertisesCompactView(t *testing.T) {
 	}
 }
 
-// The footer key row is always on screen, unlike the ? overlay, so it is the
-// only place a user reliably discovers f.
 // The Tuples key row is tiered: the count on the other side of the footer is
 // worth more than the compact hint on a narrow terminal.
 func TestTuplesFooterTiersOnWidth(t *testing.T) {
@@ -546,6 +553,9 @@ func TestTuplesFooterTiersOnWidth(t *testing.T) {
 	}
 }
 
+// The footer key row is always on screen, unlike the ? overlay, so it is the
+// only place a user reliably discovers f — at the default width and at the
+// wide tier, which builds the row separately.
 func TestFooterAdvertisesTupleFilterKey(t *testing.T) {
 	m := tuplesPanelModel()
 	keys := strings.Join(m.statusKeys(), " ")
@@ -554,6 +564,10 @@ func TestFooterAdvertisesTupleFilterKey(t *testing.T) {
 	}
 	if !strings.Contains(keys, "/ find") {
 		t.Fatalf("Tuples footer should call / a find, not a filter, got %q", keys)
+	}
+	m.width = 140
+	if keys := strings.Join(m.statusKeys(), " "); !strings.Contains(keys, "f filter") {
+		t.Fatalf("the wide footer must advertise f too, got %q", keys)
 	}
 }
 
@@ -1027,15 +1041,6 @@ func TestRefusedClearLeavesTheFilterEditable(t *testing.T) {
 	}
 	if _, body := m.(Model).dialogContent(); strings.Contains(ansi.Strip(body), "refused") {
 		t.Fatalf("a failed clear leaves nothing to fix, got:\n%s", ansi.Strip(body))
-	}
-}
-
-// The wide footer tier carries the same advertisement as the narrow one.
-func TestWideFooterAdvertisesTupleFilterKey(t *testing.T) {
-	m := tuplesPanelModel()
-	m.width = 140
-	if keys := strings.Join(m.statusKeys(), " "); !strings.Contains(keys, "f filter") {
-		t.Fatalf("the wide footer must advertise f too, got %q", keys)
 	}
 }
 

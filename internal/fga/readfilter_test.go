@@ -1,6 +1,7 @@
 package fga
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/sergiught/go-openfga/openfga"
@@ -99,5 +100,24 @@ func TestNewReadFilterTrims(t *testing.T) {
 	}
 	if f := NewReadFilter("  ", "", "\t"); f.Active() {
 		t.Fatalf("whitespace-only input must read as no filter, got %+v", f)
+	}
+}
+
+// The two halves of the rule are exported so each surface can reword them, so
+// which one comes back is part of the contract.
+func TestValidateReturnsTheMatchingSentinel(t *testing.T) {
+	if err := (ReadFilter{User: "user:anne"}).Validate(); !errors.Is(err, ErrReadFilterNeedsObject) {
+		t.Fatalf("a filter with no object should report the missing object, got %v", err)
+	}
+	if err := (ReadFilter{Object: "document:"}).Validate(); !errors.Is(err, ErrReadFilterBareType) {
+		t.Fatalf("a bare type alone should report the bare type, got %v", err)
+	}
+}
+
+// Only a whole-id "*" is a wildcard; a star inside an id is a literal character
+// the server matches like any other.
+func TestValidateReadObjectAllowsAStarInsideAnID(t *testing.T) {
+	if err := ValidateReadObject("document:ab*cd"); err != nil {
+		t.Fatalf("a star inside an id is a literal, got %v", err)
 	}
 }
