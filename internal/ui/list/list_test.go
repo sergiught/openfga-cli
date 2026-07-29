@@ -213,3 +213,54 @@ func TestSetItemsReappliesFilter(t *testing.T) {
 		t.Fatalf("replacing the items must re-run the applied filter, got %d visible", got)
 	}
 }
+
+// The matches have to be in before the paginator is sized, or everything past
+// the first page of a filtered list is unreachable.
+func TestSetItemsRepaginatesAfterReapplyingFilter(t *testing.T) {
+	l := New()
+	l.SetSize(40, 20)
+	items := func(n int) []Item {
+		out := make([]Item, n)
+		for i := range out {
+			out[i] = Item{TitleText: "match", Filter: "match"}
+		}
+		return out
+	}
+	l.SetItems(items(60))
+	l.Model.SetFilterText("match")
+	want := l.Model.Paginator.TotalPages
+	if want < 2 {
+		t.Fatalf("test needs a multi-page list, got %d pages", want)
+	}
+
+	l.SetItems(items(60))
+	if got := len(l.Model.VisibleItems()); got != 60 {
+		t.Fatalf("every item still matches, got %d visible", got)
+	}
+	if got := l.Model.Paginator.TotalPages; got != want {
+		t.Fatalf("pages = %d after replacing the items, want %d — rows past the first page are unreachable", got, want)
+	}
+}
+
+// Replacing the items while the user is still typing must keep the matches in
+// step too; the "/" input is drawn from the same model.
+func TestSetItemsReappliesFilterWhileTyping(t *testing.T) {
+	l := New()
+	l.SetSize(40, 10)
+	l.SetItems([]Item{{TitleText: "alpha", Filter: "alpha"}, {TitleText: "beta", Filter: "beta"}})
+	l.Model.KeyMap.Filter.SetEnabled(true)
+	l.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	l.Model.FilterInput.SetValue("alpha")
+	if !l.SettingFilter() {
+		t.Fatal("expected to be mid-typing a filter")
+	}
+
+	l.SetItems([]Item{
+		{TitleText: "alpha", Filter: "alpha"},
+		{TitleText: "beta", Filter: "beta"},
+		{TitleText: "gamma", Filter: "gamma"},
+	})
+	if got := len(l.Model.VisibleItems()); got != 1 {
+		t.Fatalf("mid-typing, the matches must be recomputed too, got %d visible", got)
+	}
+}

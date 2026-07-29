@@ -118,7 +118,7 @@ func (l *List) Restyle() {
 // another, or drop it entirely and leave a filtered list rendering nothing. It
 // is pure fuzzy matching over the items just set, with nothing to wait on, so
 // it runs inline here instead and never escapes. (bubbles does the same in its
-// own Model.setFilter.)
+// own Model.SetFilterText.)
 func (l *List) SetItems(items []Item) {
 	rows := make([]list.Item, len(items))
 	for i, it := range items {
@@ -126,7 +126,15 @@ func (l *List) SetItems(items []Item) {
 	}
 	if cmd := l.Model.SetItems(rows); cmd != nil {
 		if msg := cmd(); msg != nil {
+			// The discarded command is a delegate/cursor-blink one with nothing to
+			// do for a FilterMatchesMsg, which Update handles and returns on.
 			l.Model, _ = l.Model.Update(msg)
+			// SetItems paginated before the matches existed, so it sized the
+			// paginator for zero visible rows — everything past the first page
+			// would be unreachable. Re-run it now that they are in. SetFilterText
+			// does the same; the two calls it uses are unexported, and SetSize is
+			// the exported way to reach both.
+			l.Model.SetSize(l.Model.Width(), l.Model.Height())
 		}
 	}
 	l.applyFilterHint()

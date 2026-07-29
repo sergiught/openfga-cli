@@ -30,8 +30,8 @@ func TestTupleReadRequestNoFilter(t *testing.T) {
 	if req.TupleKey != nil {
 		t.Fatalf("no filter should mean no tuple_key, got %+v", req.TupleKey)
 	}
-	if req.PageSize != tuplesPageSize {
-		t.Fatalf("page size = %d, want %d", req.PageSize, tuplesPageSize)
+	if req.PageSize != 100 {
+		t.Fatalf("page size = %d, want 100", req.PageSize)
 	}
 }
 
@@ -647,8 +647,33 @@ func TestFindHidingEveryRowExplainsItself(t *testing.T) {
 		t.Fatalf("the stale find should hide every row, got %d visible", got)
 	}
 	body := ansi.Strip(mm.viewString())
-	if !strings.Contains(body, "/ find hides all") {
+	if !strings.Contains(body, "hides 1 loaded row —") {
 		t.Fatalf("an empty-by-find pane must say so, got:\n%s", body)
+	}
+}
+
+// While the user is still typing a find, the "/" input is drawn inside the
+// list — so swapping the list out for the hint would delete the box they are
+// typing into, exactly when a term stops matching and they need to fix it.
+func TestFindHintStaysOutOfTheWayWhileTyping(t *testing.T) {
+	var m tea.Model = tuplesPanelModel()
+	m = pump(t, m, key("/"))
+	for _, r := range "zzzz" {
+		m = pump(t, m, tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	mm := m.(Model)
+	if !mm.tuplesList.SettingFilter() {
+		t.Fatal("expected to be mid-typing a find")
+	}
+	if got := len(mm.tuplesList.Model.VisibleItems()); got != 0 {
+		t.Fatalf("the term should match nothing, got %d visible", got)
+	}
+	body := ansi.Strip(mm.viewString())
+	if strings.Contains(body, "hides") {
+		t.Fatalf("the hint must not replace the input being typed into, got:\n%s", body)
+	}
+	if !strings.Contains(body, "find: zzzz") {
+		t.Fatalf("the find input must stay on screen, got:\n%s", body)
 	}
 }
 
@@ -728,5 +753,170 @@ func TestTupleFilterSubmitWithoutStoreIsRefused(t *testing.T) {
 	}
 	if cmd != nil {
 		t.Fatal("submitting with no store must not dispatch a read")
+	}
+}
+
+// --- the reload paths, at the wire. tuplesReloadCmd is the single builder, but
+// only a request that actually leaves each call site proves the site uses it.
+
+// readBody starts a server that records the last /read body it was sent.
+func readBody(t *testing.T) (*openfga.Client, func() map[string]any) {
+	t.Helper()
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var b map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&b)
+		body = b
+		_ = json.NewEncoder(w).Encode(openfga.ReadResponse{})
+	}))
+	t.Cleanup(srv.Close)
+	cl, err := openfga.NewClient(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cl, func() map[string]any { return body }
+}
+
+// r and the reload a write triggers must both send the filter the user asked
+// for, not the one the rows on screen were read with.
+func TestReloadPathsSendTheWantedFilter(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		msg  func(Model) tea.Msg
+	}{
+		{"r", func(Model) tea.Msg { return key("r") }},
+		{"write reload", func(m Model) tea.Msg {
+			return tupleWrittenMsg{origin: m.mutationOrigin(m.storeID, m.modelID, m.tupleMutationGen), label: "x"}
+		}},
+	} {
+		cl, body := readBody(t)
+		mm := tuplesPanelModel()
+		mm.client = cl
+		mm.tupleMutating = true
+		mm.tupleFilters.confirm(tupleFilter{object: "document:old"})
+		mm.tupleFilters.request(tupleFilter{object: "document:new"})
+
+		_, cmd := tea.Model(mm).Update(tc.msg(mm))
+		if cmd == nil {
+			t.Fatalf("%s: expected a reload command", tc.name)
+		}
+		var queue []tea.Msg
+		collectCmd(cmd, &queue) // a write dispatches several loads at once
+		tk, _ := body()["tuple_key"].(map[string]any)
+		if tk == nil || tk["object"] != "document:new" {
+			t.Fatalf("%s: reload sent %v, want the wanted filter", tc.name, body())
+		}
+	}
+}
+
+// After a rejection the wanted filter backs out, so a later reload must read
+// the store the way the rows on screen were read — unfiltered here.
+func TestReloadAfterRejectionSendsNoFilter(t *testing.T) {
+	cl, body := readBody(t)
+	m := openTupleFilter(t)
+	mm := m.(Model)
+	mm.client = cl
+	mm.form.SetValues([]string{"user:anne", "can view", "document:"})
+	m, _ = tea.Model(mm).Update(ctrlS())
+	mm, _ = landTuples(t, m, tuplesLoadedMsg{err: errors.New("400 invalid tuple_key")})
+
+	_, cmd := tea.Model(mm).Update(key("r"))
+	if cmd == nil {
+		t.Fatal("expected a reload command")
+	}
+	var queue []tea.Msg
+	collectCmd(cmd, &queue)
+	if _, ok := body()["tuple_key"]; ok {
+		t.Fatalf("a reload after a rejection must not re-send the refused filter, got %v", body())
+	}
+}
+
+// A refused filter is still owed to the user: an unrelated reload landing in
+// between must not wipe it out of the form.
+func TestRejectedDraftSurvivesAnUnrelatedReload(t *testing.T) {
+	m := openTupleFilter(t)
+	mm := m.(Model)
+	mm.form.SetValues([]string{"user:anne", "can view", "document:"})
+	m, _ = tea.Model(mm).Update(ctrlS())
+	mm, _ = landTuples(t, m, tuplesLoadedMsg{err: errors.New("400 invalid tuple_key")})
+	mm, _ = landTuples(t, tea.Model(mm), tuplesLoadedMsg{}) // e.g. the reload a write triggers
+	m, _ = tea.Model(mm).Update(key("f"))
+	if got := m.(Model).form.Values(); got[1] != "can view" {
+		t.Fatalf("the refused filter should still be in the form, got %v", got)
+	}
+}
+
+// --- the render branches the header, dialog and footer gained.
+
+func TestMainTitleAtTheDisplayCap(t *testing.T) {
+	m := tuplesPanelModel()
+	m.tuplesCapped = true
+	if got := m.mainTitle(); !strings.Contains(got, "first 500") || !strings.Contains(got, "press f") {
+		t.Fatalf("a capped unfiltered pane should point at f, got %q", got)
+	}
+	m.tupleFilters.confirm(tupleFilter{object: "document:roadmap"})
+	got := m.mainTitle()
+	if !strings.Contains(got, "object=document:roadmap") || !strings.Contains(got, "(first 500)") {
+		t.Fatalf("a capped filtered pane should show both the filter and the cap, got %q", got)
+	}
+}
+
+func TestFilterDialogExplainsItself(t *testing.T) {
+	m := openTupleFilter(t).(Model)
+	title, body := m.dialogContent()
+	if title != "Filter Tuples" {
+		t.Fatalf("dialog title = %q", title)
+	}
+	body = ansi.Strip(body)
+	if !strings.Contains(body, "Re-reads from the server") {
+		t.Fatalf("the dialog must say it re-reads from the server, got:\n%s", body)
+	}
+	if !strings.Contains(body, "ctrl+s apply") {
+		t.Fatalf("the dialog must label ctrl+s as apply, got:\n%s", body)
+	}
+	keys := strings.Join(m.statusKeys(), " ")
+	if !strings.Contains(keys, "ctrl+s apply") || strings.Contains(keys, "save") {
+		t.Fatalf("the footer must say apply, not save, got %q", keys)
+	}
+}
+
+// A rejection with nothing applied leaves the header showing no filter while
+// the form holds the refused text; the dialog has to reconcile the two.
+func TestFilterDialogFlagsARefusedDraft(t *testing.T) {
+	m := openTupleFilter(t)
+	mm := m.(Model)
+	mm.form.SetValues([]string{"user:anne", "can view", "document:"})
+	m, _ = tea.Model(mm).Update(ctrlS())
+	mm, _ = landTuples(t, m, tuplesLoadedMsg{err: errors.New("400 invalid tuple_key")})
+	m, _ = tea.Model(mm).Update(key("f"))
+	_, body := m.(Model).dialogContent()
+	if !strings.Contains(ansi.Strip(body), "refused") {
+		t.Fatalf("the dialog should say the filter was refused, got:\n%s", ansi.Strip(body))
+	}
+}
+
+// The tuples list carries its own filter chrome: the two keys named apart in
+// the title bar, and a prompt that does not repeat the word "filter".
+func TestTuplesListFilterChrome(t *testing.T) {
+	m := tuplesPanelModel()
+	idle := ansi.Strip(m.tuplesList.View())
+	if !strings.Contains(idle, "/ find") || !strings.Contains(idle, "f filter") {
+		t.Fatalf("the list should name both filters, got:\n%s", idle)
+	}
+	nm, _ := tea.Model(m).Update(key("/"))
+	typing := ansi.Strip(nm.(Model).tuplesList.View())
+	if !strings.Contains(typing, "find:") || strings.Contains(typing, "filter:") {
+		t.Fatalf("the / input should prompt with find:, got:\n%s", typing)
+	}
+}
+
+// The object field's validator must be wired, not merely correct.
+func TestTupleFilterFormValidatesObject(t *testing.T) {
+	m := openTupleFilter(t)
+	mm := m.(Model)
+	mm.form.SetValues([]string{"", "", "document:1#viewer"}) // a userset, not an object
+	m, _ = tea.Model(mm).Update(ctrlS())
+	if m.(Model).formKind != formTupleFilter {
+		t.Fatal("a userset-shaped object must keep the form open")
 	}
 }

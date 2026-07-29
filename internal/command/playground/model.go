@@ -532,7 +532,6 @@ func newModel(ctx context.Context, cli *cli.CLI, cl *openfga.Client, storeID, mo
 	// wraps, and the overflow drops the status bar entirely.
 	m.tuplesList.SetFilterHint("/ find · f filter")
 	m.tuplesList.SetFilterPrompt("find: ")
-	m.tuplesList.SetFilterPlaceholder("match any field")
 
 	m.renewReqCtx()
 	m.qmode = 0

@@ -293,6 +293,7 @@ type tupleFilter struct {
 	user, relation, object string
 }
 
+// active reports whether the filter narrows anything; the zero value does not.
 func (f tupleFilter) active() bool { return f != (tupleFilter{}) }
 
 // tupleFilters tracks the tuples section's filter across the three states it
@@ -314,8 +315,16 @@ type tupleFilters struct {
 // request records a submitted filter as the one to read with next.
 func (s *tupleFilters) request(f tupleFilter) { s.wanted, s.draft = f, f }
 
-// confirm adopts a filter the server has answered for.
-func (s *tupleFilters) confirm(f tupleFilter) { s.applied, s.wanted, s.draft = f, f, f }
+// confirm adopts a filter the server has answered for. It leaves a draft that
+// has diverged alone: only reject() can do that, and the refused text is still
+// owed to the user until they next open the form.
+func (s *tupleFilters) confirm(f tupleFilter) {
+	keepDraft := s.draft != s.wanted
+	s.applied, s.wanted = f, f
+	if !keepDraft {
+		s.draft = f
+	}
+}
 
 // reject backs out of a filter the server refused: later reloads go back to
 // reading what is already on screen, while the draft keeps the user's text.

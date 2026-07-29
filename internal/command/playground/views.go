@@ -163,14 +163,14 @@ func (m Model) mainTitle() string {
 	case m.section == secTuples && m.tupleFilters.applied.active():
 		label := base + " ▸ filter: " + tupleFilterFields(m.tupleFilters.applied)
 		if m.tuplesCapped {
-			label += " (first " + strconv.Itoa(tuplesDisplayCap) + ")"
+			label += " (first " + itoa(tuplesDisplayCap) + ")"
 		}
 		return label
 	case m.section == secTuples && m.tuplesCapped:
 		// "/" can only search what was loaded, so at the cap it cannot reach the
 		// rows the user is missing — point at the filter that reads a different
 		// slice of the store rather than a bigger one.
-		return base + " ▸ first " + strconv.Itoa(tuplesDisplayCap) + " — f narrows the read"
+		return base + " ▸ first " + itoa(tuplesDisplayCap) + " — press f to narrow"
 	}
 	return base
 }
@@ -228,8 +228,11 @@ func (m Model) dialogContent() (string, string) {
 	case m.formKind == formWriteTuple:
 		return "Write Tuple", m.form.View() + "\n" + style.Faint.Render("tab move · ctrl+s submit · esc cancel")
 	case m.formKind == formTupleFilter:
-		return "Filter Tuples", style.Faint.Render(
-			"Re-reads from the server; blank fields clear it.") +
+		subtitle := "Re-reads from the server; blank fields clear it."
+		if m.tupleFilters.draft != m.tupleFilters.applied {
+			subtitle = "The server refused this one — fix it and apply again."
+		}
+		return "Filter Tuples", style.Faint.Render(subtitle) +
 			"\n\n" + m.form.View() + "\n" +
 			style.Faint.Render("tab move · ctrl+s apply · esc cancel")
 	case m.formKind == formWriteAssertion:
@@ -360,7 +363,7 @@ func (m Model) sectionBody() string {
 			body = m.spinner.View() + " loading tuples…"
 		case len(m.tuples) == 0:
 			body = style.Faint.Render(tupleHint(m.storeID, m.tupleFilters.applied.active()))
-		case len(m.tuplesList.Model.VisibleItems()) == 0:
+		case len(m.tuplesList.Model.VisibleItems()) == 0 && !m.tuplesList.SettingFilter():
 			body = style.Faint.Render(findHidesAllHint(len(m.tuples)))
 		case m.compact:
 			body = m.tuplesList.View()
@@ -1113,7 +1116,7 @@ func tupleHint(storeID string, filtered bool) string {
 // hiding them, and an applied find is otherwise invisible — the list reverts
 // its title bar to the key hint, so nothing on screen names the cause.
 func findHidesAllHint(rows int) string {
-	return "The / find hides all " + itoa(rows) + " loaded rows — press / then esc to clear it"
+	return "The / find hides " + plural(rows, "loaded row") + " — press / then esc to clear it"
 }
 
 func changeHint(storeID string) string {
