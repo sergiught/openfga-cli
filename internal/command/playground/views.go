@@ -167,17 +167,19 @@ func (m Model) mainTitle() string {
 }
 
 // tupleFilterLabel renders the active server-side filter compactly for the
-// panel header, e.g. "filter: user=user:anne object=document:".
+// panel header, e.g. "filter: object=document: user=user:anne".
 func tupleFilterLabel(f tupleFilter) string {
+	// Object leads: it is the field the server requires, and the header
+	// truncates from the right on narrow panes.
 	parts := []string{"filter:"}
+	if f.object != "" {
+		parts = append(parts, "object="+safeText(f.object))
+	}
 	if f.user != "" {
 		parts = append(parts, "user="+safeText(f.user))
 	}
 	if f.relation != "" {
 		parts = append(parts, "relation="+safeText(f.relation))
-	}
-	if f.object != "" {
-		parts = append(parts, "object="+safeText(f.object))
 	}
 	return strings.Join(parts, " ")
 }
@@ -217,8 +219,11 @@ func (m Model) dialogContent() (string, string) {
 	case m.formKind == formWriteTuple:
 		return "Write Tuple", m.form.View() + "\n" + style.Faint.Render("tab move · ctrl+s submit · esc cancel")
 	case m.formKind == formTupleFilter:
-		return "Filter Tuples", m.form.View() + "\n" +
-			style.Faint.Render("tab move · ctrl+s apply · submit all-empty to clear · esc cancel")
+		return "Filter Tuples", style.Faint.Render(
+			"Re-reads from the server (/read), not just the loaded rows.\n"+
+				"Needs an object: document:roadmap, or document: with a user.") +
+			"\n\n" + m.form.View() + "\n" +
+			style.Faint.Render("tab move · ctrl+s apply · all blank to clear · esc cancel")
 	case m.formKind == formWriteAssertion:
 		title := "Add Assertion"
 		if m.assertEditIdx >= 0 {
@@ -934,6 +939,9 @@ func (m Model) statusKeys() []string {
 	case m.formKind == formCreateStore:
 		// Single-field form: Enter submits (ctrl+s also works); match the dialog hint.
 		return []string{"↵ create", "esc cancel"}
+	case m.formKind == formTupleFilter:
+		// Nothing is persisted here, so "save" would be misleading.
+		return []string{"ctrl+s apply", "esc cancel"}
 	case m.formKind != formNone:
 		return []string{"ctrl+s save", "esc cancel"}
 	case m.section == secModel && m.editorOpen:
@@ -966,7 +974,7 @@ func (m Model) statusKeys() []string {
 	case secModel:
 		return []string{"↑↓/hjkl pan", m.graphViewHint(), "e edit DSL", "m switch", "r reload", "esc"}
 	case secTuples:
-		return []string{"↑↓", "/ filter", "a add", "d delete", "r reload", m.compactHint(), "esc"}
+		return []string{"↑↓", "/ find", "f filter", "a add", "d del", "r reload", m.compactHint(), "esc"}
 	case secChanges:
 		return []string{"↑↓", "/ filter", "r reload", m.compactHint(), "esc"}
 	case secQuery:

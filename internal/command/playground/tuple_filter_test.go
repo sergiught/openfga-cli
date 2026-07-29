@@ -2,6 +2,7 @@ package playground
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -24,8 +25,8 @@ func TestTupleReadRequestNoFilter(t *testing.T) {
 	if req.TupleKey != nil {
 		t.Fatalf("no filter should mean no tuple_key, got %+v", req.TupleKey)
 	}
-	if req.PageSize != 100 {
-		t.Fatalf("page size should stay 100, got %d", req.PageSize)
+	if req.PageSize != tuplesPageSize {
+		t.Fatalf("page size = %d, want %d", req.PageSize, tuplesPageSize)
 	}
 }
 
@@ -53,6 +54,9 @@ func TestVFilterObject(t *testing.T) {
 		{"document", false},
 		{"document:1#viewer", false},
 		{":roadmap", false},
+		// /read matches object ids literally, so a wildcard would silently
+		// return nothing rather than "every document".
+		{"document:*", false},
 	} {
 		err := vFilterObject(tc.in)
 		if (err == nil) != tc.ok {
@@ -90,6 +94,17 @@ func TestValidateTupleFilter(t *testing.T) {
 }
 
 func ctrlS() tea.KeyPressMsg { return tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl} }
+
+// landTuples delivers the server's answer to the load the model just
+// dispatched, addressed to the current store and generation so it isn't
+// dropped as stale. Adopting the filter happens here, not at submit.
+func landTuples(t *testing.T, m tea.Model, msg tuplesLoadedMsg) (Model, tea.Cmd) {
+	t.Helper()
+	mm := m.(Model)
+	msg.storeID, msg.gen = mm.storeID, mm.tuplesGen
+	nm, cmd := m.Update(msg)
+	return nm.(Model), cmd
+}
 
 // tuplesPanelModel returns a ready model sitting in the Tuples section with
 // the panel focused, which is what section keys require.
@@ -139,8 +154,10 @@ func TestTupleFilterSubmitAppliesAndReloads(t *testing.T) {
 	if mm.formKind != formNone {
 		t.Fatalf("valid submit should close the form, kind=%d err=%q", mm.formKind, mm.formErr)
 	}
-	if want := (tupleFilter{user: "user:anne", object: "document:"}); mm.tupleFilter != want {
-		t.Fatalf("tupleFilter = %+v, want %+v", mm.tupleFilter, want)
+	// The filter is not adopted at submit: the header must not claim a filter
+	// the server has not yet accepted.
+	if mm.tupleFilter.active() {
+		t.Fatalf("submit must not adopt the filter before the load lands, got %+v", mm.tupleFilter)
 	}
 	if mm.tuplesGen != genBefore+1 {
 		t.Fatalf("submit should bump tuplesGen for the reload, got %d want %d", mm.tuplesGen, genBefore+1)
@@ -148,18 +165,63 @@ func TestTupleFilterSubmitAppliesAndReloads(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("submit should dispatch a tuples reload command")
 	}
+	want := tupleFilter{user: "user:anne", object: "document:"}
+	mm, _ = landTuples(t, m, tuplesLoadedMsg{filter: want})
+	if mm.tupleFilter != want {
+		t.Fatalf("tupleFilter = %+v, want %+v", mm.tupleFilter, want)
+	}
+}
+
+// A load the server rejects must leave the previous rows AND the header
+// describing them alone — otherwise the pane claims filtered results while
+// showing the old, unfiltered ones.
+func TestTupleFilterRejectedLoadKeepsHeaderHonest(t *testing.T) {
+	m := openTupleFilter(t)
+	mm := m.(Model)
+	mm.tuples = []openfga.Tuple{{Key: openfga.TupleKey{User: "user:anne", Relation: "viewer", Object: "document:roadmap"}}}
+	mm.form.SetValues([]string{"user:anne", "", "document:"})
+	m, _ = tea.Model(mm).Update(ctrlS())
+	mm, _ = landTuples(t, m, tuplesLoadedMsg{err: errors.New("400 invalid tuple_key")})
+	if mm.tupleFilter.active() {
+		t.Fatalf("a rejected filter must not be adopted, got %+v", mm.tupleFilter)
+	}
+	if len(mm.tuples) != 1 {
+		t.Fatalf("a failed load must not drop the rows on screen, got %d", len(mm.tuples))
+	}
+}
+
+// Clearing has no other visible confirmation once the rows come back, so it
+// must say so — and only after the server has answered.
+func TestTupleFilterClearAnnouncesItself(t *testing.T) {
+	m := openTupleFilter(t)
+	mm := m.(Model)
+	mm.tupleFilter = tupleFilter{object: "document:roadmap"}
+	mm.form.SetValues([]string{"", "", ""})
+	m, _ = tea.Model(mm).Update(ctrlS())
+	if m.(Model).tupleFilter.active() != true {
+		t.Fatal("the filter should still describe the rows on screen until the reload lands")
+	}
+	mm, cmd := landTuples(t, m, tuplesLoadedMsg{})
+	if mm.tupleFilter.active() {
+		t.Fatalf("the landed unfiltered load should clear the filter, got %+v", mm.tupleFilter)
+	}
+	if mm.status != "cleared the tuple filter" {
+		t.Fatalf("status = %q, want the cleared-filter confirmation", mm.status)
+	}
+	if cmd == nil {
+		t.Fatal("clearing should raise a visible toast, not just set m.status")
+	}
 }
 
 // Submitted values are trimmed, so a stray space can't produce a filter that
 // looks inactive in the header but still narrows the read.
-func TestTupleFilterSubmitTrimsValues(t *testing.T) {
-	m := openTupleFilter(t)
-	mm := m.(Model)
-	mm.form.SetValues([]string{"  user:anne  ", "  ", " document:roadmap "})
-	m, _ = tea.Model(mm).Update(ctrlS())
-	mm = m.(Model)
-	if want := (tupleFilter{user: "user:anne", object: "document:roadmap"}); mm.tupleFilter != want {
-		t.Fatalf("tupleFilter = %+v, want %+v", mm.tupleFilter, want)
+func TestTupleFilterFormValuesAreTrimmed(t *testing.T) {
+	got := tupleFilterFromForm([]string{"  user:anne  ", "  ", " document:roadmap "})
+	if want := (tupleFilter{user: "user:anne", object: "document:roadmap"}); got != want {
+		t.Fatalf("tupleFilterFromForm = %+v, want %+v", got, want)
+	}
+	if tupleFilterFromForm([]string{" ", "", "  "}).active() {
+		t.Fatal("all-whitespace values must read as no filter, not an invisible one")
 	}
 }
 
@@ -183,12 +245,14 @@ func TestTupleFilterEmptySubmitClears(t *testing.T) {
 	mm.tupleFilter = tupleFilter{object: "document:roadmap"}
 	mm.form.SetValues([]string{"", "", ""})
 	m, cmd := tea.Model(mm).Update(ctrlS())
-	mm = m.(Model)
-	if mm.tupleFilter.active() {
-		t.Fatalf("empty submit should clear the filter, got %+v", mm.tupleFilter)
+	if m.(Model).formKind != formNone {
+		t.Fatal("an all-empty submit is valid and should close the form")
 	}
 	if cmd == nil {
 		t.Fatal("clearing should dispatch an unfiltered reload")
+	}
+	if mm, _ := landTuples(t, m, tuplesLoadedMsg{}); mm.tupleFilter.active() {
+		t.Fatalf("empty submit should clear the filter, got %+v", mm.tupleFilter)
 	}
 }
 
@@ -303,8 +367,62 @@ func TestHelpAdvertisesTupleFilterKey(t *testing.T) {
 	m := newTestModel().(Model)
 	m.section = secTuples
 	body := m.helpBody()
-	if !strings.Contains(body, "/read") {
-		t.Fatalf("Tuples help should label f as the server-side /read filter, got:\n%s", body)
+	for _, want := range []string{"f", "/read", "loaded rows"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("Tuples help should mention %q, got:\n%s", want, body)
+		}
+	}
+	// "/" must not be described as a filter here, or the two read as one key.
+	if strings.Contains(body, "/ filter") {
+		t.Fatalf("/ should be described as a find, not a filter, got:\n%s", body)
+	}
+}
+
+// The footer key row is always on screen, unlike the ? overlay, so it is the
+// only place a user reliably discovers f.
+func TestFooterAdvertisesTupleFilterKey(t *testing.T) {
+	m := tuplesPanelModel()
+	keys := strings.Join(m.statusKeys(), " ")
+	if !strings.Contains(keys, "f filter") {
+		t.Fatalf("Tuples footer should advertise f, got %q", keys)
+	}
+	if !strings.Contains(keys, "/ find") {
+		t.Fatalf("Tuples footer should call / a find, not a filter, got %q", keys)
+	}
+}
+
+// A write reloads the tuples pane; the active filter must ride along, or the
+// reload would silently widen the view back out.
+func TestTupleFilterSurvivesMutationReload(t *testing.T) {
+	mm := tuplesPanelModel()
+	mm.tupleFilter = tupleFilter{object: "document:roadmap"}
+	mm.tupleMutating = true
+	m, cmd := tea.Model(mm).Update(tupleWrittenMsg{
+		origin: mm.mutationOrigin(mm.storeID, mm.modelID, mm.tupleMutationGen),
+		label:  "user:anne viewer document:roadmap",
+	})
+	if cmd == nil {
+		t.Fatal("a write should dispatch a tuples reload")
+	}
+	if want := (tupleFilter{object: "document:roadmap"}); m.(Model).tupleFilter != want {
+		t.Fatalf("a write reload must keep the filter, got %+v", m.(Model).tupleFilter)
+	}
+}
+
+// A reconnect changes the server as well as the store, so the filter is even
+// staler there than on a store switch.
+func TestActivateResolvedClearsTupleFilter(t *testing.T) {
+	configtest.Isolate(t)
+	cl, _ := openfga.NewClient("http://localhost:8080")
+	a := cli.New(log.New(io.Discard), config.New(), "test")
+	m := newModel(context.Background(), a, cl, "store-1", "")
+	m.tupleFilter = tupleFilter{object: "document:roadmap"}
+
+	other, _ := openfga.NewClient("http://localhost:9090")
+	m.activateResolved(config.Resolved{StoreID: "store-2", APIURL: "http://localhost:9090"}, other, "switched")
+
+	if m.tupleFilter.active() {
+		t.Fatalf("a reconnect must clear the tuple filter, got %+v", m.tupleFilter)
 	}
 }
 

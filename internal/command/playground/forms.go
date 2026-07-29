@@ -87,11 +87,22 @@ func buildTupleFilterForm(w int, cur tupleFilter) *field.Form {
 	f := field.NewForm(
 		field.New("User", "user:anne").WithValidate(vUser),
 		field.New("Relation", "viewer"),
-		field.New("Object", "document:roadmap or document:").WithValidate(vFilterObject),
+		field.New("Object", "document:roadmap").WithValidate(vFilterObject),
 	)
 	f.SetWidth(w)
 	f.SetValues([]string{cur.user, cur.relation, cur.object})
 	return f
+}
+
+// tupleFilterFromForm reads buildTupleFilterForm's values back into a filter,
+// trimming each field: a stray space would otherwise produce a filter that
+// looks inactive in the header while still narrowing the read.
+func tupleFilterFromForm(vals []string) tupleFilter {
+	return tupleFilter{
+		user:     strings.TrimSpace(vals[0]),
+		relation: strings.TrimSpace(vals[1]),
+		object:   strings.TrimSpace(vals[2]),
+	}
 }
 
 // buildWriteAssertionForm builds the add/edit-assertion form.

@@ -21,6 +21,10 @@ const (
 	changesDisplayCap = 200
 )
 
+// tuplesPageSize is the /read page size the tuples pane requests; ReadAll pages
+// until the display cap is reached.
+const tuplesPageSize = 100
+
 // --- async messages ---
 
 // bootNoticeMsg carries a one-time startup notice to the Update loop, where the
@@ -65,7 +69,8 @@ type tuplesLoadedMsg struct {
 	// superseded by a newer tuples load against the same store (e.g. a manual
 	// reload racing the reload a tuple write already triggers)
 	tuples []openfga.Tuple
-	capped bool // more rows exist than were loaded (hit the display cap)
+	capped bool        // more rows exist than were loaded (hit the display cap)
+	filter tupleFilter // the /read filter these rows are the result of
 	err    error
 }
 
@@ -295,7 +300,7 @@ func (f tupleFilter) active() bool { return f != (tupleFilter{}) }
 // tuple_key filter only when one is set — the same shape the CLI's
 // `tuples read` sends.
 func tupleReadRequest(f tupleFilter) *openfga.ReadRequest {
-	req := &openfga.ReadRequest{PageSize: 100}
+	req := &openfga.ReadRequest{PageSize: tuplesPageSize}
 	if f.active() {
 		req.TupleKey = &openfga.ReadRequestTupleKey{User: f.user, Relation: f.relation, Object: f.object}
 	}
@@ -317,7 +322,9 @@ func loadTuplesCmd(ctx context.Context, cl *openfga.Client, storeID string, f tu
 			}
 			tuples = append(tuples, t)
 		}
-		return tuplesLoadedMsg{storeID: storeID, gen: gen, tuples: tuples, capped: capped}
+		// The filter is echoed back so the model only adopts it once the server
+		// has accepted it — see the tuplesLoadedMsg handler.
+		return tuplesLoadedMsg{storeID: storeID, gen: gen, tuples: tuples, capped: capped, filter: f}
 	}
 }
 

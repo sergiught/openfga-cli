@@ -152,23 +152,17 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, writeTupleCmd(m.ctx, m.client,
 				m.mutationOrigin(m.storeID, m.modelID, m.tupleMutationGen), key, false)
 		case formTupleFilter:
-			f := tupleFilter{
-				user:     strings.TrimSpace(vals[0]),
-				relation: strings.TrimSpace(vals[1]),
-				object:   strings.TrimSpace(vals[2]),
-			}
+			f := tupleFilterFromForm(vals)
 			if err := validateTupleFilter(f); err != nil {
 				return resume(err.Error())
 			}
-			m.tupleFilter = f
+			// m.tupleFilter is deliberately not set here: the candidate rides
+			// along with the load and is adopted only once the server has
+			// accepted it, so the header never describes rows the server
+			// refused to return (see the tuplesLoadedMsg handler).
 			m.beginLoad()
 			m.tuplesGen++
-			if f.active() {
-				m.status = "filtering tuples…"
-			} else {
-				m.status = "cleared the tuple filter"
-			}
-			return m, loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tupleFilter, m.tuplesGen)
+			return m, loadTuplesCmd(m.reqCtx, m.client, m.storeID, f, m.tuplesGen)
 		case formWriteAssertion:
 			key, err := fga.ParseTuple(vals[0], vals[1], vals[2])
 			if err != nil {

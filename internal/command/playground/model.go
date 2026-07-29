@@ -526,6 +526,10 @@ func newModel(ctx context.Context, cli *cli.CLI, cl *openfga.Client, storeID, mo
 		fl.list.SetFilterHint("press / to filter")
 		fl.list.SetFilterPlaceholder(fl.placeholder)
 	}
+	// Tuples has two filters: "/" narrows the rows already loaded, "f" re-reads
+	// from the server. Name the client-side one "find" everywhere so they don't
+	// read as the same thing.
+	m.tuplesList.SetFilterHint("press / to find in these rows, f to filter on the server")
 
 	m.renewReqCtx()
 	m.qmode = 0
@@ -1408,6 +1412,9 @@ func (m *Model) activateResolved(r config.Resolved, cl *openfga.Client, status s
 	m.graph = fga.Graph{}
 	m.models = nil
 	m.tuples = nil
+	// Like a store switch, a reconnect drops the /read filter: it names types and
+	// ids from the store — and here the server — it was written for.
+	m.tupleFilter = tupleFilter{}
 	m.changes = nil
 	m.assertions = nil
 	m.assertResults = nil

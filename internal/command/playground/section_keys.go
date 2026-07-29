@@ -234,6 +234,9 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			}
 			return m.enterForm(formWriteTuple)
 		case "f":
+			// This shadows the list's own next-page binding (bubbles binds f
+			// alongside right/l/pgdown, which still page), the same way d is
+			// already shadowed by delete.
 			if m.storeID == "" {
 				m.status = "select a store first"
 				return m, nil

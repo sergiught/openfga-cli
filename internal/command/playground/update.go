@@ -280,12 +280,24 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil // a load from a store we've since switched away from, or superseded by a newer reload
 		}
 		if msg.err != nil {
+			// m.tupleFilter is deliberately left alone: it describes the rows still
+			// on screen, which this failed load did not replace. Adopting a rejected
+			// filter here would leave the header and count claiming the visible rows
+			// were filtered when they are the previous, unfiltered ones.
 			return m, m.toastErr("tuples", msg.err)
 		}
 		m.connLost = false
+		// Clearing a filter has no other visible confirmation once the rows come
+		// back — the header breadcrumb simply disappears — so say it out loud.
+		cleared := m.tupleFilter.active() && !msg.filter.active()
 		m.tuples = msg.tuples
 		m.tuplesCapped = msg.capped
+		m.tupleFilter = msg.filter
 		m.populateTuples()
+		if cleared {
+			m.status = "cleared the tuple filter"
+			return m, m.toasts.Push(toast.Info, m.status)
+		}
 		return m, nil
 
 	case changesLoadedMsg:
