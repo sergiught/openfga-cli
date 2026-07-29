@@ -593,3 +593,77 @@ func TestReadRejectsUnknownConsistency(t *testing.T) {
 		t.Fatalf("exit code = %d, want usage; err=%v", got, err)
 	}
 }
+
+// /read's tuple_key rule spans the three filter flags, and the server's 400 for
+// it names a proto field rather than what to do about it. `tuples read` catches
+// it locally, with the same rule the playground's filter form applies — the two
+// surfaces used to disagree, the TUI explaining it and the CLI round-tripping.
+func TestReadRejectsFiltersTheServerWouldRefuse(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"user alone", []string{"--user", "user:anne"}, "needs an object"},
+		{"relation alone", []string{"--relation", "viewer"}, "needs an object"},
+		{"bare type alone", []string{"--object", "document:"}, "isn't enough"},
+		{"object without a type", []string{"--object", "document", "--user", "user:anne"}, "must be document:roadmap"},
+		{"wildcard object", []string{"--object", "document:*"}, "wildcards aren't matched"},
+		{"userset object", []string{"--object", "document:1#viewer"}, "not a userset"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := New(newHumanTupleCLI(t, "http://127.0.0.1:1")).readCmd()
+			cmd.SetOut(io.Discard)
+			cmd.SetErr(io.Discard)
+			cmd.SetArgs(tc.args)
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatal("want a usage error, got nil")
+			}
+			if got := clierr.Code(err); got != clierr.CodeUsage {
+				t.Fatalf("exit code = %d, want usage; err=%v", got, err)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error %q should explain the rule (%q)", err, tc.want)
+			}
+		})
+	}
+}
+
+// A filter the server accepts must still reach it, and reading with no filter
+// at all stays valid.
+func TestReadAcceptsValidFilters(t *testing.T) {
+	var bodies []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var b map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&b)
+		bodies = append(bodies, b)
+		_ = json.NewEncoder(w).Encode(openfga.ReadResponse{})
+	}))
+	t.Cleanup(srv.Close)
+
+	for _, args := range [][]string{
+		nil,
+		{"--object", "document:roadmap"},
+		{"--object", "document:", "--user", "user:anne"},
+		{"--object", "document:roadmap", "--relation", "viewer"},
+	} {
+		cmd := New(newHumanTupleCLI(t, srv.URL)).readCmd()
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+	if len(bodies) != 4 {
+		t.Fatalf("every valid filter should reach the server, got %d reads", len(bodies))
+	}
+	if _, ok := bodies[0]["tuple_key"]; ok {
+		t.Fatalf("no flags must mean no tuple_key, got %v", bodies[0])
+	}
+	tk, _ := bodies[1]["tuple_key"].(map[string]any)
+	if tk == nil || tk["object"] != "document:roadmap" {
+		t.Fatalf("the filter must reach the wire, got %v", bodies[1])
+	}
+}

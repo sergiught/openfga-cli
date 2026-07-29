@@ -91,7 +91,7 @@ func buildTupleFilterForm(w int, cur tupleFilter) *field.Form {
 		field.New("Object", "document:roadmap").WithValidate(vFilterObject),
 	)
 	f.SetWidth(w)
-	f.SetValues([]string{cur.user, cur.relation, cur.object})
+	f.SetValues([]string{cur.User, cur.Relation, cur.Object})
 	return f
 }
 
@@ -100,9 +100,9 @@ func buildTupleFilterForm(w int, cur tupleFilter) *field.Form {
 // looks inactive in the header while still narrowing the read.
 func tupleFilterFromForm(vals []string) tupleFilter {
 	return tupleFilter{
-		user:     strings.TrimSpace(vals[0]),
-		relation: strings.TrimSpace(vals[1]),
-		object:   strings.TrimSpace(vals[2]),
+		User:     strings.TrimSpace(vals[0]),
+		Relation: strings.TrimSpace(vals[1]),
+		Object:   strings.TrimSpace(vals[2]),
 	}
 }
 

@@ -153,7 +153,7 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.mutationOrigin(m.storeID, m.modelID, m.tupleMutationGen), key, false)
 		case formTupleFilter:
 			f := tupleFilterFromForm(vals)
-			if err := validateTupleFilter(f); err != nil {
+			if err := f.Validate(); err != nil {
 				return resume(err.Error())
 			}
 			if m.storeID == "" {

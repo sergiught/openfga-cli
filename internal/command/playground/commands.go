@@ -287,14 +287,10 @@ func loadModelsCmd(ctx context.Context, cl *openfga.Client, storeID string, gen 
 	}
 }
 
-// tupleFilter is the tuples section's server-side /read filter; the zero
-// value means no filter.
-type tupleFilter struct {
-	user, relation, object string
-}
-
-// active reports whether the filter narrows anything; the zero value does not.
-func (f tupleFilter) active() bool { return f != (tupleFilter{}) }
+// tupleFilter is the tuples section's server-side /read filter. It is the same
+// type the CLI's `tuples read` builds, so the two surfaces cannot drift on what
+// a filter is or which ones the server will take.
+type tupleFilter = fga.ReadFilter
 
 // tupleFilters tracks the tuples section's filter across the three states it
 // can be in at once. They differ only while a submit is in flight, and after
@@ -345,7 +341,7 @@ func (s *tupleFilters) reject(answered bool) {
 		// relabel a filter the server refused as one that never reached it.
 		return
 	}
-	if !s.wanted.active() {
+	if !s.wanted.Active() {
 		// A refused clear leaves nothing to fix: keeping the blank draft would
 		// offer an empty form over a filter that is still applied, with no way
 		// back to it.
@@ -360,15 +356,10 @@ func (s *tupleFilters) reject(answered bool) {
 // and ids it names.
 func (s *tupleFilters) reset() { *s = tupleFilters{} }
 
-// tupleReadRequest builds the tuples pane's /read request, attaching the
-// tuple_key filter only when one is set — the same shape the CLI's
-// `tuples read` sends.
+// tupleReadRequest builds the tuples pane's /read request — the same shape the
+// CLI's `tuples read` sends.
 func tupleReadRequest(f tupleFilter) *openfga.ReadRequest {
-	req := &openfga.ReadRequest{PageSize: tuplesPageSize}
-	if f.active() {
-		req.TupleKey = &openfga.ReadRequestTupleKey{User: f.user, Relation: f.relation, Object: f.object}
-	}
-	return req
+	return &openfga.ReadRequest{PageSize: tuplesPageSize, TupleKey: f.TupleKey()}
 }
 
 // tuplesReloadCmd builds a tuples reload. Every reload path goes through it so

@@ -294,9 +294,9 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// truncates on a narrow pane — so say it out loud, in both directions.
 		var note string
 		switch {
-		case m.tupleFilters.applied.active() && !msg.filter.active():
+		case m.tupleFilters.applied.Active() && !msg.filter.Active():
 			note = "cleared the filter"
-		case msg.filter.active() && msg.filter != m.tupleFilters.applied:
+		case msg.filter.Active() && msg.filter != m.tupleFilters.applied:
 			note = "filtering on " + tupleFilterFields(msg.filter)
 		}
 		m.tuples = msg.tuples

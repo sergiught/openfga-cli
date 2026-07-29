@@ -38,66 +38,6 @@ func TestTupleReadRequestNoFilter(t *testing.T) {
 	}
 }
 
-// vFilterObject allows type:id AND bare-type "type:" (unlike vObject), stays
-// lenient on empty, and rejects colon-less or userset-shaped values.
-func TestVFilterObject(t *testing.T) {
-	for _, tc := range []struct {
-		in string
-		ok bool
-	}{
-		{"", true},
-		{"   ", true}, // whitespace-only reads as unset, like every other field
-		{"document:roadmap", true},
-		{"document:", true},
-		{"  document:  ", true},
-		{"document", false},
-		{"document:1#viewer", false},
-		{":roadmap", false},
-		// /read matches object ids literally, so a wildcard would silently
-		// return nothing rather than "every document".
-		{"document:*", false},
-	} {
-		err := vFilterObject(tc.in)
-		if (err == nil) != tc.ok {
-			t.Errorf("vFilterObject(%q) = %v, want ok=%v", tc.in, err, tc.ok)
-		}
-	}
-}
-
-// validateTupleFilter mirrors the server's /read rule: object type required,
-// and object id and user not both empty. All-empty is valid (it clears).
-func TestValidateTupleFilter(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		f    tupleFilter
-		ok   bool
-	}{
-		{"empty clears", tupleFilter{}, true},
-		{"object type:id", tupleFilter{object: "document:roadmap"}, true},
-		{"bare type + user", tupleFilter{object: "document:", user: "user:anne"}, true},
-		{"type:id + relation", tupleFilter{object: "document:roadmap", relation: "viewer"}, true},
-		{"bare type alone", tupleFilter{object: "document:"}, false},
-		// The server's rule ignores the relation, so it cannot stand in for the
-		// object id or the user.
-		{"bare type + relation only", tupleFilter{object: "document:", relation: "viewer"}, false},
-		{"padded leading colon with user", tupleFilter{object: " :roadmap", user: "user:anne"}, false},
-		{"padded user with bare type", tupleFilter{object: "document:", user: " user:anne "}, true},
-		{"whitespace user with bare type", tupleFilter{object: "document:", user: "   "}, false},
-		{"user alone", tupleFilter{user: "user:anne"}, false},
-		{"relation alone", tupleFilter{relation: "viewer"}, false},
-		{"user + relation, no object", tupleFilter{user: "user:anne", relation: "viewer"}, false},
-		// The server splits the object on its first colon, so a colon-less or
-		// leading-colon object has no type and is rejected even with a user set.
-		{"colon-less object with user", tupleFilter{object: "document", user: "user:anne"}, false},
-		{"leading colon with user", tupleFilter{object: ":roadmap", user: "user:anne"}, false},
-	} {
-		err := validateTupleFilter(tc.f)
-		if (err == nil) != tc.ok {
-			t.Errorf("%s: validateTupleFilter(%+v) = %v, want ok=%v", tc.name, tc.f, err, tc.ok)
-		}
-	}
-}
-
 func ctrlS() tea.KeyPressMsg { return tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl} }
 
 // applyFind types a "/" find and applies it. It goes through pump because
@@ -213,7 +153,7 @@ func TestTupleFilterSubmitDefersAdoptionUntilTheLoadLands(t *testing.T) {
 	}
 	// The filter is not adopted at submit: the header must not claim a filter
 	// the server has not yet accepted.
-	if mm.tupleFilters.applied.active() {
+	if mm.tupleFilters.applied.Active() {
 		t.Fatalf("submit must not adopt the filter before the load lands, got %+v", mm.tupleFilters.applied)
 	}
 	if mm.tuplesGen != genBefore+1 {
@@ -225,7 +165,7 @@ func TestTupleFilterSubmitDefersAdoptionUntilTheLoadLands(t *testing.T) {
 	if !mm.loading {
 		t.Fatal("submit should mark the pane loading, as every other reload does")
 	}
-	want := tupleFilter{user: "user:anne", object: "document:"}
+	want := tupleFilter{User: "user:anne", Object: "document:"}
 	mm, _ = landTuples(t, m, tuplesLoadedMsg{filter: want})
 	if mm.tupleFilters.applied != want {
 		t.Fatalf("tupleFilter = %+v, want %+v", mm.tupleFilters.applied, want)
@@ -242,7 +182,7 @@ func TestTupleFilterRejectedLoadKeepsHeaderHonest(t *testing.T) {
 	mm.form.SetValues([]string{"user:anne", "", "document:"})
 	m, _ = tea.Model(mm).Update(ctrlS())
 	mm, _ = landTuples(t, m, tuplesLoadedMsg{err: errRefused})
-	if mm.tupleFilters.applied.active() {
+	if mm.tupleFilters.applied.Active() {
 		t.Fatalf("a rejected filter must not be adopted, got %+v", mm.tupleFilters.applied)
 	}
 	if len(mm.tuples) != 1 {
@@ -254,7 +194,7 @@ func TestTupleFilterRejectedLoadKeepsHeaderHonest(t *testing.T) {
 // it truncates on a narrow pane.
 func TestTupleFilterApplyAnnouncesItself(t *testing.T) {
 	mm := tuplesPanelModel()
-	f := tupleFilter{object: "document:roadmap"}
+	f := tupleFilter{Object: "document:roadmap"}
 	got, cmd := landTuples(t, tea.Model(mm), tuplesLoadedMsg{filter: f})
 	if !strings.Contains(got.status, "object=document:roadmap") {
 		t.Fatalf("status = %q, want the applied filter named", got.status)
@@ -275,14 +215,14 @@ func TestTupleFilterApplyAnnouncesItself(t *testing.T) {
 func TestTupleFilterClearAnnouncesItself(t *testing.T) {
 	m := openTupleFilter(t)
 	mm := m.(Model)
-	mm.tupleFilters.applied = tupleFilter{object: "document:roadmap"}
+	mm.tupleFilters.applied = tupleFilter{Object: "document:roadmap"}
 	mm.form.SetValues([]string{"", "", ""})
 	m, _ = tea.Model(mm).Update(ctrlS())
-	if !m.(Model).tupleFilters.applied.active() {
+	if !m.(Model).tupleFilters.applied.Active() {
 		t.Fatal("the filter should still describe the rows on screen until the reload lands")
 	}
 	mm, cmd := landTuples(t, m, tuplesLoadedMsg{})
-	if mm.tupleFilters.applied.active() {
+	if mm.tupleFilters.applied.Active() {
 		t.Fatalf("the landed unfiltered load should clear the filter, got %+v", mm.tupleFilters.applied)
 	}
 	if !strings.Contains(mm.status, "cleared the filter") {
@@ -304,10 +244,10 @@ func TestTupleFilterClearAnnouncesItself(t *testing.T) {
 // looks inactive in the header but still narrows the read.
 func TestTupleFilterFormValuesAreTrimmed(t *testing.T) {
 	got := tupleFilterFromForm([]string{"  user:anne  ", "  ", " document:roadmap "})
-	if want := (tupleFilter{user: "user:anne", object: "document:roadmap"}); got != want {
+	if want := (tupleFilter{User: "user:anne", Object: "document:roadmap"}); got != want {
 		t.Fatalf("tupleFilterFromForm = %+v, want %+v", got, want)
 	}
-	if tupleFilterFromForm([]string{" ", "", "  "}).active() {
+	if tupleFilterFromForm([]string{" ", "", "  "}).Active() {
 		t.Fatal("all-whitespace values must read as no filter, not an invisible one")
 	}
 }
@@ -321,14 +261,14 @@ func TestTupleFilterInvalidSubmitResumes(t *testing.T) {
 	if mm.formKind != formTupleFilter || mm.formErr == "" {
 		t.Fatalf("invalid combination should resume the form with an error, kind=%d err=%q", mm.formKind, mm.formErr)
 	}
-	if mm.tupleFilters.applied.active() {
+	if mm.tupleFilters.applied.Active() {
 		t.Fatalf("invalid submit must not set the filter, got %+v", mm.tupleFilters.applied)
 	}
 }
 
 func TestTupleFilterFormPrefilledFromActiveFilter(t *testing.T) {
 	mm := tuplesPanelModel()
-	f := tupleFilter{user: "user:anne", relation: "viewer", object: "document:"}
+	f := tupleFilter{User: "user:anne", Relation: "viewer", Object: "document:"}
 	mm.tupleFilters.confirm(f)
 	m, _ := tea.Model(mm).Update(key("f"))
 	got := m.(Model).form.Values()
@@ -345,7 +285,7 @@ func TestTupleFilterSurvivesConcurrentReload(t *testing.T) {
 	mm := m.(Model)
 	mm.form.SetValues([]string{"user:anne", "", "document:"})
 	m, _ = tea.Model(mm).Update(ctrlS())
-	want := tupleFilter{user: "user:anne", object: "document:"}
+	want := tupleFilter{User: "user:anne", Object: "document:"}
 	if got := m.(Model).tupleFilters.wanted; got != want {
 		t.Fatalf("submit should record the pending filter, got %+v", got)
 	}
@@ -365,7 +305,7 @@ func TestTupleFilterSurvivesConcurrentReload(t *testing.T) {
 func TestStoreDeleteClearsTupleFilter(t *testing.T) {
 	configtest.Isolate(t)
 	mm := tuplesPanelModel()
-	mm.tupleFilters.applied = tupleFilter{object: "document:roadmap"}
+	mm.tupleFilters.applied = tupleFilter{Object: "document:roadmap"}
 	mm.tupleFilters.wanted = mm.tupleFilters.applied
 	mm.storeDeleting = true
 	m, _ := tea.Model(mm).Update(storeDeletedMsg{
@@ -380,13 +320,13 @@ func TestStoreDeleteClearsTupleFilter(t *testing.T) {
 func TestTupleFilterEscLeavesFilterUntouched(t *testing.T) {
 	m := openTupleFilter(t)
 	mm := m.(Model)
-	mm.tupleFilters.applied = tupleFilter{object: "document:roadmap"}
+	mm.tupleFilters.applied = tupleFilter{Object: "document:roadmap"}
 	m, _ = tea.Model(mm).Update(key("esc"))
 	mm = m.(Model)
 	if mm.formKind != formNone {
 		t.Fatal("esc should close the form")
 	}
-	if want := (tupleFilter{object: "document:roadmap"}); mm.tupleFilters.applied != want {
+	if want := (tupleFilter{Object: "document:roadmap"}); mm.tupleFilters.applied != want {
 		t.Fatalf("esc must not change the filter, got %+v", mm.tupleFilters.applied)
 	}
 }
@@ -422,7 +362,7 @@ func TestMainTitleShowsActiveTupleFilter(t *testing.T) {
 	if got := m.mainTitle(); strings.Contains(got, "filter:") {
 		t.Fatalf("no filter should mean a plain title, got %q", got)
 	}
-	m.tupleFilters.applied = tupleFilter{user: "user:anne", object: "document:"}
+	m.tupleFilters.applied = tupleFilter{User: "user:anne", Object: "document:"}
 	got := m.mainTitle()
 	for _, want := range []string{"filter:", "user=user:anne", "object=document:"} {
 		if !strings.Contains(got, want) {
@@ -437,7 +377,7 @@ func TestMainTitleShowsActiveTupleFilter(t *testing.T) {
 func TestSectionStatusMarksFilteredTuples(t *testing.T) {
 	m := newTestModel().(Model)
 	m.section = secTuples
-	m.tupleFilters.applied = tupleFilter{object: "document:roadmap"}
+	m.tupleFilters.applied = tupleFilter{Object: "document:roadmap"}
 	if got := m.sectionStatus(); !strings.Contains(got, "matching tuple") {
 		t.Fatalf("filtered count should say matching, got %q", got)
 	}
@@ -452,7 +392,7 @@ func TestSectionStatusMarksFilteredTuples(t *testing.T) {
 // function.
 func TestWriteHiddenByFilterSaysSo(t *testing.T) {
 	mm := tuplesPanelModel()
-	mm.tupleFilters.confirm(tupleFilter{object: "document:roadmap"})
+	mm.tupleFilters.confirm(tupleFilter{Object: "document:roadmap"})
 	mm.pendingTupleSelect = "folder:secret#viewer@user:zed" // not in the result
 	mm.populateTuples()
 	if !strings.Contains(mm.status, "filter hides it") {
@@ -464,7 +404,7 @@ func TestWriteHiddenByFilterSaysSo(t *testing.T) {
 // write with no filter at all, must both stay quiet.
 func TestWriteHiddenByFilterStaysQuietOtherwise(t *testing.T) {
 	shown := tuplesPanelModel()
-	shown.tupleFilters.confirm(tupleFilter{object: "document:roadmap"})
+	shown.tupleFilters.confirm(tupleFilter{Object: "document:roadmap"})
 	shown.pendingTupleSelect = fga.FormatTuple(shown.tuples[0].Key)
 	shown.populateTuples()
 	if strings.Contains(shown.status, "filter hides it") {
@@ -479,7 +419,7 @@ func TestWriteHiddenByFilterStaysQuietOtherwise(t *testing.T) {
 	}
 
 	inflight := tuplesPanelModel()
-	inflight.tupleFilters.confirm(tupleFilter{object: "document:roadmap"})
+	inflight.tupleFilters.confirm(tupleFilter{Object: "document:roadmap"})
 	inflight.tupleMutating = true
 	inflight.pendingTupleSelect = "folder:secret#viewer@user:zed"
 	inflight.populateTuples()
@@ -490,7 +430,7 @@ func TestWriteHiddenByFilterStaysQuietOtherwise(t *testing.T) {
 
 func TestFilteredEmptyPaneNamesF(t *testing.T) {
 	mm := tuplesPanelModel()
-	mm.tupleFilters.confirm(tupleFilter{object: "document:roadmap"})
+	mm.tupleFilters.confirm(tupleFilter{Object: "document:roadmap"})
 	mm.tuples = nil
 	mm.populateTuples()
 	if body := ansi.Strip(mm.sectionBody()); !strings.Contains(body, "press f") {
@@ -604,7 +544,7 @@ func TestActivateResolvedClearsTupleFilter(t *testing.T) {
 	cl, _ := openfga.NewClient("http://localhost:8080")
 	a := cli.New(log.New(io.Discard), config.New(), "test")
 	m := newModel(context.Background(), a, cl, "store-1", "")
-	m.tupleFilters.applied = tupleFilter{object: "document:roadmap"}
+	m.tupleFilters.applied = tupleFilter{Object: "document:roadmap"}
 	// A "/" find is cleared alongside it, so it has to be applied to begin with.
 	m.tuplesList.SetItems([]uilist.Item{{TitleText: "user:anne", Filter: "user:anne"}})
 	m.tuplesList.Model.SetFilterText("anne")
@@ -626,7 +566,7 @@ func TestSelectStoreClearsTupleFilter(t *testing.T) {
 	cl, _ := openfga.NewClient("http://localhost:8080")
 	a := cli.New(log.New(io.Discard), config.New(), "test")
 	m := newModel(context.Background(), a, cl, "store-1", "")
-	m.tupleFilters.applied = tupleFilter{object: "document:roadmap"}
+	m.tupleFilters.applied = tupleFilter{Object: "document:roadmap"}
 	// A "/" find is cleared alongside it, so it has to be applied to begin with.
 	m.tuplesList.SetItems([]uilist.Item{{TitleText: "user:anne", Filter: "user:anne"}})
 	m.tuplesList.Model.SetFilterText("anne")
@@ -648,7 +588,7 @@ func TestSelectStoreClearsTupleFilter(t *testing.T) {
 func TestLoadTuplesCmdSendsTupleKeyAndEchoesFilter(t *testing.T) {
 	cl, body := readBody(t)
 
-	f := tupleFilter{user: "user:anne", relation: "viewer", object: "document:roadmap"}
+	f := tupleFilter{User: "user:anne", Relation: "viewer", Object: "document:roadmap"}
 	msg := loadTuplesCmd(context.Background(), cl, "store-1", f, 7)().(tuplesLoadedMsg)
 	if msg.err != nil {
 		t.Fatalf("read failed: %v", msg.err)
@@ -669,7 +609,7 @@ func TestLoadTuplesCmdOmitsTupleKeyWhenUnfiltered(t *testing.T) {
 	cl, body := readBody(t)
 
 	msg := loadTuplesCmd(context.Background(), cl, "store-1", tupleFilter{}, 1)().(tuplesLoadedMsg)
-	if msg.filter.active() {
+	if msg.filter.Active() {
 		t.Fatalf("an unfiltered load must echo the zero filter, got %+v", msg.filter)
 	}
 	if _, ok := body()["tuple_key"]; ok {
@@ -779,15 +719,15 @@ func TestFindHintStaysOutOfTheWayWhileTyping(t *testing.T) {
 // The header names every set field, object first, and never renders raw
 // terminal escapes from a value the user typed.
 func TestTupleFilterFieldsRendersEveryField(t *testing.T) {
-	got := tupleFilterFields(tupleFilter{user: "user:anne", relation: "viewer", object: "document:roadmap"})
+	got := tupleFilterFields(tupleFilter{User: "user:anne", Relation: "viewer", Object: "document:roadmap"})
 	if want := "object=document:roadmap user=user:anne relation=viewer"; got != want {
 		t.Fatalf("tupleFilterFields = %q, want %q", got, want)
 	}
 	const evil = "a\x1b]0;pwned\x07:1"
 	for name, f := range map[string]tupleFilter{
-		"user":     {user: evil, object: "document:roadmap"},
-		"relation": {relation: evil, object: "document:roadmap"},
-		"object":   {object: evil},
+		"user":     {User: evil, Object: "document:roadmap"},
+		"relation": {Relation: evil, Object: "document:roadmap"},
+		"object":   {Object: evil},
 	} {
 		if got := tupleFilterFields(f); strings.ContainsRune(got, 0x1b) {
 			t.Errorf("%s must be sanitized for the header, got %q", name, got)
@@ -843,8 +783,8 @@ func TestReloadPathsSendTheWantedFilter(t *testing.T) {
 		mm := tuplesPanelModel()
 		mm.client = cl
 		mm.tupleMutating = true
-		mm.tupleFilters.confirm(tupleFilter{object: "document:old"})
-		mm.tupleFilters.request(tupleFilter{object: "document:new"})
+		mm.tupleFilters.confirm(tupleFilter{Object: "document:old"})
+		mm.tupleFilters.request(tupleFilter{Object: "document:new"})
 
 		_, cmd := tea.Model(mm).Update(tc.msg(mm))
 		if cmd == nil {
@@ -879,7 +819,7 @@ func TestReloadAfterRejectionSendsNoFilter(t *testing.T) {
 	}
 }
 
-// A refused filter is still owed to the user: an unrelated reload landing in
+// A refused filter is still owed to the User: an unrelated reload landing in
 // between must not wipe it out of the form.
 func TestRejectedDraftSurvivesAnUnrelatedReload(t *testing.T) {
 	mm := rejectedFilterModel(t, nil, errRefused)
@@ -898,7 +838,7 @@ func TestMainTitleAtTheDisplayCap(t *testing.T) {
 	if got := m.mainTitle(); !strings.Contains(got, "first 500") || !strings.Contains(got, "press f") {
 		t.Fatalf("a capped unfiltered pane should point at f, got %q", got)
 	}
-	m.tupleFilters.confirm(tupleFilter{object: "document:roadmap"})
+	m.tupleFilters.confirm(tupleFilter{Object: "document:roadmap"})
 	got := m.mainTitle()
 	if !strings.Contains(got, "object=document:roadmap") || !strings.Contains(got, "first 500") {
 		t.Fatalf("a capped filtered pane should show both the filter and the cap, got %q", got)
@@ -906,9 +846,9 @@ func TestMainTitleAtTheDisplayCap(t *testing.T) {
 	// The header truncates from the right, so a long filter must not be able to
 	// push the cap marker off the end.
 	m.tupleFilters.confirm(tupleFilter{
-		object:   "document:" + strings.Repeat("x", 120),
-		user:     "user:" + strings.Repeat("y", 60),
-		relation: strings.Repeat("z", 40),
+		Object:   "document:" + strings.Repeat("x", 120),
+		User:     "user:" + strings.Repeat("y", 60),
+		Relation: strings.Repeat("z", 40),
 	})
 	nm, _ := tea.Model(m).Update(tea.WindowSizeMsg{Width: 80, Height: 30})
 	m = nm.(Model)
@@ -1047,7 +987,7 @@ func TestRefusalOutlivesAnUnrelatedReload(t *testing.T) {
 // must still offer that filter rather than the blank the user asked for —
 // otherwise there is no way back to it.
 func TestRefusedClearLeavesTheFilterEditable(t *testing.T) {
-	applied := tupleFilter{object: "document:roadmap"}
+	applied := tupleFilter{Object: "document:roadmap"}
 	mm := tuplesPanelModel()
 	mm.tupleFilters.confirm(applied)
 	m, _ := tea.Model(mm).Update(key("f"))
@@ -1083,7 +1023,7 @@ func TestStoreSwitchClearsTheDraftToo(t *testing.T) {
 	cl, _ := openfga.NewClient("http://localhost:8080")
 	a := cli.New(log.New(io.Discard), config.New(), "test")
 	m := newModel(context.Background(), a, cl, "store-1", "")
-	m.tupleFilters.request(tupleFilter{object: "document:roadmap"})
+	m.tupleFilters.request(tupleFilter{Object: "document:roadmap"})
 	m.tupleFilters.reject(true)
 
 	m.selectStore(openfga.Store{ID: "store-2", Name: "other"})

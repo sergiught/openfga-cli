@@ -160,7 +160,7 @@ func (m Model) mainTitle() string {
 		return base + " ▸ Switch model"
 	case m.section == secQuery && m.showRes:
 		return base + " ▸ Resolution"
-	case m.section == secTuples && m.tupleFilters.applied.active():
+	case m.section == secTuples && m.tupleFilters.applied.Active():
 		label := base + " ▸ "
 		if m.tuplesCapped {
 			// Ahead of the fields: the header truncates from the right, and a long
@@ -183,14 +183,14 @@ func tupleFilterFields(f tupleFilter) string {
 	// Object leads: it is the field the server requires, and the header
 	// truncates from the right on narrow panes.
 	var parts []string
-	if f.object != "" {
-		parts = append(parts, "object="+safeText(f.object))
+	if f.Object != "" {
+		parts = append(parts, "object="+safeText(f.Object))
 	}
-	if f.user != "" {
-		parts = append(parts, "user="+safeText(f.user))
+	if f.User != "" {
+		parts = append(parts, "user="+safeText(f.User))
 	}
-	if f.relation != "" {
-		parts = append(parts, "relation="+safeText(f.relation))
+	if f.Relation != "" {
+		parts = append(parts, "relation="+safeText(f.Relation))
 	}
 	return strings.Join(parts, " ")
 }
@@ -367,7 +367,7 @@ func (m Model) sectionBody() string {
 		case m.loading && m.storeID != "" && len(m.tuples) == 0:
 			body = m.spinner.View() + " loading tuples…"
 		case len(m.tuples) == 0:
-			body = style.Faint.Render(tupleHint(m.storeID, m.tupleFilters.applied.active()))
+			body = style.Faint.Render(tupleHint(m.storeID, m.tupleFilters.applied.Active()))
 		case len(m.tuplesList.Model.VisibleItems()) == 0 && !m.tuplesList.SettingFilter():
 			body = style.Faint.Render(findHidesAllHint(len(m.tuples)))
 		case m.compact:
@@ -1088,7 +1088,7 @@ func (m Model) sectionStatus() string {
 		return plural(len(m.stores), "store")
 	case secTuples:
 		noun := "tuple"
-		if m.tupleFilters.applied.active() {
+		if m.tupleFilters.applied.Active() {
 			noun = "matching tuple"
 		}
 		if m.tuplesCapped {

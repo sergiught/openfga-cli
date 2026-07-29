@@ -298,7 +298,9 @@ func (c *Command) readCmd() *cobra.Command {
 		Example: `  ofga tuples read
   ofga tuples read --object document:roadmap
   ofga tuples read --max-results 100`,
-		Long: "Read tuples from the store. Use --user, --relation and --object to filter; all are optional. " +
+		Long: "Read tuples from the store. Use --user, --relation and --object to filter. A filter needs " +
+			"an object carrying a type — a whole type (document:) or one object (document:roadmap) — and a " +
+			"bare type also needs a user; reading with no filter at all is fine. " +
 			"By default all matching tuples are returned (the CLI auto-pages); --max-results (alias --limit) " +
 			"caps the total returned and stops paging once reached. --page-size only tunes the per-request page.",
 		Args: cobra.NoArgs,
@@ -309,6 +311,16 @@ func (c *Command) readCmd() *cobra.Command {
 			if pageSize < 0 {
 				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--page-size must be non-negative"))
 			}
+			// /read's tuple_key rule spans the three flags, and the server's 400
+			// for it names a proto field rather than what to do about it. Catch it
+			// here, with the same rule the playground's filter form applies.
+			filter := fga.ReadFilter{User: user, Relation: relation, Object: object}
+			if err := fga.ValidateReadObject(object); err != nil {
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--object %q: %w", object, err))
+			}
+			if err := filter.Validate(); err != nil {
+				return clierr.WithCode(clierr.CodeUsage, err)
+			}
 			ropts, err := cli.ConsistencyOption(fConsistency)
 			if err != nil {
 				return err
@@ -317,10 +329,7 @@ func (c *Command) readCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			req := &openfga.ReadRequest{PageSize: pageSize}
-			if user != "" || relation != "" || object != "" {
-				req.TupleKey = &openfga.ReadRequestTupleKey{User: user, Relation: relation, Object: object}
-			}
+			req := &openfga.ReadRequest{PageSize: pageSize, TupleKey: filter.TupleKey()}
 			output.Progressf(cmd.ErrOrStderr(), "fetching tuples…")
 			var tuples []openfga.Tuple
 			for t, err := range cl.Tuples.ReadAll(cmd.Context(), req, ropts...) {

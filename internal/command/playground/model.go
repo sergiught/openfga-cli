@@ -948,7 +948,7 @@ func (m *Model) populateTuples() {
 		m.pendingTupleSelect = ""
 		// The row the user just wrote is not in the result: without this the pane
 		// is byte-identical under a "wrote …" toast, and the write looks lost.
-		if !found && !m.tupleMutating && m.tupleFilters.applied.active() {
+		if !found && !m.tupleMutating && m.tupleFilters.applied.Active() {
 			m.status = "written — the active filter hides it (press f)"
 		}
 	}
