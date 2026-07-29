@@ -914,6 +914,17 @@ func (m *Model) selectCurrentStore() {
 	m.storesList.SelectID(m.storeID)
 }
 
+// tupleContains reports whether the loaded rows include this tuple — i.e. the
+// server returned it, whatever the "/" find is currently showing.
+func (m Model) tupleContains(id string) bool {
+	for _, t := range m.tuples {
+		if fga.FormatTuple(t.Key) == id {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *Model) populateTuples() {
 	userW := 0
 	if m.compact {
@@ -944,12 +955,21 @@ func (m *Model) populateTuples() {
 	m.tuplesList.SetCompact(m.compact)
 	m.tuplesList.SetItems(items)
 	if m.pendingTupleSelect != "" {
-		found := m.tuplesList.SelectID(m.pendingTupleSelect)
+		id := m.pendingTupleSelect
+		found := m.tuplesList.SelectID(id)
 		m.pendingTupleSelect = ""
-		// The row the user just wrote is not in the result: without this the pane
-		// is byte-identical under a "wrote …" toast, and the write looks lost.
-		if !found && !m.tupleMutating && m.tupleFilters.applied.Active() {
-			m.status = "written — the active filter hides it (press f)"
+		// The row the user just wrote is not on screen: without this the pane is
+		// byte-identical under a "wrote …" toast, and the write looks lost. Which
+		// filter to blame depends on why it is missing — SelectID searches what
+		// the "/" find leaves visible, so a row the server did return but the find
+		// hides is not the /read filter's doing.
+		if !found && !m.tupleMutating {
+			switch {
+			case !m.tupleContains(id) && m.tupleFilters.applied.Active():
+				m.status = "written — the active filter hides it (press f)"
+			case m.tupleContains(id):
+				m.status = "written — the / find hides it"
+			}
 		}
 	}
 }

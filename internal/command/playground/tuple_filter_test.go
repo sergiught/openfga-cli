@@ -393,7 +393,7 @@ func TestSectionStatusMarksFilteredTuples(t *testing.T) {
 func TestWriteHiddenByFilterSaysSo(t *testing.T) {
 	mm := tuplesPanelModel()
 	mm.tupleFilters.confirm(tupleFilter{Object: "document:roadmap"})
-	mm.pendingTupleSelect = "folder:secret#viewer@user:zed" // not in the result
+	mm.pendingTupleSelect = fga.FormatTuple(openfga.TupleKey{User: "user:zed", Relation: "viewer", Object: "folder:secret"}) // not in the result
 	mm.populateTuples()
 	if !strings.Contains(mm.status, "filter hides it") {
 		t.Fatalf("a write the filter excludes must say so, got %q", mm.status)
@@ -412,7 +412,7 @@ func TestWriteHiddenByFilterStaysQuietOtherwise(t *testing.T) {
 	}
 
 	unfiltered := tuplesPanelModel()
-	unfiltered.pendingTupleSelect = "folder:secret#viewer@user:zed"
+	unfiltered.pendingTupleSelect = fga.FormatTuple(openfga.TupleKey{User: "user:zed", Relation: "viewer", Object: "folder:secret"})
 	unfiltered.populateTuples()
 	if strings.Contains(unfiltered.status, "filter hides it") {
 		t.Fatalf("with no filter there is nothing to blame, got %q", unfiltered.status)
@@ -421,10 +421,30 @@ func TestWriteHiddenByFilterStaysQuietOtherwise(t *testing.T) {
 	inflight := tuplesPanelModel()
 	inflight.tupleFilters.confirm(tupleFilter{Object: "document:roadmap"})
 	inflight.tupleMutating = true
-	inflight.pendingTupleSelect = "folder:secret#viewer@user:zed"
+	inflight.pendingTupleSelect = fga.FormatTuple(openfga.TupleKey{User: "user:zed", Relation: "viewer", Object: "folder:secret"})
 	inflight.populateTuples()
 	if strings.Contains(inflight.status, "filter hides it") {
 		t.Fatalf("a write still in flight has not been hidden yet, got %q", inflight.status)
+	}
+}
+
+// SelectID searches what the "/" find leaves visible, so its failure alone does
+// not mean the server filter is at fault — pressing f would not reveal a row the
+// find is hiding.
+func TestWriteHiddenByTheFindBlamesTheFind(t *testing.T) {
+	mm := tuplesPanelModel()
+	mm.tuples = append(mm.tuples, openfga.Tuple{Key: openfga.TupleKey{
+		User: "user:zed", Relation: "viewer", Object: "document:roadmap"}})
+	mm.tupleFilters.confirm(tupleFilter{Object: "document:roadmap"})
+	var m tea.Model = mm
+	m = applyFind(t, m, "anne") // hides the zed row the server did return
+
+	mm = m.(Model)
+	mm.pendingTupleSelect = fga.FormatTuple(openfga.TupleKey{
+		User: "user:zed", Relation: "viewer", Object: "document:roadmap"})
+	mm.populateTuples()
+	if !strings.Contains(mm.status, "/ find hides it") {
+		t.Fatalf("a row the server returned but the find hides is not the filter's doing, got %q", mm.status)
 	}
 }
 
@@ -686,7 +706,7 @@ func TestFindHidingEveryRowExplainsItself(t *testing.T) {
 		t.Fatalf("the stale find should hide every row, got %d visible", got)
 	}
 	body := ansi.Strip(mm.viewString())
-	if !strings.Contains(body, "hides 1 loaded row —") {
+	if !strings.Contains(body, "clear the find hiding 1 row") {
 		t.Fatalf("an empty-by-find pane must say so, got:\n%s", body)
 	}
 }
@@ -819,7 +839,7 @@ func TestReloadAfterRejectionSendsNoFilter(t *testing.T) {
 	}
 }
 
-// A refused filter is still owed to the User: an unrelated reload landing in
+// A refused filter is still owed to the user: an unrelated reload landing in
 // between must not wipe it out of the form.
 func TestRejectedDraftSurvivesAnUnrelatedReload(t *testing.T) {
 	mm := rejectedFilterModel(t, nil, errRefused)
@@ -940,7 +960,9 @@ func TestResizeUnderAnAppliedFindKeepsTheFrame(t *testing.T) {
 	mm.populateTuples()
 	var m tea.Model = mm
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
-	m = applyFind(t, m, "averylong")
+	// Long enough to exceed the title budget once the pane narrows — a short
+	// term fits at every width, and the branch under test never runs.
+	m = applyFind(t, m, "averylongprincipalname"+strings.Repeat("a", 20))
 
 	for _, w := range []int{160, 120, 100, 90, 80} {
 		m, _ = m.Update(tea.WindowSizeMsg{Width: w, Height: 30})

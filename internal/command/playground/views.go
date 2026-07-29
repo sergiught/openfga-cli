@@ -230,7 +230,7 @@ func (m Model) dialogContent() (string, string) {
 	case m.formKind == formWriteTuple:
 		return "Write Tuple", m.form.View() + "\n" + style.Faint.Render("tab move · ctrl+s submit · esc cancel")
 	case m.formKind == formTupleFilter:
-		subtitle := "Re-reads from the server.\nSubmit all blank to clear."
+		subtitle := "Re-reads from the server; needs an object.\nSubmit all blank to clear."
 		if m.tupleFilters.draft != m.tupleFilters.wanted {
 			subtitle = "The server refused this filter.\nFix it and apply again."
 			if !m.tupleFilters.answered {
@@ -1126,7 +1126,9 @@ func tupleHint(storeID string, filtered bool) string {
 // hiding them. The list names the applied term in its own title bar, but this
 // branch replaces the list entirely, so the pane would otherwise be blank.
 func findHidesAllHint(rows int) string {
-	return "The / find hides " + plural(rows, "loaded row") + " — press / then esc to clear it"
+	// Lead with the remedy: at 80 columns the other order clipped exactly the
+	// half that says what to do, which is what shortened the sibling hint above.
+	return "Press / then esc to clear the find hiding " + plural(rows, "row")
 }
 
 func changeHint(storeID string) string {

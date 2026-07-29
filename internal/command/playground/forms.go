@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/sergiught/openfga-cli/internal/config"
+	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/ui/field"
 )
 
@@ -99,11 +100,7 @@ func buildTupleFilterForm(w int, cur tupleFilter) *field.Form {
 // trimming each field: a stray space would otherwise produce a filter that
 // looks inactive in the header while still narrowing the read.
 func tupleFilterFromForm(vals []string) tupleFilter {
-	return tupleFilter{
-		User:     strings.TrimSpace(vals[0]),
-		Relation: strings.TrimSpace(vals[1]),
-		Object:   strings.TrimSpace(vals[2]),
-	}
+	return fga.NewReadFilter(vals[0], vals[1], vals[2])
 }
 
 // buildWriteAssertionForm builds the add/edit-assertion form.

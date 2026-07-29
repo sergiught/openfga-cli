@@ -19,6 +19,18 @@ type ReadFilter struct {
 	Object   string
 }
 
+// NewReadFilter builds a filter from raw input, trimming each field. Both
+// surfaces need this: the server's own patterns reject whitespace, so a padded
+// value would pass the local check and then fail the round trip it exists to
+// prevent — and a whitespace-only field must read as unset, not as a filter.
+func NewReadFilter(user, relation, object string) ReadFilter {
+	return ReadFilter{
+		User:     strings.TrimSpace(user),
+		Relation: strings.TrimSpace(relation),
+		Object:   strings.TrimSpace(object),
+	}
+}
+
 // Active reports whether the filter narrows anything.
 func (f ReadFilter) Active() bool { return f != (ReadFilter{}) }
 
@@ -45,18 +57,25 @@ func (f ReadFilter) Validate() error {
 	if !f.Active() {
 		return nil
 	}
-	// Trim defensively: a stray space would otherwise make " document" look like
-	// a legitimate type.
+	// Trim defensively, for a filter built by hand rather than through
+	// NewReadFilter: a stray space would make " document" look like a type.
 	user := strings.TrimSpace(f.User)
 	typ, id, hasColon := strings.Cut(strings.TrimSpace(f.Object), ":")
 	if !hasColon || typ == "" {
-		return errors.New("the filter needs an object — a whole type (document:) or one object (document:roadmap)")
+		return ErrReadFilterNeedsObject
 	}
 	if id == "" && user == "" {
-		return errors.New("a bare object type isn't enough — add an object id (document:roadmap) or a user")
+		return ErrReadFilterBareType
 	}
 	return nil
 }
+
+// The two halves of the cross-field rule, exported so each surface can phrase
+// them for its own audience — a form names its fields, a command names flags.
+var (
+	ErrReadFilterNeedsObject = errors.New("the filter needs an object — a whole type (document:) or one object (document:roadmap)")
+	ErrReadFilterBareType    = errors.New("a bare object type isn't enough — add an object id (document:roadmap) or a user")
+)
 
 // ValidateReadObject checks a /read filter's object on its own: a whole type
 // ("document:") or one object ("document:roadmap"). The server's combination
@@ -73,9 +92,9 @@ func ValidateReadObject(s string) error {
 	if strings.Contains(s, "#") {
 		return errors.New("must be an object, not a userset")
 	}
-	// /read matches object ids literally, so a wildcard silently returns nothing.
-	// ValidateObjectRef rejects it for the same reason; say so here too rather
-	// than let the user blame an empty result on the filter.
+	// /read matches object ids literally, so a wildcard silently returns nothing
+	// rather than "every document". Say so rather than let the user blame an
+	// empty result on the filter.
 	if id == "*" {
 		return errors.New("wildcards aren't matched here — use document: to read a whole type")
 	}

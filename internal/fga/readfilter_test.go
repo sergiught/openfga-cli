@@ -12,11 +12,11 @@ func TestReadFilterTupleKey(t *testing.T) {
 	if got := (ReadFilter{}).TupleKey(); got != nil {
 		t.Fatalf("no filter should mean no tuple_key, got %+v", got)
 	}
-	got := ReadFilter{User: "user:anne", Object: "document:"}.TupleKey()
+	got := ReadFilter{User: "user:anne", Relation: "viewer", Object: "document:"}.TupleKey()
 	if got == nil {
 		t.Fatal("an active filter should set tuple_key")
 	}
-	want := openfga.ReadRequestTupleKey{User: "user:anne", Object: "document:"}
+	want := openfga.ReadRequestTupleKey{User: "user:anne", Relation: "viewer", Object: "document:"}
 	if *got != want {
 		t.Fatalf("tuple_key = %+v, want %+v", *got, want)
 	}
@@ -79,5 +79,25 @@ func TestReadFilterValidate(t *testing.T) {
 		if (err == nil) != tc.ok {
 			t.Errorf("%s: Validate(%+v) = %v, want ok=%v", tc.name, tc.f, err, tc.ok)
 		}
+	}
+}
+
+// A "#" belongs to a userset in the id, but it cannot appear in a type either.
+func TestValidateReadObjectRejectsHashAnywhere(t *testing.T) {
+	if err := ValidateReadObject("a#b:c"); err == nil {
+		t.Fatal("a # in the type is not an object either")
+	}
+}
+
+// Raw input is trimmed once, here, so neither surface sends whitespace the
+// server's own patterns reject — and a whitespace-only field reads as unset.
+func TestNewReadFilterTrims(t *testing.T) {
+	got := NewReadFilter("  user:anne ", " viewer", " document:roadmap  ")
+	want := ReadFilter{User: "user:anne", Relation: "viewer", Object: "document:roadmap"}
+	if got != want {
+		t.Fatalf("NewReadFilter = %+v, want %+v", got, want)
+	}
+	if f := NewReadFilter("  ", "", "\t"); f.Active() {
+		t.Fatalf("whitespace-only input must read as no filter, got %+v", f)
 	}
 }
