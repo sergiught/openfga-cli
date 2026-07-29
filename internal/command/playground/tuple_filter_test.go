@@ -556,6 +556,19 @@ func TestHelpAdvertisesTupleFilterKey(t *testing.T) {
 	}
 }
 
+// Below 120 columns the Tuples footer drops the compact-view hint, so the ?
+// overlay has to carry it — for all three sections that offer it, or the
+// overlay disagrees with the footers and the docs table.
+func TestHelpAdvertisesCompactView(t *testing.T) {
+	for _, sec := range []section{secTuples, secChanges, secAssertions} {
+		m := newTestModel().(Model)
+		m.section = sec
+		if body := m.helpBody(); !strings.Contains(body, "compact view") {
+			t.Errorf("section %v should advertise v, got:\n%s", sec, body)
+		}
+	}
+}
+
 // The footer key row is always on screen, unlike the ? overlay, so it is the
 // only place a user reliably discovers f.
 // The Tuples key row is tiered: the count on the other side of the footer is
@@ -969,6 +982,51 @@ func lastNonEmptyLine(view string) string {
 		}
 	}
 	return ""
+}
+
+// Shrinking the terminal with a find applied is how the footer went missing
+// once: the title was sized for the old pane, overflowed the new one and wrapped,
+// and the row it cost was the footer's. Nothing else recomputes it, so with focus
+// elsewhere it stayed gone.
+func TestResizeUnderAnAppliedFindKeepsTheFrame(t *testing.T) {
+	mm := tuplesPanelModel()
+	for i := 0; i < 30; i++ {
+		mm.tuples = append(mm.tuples, openfga.Tuple{Key: openfga.TupleKey{
+			User:     "user:averylongprincipalname" + string(rune('a'+i%26)),
+			Relation: "owner",
+			Object:   "document:averylongobjectidentifier" + string(rune('a'+i%26)),
+		}})
+	}
+	mm.populateTuples()
+	var m tea.Model = mm
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
+	m = applyFind(t, m, "averylong")
+
+	for _, w := range []int{160, 120, 100, 90, 80} {
+		m, _ = m.Update(tea.WindowSizeMsg{Width: w, Height: 30})
+		view := ansi.Strip(m.(Model).viewString())
+		for _, line := range strings.Split(view, "\n") {
+			if got := lipgloss.Width(line); got > w {
+				t.Fatalf("w=%d: line overflows the frame by %d columns: %q", w, got-w, line)
+			}
+		}
+		if !strings.Contains(lastNonEmptyLine(view), "f filter") {
+			t.Fatalf("w=%d: the footer is gone after the resize:\n%s", w, view)
+		}
+	}
+
+	// The same shrink with focus on the sidebar, where no message reaches the
+	// list to fix the title after the fact.
+	sidebar := m.(Model)
+	sidebar.focus = shell.FocusSidebar
+	var m2 tea.Model = sidebar
+	m2, _ = m2.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
+	m2, _ = m2.Update(tea.WindowSizeMsg{Width: 90, Height: 30})
+	for _, line := range strings.Split(ansi.Strip(m2.(Model).viewString()), "\n") {
+		if got := lipgloss.Width(line); got > 90 {
+			t.Fatalf("sidebar focus: line overflows by %d columns: %q", got-90, line)
+		}
+	}
 }
 
 // A refusal is owed to the user until they act on it, so an unrelated reload
