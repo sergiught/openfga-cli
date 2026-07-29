@@ -1,6 +1,7 @@
 package list
 
 import (
+	"charm.land/bubbles/v2/list"
 	"charm.land/lipgloss/v2"
 	"strings"
 	"testing"
@@ -312,10 +313,24 @@ func TestApplyFilterHintNamesTheAppliedTerm(t *testing.T) {
 		t.Fatalf("an unfiltered list should advertise the key, got:\n%s", got)
 	}
 
+	// The title has to track the filter state, not the last SetItems: applying a
+	// filter runs no SetItems, so driving it from there alone left the title a
+	// reload behind in both directions.
 	l.Model.SetFilterText("alpha")
-	l.applyFilterHint()
+	l.Model.KeyMap.Filter.SetEnabled(true)
+	l.Update(tea.KeyPressMsg{Code: tea.KeyDown}) // any key through the app's path
 	if got := ansi.Strip(l.View()); !strings.Contains(got, "find: alpha") {
 		t.Fatalf("an applied filter should name its term, got:\n%s", got)
+	}
+
+	// And stop naming it the moment it is cleared.
+	l.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	l.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if l.Model.FilterState() != list.Unfiltered {
+		t.Fatalf("expected the filter cleared, got %v", l.Model.FilterState())
+	}
+	if got := ansi.Strip(l.View()); strings.Contains(got, "find: alpha") {
+		t.Fatalf("a cleared filter must stop being named, got:\n%s", got)
 	}
 
 	l.Model.SetFilterText(strings.Repeat("x", 80))
@@ -340,5 +355,52 @@ func TestTitleBarBudget(t *testing.T) {
 		if got := lipgloss.Width(ansi.Strip(l.View())); got > w {
 			t.Errorf("w=%d: a title of hintWidth()=%d renders %d columns", w, l.hintWidth(), got)
 		}
+	}
+}
+
+func TestTruncateHint(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		w    int
+		want string
+	}{
+		{"abcdefghij", 10, "abcdefghij"}, // an exact fit is not truncated
+		{"abcdefghij", 20, "abcdefghij"},
+		{"abcdefghij", 9, "abcdefgh…"},
+		{"abcdefghij", 3, "ab…"},
+		{"abcdefghij", 1, "…"},
+	} {
+		if got := truncateHint(tc.in, tc.w); got != tc.want {
+			t.Errorf("truncateHint(%q, %d) = %q, want %q", tc.in, tc.w, got, tc.want)
+		}
+	}
+}
+
+// hintWidth is a measured budget, so pin it from below as well: one column more
+// must actually overflow, or the number has drifted and nothing would notice.
+func TestTitleBarBudgetIsTight(t *testing.T) {
+	for _, w := range []int{21, 24, 40, 80} {
+		l := New()
+		l.SetSize(w, 10)
+		l.SetItems([]Item{{TitleText: "alpha", Filter: "alpha"}})
+		l.Model.Title = strings.Repeat("t", l.hintWidth()+1)
+		if got := lipgloss.Width(ansi.Strip(l.View())); got <= w {
+			t.Errorf("w=%d: hintWidth()=%d leaves room to spare — the budget has drifted", w, l.hintWidth())
+		}
+	}
+}
+
+// An applied filter names itself even when it matches nothing: that is the
+// state in which the user most needs to know what is hiding the rows.
+func TestApplyFilterHintNamesTheTermOverAnEmptyResult(t *testing.T) {
+	l := New()
+	l.SetSize(40, 10)
+	l.SetFilterHint("/ find")
+	l.SetFilterPrompt("find: ")
+	l.SetItems([]Item{{TitleText: "alpha", Filter: "alpha"}})
+	l.Model.SetFilterText("zzzz")
+	l.applyFilterHint()
+	if got := ansi.Strip(l.View()); !strings.Contains(got, "find: zzzz") {
+		t.Fatalf("an applied filter matching nothing should still name itself, got:\n%s", got)
 	}
 }

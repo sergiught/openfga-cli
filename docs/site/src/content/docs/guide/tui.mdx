@@ -130,5 +130,6 @@ The server-side tuple filter (`f`) always needs an object carrying a type — a
 whole type (`document:`) or one object (`document:roadmap`). A bare type on its
 own also needs a user; a relation can't stand in for either. Object ids match
 literally, so wildcards (`document:*`) are rejected rather than quietly matching
-nothing. Submitting all three fields blank clears the filter and re-reads the
-store.
+nothing, as are usersets (`document:1#viewer`) — the object is an object. The
+user field takes a `type:id` reference. Submitting all three fields blank clears
+the filter and re-reads the store.

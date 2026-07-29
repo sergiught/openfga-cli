@@ -286,7 +286,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// later reloads, or a filter the server refuses once would go on failing
 			// every r and every write reload with no sign of why. The draft keeps the
 			// user's text, so f offers it back for a fix.
-			m.tupleFilters.reject()
+			m.tupleFilters.reject(!isConnErr(msg.err))
 			return m, m.toastErr("tuples", msg.err)
 		}
 		m.connLost = false

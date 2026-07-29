@@ -193,7 +193,7 @@ func (l *List) hintWidth() int { return l.Model.Width() - 4 }
 // truncateHint keeps the title bar inside its pane: overflowing it wraps, and
 // the extra line pushes the app's own footer off screen.
 func truncateHint(s string, w int) string {
-	if w < 4 || lipgloss.Width(s) <= w {
+	if lipgloss.Width(s) <= w {
 		return s
 	}
 	return ansi.Truncate(s, w, "…")
@@ -276,5 +276,9 @@ func (l *List) View() string { return l.Model.View() }
 func (l *List) Update(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
 	l.Model, cmd = l.Model.Update(msg)
+	// This is where the filter is applied and cleared, so it is where the title
+	// bar has to be recomputed — driving it from SetItems alone left the title a
+	// reload behind the state it describes, in both directions.
+	l.applyFilterHint()
 	return cmd
 }

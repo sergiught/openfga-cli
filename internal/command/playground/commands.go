@@ -310,14 +310,20 @@ type tupleFilters struct {
 	// draft is what the form offers for editing. It outlives a rejection, so a
 	// filter the server refused comes back for a fix instead of being retyped.
 	draft tupleFilter
+	// answered records whether the read that backed out of wanted reached the
+	// server at all. Only meaningful while draft and wanted differ, and recorded
+	// rather than re-read, because the connection can recover before the user
+	// reopens the form — at which point a dead socket would read as a refusal.
+	answered bool
 }
 
 // request records a submitted filter as the one to read with next.
 func (s *tupleFilters) request(f tupleFilter) { s.wanted, s.draft = f, f }
 
 // confirm adopts a filter the server has answered for. It is always the wanted
-// one: every dispatch site bumps tuplesGen first, so at most one load exists per
-// generation and older ones are dropped as stale. A draft that no longer matches
+// one: every dispatch site bumps tuplesGen before building its load (Init is the
+// exception, and it is the first, with nothing in flight to race), so at most
+// one load exists per generation and older ones are dropped as stale. A draft that no longer matches
 // wanted is left alone — reject() is the only thing that pulls the two apart,
 // and the refused text is still owed to the user until they replace it.
 func (s *tupleFilters) confirm(f tupleFilter) {
@@ -328,9 +334,11 @@ func (s *tupleFilters) confirm(f tupleFilter) {
 	}
 }
 
-// reject backs out of a filter the server refused: later reloads go back to
+// reject backs out of a filter the read failed on: later reloads go back to
 // reading what is already on screen, while the draft keeps the user's text.
-func (s *tupleFilters) reject() { s.wanted = s.applied }
+// answered separates a filter the server refused from one whose read never got
+// there — the same backing out, a different thing to tell the user.
+func (s *tupleFilters) reject(answered bool) { s.wanted, s.answered = s.applied, answered }
 
 // reset drops the filter entirely — for a store switch, a reconnect or the
 // deletion of the store it was written for, all of which invalidate the types

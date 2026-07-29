@@ -233,7 +233,7 @@ func (m Model) dialogContent() (string, string) {
 		subtitle := "Re-reads from the server.\nSubmit all blank to clear."
 		if m.tupleFilters.draft != m.tupleFilters.wanted {
 			subtitle = "The server refused this filter.\nFix it and apply again."
-			if m.connLost {
+			if !m.tupleFilters.answered {
 				subtitle = "The last read never reached the server.\nTry again."
 			}
 		}
