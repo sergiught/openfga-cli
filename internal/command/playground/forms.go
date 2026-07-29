@@ -79,9 +79,10 @@ func buildWriteTupleForm(w int) *field.Form {
 }
 
 // buildTupleFilterForm builds the tuples section's server-side /read filter
-// form, pre-filled with the active filter so editing an existing filter is
-// cumulative. All three fields are optional; submitting them all empty clears
-// the filter.
+// form, pre-filled with cur so editing is cumulative. Callers pass the draft
+// filter, which is the active one except after a refusal, when it is the text
+// the user still has to fix. All three fields are optional; submitting them all
+// empty clears the filter.
 // Values() = [user, relation, object].
 func buildTupleFilterForm(w int, cur tupleFilter) *field.Form {
 	f := field.NewForm(

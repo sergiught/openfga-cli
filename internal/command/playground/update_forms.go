@@ -161,10 +161,10 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// behind it); reading with no store id only yields an SDK error.
 				return resume("select a store first")
 			}
-			// m.tupleFilter is deliberately not set here: it describes the rows
-			// still on screen. The candidate becomes the pending filter — so a
-			// reload racing this one can't drop it — and is promoted only once
-			// the server answers (see the tuplesLoadedMsg handler).
+			// The applied filter is deliberately left alone: it describes the
+			// rows still on screen. The candidate becomes the wanted one — so a
+			// reload racing this one can't drop it — and is adopted only once the
+			// server answers (see the tuplesLoadedMsg handler).
 			m.tupleFilters.request(f)
 			m.beginLoad()
 			m.tuplesGen++

@@ -1,6 +1,7 @@
 package list
 
 import (
+	"charm.land/lipgloss/v2"
 	"strings"
 	"testing"
 
@@ -262,5 +263,32 @@ func TestSetItemsReappliesFilterWhileTyping(t *testing.T) {
 	})
 	if got := len(l.Model.VisibleItems()); got != 1 {
 		t.Fatalf("mid-typing, the matches must be recomputed too, got %d visible", got)
+	}
+}
+
+// Re-running the pagination must land on a fixed point. In compact view a
+// multi-page pager is a line taller than a single-page one, so sizing the rows
+// while the page count still reads 1 leaves the list a line too tall — enough
+// to push the app's footer off screen.
+func TestSetItemsKeepsFilteredListWithinItsHeight(t *testing.T) {
+	for _, compact := range []bool{false, true} {
+		l := New()
+		l.SetCompact(compact)
+		l.SetSize(40, 20)
+		items := make([]Item, 60)
+		for i := range items {
+			items[i] = Item{TitleText: "match", DescText: "d", Filter: "match"}
+		}
+		l.SetItems(items)
+		l.Model.SetFilterText("match")
+		want := l.Model.Paginator.PerPage
+
+		l.SetItems(items)
+		if got := l.Model.Paginator.PerPage; got != want {
+			t.Errorf("compact=%v: rows per page = %d after replacing the items, want %d", compact, got, want)
+		}
+		if got := lipgloss.Height(l.View()); got > 20 {
+			t.Errorf("compact=%v: list renders %d lines, more than the %d it was given", compact, got, 20)
+		}
 	}
 }

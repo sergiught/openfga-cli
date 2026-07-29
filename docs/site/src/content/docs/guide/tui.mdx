@@ -23,6 +23,7 @@ in its footer and subsequent actions.
 - 🎨 **Model graph**: the authorization model rendered as a colored tree of types, relations, and inherited (tuple-to-userset) paths.
 - 🔎 **Query + resolution tree**: run `check`/`list-objects`/`list-users`/`list-relations` and expand *why* a decision was made.
 - ✍️ **Inline editing**: add/delete tuples, edit assertions, and edit the model DSL, with **inline validation** as you type.
+- 🎯 **Two ways to narrow the tuples**: `/` searches the rows already loaded, while `f` sends a `/read` filter to the server — the only way to reach tuples past the 500 the pane loads. A server-side filter needs an object type: a whole type (`document:`), or one object (`document:roadmap`); a bare type on its own also needs a user.
 - 🖱 **Full mouse support**: wheel-scroll the graph and lists, click tabs and list rows, click the footer keycaps as buttons, and click outside a dialog to dismiss it.
 - 🎭 **Themes**: `aurora`, `catppuccin`, `charm`, `dracula`, `gruvbox`, `nord`, `tokyonight`, and a `mono` (NO_COLOR-friendly) theme.
 

@@ -315,9 +315,9 @@ type tupleFilters struct {
 // request records a submitted filter as the one to read with next.
 func (s *tupleFilters) request(f tupleFilter) { s.wanted, s.draft = f, f }
 
-// confirm adopts a filter the server has answered for. It leaves a draft that
-// has diverged alone: only reject() can do that, and the refused text is still
-// owed to the user until they next open the form.
+// confirm adopts a filter the server has answered for. A draft that no longer
+// matches wanted is left alone — reject() is the only thing that pulls the two
+// apart, and the refused text is still owed to the user until they replace it.
 func (s *tupleFilters) confirm(f tupleFilter) {
 	keepDraft := s.draft != s.wanted
 	s.applied, s.wanted = f, f

@@ -134,6 +134,15 @@ func (l *List) SetItems(items []Item) {
 			// would be unreachable. Re-run it now that they are in. SetFilterText
 			// does the same; the two calls it uses are unexported, and SetSize is
 			// the exported way to reach both.
+			//
+			// Twice, because the row budget and the page count are computed from
+			// each other: the first pass sizes the rows while the pager still
+			// reads one page — a line shorter than a multi-page pager occupies in
+			// compact view — and then sets the real page count. The second pass
+			// sizes the rows against that, which is a fixed point. Without it a
+			// filtered compact list renders one line too tall and pushes the
+			// footer off screen.
+			l.Model.SetSize(l.Model.Width(), l.Model.Height())
 			l.Model.SetSize(l.Model.Width(), l.Model.Height())
 		}
 	}

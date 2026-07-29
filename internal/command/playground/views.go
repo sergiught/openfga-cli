@@ -229,7 +229,7 @@ func (m Model) dialogContent() (string, string) {
 		return "Write Tuple", m.form.View() + "\n" + style.Faint.Render("tab move · ctrl+s submit · esc cancel")
 	case m.formKind == formTupleFilter:
 		subtitle := "Re-reads from the server; blank fields clear it."
-		if m.tupleFilters.draft != m.tupleFilters.applied {
+		if m.tupleFilters.draft != m.tupleFilters.wanted {
 			subtitle = "The server refused this one — fix it and apply again."
 		}
 		return "Filter Tuples", style.Faint.Render(subtitle) +

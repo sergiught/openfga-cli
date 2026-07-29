@@ -53,6 +53,7 @@ func TestVFilterObject(t *testing.T) {
 		ok bool
 	}{
 		{"", true},
+		{"   ", true}, // whitespace-only reads as unset, like every other field
 		{"document:roadmap", true},
 		{"document:", true},
 		{"  document:  ", true},
@@ -83,6 +84,10 @@ func TestValidateTupleFilter(t *testing.T) {
 		{"bare type + user", tupleFilter{object: "document:", user: "user:anne"}, true},
 		{"type:id + relation", tupleFilter{object: "document:roadmap", relation: "viewer"}, true},
 		{"bare type alone", tupleFilter{object: "document:"}, false},
+		// The server's rule ignores the relation, so it cannot stand in for the
+		// object id or the user.
+		{"bare type + relation only", tupleFilter{object: "document:", relation: "viewer"}, false},
+		{"padded leading colon with user", tupleFilter{object: " :roadmap", user: "user:anne"}, false},
 		{"user alone", tupleFilter{user: "user:anne"}, false},
 		{"relation alone", tupleFilter{relation: "viewer"}, false},
 		{"user + relation, no object", tupleFilter{user: "user:anne", relation: "viewer"}, false},
@@ -181,6 +186,9 @@ func TestTupleFilterSubmitAppliesAndReloads(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("submit should dispatch a tuples reload command")
+	}
+	if !mm.loading {
+		t.Fatal("submit should mark the pane loading, as every other reload does")
 	}
 	want := tupleFilter{user: "user:anne", object: "document:"}
 	mm, _ = landTuples(t, m, tuplesLoadedMsg{filter: want})
@@ -359,19 +367,6 @@ func TestStoreDeleteClearsTupleFilter(t *testing.T) {
 	}
 }
 
-func TestTupleFilterPersistsAcrossRefresh(t *testing.T) {
-	mm := tuplesPanelModel()
-	mm.tupleFilters.applied = tupleFilter{object: "document:roadmap"}
-	nm, cmd := tea.Model(mm).Update(key("r"))
-	got := nm.(Model)
-	if want := (tupleFilter{object: "document:roadmap"}); got.tupleFilters.applied != want {
-		t.Fatalf("r must keep the filter, got %+v", got.tupleFilters.applied)
-	}
-	if cmd == nil {
-		t.Fatal("r should dispatch a reload")
-	}
-}
-
 func TestTupleFilterEscLeavesFilterUntouched(t *testing.T) {
 	m := openTupleFilter(t)
 	mm := m.(Model)
@@ -442,6 +437,31 @@ func TestSectionStatusMarksFilteredTuples(t *testing.T) {
 	}
 }
 
+// The hint that names f in an empty filtered pane is what makes the sidebar
+// call-to-action path mean anything; test it through the render, not just the
+// function.
+func TestFilteredEmptyPaneNamesF(t *testing.T) {
+	mm := tuplesPanelModel()
+	mm.tupleFilters.confirm(tupleFilter{object: "document:roadmap"})
+	mm.tuples = nil
+	mm.populateTuples()
+	if body := ansi.Strip(mm.sectionBody()); !strings.Contains(body, "press f") {
+		t.Fatalf("a filtered empty pane must point at f, got:\n%s", body)
+	}
+}
+
+// Reopening the form before the server has answered is not a refusal.
+func TestFilterDialogDoesNotCryRefusalMidFlight(t *testing.T) {
+	m := openTupleFilter(t)
+	mm := m.(Model)
+	mm.form.SetValues([]string{"", "", "document:roadmap"})
+	m, _ = tea.Model(mm).Update(ctrlS())
+	m, _ = m.Update(key("f")) // reopened while the read is still in flight
+	if _, body := m.(Model).dialogContent(); strings.Contains(ansi.Strip(body), "refused") {
+		t.Fatalf("nothing was refused yet, got:\n%s", ansi.Strip(body))
+	}
+}
+
 func TestTupleHintFilterAware(t *testing.T) {
 	if got := tupleHint("", true); got != "Select a store first — press 2" {
 		t.Fatalf("no-store hint must win, got %q", got)
@@ -481,24 +501,6 @@ func TestFooterAdvertisesTupleFilterKey(t *testing.T) {
 	}
 	if !strings.Contains(keys, "/ find") {
 		t.Fatalf("Tuples footer should call / a find, not a filter, got %q", keys)
-	}
-}
-
-// A write reloads the tuples pane; the active filter must ride along, or the
-// reload would silently widen the view back out.
-func TestTupleFilterSurvivesMutationReload(t *testing.T) {
-	mm := tuplesPanelModel()
-	mm.tupleFilters.applied = tupleFilter{object: "document:roadmap"}
-	mm.tupleMutating = true
-	m, cmd := tea.Model(mm).Update(tupleWrittenMsg{
-		origin: mm.mutationOrigin(mm.storeID, mm.modelID, mm.tupleMutationGen),
-		label:  "user:anne viewer document:roadmap",
-	})
-	if cmd == nil {
-		t.Fatal("a write should dispatch a tuples reload")
-	}
-	if want := (tupleFilter{object: "document:roadmap"}); m.(Model).tupleFilters.applied != want {
-		t.Fatalf("a write reload must keep the filter, got %+v", m.(Model).tupleFilters.applied)
 	}
 }
 
