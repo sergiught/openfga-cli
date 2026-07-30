@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sergiught/openfga-cli/internal/ui/shell"
 	"github.com/sergiught/openfga-cli/internal/ui/toast"
@@ -130,5 +131,32 @@ func TestHistoryPickerFilterNarrows(t *testing.T) {
 	// contains "bob".
 	if got := len(mm.historyList.Model.VisibleItems()); got != 1 {
 		t.Fatalf("filtering \"bob\" should narrow to 1 visible row, got %d", got)
+	}
+}
+
+func TestDigitsJumpFromQueryPanel(t *testing.T) {
+	m := queryModelWithHistory()
+
+	// [2] on the tab must mean Stores everywhere, including here, where it
+	// used to rerun history slot 2 instead.
+	m, _ = m.Update(key("2"))
+	if got := m.(Model).section; got != secStores {
+		t.Fatalf("section = %v, want secStores", got)
+	}
+}
+
+func TestHistoryStripHasNoDigitPrefix(t *testing.T) {
+	m := queryModelWithHistory().(Model)
+
+	out := ansi.Strip(m.historyStrip(120))
+	if out == "" {
+		t.Fatal("historyStrip returned nothing for seeded history")
+	}
+	// The leading digit advertised the old binding; left in place it would
+	// tell users to press a key that now jumps sections. The fixture's tuple
+	// values are deliberately digit-free so this substring check can't trip on
+	// incidental content — keep them that way.
+	if strings.Contains(out, "1 ") || strings.Contains(out, "2 ") {
+		t.Fatalf("history chips must not advertise digit shortcuts:\n%s", out)
 	}
 }

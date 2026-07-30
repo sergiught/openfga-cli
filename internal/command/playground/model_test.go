@@ -738,10 +738,11 @@ func TestVerdictFlashClearsAfterOneTick(t *testing.T) {
 	}
 }
 
-// TestDigitKeyRerunsHistoryEntry drives a full check through the form, then
-// presses "1" in the Query section (not editing) and asserts it reruns the
-// same query — hitting the server again — rather than switching sections.
-func TestDigitKeyRerunsHistoryEntry(t *testing.T) {
+// TestDigitKeyJumpsSectionInsteadOfRerunning drives a full check through the
+// form so real history exists, then presses "1" in the Query section (not
+// editing) and asserts it now jumps to Profiles (section index 0) rather
+// than rerunning the history entry that binding used to own.
+func TestDigitKeyJumpsSectionInsteadOfRerunning(t *testing.T) {
 	hits := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/check") {
@@ -785,33 +786,34 @@ func TestDigitKeyRerunsHistoryEntry(t *testing.T) {
 	}
 
 	// A query leaves editing on for immediate re-typing; esc drops to the panel
-	// layer where the history digits work.
+	// layer where digit jumps now live.
 	var mq tea.Model = mod
 	mq, _ = mq.Update(key("esc"))
-	m2 := pump(t, mq.(Model), key("1")) // rerun history[0]
+	m2 := pump(t, mq.(Model), key("1")) // jump to Profiles, not a rerun
 	mod2 := m2.(Model)
-	if hits != 2 {
-		t.Errorf("server hits after digit rerun = %d, want 2 (digit should have rerun the check)", hits)
+	if hits != 1 {
+		t.Errorf("server hits after digit press = %d, want 1 (digit must not rerun the check)", hits)
 	}
-	if mod2.section != secQuery {
-		t.Errorf("digit rerun should not change section; got %v", mod2.section)
+	if mod2.section != secProfiles {
+		t.Errorf("digit should jump to Profiles; got %v", mod2.section)
 	}
-	if len(mod2.history) != 2 {
-		t.Errorf("history len after rerun = %d, want 2", len(mod2.history))
+	if len(mod2.history) != 1 {
+		t.Errorf("history len after digit press = %d, want 1 (unchanged)", len(mod2.history))
 	}
 }
 
-// TestQueryDigitWithoutHistoryIsNoop verifies that inside the Query panel a
-// digit addressing no history entry is a no-op: strict panel focus never
-// switches sections (only the sidebar does).
-func TestQueryDigitWithoutHistoryIsNoop(t *testing.T) {
+// TestQueryDigitJumpsSectionWithoutHistory verifies that inside the Query
+// panel a digit jumps sections even when there is no history to have
+// addressed under the old binding.
+func TestQueryDigitJumpsSectionWithoutHistory(t *testing.T) {
 	m := newTestModel()
 	m, _ = m.Update(key("6"))     // Query, no history yet
-	m, _ = m.Update(key("enter")) // descend into the panel
-	m, _ = m.Update(key("1"))     // no matching history -> no-op
+	m, _ = m.Update(key("enter")) // descend into the panel (starts editing)
+	m, _ = m.Update(key("esc"))   // drop editing, stay on the panel layer
+	m, _ = m.Update(key("1"))     // jump to Profiles
 	mod := m.(Model)
-	if mod.section != secQuery {
-		t.Errorf("digit with no history in the panel should stay in Query; got %v", mod.section)
+	if mod.section != secProfiles {
+		t.Errorf("digit in the panel should jump to Profiles; got %v", mod.section)
 	}
 }
 

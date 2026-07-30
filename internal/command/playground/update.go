@@ -1056,10 +1056,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.focus = shell.FocusSidebar
 		return m, nil
 	}
-	// Digit section-jumps stay global even with the panel focused — the ?
-	// overlay advertises "1–9 jump to a section" as global. The exception is
-	// Tuple Queries, where the digits rerun recent history.
-	if m.section != secQuery && len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
+	// Digit section-jumps are global: the tabs advertise "[1]"–"[9]", so a
+	// digit must mean the same thing from every panel.
+	if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
 		return m.gotoSection(section(key[0] - '1'))
 	}
 	return m.handleSectionKey(key, msg)

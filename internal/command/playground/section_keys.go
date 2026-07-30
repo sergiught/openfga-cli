@@ -329,12 +329,6 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			}
 			m.status = "run a check first (r shows its resolution)"
 			return m, m.toasts.Push(toast.Info, m.status)
-		case "1", "2", "3", "4", "5", "6":
-			// A digit addressing an existing history slot reruns it; "6"
-			// never matches since history is capped at 5.
-			if n := int(key[0] - '1'); n < len(m.history) {
-				return m.rerunHistory(n)
-			}
 		case "h":
 			if len(m.history) == 0 {
 				m.status = "no recent queries yet"

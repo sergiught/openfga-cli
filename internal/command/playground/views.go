@@ -93,7 +93,7 @@ func (m Model) helpBody() string {
 	global := [][2]string{
 		{"tab / ↑↓", "move between tabs (from the tab bar)"},
 		{"↵ / esc", "enter the panel / return to the tabs"},
-		{"1–9", "jump to a section (1–5 rerun history in Tuple Queries)"},
+		{"1–9", "jump to a section"},
 		{"ctrl+k", "command palette"},
 		{"ctrl+l", "redraw the screen"},
 		{"?", "toggle this help"},
@@ -118,7 +118,7 @@ func (m Model) helpBody() string {
 	case secChanges:
 		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"r", "reload"}, {"v", "compact view"}}
 	case secQuery:
-		section = [][2]string{{"i / ↵", "edit query"}, {"tab", "cycle mode"}, {"1–5", "rerun recent"}, {"r", "resolve"}}
+		section = [][2]string{{"i / ↵", "edit query"}, {"tab", "cycle mode"}, {"h", "rerun recent"}, {"r", "resolve"}}
 	case secAssertions:
 		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"↵", "run + resolve"}, {"a", "add"}, {"e", "edit"}, {"d", "delete"}, {"t", "run all"}, {"v", "compact view"}}
 	case secAPILogs:
@@ -834,7 +834,7 @@ func (m Model) historyStrip(maxW int) string {
 	}
 	var chips []string
 	used := 0
-	for i, h := range m.history {
+	for _, h := range m.history {
 		// Checks carry an allow/deny verdict (green ✓ / red ✗); list-objects and
 		// list-users have no verdict, so they get a neutral marker.
 		ic, c := icons.I().Dot, style.Muted
@@ -844,7 +844,7 @@ func (m Model) historyStrip(maxW int) string {
 				ic, c = icons.I().Check, style.Green
 			}
 		}
-		label := itoa(i+1) + " " + lipgloss.NewStyle().Foreground(c).Background(style.BgHighlight).Render(ic)
+		label := lipgloss.NewStyle().Foreground(c).Background(style.BgHighlight).Render(ic)
 		chip := style.Chip(label+" "+safeText(histNotation(h)), style.Muted, style.BgHighlight)
 		// Keep only the (newest-first) chips that fit on the one-line strip;
 		// otherwise the panel's fitLines hard-truncates it with a stray ellipsis.
@@ -1010,7 +1010,7 @@ func (m Model) statusKeys() []string {
 	case secChanges:
 		return []string{"↑↓", "/ filter", "r reload", m.compactHint(), "esc"}
 	case secQuery:
-		return []string{"i/↵ edit", "tab mode", "1-5 rerun", "r resolve", "esc"}
+		return []string{"i/↵ edit", "tab mode", "h rerun", "r resolve", "esc"}
 	case secAssertions:
 		return []string{"↑↓", "↵ run", "a add", "e edit", "d delete", "t run all", m.compactHint(), "esc"}
 	case secAPILogs:
