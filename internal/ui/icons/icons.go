@@ -34,7 +34,7 @@ var sets = map[Mode]Set{
 		CapL: "\U0000E0B6", CapR: "\U0000E0B4",
 	},
 	ModeUnicode: {
-		Profile: "◉", Store: "▣", Model: "◈", Tuple: "≡", Change: "⇅", Query: "?", Assert: "✦", APILog: "⇄",
+		Profile: "◉", Store: "▣", Model: "◈", Tuple: "≡", Change: "⇅", Query: "◆", Assert: "✦", APILog: "⇄",
 		Dot: "●", Caret: "❯", Check: "✓", Cross: "✗",
 	},
 	ModeOff: {Check: "✓", Cross: "✗", Dot: "●"},

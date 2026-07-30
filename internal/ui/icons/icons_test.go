@@ -91,3 +91,27 @@ func TestApplyResolvesAuto(t *testing.T) {
 		t.Fatal("Current() tracks the applied mode")
 	}
 }
+
+func TestFallbackGlyphsAreNotQuestionMarks(t *testing.T) {
+	t.Cleanup(func() { Apply(ModeNerdFont) })
+	Apply(ModeUnicode)
+	s := I()
+	for name, g := range map[string]string{
+		"Profile": s.Profile, "Store": s.Store, "Model": s.Model, "Tuple": s.Tuple,
+		"Change": s.Change, "Query": s.Query, "Assert": s.Assert, "APILog": s.APILog,
+		"Dot": s.Dot, "Caret": s.Caret, "Check": s.Check, "Cross": s.Cross,
+	} {
+		// The whole point of this rung is to be readable where Nerd Font
+		// glyphs are not. A literal "?" is indistinguishable from the missing
+		// -glyph symptom it exists to avoid.
+		if g == "?" {
+			t.Fatalf("unicode %s glyph is a literal question mark", name)
+		}
+		if g == "" {
+			t.Fatalf("unicode %s glyph is empty", name)
+		}
+	}
+	if s.Query == s.Model {
+		t.Fatal("Query and Model glyphs must be distinguishable")
+	}
+}
