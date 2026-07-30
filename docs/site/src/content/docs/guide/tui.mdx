@@ -43,6 +43,7 @@ The `?` overlay renders this same list, filtered to the global keys plus whateve
 | `enter` | Sidebar (tab bar) | Enter the focused panel |
 | `esc` | Panel | Return focus to the sidebar tabs (closes the resolution tree first if it's open) |
 | `ctrl+k` | Global | Open the command palette |
+| `ctrl+l` | Global | Redraw the screen (always active, even inside overlays and forms) |
 | `?` | Global | Toggle the keybinding help overlay |
 | `?` / `esc` / `q` / `enter` | Help overlay | Close the overlay |
 | `q` | Sidebar (tab bar) | Quit |
@@ -135,3 +136,20 @@ user field takes any `type:id` reference, including a userset (`team:eng#member`
 or a wildcard (`user:*`). Submitting all three fields blank clears the filter and
 re-reads the store, and switching store or profile clears it for you — the types
 and ids it names belong to the store it was written for.
+
+## macOS: ⌘K blanks the screen
+
+On macOS, don't reach for **⌘K** to open the command palette — the palette is
+`ctrl+k`. ⌘K is a menu shortcut belonging to the terminal itself (Terminal.app
+binds it to *Clear to Start*, iTerm2 to *Clear Buffer*), so it never reaches
+`ofga`. It simply erases the screen the TUI is drawn on.
+
+The TUI repaints only the cells that change, so once the terminal has wiped the
+screen behind its back the display stays blank apart from the occasional
+character an animation happens to touch. Press **`ctrl+l`** to redraw and carry
+on — nothing is lost, it is only the drawing that got out of sync. Switching
+away to another app and back also repaints, in terminals that report focus
+events.
+
+If you want ⌘K to reach `ofga` instead, rebind it in your terminal: in iTerm2,
+*Settings → Keys*, and in Terminal.app, *Settings → Profiles → Keyboard*.
