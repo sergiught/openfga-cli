@@ -70,11 +70,40 @@ explicit API-token file selects API-token authentication for that process.
 | `OPENFGA_KEY_FILE` | Path to the PEM signing key; applies to a `private_key_jwt` profile (alias: `FGA_KEY_FILE`) |
 | `OPENFGA_PROFILE` | Profile to use (alias: `FGA_PROFILE`) |
 | `OPENFGA_CONFIG` | Path to the config file (overridden by the `--config` flag) |
-| `OPENFGA_ICONS` | Icon mode: `nerdfont` (default), `unicode`, or `off` |
+| `OPENFGA_ICONS` | Icon mode: `auto` (default), `nerdfont`, `unicode`, or `off` |
 | `OPENFGA_REDUCED_MOTION` | Suppress TUI animations (alias: `OFGA_REDUCED_MOTION`) |
 | `NO_COLOR` | Disable colored output |
 | `CLICOLOR_FORCE` | Force colored output even when piped or redirected |
 | `FORCE_COLOR` | Force colored output even when piped or redirected (equivalent to `CLICOLOR_FORCE`) |
 
 `FGA_*` aliases are accepted for compatibility with the official CLI.
+
+### Terminal glyphs
+
+`ofga` decorates the TUI with small icons. Nerd Font glyphs look sharpest but
+require a terminal configured with such a font — without one, the terminal
+substitutes `?` for every icon.
+
+No reliable way to detect a Nerd Font exists, so `auto` is deliberately
+conservative: it starts from the universally-supported `unicode` set and only
+upgrades on a positive signal (a recognised terminal, or a Nerd Font found in
+your font directories). It never upgrades over SSH, because fonts installed on
+the remote host say nothing about the terminal you are actually looking at.
+
+To override the guess, press `ctrl+g` in the playground — it cycles `nerdfont` →
+`unicode` → `off` and saves your choice. Or set it directly:
+
+| Value | Behaviour |
+| --- | --- |
+| `auto` | Detect, falling back to `unicode` (default) |
+| `nerdfont` | Always use Nerd Font glyphs |
+| `unicode` | Widely-supported symbols only |
+| `off` | No decorative glyphs; plain text labels |
+
+```sh
+OPENFGA_ICONS=unicode ofga
+```
+
+Pressing `ctrl+g` writes a concrete value and takes you out of `auto`. Set
+`icons = "auto"` in your config file to restore detection.
 

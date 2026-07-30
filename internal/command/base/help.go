@@ -107,7 +107,7 @@ func envList() string {
 		{"OPENFGA_KEY_FILE", "PEM signing key, private_key_jwt profiles (alias: FGA_KEY_FILE)"},
 		{"OPENFGA_PROFILE", "profile to use (alias: FGA_PROFILE)"},
 		{"OPENFGA_CONFIG", "path to the config file"},
-		{"OPENFGA_ICONS", "icon mode: nerdfont, unicode or off"},
+		{"OPENFGA_ICONS", "icon mode: auto (default), nerdfont, unicode or off"},
 		{"NO_COLOR", "disable colored output"},
 		{"CLICOLOR_FORCE / FORCE_COLOR", "force colored output, even through pipes"},
 		{"OPENFGA_REDUCED_MOTION", "disable TUI animations (alias: OFGA_REDUCED_MOTION)"},
