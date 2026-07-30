@@ -41,6 +41,7 @@ type NavItem struct {
 	Label  string
 	Icon   string
 	Badge  string
+	Key    string // accelerator advertised as a faint "[k]" prefix; "" renders none
 	Active bool
 }
 
@@ -449,8 +450,10 @@ func (s *Shell) renderSidebar(height int) string {
 		b.WriteString(line + "\n")
 		b.WriteString(s.brandLine(inner, frameStyle) + "\n\n")
 	}
-	// The context lines carry the same 1-col horizontal padding as the nav rows
-	// so their icon (e.g. the connection dot) aligns with the tab icons.
+	// The context lines carry the same 1-col horizontal padding that a keyless
+	// nav row opens with, so their icon (e.g. the connection dot) aligns with
+	// the tab icons in that case. A nav row with a Key prefix shifts its icon
+	// right by the "[k]" width and no longer lines up with the context lines.
 	for _, line := range s.context {
 		b.WriteString(lipgloss.NewStyle().Padding(0, 1).Render(line) + "\n")
 	}
@@ -504,14 +507,24 @@ func (s *Shell) brandLine(width int, st lipgloss.Style) string {
 
 func (s *Shell) renderNav(n NavItem) string {
 	label := strings.TrimSpace(n.Icon + " " + n.Label)
+	// The key prefix sits outside the pill/padding, immediately before it, and
+	// deliberately carries no trailing space of its own: both the active pill
+	// and the inactive Padding(0,1) below already open with a literal leading
+	// space, so the prefix borrows that space as its separator instead of
+	// doubling it. style.Keycap is intentionally not used here: it paints a
+	// BgRaised background that would fight the active row's gradient pill.
+	var prefix string
+	if n.Key != "" {
+		prefix = style.Faint.Render("[" + n.Key + "]")
+	}
 	if n.Active {
-		out := style.GradientPillPhase(label, s.drift)
+		out := prefix + style.GradientPillPhase(label, s.drift)
 		if n.Badge != "" {
 			out += " " + style.Chip(n.Badge, style.Muted, style.BgHighlight)
 		}
 		return out
 	}
-	out := lipgloss.NewStyle().Padding(0, 1).Foreground(style.Muted).Render(label)
+	out := prefix + lipgloss.NewStyle().Padding(0, 1).Foreground(style.Muted).Render(label)
 	if n.Badge != "" {
 		out += " " + style.Chip(n.Badge, style.Muted, style.BgHighlight)
 	}
@@ -561,7 +574,14 @@ func (s *Shell) navStrip(width int) string {
 		if n.Active {
 			segs = append(segs, style.GradientPillPhase(strings.TrimSpace(n.Icon+" "+n.Label), s.drift))
 		} else {
-			segs = append(segs, lipgloss.NewStyle().Foreground(style.Muted).Render(n.Icon))
+			// Collapsed, a bare icon carries no meaning without its label; show
+			// the key instead when there is one — it's both more useful and
+			// font-safe than an icon alone.
+			seg := n.Icon
+			if n.Key != "" {
+				seg = "[" + n.Key + "]"
+			}
+			segs = append(segs, lipgloss.NewStyle().Foreground(style.Muted).Render(seg))
 		}
 	}
 	return ansi.Truncate(strings.Join(segs, " "), width, "…")

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	lipgloss "charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sergiught/openfga-cli/internal/ui/icons"
 )
@@ -264,6 +265,37 @@ func TestWordmarkFallsBackOnShortTerminal(t *testing.T) {
 	}
 	if !strings.Contains(out, "OpenFGA") {
 		t.Fatal("fallback wordmark must read OpenFGA")
+	}
+}
+
+func TestNavItemKeyPrefix(t *testing.T) {
+	s := New()
+	s.SetSize(110, 32)
+	s.SetSidebar(nil, []NavItem{
+		{Label: "Profiles", Icon: "◉", Key: "1"},
+		{Label: "Stores", Icon: "▣", Key: "2", Badge: "12", Active: true},
+	}, "")
+	out := ansi.Strip(s.View())
+
+	if !strings.Contains(out, "[1]") || !strings.Contains(out, "[2]") {
+		t.Fatalf("nav rows must advertise their digit key:\n%s", out)
+	}
+	// The digit sits outside the active pill so the digit column is uniformly
+	// styled down every row.
+	if !strings.Contains(out, "[2] ▣ Stores") {
+		t.Fatalf("active row should read '[2] ▣ Stores':\n%s", out)
+	}
+	if !strings.Contains(out, "[1] ◉ Profiles") {
+		t.Fatalf("inactive row should read '[1] ◉ Profiles':\n%s", out)
+	}
+}
+
+func TestNavItemWithoutKeyIsUnchanged(t *testing.T) {
+	s := New()
+	s.SetSize(110, 32)
+	s.SetSidebar(nil, []NavItem{{Label: "Profiles", Icon: "◉"}}, "")
+	if out := ansi.Strip(s.View()); strings.Contains(out, "[") {
+		t.Fatalf("an empty Key must render no bracket:\n%s", out)
 	}
 }
 
