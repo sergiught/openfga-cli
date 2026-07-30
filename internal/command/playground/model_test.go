@@ -859,6 +859,30 @@ func TestDigitJumpClosesStaleResolutionTree(t *testing.T) {
 	}
 }
 
+// TestSelfDigitJumpClosesStaleResolutionTree covers the case the two
+// section-changing tests around it cannot reach: pressing Tuple Queries' own
+// digit while sitting in Tuple Queries. onEnterSection re-enters the query
+// form regardless of whether the section actually changed, so a showRes clear
+// guarded on "the section changed" left the stale tree painted over a focused,
+// invisible form.
+func TestSelfDigitJumpClosesStaleResolutionTree(t *testing.T) {
+	m := newTestModel().(Model)
+	m.section = secQuery
+	m.focus = shell.FocusPanel
+	m.showRes = true
+	m.resTree = &fga.ResNode{Name: "document:roadmap#viewer", Granted: true}
+
+	var tm tea.Model = m
+	tm, _ = tm.Update(key("6")) // secQuery's own digit, the one its tab advertises
+	mod := tm.(Model)
+	if !mod.editing {
+		t.Fatal("precondition: the self-jump re-enters the query form; that is what makes a surviving tree harmful")
+	}
+	if mod.showRes {
+		t.Fatal("pressing the current section's own digit must close its resolution tree, not render it over the form")
+	}
+}
+
 // TestCommandPaletteJumpClosesStaleResolutionTree covers the same leak as
 // TestDigitJumpClosesStaleResolutionTree, reached through ctrl+k instead of a
 // digit: the palette's "enter" handler used to be a second, independent
