@@ -121,3 +121,23 @@ func TestValidateReadObjectAllowsAStarInsideAnID(t *testing.T) {
 		t.Fatalf("a star inside an id is a literal, got %v", err)
 	}
 }
+
+// A /read user is optional and may be a userset or a wildcard, so the check
+// only asks for a type — the exact formats are the server's business.
+func TestValidateReadUser(t *testing.T) {
+	for _, tc := range []struct {
+		in string
+		ok bool
+	}{
+		{"", true},
+		{"   ", true},
+		{"user:anne", true},
+		{"team:eng#member", true},
+		{"user:*", true},
+		{"anne", false},
+	} {
+		if err := ValidateReadUser(tc.in); (err == nil) != tc.ok {
+			t.Errorf("ValidateReadUser(%q) = %v, want ok=%v", tc.in, err, tc.ok)
+		}
+	}
+}

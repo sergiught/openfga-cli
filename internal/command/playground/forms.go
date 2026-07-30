@@ -87,7 +87,9 @@ func buildWriteTupleForm(w int) *field.Form {
 // Values() = [user, relation, object].
 func buildTupleFilterForm(w int, cur tupleFilter) *field.Form {
 	f := field.NewForm(
-		field.New("User", "user:anne").WithValidate(vUser),
+		// The same checks the --user and --object flags apply, so the two
+		// surfaces say the same thing about the same value.
+		field.New("User", "user:anne").WithValidate(fga.ValidateReadUser),
 		field.New("Relation", "viewer"),
 		field.New("Object", "document:roadmap").WithValidate(vFilterObject),
 	)

@@ -778,8 +778,11 @@ func TestTupleFilterFormValidatesUser(t *testing.T) {
 	if m.(Model).formKind != formTupleFilter {
 		t.Fatal("a malformed user must keep the form open")
 	}
-	if got := ansi.Strip(m.(Model).form.View()); !strings.Contains(got, "type:id") {
-		t.Fatalf("the user field's own validator should be the one complaining, got:\n%s", got)
+	// The same message the --user flag gives for the same value: both go through
+	// fga.ValidateReadUser.
+	want := fga.ValidateReadUser("anne").Error()
+	if got := ansi.Strip(m.(Model).form.View()); !strings.Contains(got, want) {
+		t.Fatalf("the form should give the shared user message %q, got:\n%s", want, got)
 	}
 }
 

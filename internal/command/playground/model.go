@@ -970,7 +970,7 @@ func (m *Model) populateTuples() {
 			case m.tupleContains(id):
 				m.status = "written — the / find hides it"
 			case m.tuplesCapped:
-				m.status = "written — beyond the " + itoa(tuplesDisplayCap) + " rows shown"
+				m.status = "written — beyond the " + itoa(tuplesDisplayCap) + " rows shown (press f to narrow)"
 			}
 		}
 	}
@@ -1155,7 +1155,7 @@ func (m *Model) selectStore(s openfga.Store) tea.Cmd {
 	m.tupleFilters.reset()
 	// A "/" find belongs to the rows it was typed against, the same as the /read
 	// filter cleared beside it.
-	m.tuplesList.Model.ResetFilter()
+	m.tuplesList.ResetFilter()
 	m.changes = nil
 	m.assertions = nil
 	m.assertResults = nil
@@ -1445,7 +1445,7 @@ func (m *Model) activateResolved(r config.Resolved, cl *openfga.Client, status s
 	m.tupleFilters.reset()
 	// A "/" find belongs to the rows it was typed against, the same as the /read
 	// filter cleared beside it.
-	m.tuplesList.Model.ResetFilter()
+	m.tuplesList.ResetFilter()
 	m.changes = nil
 	m.assertions = nil
 	m.assertResults = nil

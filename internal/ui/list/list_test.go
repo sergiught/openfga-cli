@@ -3,6 +3,7 @@ package list
 import (
 	"charm.land/bubbles/v2/list"
 	"charm.land/lipgloss/v2"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -454,5 +455,59 @@ func TestSetSizeRetruncatesTheTitle(t *testing.T) {
 		if got := lipgloss.Width(line); got > 30 {
 			t.Fatalf("line overflows the pane after a resize: %d columns, %q", got, line)
 		}
+	}
+}
+
+// ResetFilter has to put the title bar back too: reaching through to
+// Model.ResetFilter leaves it naming a filter that is no longer applied.
+func TestResetFilterClearsTheTitle(t *testing.T) {
+	l := New()
+	l.SetSize(40, 10)
+	l.SetFilterHint("/ find")
+	l.SetFilterPrompt("find: ")
+	l.SetItems([]Item{{TitleText: "alpha", Filter: "alpha"}, {TitleText: "beta", Filter: "beta"}})
+	l.Model.SetFilterText("alpha")
+	l.applyFilterHint()
+	if got := ansi.Strip(l.View()); !strings.Contains(got, "find: alpha") {
+		t.Fatalf("expected an applied filter to start with, got:\n%s", got)
+	}
+
+	l.ResetFilter()
+	if got := ansi.Strip(l.View()); strings.Contains(got, "find: alpha") {
+		t.Fatalf("a cleared filter must stop being named, got:\n%s", got)
+	}
+	if got := len(l.Model.VisibleItems()); got != 2 {
+		t.Fatalf("every row should be back, got %d", got)
+	}
+}
+
+// A reload can return fewer rows than the cursor was sitting on. bubbles clamps
+// against the unfiltered set, so under an applied filter the cursor can end up
+// past the last visible row and the pane renders with nothing highlighted.
+func TestSetItemsClampsTheCursorToTheVisibleRows(t *testing.T) {
+	l := New()
+	l.SetSize(40, 20)
+	rows := func(n int) []Item {
+		out := make([]Item, n)
+		for i := range out {
+			out[i] = Item{TitleText: "match", Filter: "match", ID: strconv.Itoa(i)}
+		}
+		return out
+	}
+	l.SetItems(rows(120))
+	l.Model.SetFilterText("match")
+	for i := 0; i < 40; i++ {
+		l.Model.CursorDown()
+	}
+	if l.Model.Index() < 5 {
+		t.Fatalf("expected the cursor well down the list, got %d", l.Model.Index())
+	}
+
+	l.SetItems(rows(2))
+	if got, n := l.Model.Index(), len(l.Model.VisibleItems()); got >= n {
+		t.Fatalf("cursor at %d with %d visible rows — nothing would be highlighted", got, n)
+	}
+	if _, ok := l.Selected(); !ok {
+		t.Fatal("a non-empty list must have a selected row")
 	}
 }

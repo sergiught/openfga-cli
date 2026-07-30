@@ -77,6 +77,19 @@ var (
 	ErrReadFilterBareType    = errors.New("a bare object type isn't enough — add an object id (document:roadmap) or a user")
 )
 
+// ValidateReadUser checks a /read filter's user on its own. Unlike a tuple
+// being written, it is optional, and /read matches usersets and wildcards, so
+// this only asks for a type — the exact formats are the server's business.
+func ValidateReadUser(s string) error {
+	if s = strings.TrimSpace(s); s == "" {
+		return nil
+	}
+	if !strings.Contains(s, ":") {
+		return errors.New("must be user:anne, a userset (team:eng#member) or a wildcard (user:*)")
+	}
+	return nil
+}
+
 // ValidateReadObject checks a /read filter's object on its own: a whole type
 // ("document:") or one object ("document:roadmap"). The server's combination
 // rule spans fields, so it lives in ReadFilter.Validate; this is what a form

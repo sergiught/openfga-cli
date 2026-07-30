@@ -290,10 +290,8 @@ func (c *Command) deleteCmd() *cobra.Command {
 // rule is the same one the playground's form applies, but a form names its
 // fields and a command has to name its flags.
 func readFilterUsage(f fga.ReadFilter) error {
-	if f.User != "" {
-		if err := fga.ValidateUserRef(f.User); err != nil {
-			return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--user %q: %w", f.User, err))
-		}
+	if err := fga.ValidateReadUser(f.User); err != nil {
+		return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--user %q: %w", f.User, err))
 	}
 	if err := fga.ValidateReadObject(f.Object); err != nil {
 		return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--object %q: %w", f.Object, err))
@@ -303,8 +301,11 @@ func readFilterUsage(f fga.ReadFilter) error {
 		return clierr.WithCode(clierr.CodeUsage, errors.New(
 			"--object is required when filtering — pass a whole type (--object document:) or one object (--object document:roadmap)"))
 	case errors.Is(err, fga.ErrReadFilterBareType):
-		return clierr.WithCode(clierr.CodeUsage, errors.New(
-			"--object document: needs --user as well — or name one object (--object document:roadmap)"))
+		// Quote what they typed, as every sibling message does — a fixed example
+		// reads as if the command misheard the flag.
+		return clierr.WithCode(clierr.CodeUsage, fmt.Errorf(
+			"--object %q is a whole type, so --user is required as well — or name one object (--object %s<id>)",
+			f.Object, f.Object))
 	case err != nil:
 		return clierr.WithCode(clierr.CodeUsage, err)
 	}

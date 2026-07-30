@@ -142,6 +142,21 @@ func (l *List) SetItems(items []Item) {
 	// the exported way to reach the same repagination SetFilterText does.
 	l.Model.SetSize(l.Model.Width(), l.Model.Height())
 	l.Model.SetSize(l.Model.Width(), l.Model.Height())
+	// A reload can leave fewer rows than the cursor was sitting on, and bubbles
+	// clamps against the pre-filter set — so under an applied filter the cursor
+	// can end up past the last visible row, and the pane renders with nothing
+	// highlighted until the user presses an arrow key.
+	if n := len(l.Model.VisibleItems()); n > 0 && l.Model.Index() >= n {
+		l.Model.Select(n - 1)
+	}
+	l.applyFilterHint()
+}
+
+// ResetFilter clears an applied "/" filter and puts the title bar back to its
+// key hint. Callers must not reach through to Model.ResetFilter, which leaves
+// the title naming a filter that is no longer applied.
+func (l *List) ResetFilter() {
+	l.Model.ResetFilter()
 	l.applyFilterHint()
 }
 

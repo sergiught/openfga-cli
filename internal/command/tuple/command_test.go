@@ -606,7 +606,8 @@ func TestReadRejectsFiltersTheServerWouldRefuse(t *testing.T) {
 	}{
 		{"user alone", []string{"--user", "user:anne"}, "--object is required"},
 		{"relation alone", []string{"--relation", "viewer"}, "--object is required"},
-		{"bare type alone", []string{"--object", "document:"}, "needs --user"},
+		// The message quotes the value typed, not a fixed example.
+		{"bare type alone", []string{"--object", "team:"}, `--object "team:" is a whole type`},
 		{"object without a type", []string{"--object", "document", "--user", "user:anne"}, "must be document:roadmap"},
 		{"wildcard object", []string{"--object", "document:*"}, "wildcards aren't matched"},
 		{"userset object", []string{"--object", "document:1#viewer"}, "not a userset"},
