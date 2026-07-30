@@ -1162,6 +1162,7 @@ func (m Model) handleHistoryPicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // onEnterSection lazy-loads data when first visiting a section.
 func (m Model) onEnterSection() (tea.Model, tea.Cmd) {
 	m.modelPicking = false
+	m.historyPicking = false
 	switch m.section {
 	case secStores:
 		m.selectCurrentStore()
@@ -1219,6 +1220,10 @@ func (m *Model) activeList() *list.List {
 	case secModel:
 		if m.modelPicking {
 			return m.modelsList
+		}
+	case secQuery:
+		if m.historyPicking {
+			return m.historyList
 		}
 	case secTuples:
 		return m.tuplesList

@@ -24,6 +24,15 @@ func (m Model) handleWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 			dir = "up"
 		}
 		return m, m.modelsList.Update(keyMsg(dir))
+	case m.historyPicking:
+		// Same reasoning as the model-switcher case above: route the wheel to
+		// the picker's own list instead of falling into the secQuery cases
+		// below and scrolling whatever's behind the dialog.
+		dir := "down"
+		if up {
+			dir = "up"
+		}
+		return m, m.historyList.Update(keyMsg(dir))
 	case m.section == secModel:
 		if up {
 			return m.scrollGraph(-graphLineStep)

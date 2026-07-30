@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/sergiught/openfga-cli/internal/ui/shell"
+	"github.com/sergiught/openfga-cli/internal/ui/toast"
 )
 
 // queryModelWithHistory returns a model sitting in the Tuple Queries panel
@@ -53,6 +54,9 @@ func TestHistoryPickerEmptyDoesNotOpen(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("empty history should raise an informational toast")
 	}
+	if levels := m.(Model).toasts.Levels(); len(levels) == 0 || levels[len(levels)-1] != toast.Info {
+		t.Fatalf("empty history should push an Info toast, got %v", levels)
+	}
 }
 
 func TestHistoryPickerEscCloses(t *testing.T) {
@@ -73,16 +77,58 @@ func TestHistoryPickerEnterReruns(t *testing.T) {
 	m := queryModelWithHistory()
 
 	m, _ = m.Update(key("h"))
-	m, cmd := m.Update(key("enter"))
 	mm := m.(Model)
+	// Move off the default cursor (index 0) so this test can't pass against a
+	// bug that hardcodes rerunHistory(0) regardless of what's selected.
+	mm.historyList.SelectIndex(1)
+	var tm tea.Model = mm
+	tm, cmd := tm.Update(key("enter"))
+	mm = tm.(Model)
 	if mm.historyPicking {
 		t.Fatal("enter should close the picker")
 	}
 	if cmd == nil {
 		t.Fatal("enter should dispatch the rerun command")
 	}
-	// rerunHistory refills the query form from the selected entry.
+	// rerunHistory refills the query form from the selected entry — assert it
+	// used the second fixture entry (user:bob/owner/doc:plan), not the first.
 	if mm.qform == nil {
 		t.Fatal("rerun should have rebuilt the query form")
+	}
+	if mm.qmode != queryModeIndex("check") {
+		t.Fatalf("qmode = %d, want the check mode of the selected entry", mm.qmode)
+	}
+	want := []string{"user:bob", "owner", "doc:plan"}
+	got := mm.qform.Values()
+	if len(got) < 3 || strings.Join(got[:3], ",") != strings.Join(want, ",") {
+		t.Fatalf("qform values = %v, want the first 3 to be %v (the selected, not the default, entry)", got, want)
+	}
+}
+
+// TestHistoryPickerFilterNarrows reproduces the async list-filter wiring bug:
+// activeList() had no secQuery case, so the FilterMatchesMsg the "/" filter
+// depends on was never fed back to historyList and every row stayed visible.
+func TestHistoryPickerFilterNarrows(t *testing.T) {
+	m := queryModelWithHistory()
+
+	m, _ = m.Update(key("h"))
+	mm := m.(Model)
+	if got := len(mm.historyList.Model.VisibleItems()); got != 3 {
+		t.Fatalf("precondition: expected 3 visible rows before filtering, got %d", got)
+	}
+
+	var tm tea.Model = mm
+	tm = pump(t, tm, key("/"))
+	for _, r := range "bob" {
+		tm = pump(t, tm, key(string(r)))
+	}
+	mm = tm.(Model)
+	if !mm.historyList.SettingFilter() {
+		t.Fatal("expected to be mid-typing a filter")
+	}
+	// Only the user:bob entry's filter text ("check doc:plan#owner@user:bob")
+	// contains "bob".
+	if got := len(mm.historyList.Model.VisibleItems()); got != 1 {
+		t.Fatalf("filtering \"bob\" should narrow to 1 visible row, got %d", got)
 	}
 }
