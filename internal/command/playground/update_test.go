@@ -2,11 +2,13 @@ package playground
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/configtest"
 	"github.com/sergiught/openfga-cli/internal/dsl"
 	"github.com/sergiught/openfga-cli/internal/ui/icons"
@@ -116,12 +118,30 @@ func TestGlyphCyclePersistsConcreteMode(t *testing.T) {
 
 	icons.Apply(icons.ModeNerdFont)
 	var m tea.Model = newTestModel()
+	// newTestModel's config comes from config.New(), which has no resolved
+	// on-disk location — and saveConfig deliberately skips the write in that
+	// case. Swap in a loaded config so this exercises the real persist path.
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	m.(Model).cli.Config = cfg
 	m, _ = m.Update(ctrlG)
 
 	// An explicit choice must outrank the guess: cycling writes a concrete
 	// rung, taking the user out of auto for good.
 	if got := m.(Model).cli.Config.Icons; got != "unicode" {
 		t.Fatalf("config.Icons = %q, want %q", got, "unicode")
+	}
+
+	// The in-memory field is set before the save, so assert the file too —
+	// otherwise this passes even if every write fails.
+	b, err := os.ReadFile(cfg.Path())
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if !strings.Contains(string(b), `icons = "unicode"`) {
+		t.Fatalf("config file did not persist the rung:\n%s", b)
 	}
 }
 
@@ -139,7 +159,7 @@ func TestGlyphCycleStartsFromResolvedAuto(t *testing.T) {
 	}
 }
 
-func TestGlyphCycleIgnoredWhileFiltering(t *testing.T) {
+func TestGlyphCycleWorksWhileFiltering(t *testing.T) {
 	configtest.Isolate(t)
 	t.Cleanup(func() { icons.Apply(icons.ModeNerdFont) })
 
@@ -149,10 +169,13 @@ func TestGlyphCycleIgnoredWhileFiltering(t *testing.T) {
 	mm.focus = shell.FocusPanel
 	var m tea.Model = mm
 
-	// "/" starts the list filter; every subsequent key belongs to the filter
-	// input, including ctrl+g.
+	// "/" starts the list filter, which normally claims every subsequent key.
+	// Ctrl+G is hoisted above that guard on purpose: it is reached for when the
+	// screen is unreadable, and an unreadable screen outranks an in-progress
+	// filter. A ctrl chord is also not text the user could mean to type into
+	// the filter input.
 	m, _ = m.Update(key("/"))
-	if _, _ = m.Update(ctrlG); icons.Current() != icons.ModeNerdFont {
-		t.Fatal("g typed into a list filter must not cycle glyphs")
+	if _, _ = m.Update(ctrlG); icons.Current() != icons.ModeUnicode {
+		t.Fatal("ctrl+g must still cycle glyphs while a list filter is active")
 	}
 }

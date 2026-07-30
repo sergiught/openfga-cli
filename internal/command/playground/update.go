@@ -860,6 +860,20 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.ClearScreen
 	}
 
+	// Ctrl+G cycles the glyph rung, and is hoisted for the same reason as
+	// Ctrl+L: the user reaches for it precisely when the screen is unreadable
+	// — every tab rendering as "?" because the auto-detected rung guessed a
+	// Nerd Font the terminal has no font for. The help overlay advertises this
+	// key, so it has to fire from inside the overlay too; an unreadable screen
+	// outranks an in-progress list filter or an open form.
+	//
+	// Hoisted call: cycleIcons mutates m through a pointer (status and config),
+	// and Go leaves a plain read of m unordered against that call — see TUI-F8.
+	if msg.String() == "ctrl+g" {
+		cmd := m.cycleIcons()
+		return m, cmd
+	}
+
 	// The help overlay captures input until dismissed.
 	if m.helpOpen {
 		switch msg.String() {
@@ -1041,16 +1055,6 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.helpOpen = true
 		return m, nil
-	case "ctrl+g":
-		// Global on purpose: a user whose font can't render the current rung
-		// needs this to work from wherever they are. It sits below the
-		// filter-routing guard above, so it cannot preempt a list filter.
-		//
-		// Hoisted: cycleIcons mutates m through a pointer (status, config, and
-		// three viewports), and Go leaves a plain read of m unordered against
-		// that call — see TUI-F8.
-		cmd := m.cycleIcons()
-		return m, cmd
 	}
 
 	if m.focus == shell.FocusSidebar {
