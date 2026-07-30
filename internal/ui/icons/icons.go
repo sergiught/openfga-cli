@@ -1,5 +1,7 @@
-// Package icons resolves the glyph set once per run: Nerd Font when available
-// (default), universal Unicode fallback, or off for decorative glyphs.
+// Package icons resolves the process-wide glyph set: auto (the default, which
+// promotes to Nerd Font only on a positive signal), an explicit Nerd Font rung,
+// a universal Unicode fallback, or off for decorative glyphs. The playground's
+// ctrl+g re-resolves it at runtime, so the choice is not fixed at startup.
 package icons
 
 import (
