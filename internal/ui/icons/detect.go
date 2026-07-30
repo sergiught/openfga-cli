@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/x/term"
 )
@@ -27,9 +28,22 @@ const (
 // positive signal. The errors are asymmetric: guessing nerdfont wrongly prints
 // "?" on every tab, while guessing unicode wrongly costs slightly plainer
 // icons.
+//
+// The result is memoized because two entry points (main and the playground's
+// launch) each resolve the same auto rung, and the font-directory walk behind
+// it is not free. Nothing the guess depends on — env, TTY-ness, installed
+// fonts — can meaningfully change within one process.
 func Detect() Mode {
-	return detect(os.Getenv, fontDirs(), term.IsTerminal(os.Stdout.Fd()))
+	detectOnce.Do(func() {
+		detected = detect(os.Getenv, fontDirs(), term.IsTerminal(os.Stdout.Fd()))
+	})
+	return detected
 }
+
+var (
+	detectOnce sync.Once
+	detected   Mode
+)
 
 func detect(env func(string) string, dirs []string, isTTY bool) Mode {
 	if !isTTY {
