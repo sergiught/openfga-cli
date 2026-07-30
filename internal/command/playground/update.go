@@ -621,7 +621,8 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = "query complete"
 		cmds := []tea.Cmd{m.toasts.Push(toast.Success, m.status)}
 		// Record every query — check, list-objects and list-users — so all of
-		// them are rerunnable from the Recent strip.
+		// them are rerunnable from the h picker. (The Recent strip renders the
+		// same entries, but is informational only.)
 		m.pushHistory(histEntry{mode: msg.mode, vals: msg.vals, ok: msg.ok, ms: msg.ms, qctx: msg.qctx})
 		// Only a check carries an allow/deny verdict, so only it flashes.
 		if msg.badge {
