@@ -320,8 +320,8 @@ func preserveProfileSecrets(next *config.Auth, previous config.Auth) {
 func (m Model) handleQueryForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
-		// First esc drops to the (non-editing) panel layer, where r / history
-		// digits / resolution live; a second esc returns to the tab selection.
+		// First esc drops to the (non-editing) panel layer, where r / h /
+		// resolution live; a second esc returns to the tab selection.
 		m.editing = false
 		return m, nil
 	case "ctrl+r":

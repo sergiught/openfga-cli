@@ -825,9 +825,9 @@ func (m Model) renderResult() string {
 	return body
 }
 
-// historyStrip renders up to 5 numbered chips for recent query results,
-// newest first: a colored check/cross plus the first field value. Returns ""
-// when there is no history yet.
+// historyStrip renders up to 5 chips for recent query results, newest
+// first: a colored check/cross plus the first field value. Returns "" when
+// there is no history yet.
 func (m Model) historyStrip(maxW int) string {
 	if len(m.history) == 0 {
 		return ""

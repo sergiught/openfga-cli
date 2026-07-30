@@ -817,6 +817,48 @@ func TestQueryDigitJumpsSectionWithoutHistory(t *testing.T) {
 	}
 }
 
+// TestDigitTypesIntoQueryFormFieldWhileEditing guards the invariant that
+// keeps the global digit-jump guard from eating user input: handleKey routes
+// to handleQueryForm before the digit-jump check runs, so a digit typed
+// while editing a query field lands as a character, not a section jump.
+func TestDigitTypesIntoQueryFormFieldWhileEditing(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(key("6"))     // Query section
+	m, _ = m.Update(key("enter")) // descend -> editing the first field
+	m = pump(t, m, key("2"))
+	mod := m.(Model)
+	if mod.section != secQuery {
+		t.Fatalf("typing a digit while editing must not jump sections; got %v", mod.section)
+	}
+	if got := mod.qform.Values()[0]; got != "2" {
+		t.Fatalf("digit should have been typed into the field, got %q", got)
+	}
+}
+
+// TestDigitJumpClosesStaleResolutionTree reproduces a leak the unconditional
+// digit-jump guard opened up: showRes (the resolution-tree sub-mode) used to
+// be unreachable from a digit press because digits were excluded in
+// secQuery. Now that digits jump from every panel, leaving secQuery with the
+// tree open must close it — otherwise re-entering finds queryBody() still
+// rendering the stale tree ahead of the editing form.
+func TestDigitJumpClosesStaleResolutionTree(t *testing.T) {
+	m := newTestModel().(Model)
+	m.section = secQuery
+	m.focus = shell.FocusPanel
+	m.showRes = true
+	m.resTree = &fga.ResNode{Name: "document:roadmap#viewer", Granted: true}
+
+	var tm tea.Model = m
+	tm, _ = tm.Update(key("2")) // jump away to Stores
+	if tm.(Model).showRes {
+		t.Fatal("jumping away from Tuple Queries should close its resolution tree")
+	}
+	tm, _ = tm.Update(key("6")) // jump back to Tuple Queries, still panel focus
+	if tm.(Model).showRes {
+		t.Fatal("jumping back into Tuple Queries should not resurrect a stale resolution tree")
+	}
+}
+
 // TestQueryBodyRendersNonBadgeResultInCard verifies list-objects/list-users
 // results (badge=false) still render their title+bullets, under the same
 // "Result" section header as badge results.

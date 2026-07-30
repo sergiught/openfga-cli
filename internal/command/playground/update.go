@@ -1109,6 +1109,13 @@ func (m Model) handleSidebarKey(key string) (tea.Model, tea.Cmd) {
 // gotoSection moves the highlighted tab (staying in sidebar focus) and plays
 // the section-change fade, lazy-loading the target section's data.
 func (m Model) gotoSection(to section) (tea.Model, tea.Cmd) {
+	if to != m.section {
+		// The resolution tree is a secQuery sub-mode with its own layered esc
+		// handling (see handleKey). Leaving the section any other way — mouse,
+		// digit, tab cycling — must close it too, or re-entering finds
+		// queryBody() still rendering the stale tree ahead of the editing form.
+		m.showRes = false
+	}
 	m.section = to
 	m.fading = true
 	nm, cmd := m.onEnterSection()
