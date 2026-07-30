@@ -694,7 +694,9 @@ type SeedOptions struct {
 // RunSeeded launches the playground against an injected, already-built client
 // (rather than one resolved from config), with any test results preloaded.
 // When results are present it opens on the Test Results section; otherwise it
-// opens on the default section. It never writes config.
+// opens on the default section. It writes config only when the user explicitly
+// presses ctrl+g: that sets a global display preference rather than persisting
+// anything about the ephemeral store/model this run was seeded with.
 func RunSeeded(ctx context.Context, cli *cli.CLI, o SeedOptions) error {
 	m := newSeededModel(ctx, cli, o)
 	return launch(ctx, cli, m, apilog.NewRecorder(apiLogHistory))
@@ -1397,16 +1399,9 @@ func (m *Model) cycleIcons() tea.Cmd {
 	icons.Apply(next)
 	name := names[next]
 
-	// Apply mutates a package global, but these viewports hold strings
-	// rendered under the previous rung and would otherwise show stale glyphs
-	// until something else invalidated them.
-	m.graphVP.SetContent(m.renderGraph())
-	m.refreshAPILogVP()
-	m.refreshResVP()
-
 	m.cli.Config.Icons = name
 	m.status = "glyphs: " + name
-	if err := m.cli.Config.Save(); err != nil {
+	if err := m.saveConfig(); err != nil {
 		return m.configSaveErrCmd(err)
 	}
 	return m.toasts.Push(toast.Info, m.status+" — saved")
