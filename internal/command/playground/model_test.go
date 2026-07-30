@@ -859,6 +859,42 @@ func TestDigitJumpClosesStaleResolutionTree(t *testing.T) {
 	}
 }
 
+// TestCommandPaletteJumpClosesStaleResolutionTree covers the same leak as
+// TestDigitJumpClosesStaleResolutionTree, reached through ctrl+k instead of a
+// digit: the palette's "enter" handler used to be a second, independent
+// implementation of "jump to a section" that never cleared showRes.
+func TestCommandPaletteJumpClosesStaleResolutionTree(t *testing.T) {
+	m := newTestModel().(Model)
+	m.section = secQuery
+	m.focus = shell.FocusPanel
+	m.showRes = true
+	m.resTree = &fga.ResNode{Name: "document:roadmap#viewer", Granted: true}
+
+	openPalette := func(m Model) Model {
+		var tm tea.Model = m
+		tm, _ = tm.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+		return tm.(Model)
+	}
+	choose := func(m Model, idx int) Model {
+		m.paletteList.SelectIndex(idx)
+		var tm tea.Model = m
+		tm, _ = tm.Update(key("enter"))
+		return tm.(Model)
+	}
+
+	m = openPalette(m)
+	m = choose(m, int(secStores)) // "Go to Stores"
+	if m.showRes {
+		t.Fatal("jumping away via the palette should close the resolution tree")
+	}
+
+	m = openPalette(m)
+	m = choose(m, int(secQuery)) // "Go to Tuple Queries"
+	if m.showRes {
+		t.Fatal("jumping back via the palette should not resurrect a stale resolution tree")
+	}
+}
+
 // TestQueryBodyRendersNonBadgeResultInCard verifies list-objects/list-users
 // results (badge=false) still render their title+bullets, under the same
 // "Result" section header as badge results.

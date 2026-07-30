@@ -925,11 +925,11 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if it, ok := m.paletteList.Selected(); ok {
 				m.paletteOpen = false
-				m.section = section(it.Index)
 				m.focus = shell.FocusSidebar
-				m.fading = true
-				nm, cmd := m.onEnterSection()
-				return nm, tea.Batch(cmd, fadeTick())
+				// Delegate to gotoSection rather than re-inlining its
+				// bookkeeping — a second copy is how the showRes leak (see
+				// gotoSection's comment) went unnoticed here in the first place.
+				return m.gotoSection(section(it.Index))
 			}
 		}
 		cmd := m.paletteList.Update(msg)
