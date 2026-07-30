@@ -359,6 +359,11 @@ type Model struct {
 
 	historyPicking bool
 	historyList    *uilist.List
+	// historyShown is what the open picker's rows were built from. pushHistory
+	// prepends, so a result landing while the picker is open renumbers m.history
+	// under rows the user is already reading; rerunning against this snapshot
+	// keeps "the row I picked" and "the query that ran" the same thing.
+	historyShown []histEntry
 
 	// helpOpen shows the ? keybinding overlay.
 	helpOpen bool
@@ -1081,8 +1086,13 @@ func (m *Model) populatePalette() {
 // populateHistory refills the rerun picker. Rows mirror the one-line history
 // strip's notation so the two read the same.
 func (m *Model) populateHistory() {
-	items := make([]uilist.Item, len(m.history))
-	for i, h := range m.history {
+	// A filter is a property of one visit to the picker, not of the picker:
+	// handleHistoryPicker takes esc before the list can cancel its own filter,
+	// so without this the next open reappears silently narrowed.
+	m.historyList.ResetFilter()
+	m.historyShown = append([]histEntry(nil), m.history...)
+	items := make([]uilist.Item, len(m.historyShown))
+	for i, h := range m.historyShown {
 		verdict := ""
 		if h.mode == "check" {
 			verdict = " · denied"

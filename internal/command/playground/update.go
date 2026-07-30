@@ -1153,9 +1153,11 @@ func (m Model) handleModelPicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleHistoryPicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
-		if it, ok := m.historyList.Selected(); ok && it.Index < len(m.history) {
+		// Indexed against the snapshot the rows were built from, not m.history:
+		// see historyShown.
+		if it, ok := m.historyList.Selected(); ok && it.Index < len(m.historyShown) {
 			m.historyPicking = false
-			return m.rerunHistory(it.Index)
+			return m.rerunHistory(m.historyShown[it.Index])
 		}
 		return m, nil
 	case "esc":

@@ -164,6 +164,8 @@ func (m Model) mainTitle() string {
 		return base + " ▸ Edit DSL"
 	case m.section == secModel && m.modelPicking:
 		return base + " ▸ Switch model"
+	case m.section == secQuery && m.historyPicking:
+		return base + " ▸ Recent queries"
 	case m.section == secQuery && m.showRes:
 		return base + " ▸ Resolution"
 	case m.section == secTuples && m.tupleFilters.applied.Active():
@@ -981,6 +983,8 @@ func (m Model) statusKeys() []string {
 		return []string{"running…", "ctrl+c quit"}
 	case m.section == secModel && m.modelPicking:
 		return []string{"↑↓ browse", "↵ select", "esc"}
+	case m.section == secQuery && m.historyPicking:
+		return []string{"↑↓ browse", "↵ rerun", "esc"}
 	case m.section == secQuery && m.editing:
 		// Enter advances between fields and only runs on the last one; ctrl+s
 		// runs from anywhere. Spell both out so the hint matches reality.

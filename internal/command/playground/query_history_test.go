@@ -134,6 +134,98 @@ func TestHistoryPickerFilterNarrows(t *testing.T) {
 	}
 }
 
+// TestHistoryPickerFooterAndBreadcrumb pins the picker to the same footer and
+// header contract as the model switcher it was modeled on: with a modal open,
+// the footer must advertise the modal's keys (the query panel's i/tab/h/r are
+// all inert inside it) and the header must say which sub-mode you are in.
+func TestHistoryPickerFooterAndBreadcrumb(t *testing.T) {
+	m := queryModelWithHistory()
+
+	m, _ = m.Update(key("h"))
+	mm := m.(Model)
+
+	keys := strings.Join(mm.statusKeys(), " ")
+	for _, inert := range []string{"i/↵ edit", "tab mode", "h rerun", "r resolve"} {
+		if strings.Contains(keys, inert) {
+			t.Fatalf("footer advertises %q, which does nothing inside the picker: %q", inert, keys)
+		}
+	}
+	// "↵ rerun" rather than the model picker's "↵ select": the footer has to
+	// agree with the modal's own "enter rerun" hint.
+	for _, want := range []string{"↑↓ browse", "↵ rerun", "esc"} {
+		if !strings.Contains(keys, want) {
+			t.Fatalf("footer missing the picker's own key %q: %q", want, keys)
+		}
+	}
+
+	if got, want := mm.mainTitle(), sectionNames[secQuery]+" ▸ Recent queries"; got != want {
+		t.Fatalf("mainTitle = %q, want the sub-mode breadcrumb %q", got, want)
+	}
+}
+
+// TestHistoryPickerRerunsTheRowShown reproduces the index shift: pushHistory
+// prepends, so a query result landing while the picker is open renumbers every
+// entry under the rows the user is looking at. Selecting "user:bob" must rerun
+// user:bob, not whatever slid into its old slot.
+func TestHistoryPickerRerunsTheRowShown(t *testing.T) {
+	m := queryModelWithHistory()
+
+	m, _ = m.Update(key("h"))
+	mm := m.(Model)
+	mm.historyList.SelectIndex(1) // the user:bob row, as displayed
+
+	// An in-flight query lands while the picker is open (reachable because
+	// enter on the form leaves editing on: run → esc → h → result arrives).
+	var tm tea.Model = mm
+	tm, _ = tm.Update(queryResultMsg{
+		storeID: "store-1", modelID: "model-1",
+		mode: "check", vals: [3]string{"user:zoe", "viewer", "doc:late"}, ok: true, badge: true,
+	})
+	mm = tm.(Model)
+	if !mm.historyPicking {
+		t.Fatal("precondition: a landing result must not close the picker")
+	}
+	if len(mm.history) != 4 {
+		t.Fatalf("precondition: the result should have been recorded, got %d entries", len(mm.history))
+	}
+
+	tm = mm
+	tm, _ = tm.Update(key("enter"))
+	mm = tm.(Model)
+	want := []string{"user:bob", "owner", "doc:plan"}
+	got := mm.qform.Values()
+	if len(got) < 3 || strings.Join(got[:3], ",") != strings.Join(want, ",") {
+		t.Fatalf("qform values = %v, want %v — the picker reran a different entry than the row it displayed", got, want)
+	}
+}
+
+// TestHistoryPickerReopensUnfiltered pins that a filter does not outlive the
+// picker: handleHistoryPicker takes esc before the list sees it, so the list
+// never cancels its own filter and the next open would show a narrowed subset
+// with no visible filter prompt to explain it.
+func TestHistoryPickerReopensUnfiltered(t *testing.T) {
+	tm := queryModelWithHistory()
+
+	tm = pump(t, tm, key("h"))
+	tm = pump(t, tm, key("/"))
+	for _, r := range "bob" {
+		tm = pump(t, tm, key(string(r)))
+	}
+	if got := len(tm.(Model).historyList.Model.VisibleItems()); got != 1 {
+		t.Fatalf("precondition: filtering \"bob\" should narrow to 1 row, got %d", got)
+	}
+	tm = pump(t, tm, key("esc"))
+	if tm.(Model).historyPicking {
+		t.Fatal("precondition: esc should have closed the picker")
+	}
+	tm = pump(t, tm, key("h"))
+
+	mm := tm.(Model)
+	if got := len(mm.historyList.Model.VisibleItems()); got != 3 {
+		t.Fatalf("a reopened picker must show all %d rows, got %d — the previous filter survived the close", 3, got)
+	}
+}
+
 func TestDigitsJumpFromQueryPanel(t *testing.T) {
 	m := queryModelWithHistory()
 
