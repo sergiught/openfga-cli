@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/sergiught/openfga-cli/internal/config"
+	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/ui/field"
 )
 
@@ -76,6 +77,32 @@ func buildWriteTupleForm(w int) *field.Form {
 	)
 	f.SetWidth(w)
 	return f
+}
+
+// buildTupleFilterForm builds the tuples section's server-side /read filter
+// form, pre-filled with cur so editing is cumulative. Callers pass the draft
+// filter, which is the active one except while a submit is in flight and after
+// a refusal, when it is the text the user still has to fix. All three fields
+// are optional; submitting them all empty clears the filter.
+// Values() = [user, relation, object].
+func buildTupleFilterForm(w int, cur tupleFilter) *field.Form {
+	f := field.NewForm(
+		// The same checks the --user and --object flags apply, so the two
+		// surfaces say the same thing about the same value.
+		field.New("User", "user:anne").WithValidate(fga.ValidateReadUser),
+		field.New("Relation", "viewer").WithValidate(fga.ValidateReadRelation),
+		field.New("Object", "document:roadmap").WithValidate(fga.ValidateReadObject),
+	)
+	f.SetWidth(w)
+	f.SetValues([]string{cur.User, cur.Relation, cur.Object})
+	return f
+}
+
+// tupleFilterFromForm reads buildTupleFilterForm's values back into a filter,
+// trimming each field: a stray space would otherwise produce a filter that
+// looks inactive in the header while still narrowing the read.
+func tupleFilterFromForm(vals []string) tupleFilter {
+	return fga.NewReadFilter(vals[0], vals[1], vals[2])
 }
 
 // buildWriteAssertionForm builds the add/edit-assertion form.

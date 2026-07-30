@@ -34,6 +34,8 @@ func (m Model) enterForm(kind formKind) (tea.Model, tea.Cmd) {
 		m.form = buildCreateStoreForm(dw)
 	case formWriteTuple:
 		m.form = buildWriteTupleForm(dw)
+	case formTupleFilter:
+		m.form = buildTupleFilterForm(dw, m.tupleFilters.draft)
 	case formWriteAssertion:
 		m.form = buildWriteAssertionForm(dw)
 	case formAddProfile:
@@ -149,6 +151,24 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = m.mutationStatus
 			return m, writeTupleCmd(m.ctx, m.client,
 				m.mutationOrigin(m.storeID, m.modelID, m.tupleMutationGen), key, false)
+		case formTupleFilter:
+			f := tupleFilterFromForm(vals)
+			if err := f.Validate(); err != nil {
+				return resume(err.Error())
+			}
+			if m.storeID == "" {
+				// The store can go away while the form is open (a delete landing
+				// behind it); reading with no store id only yields an SDK error.
+				return resume("select a store first")
+			}
+			// The applied filter is deliberately left alone: it describes the
+			// rows still on screen. The candidate becomes the wanted one — so a
+			// reload racing this one can't drop it — and is adopted only once the
+			// server answers (see the tuplesLoadedMsg handler).
+			m.tupleFilters.request(f)
+			m.beginLoad()
+			m.tuplesGen++
+			return m, m.tuplesReloadCmd()
 		case formWriteAssertion:
 			key, err := fga.ParseTuple(vals[0], vals[1], vals[2])
 			if err != nil {

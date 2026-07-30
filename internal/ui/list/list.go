@@ -7,6 +7,7 @@ import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sergiught/openfga-cli/internal/style"
 )
@@ -110,15 +111,54 @@ func (l *List) Restyle() {
 	l.Model.SetDelegate(&l.delegate)
 }
 
-// SetItems replaces the list items.
-func (l *List) SetItems(items []Item) tea.Cmd {
+// SetItems replaces the list items, re-running an applied "/" filter over them.
+//
+// bubbles hands that re-run back as a command carrying a FilterMatchesMsg, but
+// that message is applied by whichever list receives it — so a caller that
+// routes messages by "the section on screen" can hand one list's matches to
+// another, or drop it entirely and leave a filtered list rendering nothing. It
+// is pure fuzzy matching over the items just set, with nothing to wait on, so
+// it runs inline here instead and never escapes. (bubbles does the same in its
+// own Model.SetFilterText.)
+func (l *List) SetItems(items []Item) {
 	rows := make([]list.Item, len(items))
 	for i, it := range items {
 		rows[i] = it
 	}
-	cmd := l.Model.SetItems(rows)
+	if cmd := l.Model.SetItems(rows); cmd != nil {
+		// Update early-returns on a FilterMatchesMsg, so the command it hands back
+		// is always nil.
+		if msg := cmd(); msg != nil {
+			l.Model, _ = l.Model.Update(msg)
+		}
+	}
+	// SetItems paginates from the rows it is replacing, not the ones it just set:
+	// with a filter applied the matches do not exist yet, and either way the row
+	// budget and the page count are computed from each other — the first pass
+	// sizes the rows while the pager still reads the old count, and only then sets
+	// the new one. A multi-page pager is a line taller than a single-page one in
+	// compact view, so a stale count leaves the list a line too tall, which pushes
+	// the app's footer off screen. Two passes reach the fixed point; SetSize is
+	// the exported way to reach the same repagination SetFilterText does.
+	l.Model.SetSize(l.Model.Width(), l.Model.Height())
+	l.Model.SetSize(l.Model.Width(), l.Model.Height())
+	// A reload can leave fewer rows than the cursor was sitting on. bubbles
+	// rebuilds the paginator but not the cursor within the page, so on a partly
+	// filled last page the cursor can end up past the last visible row and the
+	// pane renders with nothing highlighted until an arrow key nudges it. This
+	// is not filter-specific; an unfiltered list shrinks the same way.
+	if n := len(l.Model.VisibleItems()); n > 0 && l.Model.Index() >= n {
+		l.Model.Select(n - 1)
+	}
 	l.applyFilterHint()
-	return cmd
+}
+
+// ResetFilter clears an applied "/" filter and puts the title bar back to its
+// key hint. Callers must not reach through to Model.ResetFilter, which leaves
+// the title naming a filter that is no longer applied.
+func (l *List) ResetFilter() {
+	l.Model.ResetFilter()
+	l.applyFilterHint()
 }
 
 // SetFilterHint sets the faint helper text shown in place of the title while
@@ -135,19 +175,56 @@ func (l *List) SetFilterPlaceholder(ph string) {
 	l.Model.FilterInput.Placeholder = ph
 }
 
-// applyFilterHint shows the hint only when there are rows to filter.
+// SetFilterPrompt overrides the "filter: " label shown at the head of the "/"
+// input.
+func (l *List) SetFilterPrompt(p string) {
+	l.Model.FilterInput.Prompt = p
+}
+
+// applyFilterHint fills the title bar: the term of an applied "/" filter if
+// there is one, otherwise the hint advertising the key — and nothing at all
+// when there are no rows to filter.
+//
+// Naming the applied term matters because bubbles hides the input once the
+// filter is accepted, so an applied filter is otherwise invisible: the rows are
+// narrowed and nothing on screen says by what.
 func (l *List) applyFilterHint() {
-	if len(l.Model.Items()) == 0 {
+	switch {
+	case l.Model.FilterState() == list.FilterApplied:
+		l.Model.Title = truncateHint(l.Model.FilterInput.Prompt+l.Model.FilterValue(), l.hintWidth())
+	case len(l.Model.Items()) == 0:
 		l.Model.Title = ""
-		return
+	default:
+		l.Model.Title = truncateHint(l.filterHint, l.hintWidth())
 	}
-	l.Model.Title = l.filterHint
+}
+
+// hintWidth is the room the title bar has. Measured, not derived: bubbles
+// truncates the title against the pane width but renders it inside a padded
+// bar, so the last few columns overflow — a title of Width()-3 already puts the
+// line one column over, and an overflowing title wraps, which costs the app a
+// row and pushes its footer off screen. TestTitleBarBudget and
+// TestTitleBarBudgetIsTight pin it from above and below.
+func (l *List) hintWidth() int { return l.Model.Width() - 4 }
+
+// truncateHint keeps the title bar inside its pane: overflowing it wraps, and
+// the extra line pushes the app's own footer off screen.
+func truncateHint(s string, w int) string {
+	if lipgloss.Width(s) <= w {
+		return s
+	}
+	return ansi.Truncate(s, w, "…")
 }
 
 // SetSize sets the list dimensions.
 func (l *List) SetSize(width, height int) {
 	l.Model.SetWidth(width)
 	l.Model.SetHeight(height)
+	// The title is truncated against the pane, so a narrower pane needs it
+	// recomputed — otherwise a title sized for the old width overflows, wraps,
+	// and costs the app the row its footer sits on until some message happens to
+	// reach this list again.
+	l.applyFilterHint()
 	l.Restyle()
 }
 
@@ -221,5 +298,9 @@ func (l *List) View() string { return l.Model.View() }
 func (l *List) Update(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
 	l.Model, cmd = l.Model.Update(msg)
+	// This is where the filter is applied and cleared, so it is where the title
+	// bar has to be recomputed — driving it from SetItems alone left the title a
+	// reload behind the state it describes, in both directions.
+	l.applyFilterHint()
 	return cmd
 }

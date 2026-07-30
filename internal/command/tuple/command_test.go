@@ -593,3 +593,137 @@ func TestReadRejectsUnknownConsistency(t *testing.T) {
 		t.Fatalf("exit code = %d, want usage; err=%v", got, err)
 	}
 }
+
+// /read's tuple_key rule spans the three filter flags, and the server's 400 for
+// it names a proto field rather than what to do about it. `tuples read` catches
+// it locally, with the same rule the playground's filter form applies — the two
+// surfaces used to disagree, the TUI explaining it and the CLI round-tripping.
+func TestReadRejectsFiltersTheServerWouldRefuse(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"user alone", []string{"--user", "user:anne"}, "--object is required"},
+		{"relation alone", []string{"--relation", "viewer"}, "--object is required"},
+		// With no user, "--object document:" would fail the next check, so the
+		// message must not offer it as a fix.
+		{"relation alone suggests a workable fix", []string{"--relation", "viewer"}, "together with a user"},
+		// The message quotes the value typed, not a fixed example.
+		{"bare type alone", []string{"--object", "team:", "--user", ""}, `--object "team:" is a whole type`},
+		// The suggestion echoes the value too, not a fixed example.
+		{"bare type suggestion", []string{"--object", "team:"}, "--object team:<id>"},
+		{"relation with a space", []string{"--relation", "can view", "--object", "document:roadmap"}, `--relation "can view"`},
+		{"object without a type", []string{"--object", "document", "--user", "user:anne"}, "must be document:roadmap"},
+		{"wildcard object", []string{"--object", "document:*"}, "wildcards aren't matched"},
+		{"userset object", []string{"--object", "document:1#viewer"}, "not a userset"},
+		{"user without a type", []string{"--user", "anne", "--object", "document:roadmap"}, `--user "anne"`},
+		{"padded object with no type", []string{"--object", "  document  ", "--user", "user:anne"}, `--object "document"`},
+		// Both flags are wrong: the user is reported first, so the order is pinned.
+		{"both malformed", []string{"--user", "anne", "--object", "document"}, "--user"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := New(newHumanTupleCLI(t, "http://127.0.0.1:1")).readCmd()
+			cmd.SetOut(io.Discard)
+			cmd.SetErr(io.Discard)
+			cmd.SetArgs(tc.args)
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatal("want a usage error, got nil")
+			}
+			if got := clierr.Code(err); got != clierr.CodeUsage {
+				t.Fatalf("exit code = %d, want usage; err=%v", got, err)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error %q should explain the rule (%q)", err, tc.want)
+			}
+			// Every other usage error in this command names a flag; these must too.
+			if !strings.Contains(err.Error(), "--") {
+				t.Fatalf("error %q should name the flag at fault", err)
+			}
+		})
+	}
+}
+
+// A filter the server accepts must still reach it, and reading with no filter
+// at all stays valid.
+func TestReadAcceptsValidFilters(t *testing.T) {
+	var bodies []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var b map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&b)
+		bodies = append(bodies, b)
+		_ = json.NewEncoder(w).Encode(openfga.ReadResponse{})
+	}))
+	t.Cleanup(srv.Close)
+
+	for _, args := range [][]string{
+		{},
+		{"--object", "document:roadmap"},
+		{"--object", "document:", "--user", "user:anne"},
+		{"--object", "document:roadmap", "--relation", "viewer"},
+	} {
+		cmd := New(newHumanTupleCLI(t, srv.URL)).readCmd()
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+	if len(bodies) != 4 {
+		t.Fatalf("every valid filter should reach the server, got %d reads", len(bodies))
+	}
+	if _, ok := bodies[0]["tuple_key"]; ok {
+		t.Fatalf("no flags must mean no tuple_key, got %v", bodies[0])
+	}
+	tk, _ := bodies[1]["tuple_key"].(map[string]any)
+	if tk == nil || tk["object"] != "document:roadmap" {
+		t.Fatalf("the filter must reach the wire, got %v", bodies[1])
+	}
+	tk2, _ := bodies[2]["tuple_key"].(map[string]any)
+	if tk2 == nil || tk2["user"] != "user:anne" || tk2["object"] != "document:" {
+		t.Fatalf("every set field must reach the wire, got %v", bodies[2])
+	}
+	tk3, _ := bodies[3]["tuple_key"].(map[string]any)
+	if tk3 == nil || tk3["relation"] != "viewer" {
+		t.Fatalf("the relation must reach the wire, got %v", bodies[3])
+	}
+}
+
+// The local rule runs on trimmed values, so the values sent have to be trimmed
+// too — otherwise a padded flag passes the check and then fails the server's
+// own whitespace pattern, which is the round trip the check exists to prevent.
+func TestReadTrimsFilterFlags(t *testing.T) {
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		_ = json.NewEncoder(w).Encode(openfga.ReadResponse{})
+	}))
+	t.Cleanup(srv.Close)
+
+	cmd := New(newHumanTupleCLI(t, srv.URL)).readCmd()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--object", "  document:roadmap  ", "--user", " user:anne ", "--relation", "  viewer  "})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	tk, _ := body["tuple_key"].(map[string]any)
+	if tk == nil || tk["object"] != "document:roadmap" || tk["user"] != "user:anne" || tk["relation"] != "viewer" {
+		t.Fatalf("padded flags must reach the wire trimmed, got %v", body)
+	}
+
+	// Whitespace-only flags are no filter at all, as they are in the TUI.
+	body = nil
+	cmd = New(newHumanTupleCLI(t, srv.URL)).readCmd()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--object", "   "})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := body["tuple_key"]; ok {
+		t.Fatalf("a whitespace-only flag must read as no filter, got %v", body)
+	}
+}

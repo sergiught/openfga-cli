@@ -280,12 +280,40 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil // a load from a store we've since switched away from, or superseded by a newer reload
 		}
 		if msg.err != nil {
+			// The applied filter stays put: it describes the rows still on screen,
+			// which this failed load did not replace, so adopting a rejected filter
+			// would leave the header claiming they were filtered. Back out of it for
+			// later reloads, or a filter the server refuses once would go on failing
+			// every r and every write reload with no sign of why. The draft keeps the
+			// user's text, so f offers it back for a fix.
+			m.tupleFilters.reject(!isConnErr(msg.err), errStr(msg.err))
 			return m, m.toastErr("tuples", msg.err)
 		}
 		m.connLost = false
+		// The header breadcrumb and the count noun are the only other signs, and
+		// the header truncates on a narrow pane — so say it out loud, both ways.
+		var note string
+		switch {
+		case m.tupleFilters.applied.Active() && !msg.filter.Active():
+			note = "cleared the filter"
+		case msg.filter.Active() && msg.filter != m.tupleFilters.applied:
+			note = "filtering on " + tupleFilterFields(msg.filter)
+		}
 		m.tuples = msg.tuples
 		m.tuplesCapped = msg.capped
+		m.tupleFilters.confirm(msg.filter)
+		before := m.status
 		m.populateTuples()
+		// A single load can both adopt a new filter and consume a pending write
+		// selection. If populateTuples had something to say about the write, it
+		// outranks the filter note — the user can see the filter in the header.
+		if note != "" && m.status == before {
+			m.status = note
+			return m, m.toasts.Push(toast.Info, m.status)
+		}
+		if m.status != before {
+			return m, m.toasts.Push(toast.Info, m.status)
+		}
 		return m, nil
 
 	case changesLoadedMsg:
@@ -497,6 +525,11 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.modelIsLatest = false
 			m.graph = fga.Graph{}
 			m.models, m.tuples, m.changes, m.assertions, m.assertResults = nil, nil, nil, nil, nil
+			m.tuplesCapped = false
+			m.tupleFilters.reset()
+			// As on a store switch: a "/" find belongs to the rows it was typed
+			// against, and those are gone.
+			m.tuplesList.ResetFilter()
 			m.history, m.hasResult = nil, false
 			// The store itself is genuinely gone (the delete API call already
 			// succeeded) regardless of whether clearing its id from the saved
@@ -554,7 +587,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.changesGen++
 		return m, tea.Batch(
 			m.toasts.Push(toast.Success, m.status),
-			loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tuplesGen),
+			m.tuplesReloadCmd(),
 		)
 
 	case queryResultMsg:
@@ -1025,10 +1058,17 @@ func (m Model) handleSidebarKey(key string) (tea.Model, tea.Cmd) {
 		m.fading = true
 		nm, cmd := m.onEnterSection()
 		return nm, tea.Batch(cmd, fadeTick())
-	case "n", "a", "e", "d":
+	case "n", "a", "e", "d", "f":
 		// Empty-state call-to-action keys ("press n to create one") are panel
 		// actions. Descend into the panel and replay the key so a new user's very
 		// first keystroke works, instead of being a silent no-op on the sidebar.
+		//
+		// f is such a key only in Tuples ("press f to edit or clear it" when a
+		// filter matches nothing); elsewhere it is panel-local paging, which must
+		// not yank focus out of the sidebar.
+		if key == "f" && m.section != secTuples {
+			return m, nil
+		}
 		m.focus = shell.FocusPanel
 		nm, cmd := m.onEnterSection()
 		mm, ok := nm.(Model)

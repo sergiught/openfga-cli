@@ -19,6 +19,9 @@ import (
 const (
 	tuplesDisplayCap  = 500
 	changesDisplayCap = 200
+	// tuplesPageSize is the /read page size the tuples pane requests; ReadAll
+	// pages until the display cap is reached.
+	tuplesPageSize = 100
 )
 
 // --- async messages ---
@@ -65,7 +68,8 @@ type tuplesLoadedMsg struct {
 	// superseded by a newer tuples load against the same store (e.g. a manual
 	// reload racing the reload a tuple write already triggers)
 	tuples []openfga.Tuple
-	capped bool // more rows exist than were loaded (hit the display cap)
+	capped bool        // more rows exist than were loaded (hit the display cap)
+	filter tupleFilter // the /read filter these rows are the result of
 	err    error
 }
 
@@ -283,10 +287,97 @@ func loadModelsCmd(ctx context.Context, cl *openfga.Client, storeID string, gen 
 	}
 }
 
-func loadTuplesCmd(ctx context.Context, cl *openfga.Client, storeID string, gen int) tea.Cmd {
+// tupleFilter is the tuples section's server-side /read filter. It is the same
+// type the CLI's `tuples read` builds, so the two surfaces cannot drift on what
+// a filter is or which ones the server will take.
+type tupleFilter = fga.ReadFilter
+
+// tupleFilters tracks the tuples section's filter across the three states it
+// can be in at once. They differ only while a submit is in flight, and after
+// the server refuses one.
+type tupleFilters struct {
+	// applied is the filter the rows in m.tuples were read with. The header,
+	// the count and the empty-state hint all describe what is on screen, so
+	// they read this one.
+	applied tupleFilter
+	// wanted is the filter the next read sends. Every reload path dispatches
+	// it, so a reload racing a submit cannot drop the submitted filter.
+	wanted tupleFilter
+	// draft is what the form offers for editing. It outlives a rejection, so a
+	// filter the server refused comes back for a fix instead of being retyped.
+	draft tupleFilter
+	// answered records whether the read that backed out of wanted reached the
+	// server at all. Only meaningful while draft and wanted differ, and recorded
+	// rather than re-read, because the connection can recover before the user
+	// reopens the form — at which point a dead socket would read as a refusal.
+	answered bool
+	// reason is what the server said, kept for the same reason as the draft: the
+	// toast carrying it has faded by the time the user reopens the form.
+	reason string
+}
+
+// request records a submitted filter as the one to read with next.
+func (s *tupleFilters) request(f tupleFilter) { s.wanted, s.draft = f, f }
+
+// confirm adopts a filter the server has answered for. It is always the wanted
+// one: every dispatch site bumps tuplesGen before building its load (Init is the
+// exception, and it is the first, with nothing in flight to race), so at most
+// one load exists per generation and older ones are dropped as stale. A draft that no longer matches
+// wanted is left alone — reject() is the only thing that pulls the two apart,
+// and the refused text is still owed to the user until they replace it.
+func (s *tupleFilters) confirm(f tupleFilter) {
+	keepDraft := s.draft != s.wanted
+	s.applied, s.wanted = f, f
+	if !keepDraft {
+		s.draft = f
+	}
+}
+
+// reject backs out of a filter the read failed on: later reloads go back to
+// reading what is already on screen, while the draft keeps the user's text.
+// answered separates a filter the server refused from one whose read never got
+// there — the same backing out, a different thing to tell the user.
+func (s *tupleFilters) reject(answered bool, reason string) {
+	if s.wanted == s.applied {
+		// Nothing was in flight to back out of, so this failure belongs to some
+		// later read and says nothing about the draft. Recording it here would
+		// relabel a filter the server refused as one that never reached it.
+		return
+	}
+	if !s.wanted.Active() {
+		// A refused clear leaves nothing to fix: keeping the blank draft would
+		// offer an empty form over a filter that is still applied, with no way
+		// back to it.
+		s.wanted, s.draft = s.applied, s.applied
+		return
+	}
+	s.wanted, s.answered, s.reason = s.applied, answered, reason
+}
+
+// reset drops the filter entirely — for a store switch, a reconnect or the
+// deletion of the store it was written for, all of which invalidate the types
+// and ids it names.
+func (s *tupleFilters) reset() { *s = tupleFilters{} }
+
+// tupleReadRequest builds the tuples pane's /read request — the same shape the
+// CLI's `tuples read` sends.
+func tupleReadRequest(f tupleFilter) *openfga.ReadRequest {
+	return &openfga.ReadRequest{PageSize: tuplesPageSize, TupleKey: f.TupleKey()}
+}
+
+// tuplesReloadCmd builds a tuples reload. Every reload path goes through it so
+// none can drift back to reading the applied filter instead of the wanted one —
+// they differ only when a reload races a filter submit, which is exactly when
+// the difference is hard to notice. Callers still own beginLoad and the
+// generation bump, since most of them dispatch several loads at once.
+func (m Model) tuplesReloadCmd() tea.Cmd {
+	return loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tupleFilters.wanted, m.tuplesGen)
+}
+
+func loadTuplesCmd(ctx context.Context, cl *openfga.Client, storeID string, f tupleFilter, gen int) tea.Cmd {
 	return func() tea.Msg {
 		var tuples []openfga.Tuple
-		req := &openfga.ReadRequest{PageSize: 100}
+		req := tupleReadRequest(f)
 		capped := false
 		for t, err := range cl.Tuples.ReadAll(ctx, req, openfga.WithStore(storeID)) {
 			if err != nil {
@@ -298,7 +389,9 @@ func loadTuplesCmd(ctx context.Context, cl *openfga.Client, storeID string, gen 
 			}
 			tuples = append(tuples, t)
 		}
-		return tuplesLoadedMsg{storeID: storeID, gen: gen, tuples: tuples, capped: capped}
+		// The filter is echoed back so the model only adopts it once the server
+		// has accepted it — see the tuplesLoadedMsg handler.
+		return tuplesLoadedMsg{storeID: storeID, gen: gen, tuples: tuples, capped: capped, filter: f}
 	}
 }
 

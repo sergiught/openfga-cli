@@ -23,6 +23,7 @@ in its footer and subsequent actions.
 - 🎨 **Model graph**: the authorization model rendered as a colored tree of types, relations, and inherited (tuple-to-userset) paths.
 - 🔎 **Query + resolution tree**: run `check`/`list-objects`/`list-users`/`list-relations` and expand *why* a decision was made.
 - ✍️ **Inline editing**: add/delete tuples, edit assertions, and edit the model DSL, with **inline validation** as you type.
+- 🎯 **Two ways to narrow the tuples**: `/` searches the rows already loaded, while `f` sends a `/read` filter to the server — the way to reach tuples outside the 500 the pane holds at a time.
 - 🖱 **Full mouse support**: wheel-scroll the graph and lists, click tabs and list rows, click the footer keycaps as buttons, and click outside a dialog to dismiss it.
 - 🎭 **Themes**: `aurora`, `catppuccin`, `charm`, `dracula`, `gruvbox`, `nord`, `tokyonight`, and a `mono` (NO_COLOR-friendly) theme.
 
@@ -67,7 +68,8 @@ The `?` overlay renders this same list, filtered to the global keys plus whateve
 | `m` | Model | Switch model |
 | `r` | Model | Reload |
 | `↑` `↓` | Tuples | Move selection |
-| `/` | Tuples | Filter |
+| `/` | Tuples | Find within the rows already loaded |
+| `f` | Tuples | Filter on the server (`/read`) by user, relation and object |
 | `a` | Tuples | Add a tuple |
 | `d` | Tuples | Delete the selected tuple |
 | `r` | Tuples | Reload |
@@ -113,7 +115,7 @@ The `?` overlay renders this same list, filtered to the global keys plus whateve
 | `esc` | Tests | Back to the sidebar |
 | `ctrl+s` | Model → Edit DSL | Apply the model |
 | `esc` | Model → Edit DSL | Cancel (confirms first if the buffer has unsaved edits) |
-| `esc` | Add/edit forms (tuple, assertion, profile, store) | Cancel and close the form |
+| `esc` | Add/edit forms (tuple, tuple filter, assertion, profile, store) | Cancel and close the form |
 | `wheel` | Model, Tuple Queries → resolution tree, Tests, list sections | Scroll the graph, resolution tree, tree/coverage/detail pane, or move the list selection |
 | click a tab | Global (sidebar) | Jump to that section |
 | click a footer keycap | Global | Invoke that key's action, as a button |
@@ -123,3 +125,13 @@ The `?` overlay renders this same list, filtered to the global keys plus whateve
 | click a detail tab | API Logs | Switch the Req/Resp headers/body sub-section |
 | click a tree row | Tests | Select that file or test |
 | click outside the dialog | Global (any open dialog) | Dismiss it, same as `esc` |
+
+The server-side tuple filter (`f`) always needs an object carrying a type — a
+whole type (`document:`) or one object (`document:roadmap`). A bare type on its
+own also needs a user; a relation can't stand in for either. Object ids match
+literally, so wildcards (`document:*`) are rejected rather than quietly matching
+nothing, as are usersets (`document:1#viewer`) — the object is an object. The
+user field takes any `type:id` reference, including a userset (`team:eng#member`)
+or a wildcard (`user:*`). Submitting all three fields blank clears the filter and
+re-reads the store, and switching store or profile clears it for you — the types
+and ids it names belong to the store it was written for.

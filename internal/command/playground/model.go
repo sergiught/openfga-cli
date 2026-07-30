@@ -69,6 +69,7 @@ const (
 	formWriteAssertion
 	formAddProfile
 	formEditProfile
+	formTupleFilter
 )
 
 var queryModes = []string{"check", "list-objects", "list-users", "list-relations"}
@@ -293,7 +294,8 @@ type Model struct {
 
 	tuples       []openfga.Tuple
 	tuplesList   *uilist.List
-	tuplesCapped bool // more tuples exist than are shown (hit the display cap)
+	tuplesCapped bool         // more tuples exist than are shown (hit the display cap)
+	tupleFilters tupleFilters // server-side /read filter; see the type
 
 	models       []openfga.AuthorizationModel
 	modelsList   *uilist.List
@@ -524,6 +526,12 @@ func newModel(ctx context.Context, cli *cli.CLI, cl *openfga.Client, storeID, mo
 		fl.list.SetFilterHint("press / to filter")
 		fl.list.SetFilterPlaceholder(fl.placeholder)
 	}
+	// Tuples has two filters: "/" narrows the rows already loaded, "f" re-reads
+	// from the server. Name them apart here so they don't read as one key. This
+	// hint shares the same ~21-column budget as the one above — anything longer
+	// wraps, and the overflow drops the status bar entirely.
+	m.tuplesList.SetFilterHint("/ find · f filter")
+	m.tuplesList.SetFilterPrompt("find: ")
 
 	m.renewReqCtx()
 	m.qmode = 0
@@ -566,7 +574,7 @@ func (m Model) Init() tea.Cmd {
 	if m.storeID != "" {
 		cmds = append(cmds,
 			m.startModelCmd(),
-			loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tuplesGen),
+			m.tuplesReloadCmd(),
 			loadChangesCmd(m.reqCtx, m.client, m.storeID, m.changesGen),
 			loadAssertionsCmd(m.reqCtx, m.client, m.storeID, m.modelID, m.assertLoadGen),
 		)
@@ -906,6 +914,17 @@ func (m *Model) selectCurrentStore() {
 	m.storesList.SelectID(m.storeID)
 }
 
+// tupleContains reports whether the loaded rows include this tuple — i.e. the
+// server returned it, whatever the "/" find is currently showing.
+func (m Model) tupleContains(id string) bool {
+	for _, t := range m.tuples {
+		if fga.FormatTuple(t.Key) == id {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *Model) populateTuples() {
 	userW := 0
 	if m.compact {
@@ -936,8 +955,24 @@ func (m *Model) populateTuples() {
 	m.tuplesList.SetCompact(m.compact)
 	m.tuplesList.SetItems(items)
 	if m.pendingTupleSelect != "" {
-		m.tuplesList.SelectID(m.pendingTupleSelect)
+		id := m.pendingTupleSelect
+		found := m.tuplesList.SelectID(id)
 		m.pendingTupleSelect = ""
+		// The row the user just wrote is not on screen: without this the pane is
+		// byte-identical under a "wrote …" toast, and the write looks lost. Which
+		// filter to blame depends on why it is missing — SelectID searches what
+		// the "/" find leaves visible, so a row the server did return but the find
+		// hides is not the /read filter's doing.
+		if !found && !m.tupleMutating {
+			switch {
+			case !m.tupleContains(id) && m.tupleFilters.applied.Active():
+				m.status = "written — the active filter hides it (press f)"
+			case m.tupleContains(id):
+				m.status = "written — the / find hides it"
+			case m.tuplesCapped:
+				m.status = "written — beyond the " + itoa(tuplesDisplayCap) + " rows shown (press f to narrow)"
+			}
+		}
 	}
 }
 
@@ -1116,7 +1151,11 @@ func (m *Model) selectStore(s openfga.Store) tea.Cmd {
 	m.modelIsLatest = false
 	m.graph = fga.Graph{}
 	m.models = nil // the previous store's models must not linger in the picker
-	m.tuples = nil
+	m.tuples, m.tuplesCapped = nil, false
+	m.tupleFilters.reset()
+	// A "/" find belongs to the rows it was typed against, the same as the /read
+	// filter cleared beside it.
+	m.tuplesList.ResetFilter()
 	m.changes = nil
 	m.assertions = nil
 	m.assertResults = nil
@@ -1161,7 +1200,7 @@ func (m *Model) selectStore(s openfga.Store) tea.Cmd {
 	m.beginLoad()
 	return tea.Batch(extra,
 		loadModelCmd(m.reqCtx, m.client, m.storeID, m.modelGen),
-		loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tuplesGen),
+		m.tuplesReloadCmd(),
 		loadChangesCmd(m.reqCtx, m.client, m.storeID, m.changesGen),
 		loadAssertionsCmd(m.reqCtx, m.client, m.storeID, m.modelID, m.assertLoadGen),
 	)
@@ -1402,7 +1441,11 @@ func (m *Model) activateResolved(r config.Resolved, cl *openfga.Client, status s
 	m.stores = nil
 	m.graph = fga.Graph{}
 	m.models = nil
-	m.tuples = nil
+	m.tuples, m.tuplesCapped = nil, false
+	m.tupleFilters.reset()
+	// A "/" find belongs to the rows it was typed against, the same as the /read
+	// filter cleared beside it.
+	m.tuplesList.ResetFilter()
 	m.changes = nil
 	m.assertions = nil
 	m.assertResults = nil
@@ -1461,7 +1504,7 @@ func (m *Model) activateResolved(r config.Resolved, cl *openfga.Client, status s
 		m.changesStale = false
 		cmds = append(cmds,
 			m.startModelCmd(),
-			loadTuplesCmd(m.reqCtx, m.client, m.storeID, m.tuplesGen),
+			m.tuplesReloadCmd(),
 			loadChangesCmd(m.reqCtx, m.client, m.storeID, m.changesGen),
 			loadAssertionsCmd(m.reqCtx, m.client, m.storeID, m.modelID, m.assertLoadGen),
 		)

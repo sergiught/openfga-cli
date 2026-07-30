@@ -9,7 +9,7 @@ import CommandDemo from '../../../../components/CommandDemo.astro';
 
 <CommandDemo slug="tuples-read" />
 
-Read tuples from the store. Use --user, --relation and --object to filter; all are optional. By default all matching tuples are returned (the CLI auto-pages); --max-results (alias --limit) caps the total returned and stops paging once reached. --page-size only tunes the per-request page.
+Read tuples from the store. Use --user, --relation and --object to filter. A filter needs an object carrying a type — a whole type (document:) or one object (document:roadmap) — and a bare type also needs a user; reading with no filter at all is fine. Object ids are matched literally, so wildcards and usersets are rejected rather than quietly matching nothing. A user, if given, must carry a type (user:anne, a userset like team:eng#member, or user:*), and a relation is a bare name. By default all matching tuples are returned (the CLI auto-pages); --max-results (alias --limit) caps the total returned and stops paging once reached. --page-size only tunes the per-request page.
 
 ## Usage
 

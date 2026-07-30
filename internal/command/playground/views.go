@@ -103,13 +103,18 @@ func (m Model) helpBody() string {
 	case secModel:
 		section = [][2]string{{"↑↓ k/j", "scroll"}, {"←→ h/l", "pan"}, {"pgup/pgdn b/f/space", "page"}, {"g/G home/end", "top/bottom"}, {"v", "weighted graph"}, {"e", "edit DSL"}, {"m", "switch model"}, {"r", "reload"}}
 	case secTuples:
-		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"a", "add"}, {"d", "delete"}, {"r", "reload"}}
+		section = [][2]string{
+			{"↑↓", "move"},
+			{"/", "find in the loaded rows"},
+			{"f", "filter on the server"},
+			{"a", "add"}, {"d", "delete"}, {"r", "reload"}, {"v", "compact view"},
+		}
 	case secChanges:
-		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"r", "reload"}}
+		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"r", "reload"}, {"v", "compact view"}}
 	case secQuery:
 		section = [][2]string{{"i / ↵", "edit query"}, {"tab", "cycle mode"}, {"1–5", "rerun recent"}, {"r", "resolve"}}
 	case secAssertions:
-		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"↵", "run + resolve"}, {"a", "add"}, {"e", "edit"}, {"d", "delete"}, {"t", "run all"}}
+		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"↵", "run + resolve"}, {"a", "add"}, {"e", "edit"}, {"d", "delete"}, {"t", "run all"}, {"v", "compact view"}}
 	case secAPILogs:
 		section = [][2]string{
 			{"↑↓", "select request"},
@@ -155,8 +160,39 @@ func (m Model) mainTitle() string {
 		return base + " ▸ Switch model"
 	case m.section == secQuery && m.showRes:
 		return base + " ▸ Resolution"
+	case m.section == secTuples && m.tupleFilters.applied.Active():
+		label := base + " ▸ "
+		if m.tuplesCapped {
+			// Ahead of the fields: the header truncates from the right, and a long
+			// filter would otherwise always eat the cap marker.
+			label += "first " + itoa(tuplesDisplayCap) + " · "
+		}
+		return label + "filter: " + tupleFilterFields(m.tupleFilters.applied)
+	case m.section == secTuples && m.tuplesCapped:
+		// "/" can only search what was loaded, so at the cap it cannot reach the
+		// rows the user is missing — point at the filter that reads a different
+		// slice of the store rather than a bigger one.
+		return base + " ▸ first " + itoa(tuplesDisplayCap) + " — press f to narrow"
 	}
 	return base
+}
+
+// tupleFilterFields renders the filter's set fields compactly for the panel
+// header, e.g. "object=document: user=user:anne".
+func tupleFilterFields(f tupleFilter) string {
+	// Object leads: it is the field the server requires, and the header
+	// truncates from the right on narrow panes.
+	var parts []string
+	if f.Object != "" {
+		parts = append(parts, "object="+safeText(f.Object))
+	}
+	if f.User != "" {
+		parts = append(parts, "user="+safeText(f.User))
+	}
+	if f.Relation != "" {
+		parts = append(parts, "relation="+safeText(f.Relation))
+	}
+	return strings.Join(parts, " ")
 }
 
 func (m Model) dialogContent() (string, string) {
@@ -193,6 +229,17 @@ func (m Model) dialogContent() (string, string) {
 		return "Create Store", m.form.View() + "\n" + style.Faint.Render("↵ create · esc cancel")
 	case m.formKind == formWriteTuple:
 		return "Write Tuple", m.form.View() + "\n" + style.Faint.Render("tab move · ctrl+s submit · esc cancel")
+	case m.formKind == formTupleFilter:
+		subtitle := "Re-reads from the server; needs an object.\nSubmit all blank to clear."
+		if m.tupleFilters.draft != m.tupleFilters.wanted {
+			subtitle = "The server refused this filter:\n" + safeText(m.tupleFilters.reason)
+			if !m.tupleFilters.answered {
+				subtitle = "The last read never reached the server.\nTry again."
+			}
+		}
+		return "Filter Tuples", style.Faint.Render(subtitle) +
+			"\n" + m.form.View() + "\n" +
+			style.Faint.Render("tab move · ctrl+s apply · esc cancel")
 	case m.formKind == formWriteAssertion:
 		title := "Add Assertion"
 		if m.assertEditIdx >= 0 {
@@ -320,7 +367,9 @@ func (m Model) sectionBody() string {
 		case m.loading && m.storeID != "" && len(m.tuples) == 0:
 			body = m.spinner.View() + " loading tuples…"
 		case len(m.tuples) == 0:
-			body = style.Faint.Render(tupleHint(m.storeID))
+			body = style.Faint.Render(tupleHint(m.storeID, m.tupleFilters.applied.Active()))
+		case len(m.tuplesList.Model.VisibleItems()) == 0 && !m.tuplesList.SettingFilter():
+			body = style.Faint.Render(findHidesAllHint(len(m.tuples)))
 		case m.compact:
 			body = m.tuplesList.View()
 		default:
@@ -908,6 +957,9 @@ func (m Model) statusKeys() []string {
 	case m.formKind == formCreateStore:
 		// Single-field form: Enter submits (ctrl+s also works); match the dialog hint.
 		return []string{"↵ create", "esc cancel"}
+	case m.formKind == formTupleFilter:
+		// Nothing is persisted here, so "save" would be misleading.
+		return []string{"ctrl+s apply", "esc cancel"}
 	case m.formKind != formNone:
 		return []string{"ctrl+s save", "esc cancel"}
 	case m.section == secModel && m.editorOpen:
@@ -940,7 +992,12 @@ func (m Model) statusKeys() []string {
 	case secModel:
 		return []string{"↑↓/hjkl pan", m.graphViewHint(), "e edit DSL", "m switch", "r reload", "esc"}
 	case secTuples:
-		return []string{"↑↓", "/ filter", "a add", "d delete", "r reload", m.compactHint(), "esc"}
+		if m.width < 120 {
+			// The count on the other side of the footer is worth more than the
+			// compact-view hint, which the ? overlay also carries.
+			return []string{"↑↓", "/ find", "f filter", "a add", "d del", "r reload", "esc"}
+		}
+		return []string{"↑↓", "/ find", "f filter", "a add", "d delete", "r reload", m.compactHint(), "esc"}
 	case secChanges:
 		return []string{"↑↓", "/ filter", "r reload", m.compactHint(), "esc"}
 	case secQuery:
@@ -1030,10 +1087,14 @@ func (m Model) sectionStatus() string {
 	case secStores:
 		return plural(len(m.stores), "store")
 	case secTuples:
-		if m.tuplesCapped {
-			return fmt.Sprintf("first %d tuples (more exist)", len(m.tuples))
+		noun := "tuple"
+		if m.tupleFilters.applied.Active() {
+			noun = "matching tuple"
 		}
-		return plural(len(m.tuples), "tuple")
+		if m.tuplesCapped {
+			return fmt.Sprintf("first %d %ss (more exist)", len(m.tuples), noun)
+		}
+		return plural(len(m.tuples), noun)
 	case secChanges:
 		if m.changesCapped {
 			return fmt.Sprintf("latest %d of %d changes", len(m.changes), m.changesTotal)
@@ -1049,11 +1110,25 @@ func itoa(n int) string { return strconv.Itoa(n) }
 
 // --- helpers ---
 
-func tupleHint(storeID string) string {
+func tupleHint(storeID string, filtered bool) string {
 	if storeID == "" {
 		return "Select a store first — press 2"
 	}
+	if filtered {
+		// Shorter than it wants to be: at 80 columns the longer phrasing clipped
+		// exactly the half that says what to do about it.
+		return "No matches — press f to edit or clear the filter"
+	}
 	return "No tuples yet — press a to add one"
+}
+
+// findHidesAllHint explains an empty pane that holds rows: the "/" find is
+// hiding them. The list names the applied term in its own title bar, but this
+// branch replaces the list entirely, so the pane would otherwise be blank.
+func findHidesAllHint(rows int) string {
+	// Lead with the remedy: at 80 columns the other order clipped exactly the
+	// half that says what to do, which is what shortened the sibling hint above.
+	return "Press / then esc to clear the find hiding " + plural(rows, "row")
 }
 
 func changeHint(storeID string) string {

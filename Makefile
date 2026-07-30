@@ -98,7 +98,16 @@ lint-commits: $(BINARIES_DIR)/commitlint ## Lint the current commit message agai
 	@$(BINARIES_DIR)/commitlint lint
 
 .PHONY: check
-check: fmt vet lint test ## Run fmt, vet, lint and test
+check: fmt vet lint test docs-check ## Run fmt, vet, lint, test and the docs freshness check
+
+.PHONY: docs-check
+docs-check: ## Fail if the generated command reference is out of date (CI checks this too)
+	@set -e; tmp=$$(mktemp -d); trap 'rm -rf $$tmp' EXIT; \
+		go run ./tools/docgen -out $$tmp; \
+		if ! diff -qr $$tmp docs/site/src/content/docs/reference; then \
+			echo "command reference is stale — run 'make docs-reference' and commit"; \
+			exit 1; \
+		fi
 
 #-----------------------------------------------------------------------------------------------------------------------
 # Release
