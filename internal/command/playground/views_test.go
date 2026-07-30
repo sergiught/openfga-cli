@@ -242,3 +242,16 @@ func TestAssertionPreviewShowsContextualTuplesAndContext(t *testing.T) {
 		}
 	}
 }
+
+func TestSidebarNavAdvertisesDigits(t *testing.T) {
+	m := newTestModel().(Model)
+	items := m.sidebarNav()
+	if len(items) != len(sectionNames) {
+		t.Fatalf("got %d nav items, want %d", len(items), len(sectionNames))
+	}
+	for i, it := range items {
+		if want := itoa(i + 1); it.Key != want {
+			t.Fatalf("nav item %d Key = %q, want %q", i, it.Key, want)
+		}
+	}
+}

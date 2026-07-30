@@ -288,7 +288,7 @@ func (m Model) sidebarNav() []shell.NavItem {
 	sectionIcons := []string{ic.Profile, ic.Store, ic.Model, ic.Tuple, ic.Change, ic.Query, ic.Assert, ic.APILog, ic.Check}
 	items := make([]shell.NavItem, len(sectionNames))
 	for i, name := range sectionNames {
-		it := shell.NavItem{Label: name, Icon: sectionIcons[i], Active: section(i) == m.section}
+		it := shell.NavItem{Label: name, Icon: sectionIcons[i], Key: itoa(i + 1), Active: section(i) == m.section}
 		switch section(i) {
 		case secProfiles:
 			if n := len(m.cli.Config.Profiles); n > 0 {
