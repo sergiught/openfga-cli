@@ -96,6 +96,7 @@ func (m Model) helpBody() string {
 		{"1–9", "jump to a section"},
 		{"ctrl+k", "command palette"},
 		{"ctrl+l", "redraw the screen"},
+		{"ctrl+g", "cycle glyphs (nerdfont / unicode / off)"},
 		{"?", "toggle this help"},
 		{"q", "quit (from the tab bar)"},
 		{"ctrl+c", "quit"},

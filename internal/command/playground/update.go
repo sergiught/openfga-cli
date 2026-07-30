@@ -1041,6 +1041,11 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.helpOpen = true
 		return m, nil
+	case "ctrl+g":
+		// Global on purpose: a user whose font can't render the current rung
+		// needs this to work from wherever they are. It sits below the
+		// filter-routing guard above, so it cannot preempt a list filter.
+		return m, m.cycleIcons()
 	}
 
 	if m.focus == shell.FocusSidebar {
