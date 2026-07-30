@@ -100,7 +100,7 @@ func TestGlyphCycleKey(t *testing.T) {
 	t.Cleanup(func() { icons.Apply(icons.ModeNerdFont) })
 
 	icons.Apply(icons.ModeNerdFont)
-	var m tea.Model = newTestModel()
+	m := newTestModel()
 
 	// Cycle runs nerdfont -> unicode -> off -> nerdfont.
 	want := []icons.Mode{icons.ModeUnicode, icons.ModeOff, icons.ModeNerdFont}
@@ -117,7 +117,7 @@ func TestGlyphCyclePersistsConcreteMode(t *testing.T) {
 	t.Cleanup(func() { icons.Apply(icons.ModeNerdFont) })
 
 	icons.Apply(icons.ModeNerdFont)
-	var m tea.Model = newTestModel()
+	m := newTestModel()
 	// newTestModel's config comes from config.New(), which has no resolved
 	// on-disk location — and saveConfig deliberately skips the write in that
 	// case. Swap in a loaded config so this exercises the real persist path.
@@ -153,7 +153,7 @@ func TestGlyphCycleStartsFromResolvedAuto(t *testing.T) {
 	// than appear to no-op.
 	icons.Apply(icons.ModeAuto)
 	before := icons.Current()
-	var m tea.Model = newTestModel()
+	m := newTestModel()
 	if _, _ = m.Update(ctrlG); icons.Current() == before {
 		t.Fatal("first press after auto resolution did not change the rung")
 	}
