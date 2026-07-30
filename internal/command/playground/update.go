@@ -1045,7 +1045,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// Global on purpose: a user whose font can't render the current rung
 		// needs this to work from wherever they are. It sits below the
 		// filter-routing guard above, so it cannot preempt a list filter.
-		return m, m.cycleIcons()
+		//
+		// Hoisted: cycleIcons mutates m through a pointer (status, config, and
+		// three viewports), and Go leaves a plain read of m unordered against
+		// that call — see TUI-F8.
+		cmd := m.cycleIcons()
+		return m, cmd
 	}
 
 	if m.focus == shell.FocusSidebar {
