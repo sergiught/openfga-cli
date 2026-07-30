@@ -42,9 +42,9 @@ type NavItem struct {
 	Icon  string
 	Badge string
 	// Key is an accelerator advertised as a faint "[k]" prefix; "" renders
-	// none. In the collapsed one-line strip (navStrip) it does not prefix the
-	// icon but *replaces* it on inactive items, and is dropped entirely on the
-	// active one, which shows its icon+label pill. Nothing constrains its
+	// none. In the collapsed one-line strip (navStrip) it is not shown at all
+	// unless the item has no Icon to show in its place, and the active item
+	// there always renders as an icon+label pill. Nothing constrains its
 	// length: the strip and the expanded rows both budget for a short chord, so
 	// a long Key ("ctrl+shift+q") eats the width the label needed and truncates
 	// the label instead of itself.
@@ -581,11 +581,13 @@ func (s *Shell) navStrip(width int) string {
 		if n.Active {
 			segs = append(segs, style.GradientPillPhase(strings.TrimSpace(n.Icon+" "+n.Label), s.drift))
 		} else {
-			// Collapsed, a bare icon carries no meaning without its label; show
-			// the key instead when there is one — it's both more useful and
-			// font-safe than an icon alone.
+			// "[k]" is three columns where an icon is one, so keying every
+			// inactive item costs the nine-tab strip ~16 columns and truncates
+			// its tail at the documented 40-column minimum — dropping the very
+			// tabs the strip exists to advertise. Fall back to the key only
+			// when the glyph set is off and the icon would be blank.
 			seg := n.Icon
-			if n.Key != "" {
+			if seg == "" && n.Key != "" {
 				seg = "[" + n.Key + "]"
 			}
 			segs = append(segs, lipgloss.NewStyle().Foreground(style.Muted).Render(seg))

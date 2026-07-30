@@ -335,9 +335,9 @@ func TestNavItemKeyPrefixIsFaintNotPillPainted(t *testing.T) {
 }
 
 // TestNavStripKeyFallback covers criterion 6: in the collapsed one-line tab
-// strip, an inactive item with a Key shows "[k]" instead of its icon, one
-// without a Key falls back to the icon, and the active item still renders
-// its full icon+label pill text.
+// strip, an inactive item shows its icon whether or not it has a Key, an
+// icon-less item falls back to "[k]" so the segment isn't blank, and the
+// active item still renders its full icon+label pill text.
 func TestNavStripKeyFallback(t *testing.T) {
 	s := New()
 	s.SetSize(60, 20) // below collapseBelow (76 cols)
@@ -350,6 +350,8 @@ func TestNavStripKeyFallback(t *testing.T) {
 		{Label: "Stores", Icon: "▣", Key: "2", Active: true},
 		{Label: "Profiles", Icon: "◉", Key: "1"},
 		{Label: "Assertions", Icon: "✓"},
+		// No icon: what the "off" glyph set produces, where "[k]" beats blank.
+		{Label: "Tests", Key: "9"},
 	}, "")
 	s.SetMain("Stores", "body")
 	out := ansi.Strip(s.View())
@@ -360,14 +362,17 @@ func TestNavStripKeyFallback(t *testing.T) {
 	if strings.Contains(out, "[2]") {
 		t.Fatalf("collapsed strip should drop the active item's key; its labeled pill already says where you are:\n%s", out)
 	}
-	if !strings.Contains(out, "[1]") {
-		t.Fatalf("collapsed strip should show the key instead of the icon for a keyed inactive item:\n%s", out)
+	if !strings.Contains(out, "◉") {
+		t.Fatalf("a keyed inactive item should still show its icon; the icon is what makes the strip fit:\n%s", out)
 	}
-	if strings.Contains(out, "◉") {
-		t.Fatalf("a keyed inactive item's key replaces its icon in the strip, it does not prefix it:\n%s", out)
+	if strings.Contains(out, "[1]") {
+		t.Fatalf("a keyed inactive item's key must not displace its icon in the strip:\n%s", out)
 	}
 	if !strings.Contains(out, "✓") {
-		t.Fatalf("collapsed strip should fall back to the icon for a keyless inactive item:\n%s", out)
+		t.Fatalf("collapsed strip should show the icon for a keyless inactive item:\n%s", out)
+	}
+	if !strings.Contains(out, "[9]") {
+		t.Fatalf("collapsed strip should fall back to the key when there is no icon to show:\n%s", out)
 	}
 }
 
