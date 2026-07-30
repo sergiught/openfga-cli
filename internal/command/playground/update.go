@@ -1020,6 +1020,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.section == secModel && m.modelPicking {
 		return m.handleModelPicker(msg)
 	}
+	if m.section == secQuery && m.historyPicking {
+		return m.handleHistoryPicker(msg)
+	}
 
 	// While a list is filtering, route everything to it.
 	if lst := m.activeList(); lst != nil && lst.SettingFilter() {
@@ -1135,6 +1138,24 @@ func (m Model) handleModelPicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	cmd := m.modelsList.Update(msg)
+	return m, cmd
+}
+
+// handleHistoryPicker handles keys while the Tuple Queries rerun overlay is
+// open: enter reruns the picked query, esc closes the overlay.
+func (m Model) handleHistoryPicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		if it, ok := m.historyList.Selected(); ok && it.Index < len(m.history) {
+			m.historyPicking = false
+			return m.rerunHistory(it.Index)
+		}
+		return m, nil
+	case "esc":
+		m.historyPicking = false
+		return m, nil
+	}
+	cmd := m.historyList.Update(msg)
 	return m, cmd
 }
 

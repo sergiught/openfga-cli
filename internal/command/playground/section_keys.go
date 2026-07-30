@@ -335,6 +335,14 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			if n := int(key[0] - '1'); n < len(m.history) {
 				return m.rerunHistory(n)
 			}
+		case "h":
+			if len(m.history) == 0 {
+				m.status = "no recent queries yet"
+				return m, m.toasts.Push(toast.Info, m.status)
+			}
+			m.populateHistory()
+			m.historyPicking = true
+			return m, nil
 		}
 		return m, nil
 

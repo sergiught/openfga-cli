@@ -113,6 +113,7 @@ func TestResizeReflowsEditorScrollAfterShrink(t *testing.T) {
 	m.assertionsList = uilist.New()
 	m.paletteList = uilist.New()
 	m.modelsList = uilist.New()
+	m.historyList = uilist.New()
 	m.editorOpen = true
 	m.ready = true
 

@@ -262,6 +262,9 @@ func (m Model) dialogContent() (string, string) {
 			inner = m.spinner.View() + " loading models…"
 		}
 		return "Switch model", inner + "\n" + style.Faint.Render("↑↓ choose · enter load · esc cancel")
+	case m.section == secQuery && m.historyPicking:
+		return "Recent queries", m.historyList.View() + "\n" +
+			style.Faint.Render("↑↓ choose · enter rerun · esc cancel")
 	}
 	return "", ""
 }
