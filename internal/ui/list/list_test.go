@@ -1,13 +1,13 @@
 package list
 
 import (
-	"charm.land/bubbles/v2/list"
-	"charm.land/lipgloss/v2"
 	"strconv"
 	"strings"
 	"testing"
 
+	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -507,7 +507,79 @@ func TestSetItemsClampsTheCursorToTheVisibleRows(t *testing.T) {
 	if got, n := l.Model.Index(), len(l.Model.VisibleItems()); got >= n {
 		t.Fatalf("cursor at %d with %d visible rows — nothing would be highlighted", got, n)
 	}
+	// It lands on the last visible row, not back at the top: the user was near
+	// the end of the list and that is the nearest valid row.
+	if got := l.Model.Index(); got != 1 {
+		t.Fatalf("cursor = %d, want the last visible row (1)", got)
+	}
 	if _, ok := l.Selected(); !ok {
 		t.Fatal("a non-empty list must have a selected row")
+	}
+}
+
+// The clamp measures the rows on screen, not the rows held: under a filter
+// those differ, which is the whole reason it exists.
+func TestSetItemsClampMeasuresTheVisibleRows(t *testing.T) {
+	l := New()
+	l.SetSize(40, 20)
+	items := make([]Item, 120)
+	for i := range items {
+		items[i] = Item{TitleText: "row", Filter: "keep", ID: strconv.Itoa(i)}
+	}
+	l.SetItems(items)
+	l.Model.SetFilterText("keep")
+	for i := 0; i < 40; i++ {
+		l.Model.CursorDown()
+	}
+
+	// Same 120 items, but only two still match.
+	for i := range items {
+		items[i].Filter = "gone"
+	}
+	items[0].Filter, items[1].Filter = "keep", "keep"
+	l.SetItems(items)
+	if n := len(l.Model.VisibleItems()); n != 2 {
+		t.Fatalf("expected two matches, got %d", n)
+	}
+	if got := l.Model.Index(); got >= 2 {
+		t.Fatalf("cursor at %d with 2 visible rows — measured the held rows, not the shown ones", got)
+	}
+}
+
+// The boundary is inclusive: an index equal to the visible count is already one
+// past the last row, so ">" instead of ">=" leaves it orphaned.
+func TestSetItemsClampBoundaryIsInclusive(t *testing.T) {
+	l := New()
+	l.SetSize(40, 20)
+	items := make([]Item, 12)
+	for i := range items {
+		items[i] = Item{TitleText: "row", Filter: "keep", ID: strconv.Itoa(i)}
+	}
+	l.SetItems(items)
+	l.Model.SetFilterText("keep")
+	l.Model.Select(3)
+
+	l.SetItems(items[:3]) // exactly one fewer row than the cursor's index
+	if got := len(l.Model.VisibleItems()); got != 3 {
+		t.Fatalf("expected three rows, got %d", got)
+	}
+	if got := l.Model.Index(); got != 2 {
+		t.Fatalf("cursor = %d with 3 rows, want the last one (2)", got)
+	}
+	if _, ok := l.Selected(); !ok {
+		t.Fatal("a non-empty list must have a selected row")
+	}
+}
+
+// An empty visible set has no row to land on; the cursor must not go negative,
+// which nothing later would repair.
+func TestSetItemsClampLeavesAnEmptyListAlone(t *testing.T) {
+	l := New()
+	l.SetSize(40, 20)
+	l.SetItems([]Item{{TitleText: "alpha", Filter: "alpha"}})
+	l.Model.SetFilterText("alpha")
+	l.SetItems(nil)
+	if got := l.Model.Index(); got < 0 {
+		t.Fatalf("cursor = %d, want a valid index", got)
 	}
 }

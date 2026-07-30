@@ -37,11 +37,6 @@ func vObject(s string) error {
 	return nil
 }
 
-// vFilterObject validates the /read filter form's object field as the user
-// types. The cross-field rule spans fields, so it runs at submit instead, in
-// fga.ReadFilter.Validate.
-func vFilterObject(s string) error { return fga.ValidateReadObject(s) }
-
 func vJSON(s string) error {
 	if s = strings.TrimSpace(s); s == "" {
 		return nil

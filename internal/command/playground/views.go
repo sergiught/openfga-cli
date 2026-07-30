@@ -232,7 +232,7 @@ func (m Model) dialogContent() (string, string) {
 	case m.formKind == formTupleFilter:
 		subtitle := "Re-reads from the server; needs an object.\nSubmit all blank to clear."
 		if m.tupleFilters.draft != m.tupleFilters.wanted {
-			subtitle = "The server refused this filter.\nFix it and apply again."
+			subtitle = "The server refused this filter:\n" + safeText(m.tupleFilters.reason)
 			if !m.tupleFilters.answered {
 				subtitle = "The last read never reached the server.\nTry again."
 			}

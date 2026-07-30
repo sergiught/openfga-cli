@@ -606,13 +606,19 @@ func TestReadRejectsFiltersTheServerWouldRefuse(t *testing.T) {
 	}{
 		{"user alone", []string{"--user", "user:anne"}, "--object is required"},
 		{"relation alone", []string{"--relation", "viewer"}, "--object is required"},
+		// With no user, "--object document:" would fail the next check, so the
+		// message must not offer it as a fix.
+		{"relation alone suggests a workable fix", []string{"--relation", "viewer"}, "together with a user"},
 		// The message quotes the value typed, not a fixed example.
-		{"bare type alone", []string{"--object", "team:"}, `--object "team:" is a whole type`},
+		{"bare type alone", []string{"--object", "team:", "--user", ""}, `--object "team:" is a whole type`},
+		// The suggestion echoes the value too, not a fixed example.
+		{"bare type suggestion", []string{"--object", "team:"}, "--object team:<id>"},
+		{"relation with a space", []string{"--relation", "can view", "--object", "document:roadmap"}, `--relation "can view"`},
 		{"object without a type", []string{"--object", "document", "--user", "user:anne"}, "must be document:roadmap"},
 		{"wildcard object", []string{"--object", "document:*"}, "wildcards aren't matched"},
 		{"userset object", []string{"--object", "document:1#viewer"}, "not a userset"},
-		{"user without a type", []string{"--user", "anne", "--object", "document:roadmap"}, "--user"},
-		{"padded object with no type", []string{"--object", "  document  ", "--user", "user:anne"}, "--object"},
+		{"user without a type", []string{"--user", "anne", "--object", "document:roadmap"}, `--user "anne"`},
+		{"padded object with no type", []string{"--object", "  document  ", "--user", "user:anne"}, `--object "document"`},
 		// Both flags are wrong: the user is reported first, so the order is pinned.
 		{"both malformed", []string{"--user", "anne", "--object", "document"}, "--user"},
 	} {

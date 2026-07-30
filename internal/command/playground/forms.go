@@ -90,8 +90,8 @@ func buildTupleFilterForm(w int, cur tupleFilter) *field.Form {
 		// The same checks the --user and --object flags apply, so the two
 		// surfaces say the same thing about the same value.
 		field.New("User", "user:anne").WithValidate(fga.ValidateReadUser),
-		field.New("Relation", "viewer"),
-		field.New("Object", "document:roadmap").WithValidate(vFilterObject),
+		field.New("Relation", "viewer").WithValidate(fga.ValidateReadRelation),
+		field.New("Object", "document:roadmap").WithValidate(fga.ValidateReadObject),
 	)
 	f.SetWidth(w)
 	f.SetValues([]string{cur.User, cur.Relation, cur.Object})

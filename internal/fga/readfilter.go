@@ -49,10 +49,9 @@ func (f ReadFilter) TupleKey() *openfga.ReadRequestTupleKey {
 //
 // The object is split on its first colon exactly as the server splits it
 // (tuple.SplitObject), so a colon-less object yields no type and is caught here
-// rather than round-tripping into a 400. Per-field formats (the relation and
-// user patterns the server's proto validation enforces) are deliberately left
-// to the server; only this cross-field rule, which no single field validator
-// can express, is mirrored.
+// rather than round-tripping into a 400. This is the cross-field half of the
+// rule, which no single field validator can express; the per-field halves are
+// ValidateReadUser, ValidateReadRelation and ValidateReadObject.
 func (f ReadFilter) Validate() error {
 	if !f.Active() {
 		return nil
@@ -86,6 +85,22 @@ func ValidateReadUser(s string) error {
 	}
 	if !strings.Contains(s, ":") {
 		return errors.New("must be user:anne, a userset (team:eng#member) or a wildcard (user:*)")
+	}
+	return nil
+}
+
+// ValidateReadRelation checks a /read filter's relation on its own. A relation
+// is a bare name — the server's own pattern is ^[^:#@\s]{1,50}$ — so anything
+// shaped like a reference is a swapped field rather than a relation.
+func ValidateReadRelation(s string) error {
+	if s = strings.TrimSpace(s); s == "" {
+		return nil
+	}
+	if strings.ContainsAny(s, ":#@ \t") {
+		return errors.New("must be a bare relation name (e.g. viewer), not a reference")
+	}
+	if len([]rune(s)) > 50 {
+		return errors.New("must be 50 characters or fewer")
 	}
 	return nil
 }

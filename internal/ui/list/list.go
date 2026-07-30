@@ -142,10 +142,11 @@ func (l *List) SetItems(items []Item) {
 	// the exported way to reach the same repagination SetFilterText does.
 	l.Model.SetSize(l.Model.Width(), l.Model.Height())
 	l.Model.SetSize(l.Model.Width(), l.Model.Height())
-	// A reload can leave fewer rows than the cursor was sitting on, and bubbles
-	// clamps against the pre-filter set — so under an applied filter the cursor
-	// can end up past the last visible row, and the pane renders with nothing
-	// highlighted until the user presses an arrow key.
+	// A reload can leave fewer rows than the cursor was sitting on. bubbles
+	// rebuilds the paginator but not the cursor within the page, so on a partly
+	// filled last page the cursor can end up past the last visible row and the
+	// pane renders with nothing highlighted until an arrow key nudges it. This
+	// is not filter-specific; an unfiltered list shrinks the same way.
 	if n := len(l.Model.VisibleItems()); n > 0 && l.Model.Index() >= n {
 		l.Model.Select(n - 1)
 	}
@@ -202,7 +203,8 @@ func (l *List) applyFilterHint() {
 // truncates the title against the pane width but renders it inside a padded
 // bar, so the last few columns overflow — a title of Width()-3 already puts the
 // line one column over, and an overflowing title wraps, which costs the app a
-// row and pushes its footer off screen. TestTitleBarBudget pins the number.
+// row and pushes its footer off screen. TestTitleBarBudget and
+// TestTitleBarBudgetIsTight pin it from above and below.
 func (l *List) hintWidth() int { return l.Model.Width() - 4 }
 
 // truncateHint keeps the title bar inside its pane: overflowing it wraps, and

@@ -1151,7 +1151,7 @@ func (m *Model) selectStore(s openfga.Store) tea.Cmd {
 	m.modelIsLatest = false
 	m.graph = fga.Graph{}
 	m.models = nil // the previous store's models must not linger in the picker
-	m.tuples = nil
+	m.tuples, m.tuplesCapped = nil, false
 	m.tupleFilters.reset()
 	// A "/" find belongs to the rows it was typed against, the same as the /read
 	// filter cleared beside it.
@@ -1441,7 +1441,7 @@ func (m *Model) activateResolved(r config.Resolved, cl *openfga.Client, status s
 	m.stores = nil
 	m.graph = fga.Graph{}
 	m.models = nil
-	m.tuples = nil
+	m.tuples, m.tuplesCapped = nil, false
 	m.tupleFilters.reset()
 	// A "/" find belongs to the rows it was typed against, the same as the /read
 	// filter cleared beside it.

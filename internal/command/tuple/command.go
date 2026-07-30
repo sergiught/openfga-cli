@@ -286,17 +286,25 @@ func (c *Command) deleteCmd() *cobra.Command {
 	return cmd
 }
 
-// readFilterUsage phrases the shared /read filter rule for a command line: the
-// rule is the same one the playground's form applies, but a form names its
-// fields and a command has to name its flags.
-func readFilterUsage(f fga.ReadFilter) error {
+// validateReadFilterFlags phrases the shared /read filter rules for a command
+// line: the rules are the ones the playground's form applies, but a form names
+// its fields and a command has to name its flags.
+func validateReadFilterFlags(f fga.ReadFilter) error {
 	if err := fga.ValidateReadUser(f.User); err != nil {
 		return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--user %q: %w", f.User, err))
+	}
+	if err := fga.ValidateReadRelation(f.Relation); err != nil {
+		return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--relation %q: %w", f.Relation, err))
 	}
 	if err := fga.ValidateReadObject(f.Object); err != nil {
 		return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--object %q: %w", f.Object, err))
 	}
 	switch err := f.Validate(); {
+	case errors.Is(err, fga.ErrReadFilterNeedsObject) && f.User == "":
+		// Without a user, "--object document:" would fail the very next check —
+		// so don't offer it as a fix.
+		return clierr.WithCode(clierr.CodeUsage, errors.New(
+			"--object is required when filtering — name one object (--object document:roadmap), or a whole type together with a user (--object document: --user user:anne)"))
 	case errors.Is(err, fga.ErrReadFilterNeedsObject):
 		return clierr.WithCode(clierr.CodeUsage, errors.New(
 			"--object is required when filtering — pass a whole type (--object document:) or one object (--object document:roadmap)"))
@@ -306,8 +314,6 @@ func readFilterUsage(f fga.ReadFilter) error {
 		return clierr.WithCode(clierr.CodeUsage, fmt.Errorf(
 			"--object %q is a whole type, so --user is required as well — or name one object (--object %s<id>)",
 			f.Object, f.Object))
-	case err != nil:
-		return clierr.WithCode(clierr.CodeUsage, err)
 	}
 	return nil
 }
@@ -329,6 +335,8 @@ func (c *Command) readCmd() *cobra.Command {
 			"an object carrying a type — a whole type (document:) or one object (document:roadmap) — and a " +
 			"bare type also needs a user; reading with no filter at all is fine. Object ids are matched " +
 			"literally, so wildcards and usersets are rejected rather than quietly matching nothing. " +
+			"A user, if given, must carry a type (user:anne, a userset like team:eng#member, or user:*), " +
+			"and a relation is a bare name. " +
 			"By default all matching tuples are returned (the CLI auto-pages); --max-results (alias --limit) " +
 			"caps the total returned and stops paging once reached. --page-size only tunes the per-request page.",
 		Args: cobra.NoArgs,
@@ -344,7 +352,7 @@ func (c *Command) readCmd() *cobra.Command {
 			// here, with the same rule the playground's filter form applies — and
 			// on the same trimmed values, since the server rejects whitespace too.
 			filter := fga.NewReadFilter(user, relation, object)
-			if err := readFilterUsage(filter); err != nil {
+			if err := validateReadFilterFlags(filter); err != nil {
 				return err
 			}
 			ropts, err := cli.ConsistencyOption(fConsistency)

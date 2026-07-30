@@ -286,12 +286,12 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// later reloads, or a filter the server refuses once would go on failing
 			// every r and every write reload with no sign of why. The draft keeps the
 			// user's text, so f offers it back for a fix.
-			m.tupleFilters.reject(!isConnErr(msg.err))
+			m.tupleFilters.reject(!isConnErr(msg.err), errStr(msg.err))
 			return m, m.toastErr("tuples", msg.err)
 		}
 		m.connLost = false
-		// The header breadcrumb is the only other sign the filter changed, and it
-		// truncates on a narrow pane — so say it out loud, in both directions.
+		// The header breadcrumb and the count noun are the only other signs, and
+		// the header truncates on a narrow pane — so say it out loud, both ways.
 		var note string
 		switch {
 		case m.tupleFilters.applied.Active() && !msg.filter.Active():
@@ -525,7 +525,11 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.modelIsLatest = false
 			m.graph = fga.Graph{}
 			m.models, m.tuples, m.changes, m.assertions, m.assertResults = nil, nil, nil, nil, nil
+			m.tuplesCapped = false
 			m.tupleFilters.reset()
+			// As on a store switch: a "/" find belongs to the rows it was typed
+			// against, and those are gone.
+			m.tuplesList.ResetFilter()
 			m.history, m.hasResult = nil, false
 			// The store itself is genuinely gone (the delete API call already
 			// succeeded) regardless of whether clearing its id from the saved

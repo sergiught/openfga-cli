@@ -311,6 +311,9 @@ type tupleFilters struct {
 	// rather than re-read, because the connection can recover before the user
 	// reopens the form — at which point a dead socket would read as a refusal.
 	answered bool
+	// reason is what the server said, kept for the same reason as the draft: the
+	// toast carrying it has faded by the time the user reopens the form.
+	reason string
 }
 
 // request records a submitted filter as the one to read with next.
@@ -334,7 +337,7 @@ func (s *tupleFilters) confirm(f tupleFilter) {
 // reading what is already on screen, while the draft keeps the user's text.
 // answered separates a filter the server refused from one whose read never got
 // there — the same backing out, a different thing to tell the user.
-func (s *tupleFilters) reject(answered bool) {
+func (s *tupleFilters) reject(answered bool, reason string) {
 	if s.wanted == s.applied {
 		// Nothing was in flight to back out of, so this failure belongs to some
 		// later read and says nothing about the draft. Recording it here would
@@ -348,7 +351,7 @@ func (s *tupleFilters) reject(answered bool) {
 		s.wanted, s.draft = s.applied, s.applied
 		return
 	}
-	s.wanted, s.answered = s.applied, answered
+	s.wanted, s.answered, s.reason = s.applied, answered, reason
 }
 
 // reset drops the filter entirely — for a store switch, a reconnect or the

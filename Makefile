@@ -102,11 +102,12 @@ check: fmt vet lint test docs-check ## Run fmt, vet, lint, test and the docs fre
 
 .PHONY: docs-check
 docs-check: ## Fail if the generated command reference is out of date (CI checks this too)
-	@tmp=$$(mktemp -d) && go run ./tools/docgen -out $$tmp && \
-		if ! diff -qr $$tmp docs/site/src/content/docs/reference >/dev/null; then \
+	@set -e; tmp=$$(mktemp -d); trap 'rm -rf $$tmp' EXIT; \
+		go run ./tools/docgen -out $$tmp; \
+		if ! diff -qr $$tmp docs/site/src/content/docs/reference; then \
 			echo "command reference is stale — run 'make docs-reference' and commit"; \
-			diff -qr $$tmp docs/site/src/content/docs/reference; rm -rf $$tmp; exit 1; \
-		fi; rm -rf $$tmp
+			exit 1; \
+		fi
 
 #-----------------------------------------------------------------------------------------------------------------------
 # Release
