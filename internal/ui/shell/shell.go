@@ -38,10 +38,17 @@ const (
 
 // NavItem is one sidebar navigation row.
 type NavItem struct {
-	Label  string
-	Icon   string
-	Badge  string
-	Key    string // accelerator advertised as a faint "[k]" prefix; "" renders none
+	Label string
+	Icon  string
+	Badge string
+	// Key is an accelerator advertised as a faint "[k]" prefix; "" renders
+	// none. In the collapsed one-line strip (navStrip) it does not prefix the
+	// icon but *replaces* it on inactive items, and is dropped entirely on the
+	// active one, which shows its icon+label pill. Nothing constrains its
+	// length: the strip and the expanded rows both budget for a short chord, so
+	// a long Key ("ctrl+shift+q") eats the width the label needed and truncates
+	// the label instead of itself.
+	Key    string
 	Active bool
 }
 

@@ -345,7 +345,9 @@ func TestNavStripKeyFallback(t *testing.T) {
 		t.Fatal("60 cols should collapse the sidebar; the collapse threshold must have moved")
 	}
 	s.SetSidebar(nil, []NavItem{
-		{Label: "Stores", Icon: "▣", Active: true},
+		// The active item carries a Key so the strip's treatment of it is pinned:
+		// it is dropped, unlike the expanded rows where it renders as a prefix.
+		{Label: "Stores", Icon: "▣", Key: "2", Active: true},
 		{Label: "Profiles", Icon: "◉", Key: "1"},
 		{Label: "Assertions", Icon: "✓"},
 	}, "")
@@ -355,8 +357,14 @@ func TestNavStripKeyFallback(t *testing.T) {
 	if !strings.Contains(out, "▣ Stores") {
 		t.Fatalf("collapsed strip should render the active item's full icon+label pill text:\n%s", out)
 	}
+	if strings.Contains(out, "[2]") {
+		t.Fatalf("collapsed strip should drop the active item's key; its labeled pill already says where you are:\n%s", out)
+	}
 	if !strings.Contains(out, "[1]") {
 		t.Fatalf("collapsed strip should show the key instead of the icon for a keyed inactive item:\n%s", out)
+	}
+	if strings.Contains(out, "◉") {
+		t.Fatalf("a keyed inactive item's key replaces its icon in the strip, it does not prefix it:\n%s", out)
 	}
 	if !strings.Contains(out, "✓") {
 		t.Fatalf("collapsed strip should fall back to the icon for a keyless inactive item:\n%s", out)
