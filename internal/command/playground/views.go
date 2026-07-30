@@ -21,6 +21,11 @@ import (
 func (m Model) View() tea.View {
 	v := tea.NewView(m.viewString())
 	v.AltScreen = true
+	// Ask the terminal for focus events so Update can repaint when we come back
+	// to the foreground, recovering from a screen cleared behind our back (see
+	// the Ctrl+L handler in update.go). Terminals that don't support focus
+	// reporting simply never send the event; Ctrl+L stays the manual fallback.
+	v.ReportFocus = true
 	v.BackgroundColor = style.BgBase
 	// Enable wheel events so the scrollable panes (model graph, resolution tree)
 	// respond to the mouse. Note: this captures the mouse, so native terminal
@@ -90,6 +95,7 @@ func (m Model) helpBody() string {
 		{"↵ / esc", "enter the panel / return to the tabs"},
 		{"1–9", "jump to a section (1–5 rerun history in Tuple Queries)"},
 		{"ctrl+k", "command palette"},
+		{"ctrl+l", "redraw the screen"},
 		{"?", "toggle this help"},
 		{"q", "quit (from the tab bar)"},
 		{"ctrl+c", "quit"},

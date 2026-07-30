@@ -115,6 +115,13 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		return m, nil
 
+	case tea.FocusMsg:
+		// Repaint on regaining focus so the UI self-heals after the screen was
+		// cleared from outside the program while we were in the background —
+		// see the Ctrl+L handler in handleKey for the full explanation. Cheap:
+		// focus changes are rare and this only marks the cell buffer dirty.
+		return m, tea.ClearScreen
+
 	case spinner.TickMsg:
 		if !m.loading {
 			// Nothing to animate — let the tick loop end so the UI can idle.
@@ -834,6 +841,22 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// intended "get me out now" escape hatch.
 	if msg.String() == "ctrl+c" {
 		return m, tea.Quit
+	}
+
+	// Ctrl+L forces a full repaint, and like Ctrl+C it is honored before any
+	// overlay below can swallow it — the screen is by definition unreadable
+	// when the user reaches for this, so it must work from whatever state the
+	// UI happens to be in.
+	//
+	// This is the recovery path for a screen wiped from outside the program:
+	// macOS ⌘K ("Clear to Start" in Terminal.app, "Clear Buffer" in iTerm2) is
+	// a terminal menu shortcut, so it never reaches us — it just erases the
+	// alt screen. Bubble Tea's cell buffer still describes the old contents and
+	// only ever writes diffs against it, so the UI stays blank apart from the
+	// odd cell an animation happens to touch. tea.ClearScreen is what marks
+	// that buffer dirty again.
+	if msg.String() == "ctrl+l" {
+		return m, tea.ClearScreen
 	}
 
 	// The help overlay captures input until dismissed.
