@@ -244,15 +244,47 @@ func TestAssertionPreviewShowsContextualTuplesAndContext(t *testing.T) {
 	}
 }
 
+// TestSidebarNavAdvertisesDigits checks the labels exist and are unique, so a
+// tab cannot silently ship without one or share another's digit. What the
+// label *means* is asserted by TestSidebarNavDigitsMatchTheirBinding.
 func TestSidebarNavAdvertisesDigits(t *testing.T) {
 	m := newTestModel().(Model)
 	items := m.sidebarNav()
 	if len(items) != len(sectionNames) {
 		t.Fatalf("got %d nav items, want %d", len(items), len(sectionNames))
 	}
+	seen := map[string]int{}
 	for i, it := range items {
-		if want := itoa(i + 1); it.Key != want {
-			t.Fatalf("nav item %d Key = %q, want %q", i, it.Key, want)
+		if it.Key == "" {
+			t.Fatalf("nav item %d (%s) advertises no digit", i, sectionNames[i])
+		}
+		if prev, dup := seen[it.Key]; dup {
+			t.Fatalf("nav items %d and %d both advertise %q", prev, i, it.Key)
+		}
+		seen[it.Key] = i
+	}
+}
+
+// TestSidebarNavDigitsMatchTheirBinding is the claim the digit labels rest on:
+// the digit a tab displays is the digit that reaches it. Asserting the label
+// against the expression that produced it would pass even if the key handler
+// resolved digits to entirely different sections, which is the one failure
+// worth catching here.
+func TestSidebarNavDigitsMatchTheirBinding(t *testing.T) {
+	items := newTestModel().(Model).sidebarNav()
+
+	for i, it := range items {
+		// Start somewhere else every time, so a jump that silently did nothing
+		// cannot be mistaken for a jump that landed correctly.
+		m := newTestModel().(Model)
+		m.section = section((i + 1) % len(items))
+		m.focus = shell.FocusSidebar
+
+		var tm tea.Model = m
+		tm, _ = tm.Update(key(it.Key))
+		if got := tm.(Model).section; got != section(i) {
+			t.Fatalf("tab %q advertises [%s], but pressing it lands on %q",
+				sectionNames[i], it.Key, sectionNames[got])
 		}
 	}
 }

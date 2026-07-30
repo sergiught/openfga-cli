@@ -244,11 +244,13 @@ func TestHistoryStripHasNoDigitPrefix(t *testing.T) {
 	if out == "" {
 		t.Fatal("historyStrip returned nothing for seeded history")
 	}
-	// The leading digit advertised the old binding; left in place it would
-	// tell users to press a key that now jumps sections. The fixture's tuple
-	// values are deliberately digit-free so this substring check can't trip on
-	// incidental content — keep them that way.
-	if strings.Contains(out, "1 ") || strings.Contains(out, "2 ") {
-		t.Fatalf("history chips must not advertise digit shortcuts:\n%s", out)
+	// The leading digit advertised the old binding; left in place it would tell
+	// users to press a key that now jumps sections. Assert on any digit rather
+	// than the one removed formatting ("1 "), so reintroducing the accelerator
+	// as "1.", "1)" or "[1]" fails too. The fixture's tuple values are
+	// deliberately digit-free so nothing incidental can trip this — keep them
+	// that way.
+	if i := strings.IndexAny(out, "0123456789"); i >= 0 {
+		t.Fatalf("history chips must not advertise digit shortcuts (found %q at %d):\n%s", out[i], i, out)
 	}
 }
