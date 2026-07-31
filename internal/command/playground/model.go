@@ -238,6 +238,9 @@ type Model struct {
 	// malformed pinned model id was dropped). Delivered via bootNoticeMsg because
 	// Init's receiver mutations are discarded.
 	bootNotice string
+	// glyphHint asks Init to advertise ctrl+g once on startup. See
+	// needsGlyphHint for when that is warranted.
+	glyphHint bool
 	// storesForbidden is set when listing stores was rejected by the server for
 	// lack of permission (401/403). The Stores panel then shows a "no permission
 	// to manage stores" notice instead of an empty "no stores" state.
@@ -574,6 +577,11 @@ func (m Model) Init() tea.Cmd {
 		notice := m.bootNotice
 		cmds = append(cmds, func() tea.Msg { return bootNoticeMsg{text: notice} })
 	}
+	if m.glyphHint {
+		cmds = append(cmds, func() tea.Msg {
+			return bootNoticeMsg{text: "glyphs: nerdfont (detected) — press ctrl+g if they show as boxes"}
+		})
+	}
 	if m.entering {
 		cmds = append(cmds, entranceTick())
 	}
@@ -668,9 +676,27 @@ func Run(ctx context.Context, cli *cli.CLI) error {
 // and runs the tea program for a fully-built model. Shared by Run and
 // RunSeeded. The program is bound to the interrupt-aware context so Ctrl-C /
 // SIGINT tears the TUI down cleanly and cancels any in-flight requests.
+// needsGlyphHint reports whether startup should advertise ctrl+g.
+//
+// The hint exists because ctrl+g is the recovery key for a UI that looks
+// broken, so requiring the user to find it in the ? overlay first inverts the
+// dependency: someone staring at boxes has no reason to believe help holds the
+// answer.
+//
+// It is deliberately narrow. An explicitly configured rung needs no hint — the
+// user chose it. And the unicode and off rungs always render, so hinting there
+// would nag every default launch about a problem that cannot occur. Only a
+// GUESSED nerdfont can turn into boxes or question marks, because no reliable
+// way to detect a Nerd Font exists (see icons.Detect).
+func needsGlyphHint(parsed, resolved icons.Mode) bool {
+	return parsed == icons.ModeAuto && resolved == icons.ModeNerdFont
+}
+
 func launch(ctx context.Context, cli *cli.CLI, m Model, rec *apilog.Recorder) error {
 	m.recorder = rec
-	icons.Apply(icons.Parse(cli.Config.IconsMode()))
+	mode := icons.Parse(cli.Config.IconsMode())
+	icons.Apply(mode)
+	m.glyphHint = needsGlyphHint(mode, icons.Current())
 	p := tea.NewProgram(m, tea.WithContext(ctx))
 	if rec != nil {
 		rec.SetNotify(func() { p.Send(apiLogMsg{}) })
@@ -694,7 +720,9 @@ type SeedOptions struct {
 // RunSeeded launches the playground against an injected, already-built client
 // (rather than one resolved from config), with any test results preloaded.
 // When results are present it opens on the Test Results section; otherwise it
-// opens on the default section. It never writes config.
+// opens on the default section. It writes config only when the user explicitly
+// presses ctrl+g: that sets a global display preference rather than persisting
+// anything about the ephemeral store/model this run was seeded with.
 func RunSeeded(ctx context.Context, cli *cli.CLI, o SeedOptions) error {
 	m := newSeededModel(ctx, cli, o)
 	return launch(ctx, cli, m, apilog.NewRecorder(apiLogHistory))
@@ -1372,6 +1400,37 @@ func (m *Model) saveConfigWithSecretCleanup(profile string, all bool, fields ...
 func (m *Model) configSaveErrCmd(err error) tea.Cmd {
 	m.status = "config not saved: " + err.Error()
 	return m.toasts.Push(toast.Error, m.status)
+}
+
+// cycleIcons advances the glyph rung nerdfont -> unicode -> off and persists
+// the result. It is the escape hatch for a wrong auto-detect guess: no
+// reliable Nerd Font probe exists, so some users will land on a rung their
+// font can't render, and they need a fix that costs one keystroke rather than
+// a trip to the docs.
+//
+// Cycling always writes a concrete rung, which takes the user out of auto
+// permanently — an explicit choice outranks a guess. Setting icons = "auto"
+// by hand restores detection.
+func (m *Model) cycleIcons() tea.Cmd {
+	next := map[icons.Mode]icons.Mode{
+		icons.ModeNerdFont: icons.ModeUnicode,
+		icons.ModeUnicode:  icons.ModeOff,
+		icons.ModeOff:      icons.ModeNerdFont,
+	}[icons.Current()]
+	names := map[icons.Mode]string{
+		icons.ModeNerdFont: "nerdfont",
+		icons.ModeUnicode:  "unicode",
+		icons.ModeOff:      "off",
+	}
+	icons.Apply(next)
+	name := names[next]
+
+	m.cli.Config.Icons = name
+	m.status = "glyphs: " + name
+	if err := m.saveConfig(); err != nil {
+		return m.configSaveErrCmd(err)
+	}
+	return m.toasts.Push(toast.Info, m.status+" — saved")
 }
 
 // switchProfile makes name the active profile and reconnects to it.

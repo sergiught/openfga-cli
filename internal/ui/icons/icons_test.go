@@ -14,8 +14,8 @@ func TestModesSwapGlyphs(t *testing.T) {
 	if I().Store != "" || I().Check == "" {
 		t.Fatal("off mode drops decorative glyphs but keeps semantic check/cross")
 	}
-	if Parse("bogus") != ModeNerdFont {
-		t.Fatal("unknown mode defaults to nerdfont")
+	if Parse("bogus") != ModeAuto {
+		t.Fatal("unknown mode falls back to auto")
 	}
 }
 
@@ -52,4 +52,66 @@ func TestNerdFontGlyphsAreV2Safe(t *testing.T) {
 		t.Fatal("unicode rung must not define caps")
 	}
 	Apply(ModeNerdFont)
+}
+
+func TestParseAuto(t *testing.T) {
+	if Parse("") != ModeAuto {
+		t.Fatal("empty config value means auto")
+	}
+	if Parse("auto") != ModeAuto {
+		t.Fatal(`"auto" parses to ModeAuto`)
+	}
+	// A typo must not fall back to nerdfont: that is exactly the setting that
+	// prints "?" on every tab for users without the font.
+	if Parse("bogus") != ModeAuto {
+		t.Fatal("unknown values fall back to auto, not nerdfont")
+	}
+	for s, want := range map[string]Mode{"nerdfont": ModeNerdFont, "unicode": ModeUnicode, "off": ModeOff} {
+		if got := Parse(s); got != want {
+			t.Fatalf("Parse(%q) = %v, want %v", s, got, want)
+		}
+	}
+}
+
+func TestApplyResolvesAuto(t *testing.T) {
+	t.Cleanup(func() { Apply(ModeNerdFont) })
+
+	Apply(ModeAuto)
+	// ModeAuto is a resolution-time value only: it must never survive into
+	// Current(), because sets has no entry for it.
+	if got := Current(); got != ModeNerdFont && got != ModeUnicode {
+		t.Fatalf("Current() = %v, want a concrete resolved rung", got)
+	}
+	if I().Check == "" {
+		t.Fatal("auto must resolve to a populated glyph set")
+	}
+
+	Apply(ModeUnicode)
+	if Current() != ModeUnicode {
+		t.Fatal("Current() tracks the applied mode")
+	}
+}
+
+func TestFallbackGlyphsAreNotQuestionMarks(t *testing.T) {
+	t.Cleanup(func() { Apply(ModeNerdFont) })
+	Apply(ModeUnicode)
+	s := I()
+	for name, g := range map[string]string{
+		"Profile": s.Profile, "Store": s.Store, "Model": s.Model, "Tuple": s.Tuple,
+		"Change": s.Change, "Query": s.Query, "Assert": s.Assert, "APILog": s.APILog,
+		"Dot": s.Dot, "Caret": s.Caret, "Check": s.Check, "Cross": s.Cross,
+	} {
+		// The whole point of this rung is to be readable where Nerd Font
+		// glyphs are not. A literal "?" is indistinguishable from the missing
+		// -glyph symptom it exists to avoid.
+		if g == "?" {
+			t.Fatalf("unicode %s glyph is a literal question mark", name)
+		}
+		if g == "" {
+			t.Fatalf("unicode %s glyph is empty", name)
+		}
+	}
+	if s.Query == s.Model {
+		t.Fatal("Query and Model glyphs must be distinguishable")
+	}
 }

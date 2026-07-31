@@ -1,5 +1,7 @@
-// Package icons resolves the glyph set once per run: Nerd Font when available
-// (default), universal Unicode fallback, or off for decorative glyphs.
+// Package icons resolves the process-wide glyph set: auto (the default, which
+// promotes to Nerd Font only on a positive signal), an explicit Nerd Font rung,
+// a universal Unicode fallback, or off for decorative glyphs. The playground's
+// ctrl+g re-resolves it at runtime, so the choice is not fixed at startup.
 package icons
 
 import (
@@ -14,6 +16,9 @@ const (
 	ModeNerdFont Mode = iota
 	ModeUnicode
 	ModeOff
+	// ModeAuto is a resolution-time value only: Apply turns it into a concrete
+	// rung via Detect. It is never a key into sets and never reaches Current.
+	ModeAuto
 )
 
 // Set holds every glyph the UI uses.
@@ -31,20 +36,25 @@ var sets = map[Mode]Set{
 		CapL: "\U0000E0B6", CapR: "\U0000E0B4",
 	},
 	ModeUnicode: {
-		Profile: "◉", Store: "▣", Model: "◈", Tuple: "≡", Change: "⇅", Query: "?", Assert: "✦", APILog: "⇄",
+		Profile: "◉", Store: "▣", Model: "◈", Tuple: "≡", Change: "⇅", Query: "◆", Assert: "✦", APILog: "⇄",
 		Dot: "●", Caret: "❯", Check: "✓", Cross: "✗",
 	},
 	ModeOff: {Check: "✓", Cross: "✗", Dot: "●"},
 }
 
-var current = sets[ModeNerdFont]
+var (
+	current     = sets[ModeNerdFont]
+	currentMode = ModeNerdFont
+)
 
-// Parse maps a config string to a Mode. The accepted values are "nerdfont"
-// (default), "unicode" and "off"; an empty string means the default, and any
-// other value warns on stderr before falling back to nerdfont.
+// Parse maps a config string to a Mode. The accepted values are "auto"
+// (default), "nerdfont", "unicode" and "off"; an empty string means the
+// default, and any other value warns on stderr before falling back to auto.
 func Parse(s string) Mode {
 	switch s {
-	case "", "nerdfont":
+	case "", "auto":
+		return ModeAuto
+	case "nerdfont":
 		return ModeNerdFont
 	case "unicode":
 		return ModeUnicode
@@ -53,13 +63,24 @@ func Parse(s string) Mode {
 	default:
 		// Source-neutral: the value may come from OPENFGA_ICONS or the config
 		// file's `icons` key, so don't blame the env var specifically.
-		fmt.Fprintf(os.Stderr, "warning: unknown icons value %q; using nerdfont (valid: nerdfont, unicode, off)\n", s)
-		return ModeNerdFont
+		fmt.Fprintf(os.Stderr, "warning: unknown icons value %q; using auto (valid: auto, nerdfont, unicode, off)\n", s)
+		return ModeAuto
 	}
 }
 
-// Apply activates a mode for the whole process.
-func Apply(m Mode) { current = sets[m] }
+// Apply activates a mode for the whole process, resolving ModeAuto through
+// Detect first so sets is only ever indexed by a concrete rung.
+func Apply(m Mode) {
+	if m == ModeAuto {
+		m = Detect()
+	}
+	currentMode = m
+	current = sets[m]
+}
+
+// Current returns the active rung after any auto resolution. The playground's
+// glyph-cycle key needs it to know where the cycle starts.
+func Current() Mode { return currentMode }
 
 // I returns the active glyph set.
 func I() Set { return current }
