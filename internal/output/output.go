@@ -314,7 +314,7 @@ func Successf(w io.Writer, format string, a ...any) {
 		return
 	}
 	dot := lipgloss.NewStyle().Foreground(style.Green).Render(style.IconDot)
-	_, _ = fmt.Fprintf(w, "%s %s\n", dot, fmt.Sprintf(format, a...))
+	_, _ = fmt.Fprintf(w, "%s %s\n", dot, sanitizeStyled(fmt.Sprintf(format, a...)))
 }
 
 // Infof prints a muted informational line with a primary-colored dot
@@ -324,7 +324,7 @@ func Infof(w io.Writer, format string, a ...any) {
 		return
 	}
 	dot := lipgloss.NewStyle().Foreground(style.Primary).Render(style.IconDot)
-	_, _ = fmt.Fprintf(w, "%s %s\n", dot, fmt.Sprintf(format, a...))
+	_, _ = fmt.Fprintf(w, "%s %s\n", dot, sanitizeStyled(fmt.Sprintf(format, a...)))
 }
 
 // Warnf prints a warning line with an amber dot (suppressed in Quiet/Plain).
@@ -333,7 +333,7 @@ func Warnf(w io.Writer, format string, a ...any) {
 		return
 	}
 	dot := lipgloss.NewStyle().Foreground(style.Amber).Render(style.IconDot)
-	_, _ = fmt.Fprintf(w, "%s %s\n", dot, fmt.Sprintf(format, a...))
+	_, _ = fmt.Fprintf(w, "%s %s\n", dot, sanitizeStyled(fmt.Sprintf(format, a...)))
 }
 
 // Notef prints a neutral, faint note line with a faint dot (suppressed in
@@ -343,7 +343,7 @@ func Notef(w io.Writer, format string, a ...any) {
 		return
 	}
 	dot := lipgloss.NewStyle().Foreground(style.Faintc).Render(style.IconDot)
-	_, _ = fmt.Fprintf(w, "%s %s\n", dot, style.Faint.Render(fmt.Sprintf(format, a...)))
+	_, _ = fmt.Fprintf(w, "%s %s\n", dot, style.Faint.Render(sanitizeStyled(fmt.Sprintf(format, a...))))
 }
 
 // Progressf prints transient progress only for an interactive human session,
@@ -385,6 +385,18 @@ func sanitizeText(s string) string {
 	lines := strings.Split(s, "\n")
 	for i := range lines {
 		lines[i] = style.SanitizeTerminal(lines[i])
+	}
+	return strings.Join(lines, "\n")
+}
+
+// sanitizeStyled is sanitizeText for lines the CLI composes and styles itself.
+// It keeps colour/weight sequences (the caller wraps values in
+// style.Bold.Render on purpose) while still removing anything that can act on
+// the terminal, plus control characters and bidi overrides.
+func sanitizeStyled(s string) string {
+	lines := strings.Split(s, "\n")
+	for i := range lines {
+		lines[i] = style.SanitizeTerminalKeepSGR(lines[i])
 	}
 	return strings.Join(lines, "\n")
 }

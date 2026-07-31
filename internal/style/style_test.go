@@ -48,6 +48,48 @@ func TestSanitizeTerminalRemovesEscapeSequencesAndControls(t *testing.T) {
 	}
 }
 
+// A store or tuple name carrying bidi overrides can render as something other
+// than what it is (the Trojan Source class, CVE-2021-42574): the raw bytes say
+// one thing, the terminal draws another. Strip the explicit directional
+// formatting characters so what is displayed is what was returned.
+func TestSanitizeTerminalStripsBidiAndZeroWidth(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"RLO override", "doc\u202egnp.txt", "docgnp.txt"},
+		{"LRE/PDF pair", "\u202aadmin\u202c", "admin"},
+		{"RLE and LRO", "a\u202bb\u202dc", "abc"},
+		{"isolates", "x\u2066y\u2067z\u2068w\u2069", "xyzw"},
+		{"zero-width space", "ad\u200bmin", "admin"},
+		{"BOM / zero-width no-break space", "\ufeffstore", "store"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := SanitizeTerminal(tt.in); got != tt.want {
+				t.Errorf("SanitizeTerminal(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+// ZWJ/ZWNJ and the bidi *marks* carry real linguistic meaning — emoji sequences
+// and Indic/Persian shaping depend on them — so they survive sanitization.
+// Only the explicit override/isolate controls are removed.
+func TestSanitizeTerminalKeepsLegitimateJoiners(t *testing.T) {
+	for _, in := range []string{
+		"\U0001F468\u200d\U0001F469\u200d\U0001F467", // family emoji, ZWJ sequence
+		"mi\u200cn", // ZWNJ
+		"a\u200eb",  // LRM
+		"a\u200fb",  // RLM
+	} {
+		if got := SanitizeTerminal(in); got != in {
+			t.Errorf("SanitizeTerminal(%q) = %q, want it unchanged", in, got)
+		}
+	}
+}
+
 func TestBlend(t *testing.T) {
 	Apply(theme.Default())
 	if got := Blend(Green, Faintc, 0); got != Green {
