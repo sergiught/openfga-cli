@@ -45,7 +45,7 @@ checksums, an SPDX SBOM, and signed provenance.
 ## Docker
 
 ```bash
-docker run --rm -it --network host ghcr.io/sergiught/ofga:latest stores list
+docker run --rm -it --network host ghcr.io/sergiught/openfga-cli:latest stores list
 ```
 
 ## From source
@@ -60,6 +60,77 @@ Verify your install:
 
 ```bash
 ofga version
+```
+
+The reported OpenFGA server version is the one **embedded** in the binary for
+`ofga model test`. It is not the version of the server your active profile
+points at — `ofga version` never contacts it.
+
+---
+
+## Platform support
+
+Releases are built for **Linux and macOS**, on x86-64 and ARM64. There are no
+published Windows builds.
+
+The source does compile for Windows (`GOOS=windows go build ./...`) and the
+Windows-specific pieces — file locking and Credential Manager storage for
+secrets — are maintained, so building from source is expected to work. It is
+not covered by CI, so treat it as unsupported. If you need official Windows
+binaries, [open an issue](https://github.com/sergiught/openfga-cli/issues).
+
+---
+
+## Verify a release
+
+Every release publishes a SHA-256 checksum file, a keyless
+[cosign](https://docs.sigstore.dev/) signature bundle for it, an SPDX SBOM per
+archive, and SLSA build provenance. The install script checks the checksum
+automatically; the steps below let you verify the chain yourself.
+
+Download the artifacts you want to check, plus `checksums.txt` and
+`checksums.txt.cosign.bundle`, from the
+[releases page](https://github.com/sergiught/openfga-cli/releases).
+
+**1. Verify the checksum file was signed by this repository's release workflow.**
+
+```bash
+cosign verify-blob \
+  --bundle checksums.txt.cosign.bundle \
+  --certificate-identity 'https://github.com/sergiught/openfga-cli/.github/workflows/release.yml@refs/heads/main' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  checksums.txt
+```
+
+The identity flags are what make this meaningful: without them, cosign will
+happily verify a signature made by anyone.
+
+The identity ends in `refs/heads/main`, not a tag: releases are cut by
+release-please from a push to `main`, so that branch is the ref the release
+workflow signs under.
+
+**2. Verify your archive matches the now-trusted checksum file.**
+
+```bash
+sha256sum --ignore-missing --check checksums.txt
+```
+
+**3. Optionally, verify the SLSA build provenance** with the
+[GitHub CLI](https://cli.github.com/):
+
+```bash
+gh attestation verify ofga_Linux_x86_64.tar.gz --repo sergiught/openfga-cli
+```
+
+### Container images
+
+The image carries a cosign-attested SPDX SBOM:
+
+```bash
+cosign verify-attestation --type spdxjson \
+  --certificate-identity 'https://github.com/sergiught/openfga-cli/.github/workflows/release.yml@refs/heads/main' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/sergiught/openfga-cli:latest
 ```
 
 ---
