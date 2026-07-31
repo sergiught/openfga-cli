@@ -42,6 +42,50 @@ already committed.
 > a large store that can be a lot of output: cap it with `--max-results`
 > (alias `--limit`), or pipe through `head` or `--json | jq`.
 
+## Exporting a large store
+
+`ofga tuples read` streams its output, so memory stays flat no matter how many
+tuples match — rows appear as they arrive instead of after the last page. Use
+`--output-file` to send the tuples to a file and leave the terminal free for
+progress, which is reported every 50,000 tuples with a running rate:
+
+```bash
+ofga tuples read --output-file tuples.json
+# read 50000 tuples, 18432/s
+# read 100000 tuples, 18510/s
+```
+
+The file is JSON unless `--yaml` or `--plain` is given, and JSON round-trips
+straight back in:
+
+```bash
+ofga tuples write --file tuples.json
+```
+
+The styled table is the one format that cannot stream — column widths are not
+known until the last row — so it still buffers. For a large export use `--json`,
+`--plain` or `--output-file`.
+
+## Following the changelog
+
+`ofga tuples changes` can resume where a previous run stopped, which is what a
+polling job wants instead of re-reading the changelog from the beginning:
+
+```bash
+# First run records where it got to.
+ofga tuples changes --json --token-file .fga-cursor > changes.json
+
+# Later runs pick up from there.
+ofga tuples changes --json --continuation-token "$(cat .fga-cursor)" \
+  --token-file .fga-cursor > new-changes.json
+```
+
+`--token-file` is written before the changes are rendered, so a consumer that
+exits early (`| head`) still leaves a usable cursor behind. Stopping early with
+`--max-results` records the token that produced the partial page, so resuming
+replays those changes rather than skipping them. The JSON output itself stays a
+bare array.
+
 ```bash
 # Which documents can anne view?
 ofga query list-objects document viewer user:anne --plain

@@ -324,6 +324,7 @@ func (c *Command) readCmd() *cobra.Command {
 		pageSize               int
 		maxResults             int
 		fConsistency           string
+		outputFile             string
 	)
 	cmd := &cobra.Command{
 		Use:   "read",
@@ -347,6 +348,9 @@ func (c *Command) readCmd() *cobra.Command {
 			if pageSize < 0 {
 				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--page-size must be non-negative"))
 			}
+			if err := validateOutputFile(outputFile); err != nil {
+				return err
+			}
 			// /read's tuple_key rule spans the three flags, and the server's 400
 			// for it names a proto field rather than what to do about it. Catch it
 			// here, with the same rule the playground's filter form applies — and
@@ -363,47 +367,30 @@ func (c *Command) readCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			sink, err := newTupleSink(cmd, c.cli, outputFile)
+			if err != nil {
+				return err
+			}
+			defer sink.abort()
+
 			req := &openfga.ReadRequest{PageSize: pageSize, TupleKey: filter.TupleKey()}
 			output.Progressf(cmd.ErrOrStderr(), "fetching tuples…")
-			var tuples []openfga.Tuple
+			prog := newProgress(cmd.ErrOrStderr(), "read", "tuple")
+			n := 0
 			for t, err := range cl.Tuples.ReadAll(cmd.Context(), req, ropts...) {
 				if err != nil {
 					return err
 				}
-				tuples = append(tuples, t)
-				if maxResults > 0 && len(tuples) >= maxResults {
+				if err := sink.add(t); err != nil {
+					return err
+				}
+				n++
+				prog.tick(n)
+				if maxResults > 0 && n >= maxResults {
 					break
 				}
 			}
-			if c.cli.JSON || c.cli.YAML {
-				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, tuples)
-			}
-			if len(tuples) == 0 {
-				output.Infof(cmd.ErrOrStderr(), "no tuples found")
-				return nil
-			}
-			rows := make([][]string, 0, len(tuples))
-			for _, t := range tuples {
-				cond := ""
-				if t.Key.Condition != nil {
-					cond = output.SanitizeField(t.Key.Condition.Name)
-				}
-				rows = append(rows, []string{
-					output.SanitizeField(t.Key.User),
-					output.SanitizeField(t.Key.Relation),
-					output.SanitizeField(t.Key.Object),
-					cond,
-					t.Timestamp.Format(time.RFC3339),
-				})
-			}
-			if err := output.Table(cmd.OutOrStdout(), []string{"USER", "RELATION", "OBJECT", "CONDITION", "WRITTEN"}, rows); err != nil {
-				return err
-			}
-			if err := output.HumanBlankLine(cmd.OutOrStdout()); err != nil {
-				return err
-			}
-			output.Infof(cmd.ErrOrStderr(), "%d tuple(s)", len(tuples))
-			return nil
+			return sink.finish(n)
 		},
 	}
 	f := cmd.Flags()
@@ -413,16 +400,20 @@ func (c *Command) readCmd() *cobra.Command {
 	f.IntVar(&pageSize, "page-size", 50, "per-request page size (0 = server default; not a total cap)")
 	f.IntVar(&maxResults, "max-results", 0, "cap the total number of tuples returned (0 = unbounded)")
 	f.IntVar(&maxResults, "limit", 0, "alias for --max-results")
+	f.StringVar(&outputFile, "output-file", "", "write tuples to this file instead of stdout (JSON unless --yaml/--plain)")
+	_ = cmd.MarkFlagFilename("output-file")
 	cli.RegisterConsistencyFlag(f, &fConsistency)
 	return cmd
 }
 
 func (c *Command) changesCmd() *cobra.Command {
 	var (
-		typ        string
-		startTime  string
-		pageSize   int
-		maxResults int
+		typ               string
+		startTime         string
+		pageSize          int
+		maxResults        int
+		continuationToken string
+		tokenFile         string
 	)
 	cmd := &cobra.Command{
 		Use:   "changes",
@@ -444,16 +435,21 @@ func (c *Command) changesCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			opts := &openfga.ReadChangesOptions{Type: typ, StartTime: startTime, PageSize: pageSize}
-			var changes []openfga.TupleChange
-			for ch, err := range cl.Tuples.ChangesAll(cmd.Context(), opts) {
-				if err != nil {
-					return err
-				}
-				changes = append(changes, ch)
-				if maxResults > 0 && len(changes) >= maxResults {
-					break
-				}
+			opts := &openfga.ReadChangesOptions{
+				Type:              typ,
+				StartTime:         startTime,
+				PageSize:          pageSize,
+				ContinuationToken: continuationToken,
+			}
+			changes, nextToken, err := readChanges(cmd.Context(), cl, opts, maxResults)
+			if err != nil {
+				return err
+			}
+			// Written before the changes are rendered: if stdout is a pipe that
+			// closes early, the token has still been saved and the next poll can
+			// resume rather than replaying the whole changelog.
+			if err := writeTokenFile(tokenFile, nextToken); err != nil {
+				return err
 			}
 			if c.cli.JSON || c.cli.YAML {
 				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, changes)
@@ -497,6 +493,9 @@ func (c *Command) changesCmd() *cobra.Command {
 	f.IntVar(&pageSize, "page-size", 50, "per-request page size (0 = server default; not a total cap)")
 	f.IntVar(&maxResults, "max-results", 0, "cap the total number of changes returned (0 = unbounded)")
 	f.IntVar(&maxResults, "limit", 0, "alias for --max-results")
+	f.StringVar(&continuationToken, "continuation-token", "", "resume from a token returned by an earlier run")
+	f.StringVar(&tokenFile, "token-file", "", "write the next continuation token to this file (read it back with --continuation-token)")
+	_ = cmd.MarkFlagFilename("token-file")
 	return cmd
 }
 
