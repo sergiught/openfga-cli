@@ -621,7 +621,8 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = "query complete"
 		cmds := []tea.Cmd{m.toasts.Push(toast.Success, m.status)}
 		// Record every query — check, list-objects and list-users — so all of
-		// them are rerunnable from the Recent strip.
+		// them are rerunnable from the h picker. (The Recent strip renders the
+		// same entries, but is informational only.)
 		m.pushHistory(histEntry{mode: msg.mode, vals: msg.vals, ok: msg.ok, ms: msg.ms, qctx: msg.qctx})
 		// Only a check carries an allow/deny verdict, so only it flashes.
 		if msg.badge {
@@ -925,11 +926,11 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if it, ok := m.paletteList.Selected(); ok {
 				m.paletteOpen = false
-				m.section = section(it.Index)
 				m.focus = shell.FocusSidebar
-				m.fading = true
-				nm, cmd := m.onEnterSection()
-				return nm, tea.Batch(cmd, fadeTick())
+				// Delegate to gotoSection rather than re-inlining its
+				// bookkeeping — a second copy is how the showRes leak (see
+				// gotoSection's comment) went unnoticed here in the first place.
+				return m.gotoSection(section(it.Index))
 			}
 		}
 		cmd := m.paletteList.Update(msg)
@@ -1020,6 +1021,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.section == secModel && m.modelPicking {
 		return m.handleModelPicker(msg)
 	}
+	if m.section == secQuery && m.historyPicking {
+		return m.handleHistoryPicker(msg)
+	}
 
 	// While a list is filtering, route everything to it.
 	if lst := m.activeList(); lst != nil && lst.SettingFilter() {
@@ -1053,10 +1057,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.focus = shell.FocusSidebar
 		return m, nil
 	}
-	// Digit section-jumps stay global even with the panel focused — the ?
-	// overlay advertises "1–9 jump to a section" as global. The exception is
-	// Tuple Queries, where the digits rerun recent history.
-	if m.section != secQuery && len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
+	// Digit section-jumps are global: the tabs advertise "[1]"–"[9]", so a
+	// digit must mean the same thing from every panel.
+	if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
 		return m.gotoSection(section(key[0] - '1'))
 	}
 	return m.handleSectionKey(key, msg)
@@ -1107,6 +1110,14 @@ func (m Model) handleSidebarKey(key string) (tea.Model, tea.Cmd) {
 // gotoSection moves the highlighted tab (staying in sidebar focus) and plays
 // the section-change fade, lazy-loading the target section's data.
 func (m Model) gotoSection(to section) (tea.Model, tea.Cmd) {
+	// The resolution tree is a secQuery sub-mode with its own layered esc
+	// handling (see handleKey). Leaving the section any other way — mouse,
+	// digit, tab cycling — must close it too, or re-entering finds queryBody()
+	// still rendering the stale tree ahead of the editing form. Unconditional
+	// because a jump to the section you are already in is no exception:
+	// onEnterSection re-enters the query form either way, so leaving the tree
+	// up would paint it over a focused, invisible form.
+	m.showRes = false
 	m.section = to
 	m.fading = true
 	nm, cmd := m.onEnterSection()
@@ -1138,9 +1149,30 @@ func (m Model) handleModelPicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// handleHistoryPicker handles keys while the Tuple Queries rerun overlay is
+// open: enter reruns the picked query, esc closes the overlay.
+func (m Model) handleHistoryPicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		// Indexed against the snapshot the rows were built from, not m.history:
+		// see historyShown.
+		if it, ok := m.historyList.Selected(); ok && it.Index < len(m.historyShown) {
+			m.historyPicking = false
+			return m.rerunHistory(m.historyShown[it.Index])
+		}
+		return m, nil
+	case "esc":
+		m.historyPicking = false
+		return m, nil
+	}
+	cmd := m.historyList.Update(msg)
+	return m, cmd
+}
+
 // onEnterSection lazy-loads data when first visiting a section.
 func (m Model) onEnterSection() (tea.Model, tea.Cmd) {
 	m.modelPicking = false
+	m.historyPicking = false
 	switch m.section {
 	case secStores:
 		m.selectCurrentStore()
@@ -1198,6 +1230,10 @@ func (m *Model) activeList() *list.List {
 	case secModel:
 		if m.modelPicking {
 			return m.modelsList
+		}
+	case secQuery:
+		if m.historyPicking {
+			return m.historyList
 		}
 	case secTuples:
 		return m.tuplesList

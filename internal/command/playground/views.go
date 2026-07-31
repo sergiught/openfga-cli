@@ -93,7 +93,7 @@ func (m Model) helpBody() string {
 	global := [][2]string{
 		{"tab / ↑↓", "move between tabs (from the tab bar)"},
 		{"↵ / esc", "enter the panel / return to the tabs"},
-		{"1–9", "jump to a section (1–5 rerun history in Tuple Queries)"},
+		{"1–9", "jump to a section"},
 		{"ctrl+k", "command palette"},
 		{"ctrl+l", "redraw the screen"},
 		{"?", "toggle this help"},
@@ -118,7 +118,7 @@ func (m Model) helpBody() string {
 	case secChanges:
 		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"r", "reload"}, {"v", "compact view"}}
 	case secQuery:
-		section = [][2]string{{"i / ↵", "edit query"}, {"tab", "cycle mode"}, {"1–5", "rerun recent"}, {"r", "resolve"}}
+		section = [][2]string{{"i / ↵", "edit query"}, {"tab", "cycle mode"}, {"h", "rerun recent"}, {"r", "resolve"}}
 	case secAssertions:
 		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"↵", "run + resolve"}, {"a", "add"}, {"e", "edit"}, {"d", "delete"}, {"t", "run all"}, {"v", "compact view"}}
 	case secAPILogs:
@@ -164,6 +164,8 @@ func (m Model) mainTitle() string {
 		return base + " ▸ Edit DSL"
 	case m.section == secModel && m.modelPicking:
 		return base + " ▸ Switch model"
+	case m.section == secQuery && m.historyPicking:
+		return base + " ▸ Recent queries"
 	case m.section == secQuery && m.showRes:
 		return base + " ▸ Resolution"
 	case m.section == secTuples && m.tupleFilters.applied.Active():
@@ -262,6 +264,9 @@ func (m Model) dialogContent() (string, string) {
 			inner = m.spinner.View() + " loading models…"
 		}
 		return "Switch model", inner + "\n" + style.Faint.Render("↑↓ choose · enter load · esc cancel")
+	case m.section == secQuery && m.historyPicking:
+		return "Recent queries", m.historyList.View() + "\n" +
+			style.Faint.Render("↑↓ choose · enter rerun · esc cancel")
 	}
 	return "", ""
 }
@@ -288,7 +293,7 @@ func (m Model) sidebarNav() []shell.NavItem {
 	sectionIcons := []string{ic.Profile, ic.Store, ic.Model, ic.Tuple, ic.Change, ic.Query, ic.Assert, ic.APILog, ic.Check}
 	items := make([]shell.NavItem, len(sectionNames))
 	for i, name := range sectionNames {
-		it := shell.NavItem{Label: name, Icon: sectionIcons[i], Active: section(i) == m.section}
+		it := shell.NavItem{Label: name, Icon: sectionIcons[i], Key: itoa(i + 1), Active: section(i) == m.section}
 		switch section(i) {
 		case secProfiles:
 			if n := len(m.cli.Config.Profiles); n > 0 {
@@ -822,16 +827,16 @@ func (m Model) renderResult() string {
 	return body
 }
 
-// historyStrip renders up to 5 numbered chips for recent query results,
-// newest first: a colored check/cross plus the first field value. Returns ""
-// when there is no history yet.
+// historyStrip renders up to 5 chips for recent query results, newest
+// first: a colored check/cross plus the first field value. Returns "" when
+// there is no history yet.
 func (m Model) historyStrip(maxW int) string {
 	if len(m.history) == 0 {
 		return ""
 	}
 	var chips []string
 	used := 0
-	for i, h := range m.history {
+	for _, h := range m.history {
 		// Checks carry an allow/deny verdict (green ✓ / red ✗); list-objects and
 		// list-users have no verdict, so they get a neutral marker.
 		ic, c := icons.I().Dot, style.Muted
@@ -841,7 +846,7 @@ func (m Model) historyStrip(maxW int) string {
 				ic, c = icons.I().Check, style.Green
 			}
 		}
-		label := itoa(i+1) + " " + lipgloss.NewStyle().Foreground(c).Background(style.BgHighlight).Render(ic)
+		label := lipgloss.NewStyle().Foreground(c).Background(style.BgHighlight).Render(ic)
 		chip := style.Chip(label+" "+safeText(histNotation(h)), style.Muted, style.BgHighlight)
 		// Keep only the (newest-first) chips that fit on the one-line strip;
 		// otherwise the panel's fitLines hard-truncates it with a stray ellipsis.
@@ -978,6 +983,8 @@ func (m Model) statusKeys() []string {
 		return []string{"running…", "ctrl+c quit"}
 	case m.section == secModel && m.modelPicking:
 		return []string{"↑↓ browse", "↵ select", "esc"}
+	case m.section == secQuery && m.historyPicking:
+		return []string{"↑↓ browse", "↵ rerun", "esc"}
 	case m.section == secQuery && m.editing:
 		// Enter advances between fields and only runs on the last one; ctrl+s
 		// runs from anywhere. Spell both out so the hint matches reality.
@@ -1007,7 +1014,7 @@ func (m Model) statusKeys() []string {
 	case secChanges:
 		return []string{"↑↓", "/ filter", "r reload", m.compactHint(), "esc"}
 	case secQuery:
-		return []string{"i/↵ edit", "tab mode", "1-5 rerun", "r resolve", "esc"}
+		return []string{"i/↵ edit", "tab mode", "h rerun", "r resolve", "esc"}
 	case secAssertions:
 		return []string{"↑↓", "↵ run", "a add", "e edit", "d delete", "t run all", m.compactHint(), "esc"}
 	case secAPILogs:

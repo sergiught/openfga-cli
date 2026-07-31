@@ -320,8 +320,8 @@ func preserveProfileSecrets(next *config.Auth, previous config.Auth) {
 func (m Model) handleQueryForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
-		// First esc drops to the (non-editing) panel layer, where r / history
-		// digits / resolution live; a second esc returns to the tab selection.
+		// First esc drops to the (non-editing) panel layer, where r / h /
+		// resolution live; a second esc returns to the tab selection.
 		m.editing = false
 		return m, nil
 	case "ctrl+r":
@@ -428,11 +428,11 @@ func (m Model) advanceQueryForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// rerunHistory replays history entry idx: switches to its mode, refills the
+// rerunHistory replays a recorded query: switches to its mode, refills the
 // query form with its values, and dispatches the same run command enter
-// uses on form completion.
-func (m Model) rerunHistory(idx int) (tea.Model, tea.Cmd) {
-	h := m.history[idx]
+// uses on form completion. It takes the entry rather than an index into
+// m.history because that slice is renumbered by every result that lands.
+func (m Model) rerunHistory(h histEntry) (tea.Model, tea.Cmd) {
 	m.qmode = queryModeIndex(h.mode)
 	m.rebuildQueryForm()
 	m.qform.SetValues(h.vals[:queryFieldCount(h.mode)])

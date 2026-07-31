@@ -24,6 +24,15 @@ func (m Model) handleWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 			dir = "up"
 		}
 		return m, m.modelsList.Update(keyMsg(dir))
+	case m.historyPicking:
+		// Same reasoning as the model-switcher case above: route the wheel to
+		// the picker's own list instead of falling into the secQuery cases
+		// below and scrolling whatever's behind the dialog.
+		dir := "down"
+		if up {
+			dir = "up"
+		}
+		return m, m.historyList.Update(keyMsg(dir))
 	case m.section == secModel:
 		if up {
 			return m.scrollGraph(-graphLineStep)
@@ -170,6 +179,14 @@ func (m Model) handleClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if idx := m.sh.NavHit(msg.X, msg.Y); idx >= 0 {
+		// The DSL editor owns the keyboard while it's open (handleKey routes on
+		// editorOpen), so jumping sections out from under it would draw one
+		// section while every keystroke still went to the hidden textarea.
+		// Consume the click rather than clearing the flag: unsaved edits are
+		// only released through the discard confirm.
+		if m.editorOpen {
+			return m, nil
+		}
 		m.focus = shell.FocusSidebar
 		return m.gotoSection(section(idx))
 	}

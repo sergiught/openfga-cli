@@ -357,6 +357,14 @@ type Model struct {
 	paletteOpen bool
 	paletteList *uilist.List
 
+	historyPicking bool
+	historyList    *uilist.List
+	// historyShown is what the open picker's rows were built from. pushHistory
+	// prepends, so a result landing while the picker is open renumbers m.history
+	// under rows the user is already reading; rerunning against this snapshot
+	// keeps "the row I picked" and "the query that ran" the same thing.
+	historyShown []histEntry
+
 	// helpOpen shows the ? keybinding overlay.
 	helpOpen bool
 
@@ -504,6 +512,7 @@ func newModel(ctx context.Context, cli *cli.CLI, cl *openfga.Client, storeID, mo
 		changesList:    uilist.New(),
 		assertionsList: uilist.New(),
 		paletteList:    uilist.New(),
+		historyList:    uilist.New(),
 		editor:         ta,
 		toasts:         toast.New(),
 	}
@@ -774,6 +783,7 @@ func (m *Model) resize() {
 	}
 	m.paletteList.SetSize(dw, dh)
 	m.modelsList.SetSize(dw, dh)
+	m.historyList.SetSize(dw, dh)
 	if m.form != nil {
 		formW, formH := m.sh.DialogSize()
 		m.form.SetWidth(formW)
@@ -1071,6 +1081,34 @@ func (m *Model) populatePalette() {
 		items[i] = uilist.Item{TitleText: "Go to " + name, DescText: "section " + itoa(i+1), Filter: name, ID: itoa(i), Index: i}
 	}
 	m.paletteList.SetItems(items)
+}
+
+// populateHistory refills the rerun picker. Rows mirror the one-line history
+// strip's notation so the two read the same.
+func (m *Model) populateHistory() {
+	// A filter is a property of one visit to the picker, not of the picker:
+	// handleHistoryPicker takes esc before the list can cancel its own filter,
+	// so without this the next open reappears silently narrowed.
+	m.historyList.ResetFilter()
+	m.historyShown = append([]histEntry(nil), m.history...)
+	items := make([]uilist.Item, len(m.historyShown))
+	for i, h := range m.historyShown {
+		verdict := ""
+		if h.mode == "check" {
+			verdict = " · denied"
+			if h.ok {
+				verdict = " · allowed"
+			}
+		}
+		items[i] = uilist.Item{
+			TitleText: safeText(histNotation(h)),
+			DescText:  h.mode + verdict,
+			Filter:    h.mode + " " + histNotation(h),
+			ID:        itoa(i),
+			Index:     i,
+		}
+	}
+	m.historyList.SetItems(items)
 }
 
 func (m *Model) rebuildQueryForm() {

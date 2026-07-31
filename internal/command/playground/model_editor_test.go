@@ -6,9 +6,11 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	transformer "github.com/openfga/language/pkg/go/transformer"
 
 	"github.com/sergiught/go-openfga/openfga"
+	"github.com/sergiught/openfga-cli/internal/configtest"
 )
 
 func TestDSLTransformsToWriteRequest(t *testing.T) {
@@ -94,6 +96,45 @@ func TestModelEditorApplyErrorKeepsEditorOpen(t *testing.T) {
 	}
 	if m.(Model).editorErr == "" {
 		t.Error("editorErr should be set on error")
+	}
+}
+
+// Clicking a sidebar tab while the DSL editor is open must be a no-op.
+// handleKey routes every keystroke into the editor for as long as editorOpen
+// is set, so swapping the section behind its back draws one section while
+// typing goes to another — and clearing the flag instead would silently drop
+// the unsaved edits the discard confirm exists to protect.
+func TestNavClickIgnoredWhileModelEditorOpen(t *testing.T) {
+	configtest.Isolate(t)
+	tm := newTestModel()
+	tm, _ = tm.Update(key("3"))     // Model section
+	tm, _ = tm.Update(key("enter")) // descend into the panel
+	tm, _ = tm.Update(key("e"))     // open the editor
+	m := tm.(Model)
+	if !m.editorOpen {
+		t.Fatal("e should open the model editor")
+	}
+
+	// NavHit's row origin is recorded while rendering, so hit-test only after a
+	// frame exists. navTop is unexported; probe for the Profiles row.
+	_ = m.viewString()
+	x, y := -1, -1
+	for row := 0; row < 32 && y < 0; row++ {
+		if m.sh.NavHit(1, row) == int(secProfiles) {
+			x, y = 1, row
+		}
+	}
+	if y < 0 {
+		t.Fatal("could not locate the Profiles nav row; the sidebar must have collapsed")
+	}
+
+	tm2, _ := tea.Model(m).Update(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+	clicked := tm2.(Model)
+	if clicked.section != secModel {
+		t.Fatalf("a nav click with the editor open must not change section; got %v", clicked.section)
+	}
+	if !clicked.editorOpen {
+		t.Fatal("a nav click is not a discard; the editor must stay open")
 	}
 }
 

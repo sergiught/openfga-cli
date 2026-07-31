@@ -5,7 +5,9 @@ import (
 	"testing"
 
 	lipgloss "charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
+	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/icons"
 )
 
@@ -264,6 +266,113 @@ func TestWordmarkFallsBackOnShortTerminal(t *testing.T) {
 	}
 	if !strings.Contains(out, "OpenFGA") {
 		t.Fatal("fallback wordmark must read OpenFGA")
+	}
+}
+
+func TestNavItemKeyPrefix(t *testing.T) {
+	s := New()
+	s.SetSize(110, 32)
+	s.SetSidebar(nil, []NavItem{
+		{Label: "Profiles", Icon: "◉", Key: "1"},
+		{Label: "Stores", Icon: "▣", Key: "2", Badge: "12", Active: true},
+	}, "")
+	out := ansi.Strip(s.View())
+
+	if !strings.Contains(out, "[1]") || !strings.Contains(out, "[2]") {
+		t.Fatalf("nav rows must advertise their digit key:\n%s", out)
+	}
+	// The digit sits outside the active pill so the digit column is uniformly
+	// styled down every row.
+	if !strings.Contains(out, "[2] ▣ Stores") {
+		t.Fatalf("active row should read '[2] ▣ Stores':\n%s", out)
+	}
+	if !strings.Contains(out, "[1] ◉ Profiles") {
+		t.Fatalf("inactive row should read '[1] ◉ Profiles':\n%s", out)
+	}
+}
+
+func TestNavItemWithoutKeyIsUnchanged(t *testing.T) {
+	s := New()
+	s.SetSize(110, 32)
+	s.SetSidebar(nil, []NavItem{{Label: "Profiles", Icon: "◉"}}, "")
+	if out := ansi.Strip(s.View()); strings.Contains(out, "[") {
+		t.Fatalf("an empty Key must render no bracket:\n%s", out)
+	}
+}
+
+// TestNavItemKeyPrefixIsFaintNotPillPainted pins criterion 3: the "[k]"
+// prefix sits outside the gradient pill, not inside it. ansi.Strip alone
+// can't tell the two apart (the stripped text is identical either way), so
+// this asserts against the raw, un-stripped view.
+//
+// style.Faint.Render("[2]") is NOT a literal substring of the raw view: the
+// sidebar's final assembly re-wraps the whole block through another
+// lipgloss Style().Render() (for Width/Height/Padding), which re-serializes
+// the ANSI stream and drops the prefix's own trailing reset in favor of
+// flowing straight into the pill's opening escape. So the outer reset
+// ("\x1b[m") is stripped from the expected bytes before the substring
+// check. What must still hold - and is what actually distinguishes "outside
+// the pill" from "inside it" - is that the three bracket runes share ONE
+// contiguous foreground-only escape run. If the prefix were painted inside
+// GradientPillPhase instead, each rune gets its own per-character
+// Background(...) escape (as every pill character does - see the "▣" and
+// "S", "t", "o"... runs for "Stores" below), so this exact contiguous,
+// background-free run would not appear.
+func TestNavItemKeyPrefixIsFaintNotPillPainted(t *testing.T) {
+	s := New()
+	s.SetSize(110, 32)
+	s.SetSidebar(nil, []NavItem{
+		{Label: "Stores", Icon: "▣", Key: "2", Active: true},
+	}, "")
+	raw := s.View()
+
+	faintBracket := strings.TrimSuffix(style.Faint.Render("[2]"), "\x1b[m")
+	if !strings.Contains(raw, faintBracket) {
+		t.Fatalf("active row's [k] prefix must render as a single style.Faint-styled, "+
+			"unbackgrounded run (%q) outside the pill, not painted per-rune inside it:\n%q",
+			faintBracket, raw)
+	}
+}
+
+// TestNavStripKeyFallback covers criterion 6: in the collapsed one-line tab
+// strip, an inactive item shows its icon whether or not it has a Key, an
+// icon-less item falls back to "[k]" so the segment isn't blank, and the
+// active item still renders its full icon+label pill text.
+func TestNavStripKeyFallback(t *testing.T) {
+	s := New()
+	s.SetSize(60, 20) // below collapseBelow (76 cols)
+	if !s.Collapsed() {
+		t.Fatal("60 cols should collapse the sidebar; the collapse threshold must have moved")
+	}
+	s.SetSidebar(nil, []NavItem{
+		// The active item carries a Key so the strip's treatment of it is pinned:
+		// it is dropped, unlike the expanded rows where it renders as a prefix.
+		{Label: "Stores", Icon: "▣", Key: "2", Active: true},
+		{Label: "Profiles", Icon: "◉", Key: "1"},
+		{Label: "Assertions", Icon: "✓"},
+		// No icon: what the "off" glyph set produces, where "[k]" beats blank.
+		{Label: "Tests", Key: "9"},
+	}, "")
+	s.SetMain("Stores", "body")
+	out := ansi.Strip(s.View())
+
+	if !strings.Contains(out, "▣ Stores") {
+		t.Fatalf("collapsed strip should render the active item's full icon+label pill text:\n%s", out)
+	}
+	if strings.Contains(out, "[2]") {
+		t.Fatalf("collapsed strip should drop the active item's key; its labeled pill already says where you are:\n%s", out)
+	}
+	if !strings.Contains(out, "◉") {
+		t.Fatalf("a keyed inactive item should still show its icon; the icon is what makes the strip fit:\n%s", out)
+	}
+	if strings.Contains(out, "[1]") {
+		t.Fatalf("a keyed inactive item's key must not displace its icon in the strip:\n%s", out)
+	}
+	if !strings.Contains(out, "✓") {
+		t.Fatalf("collapsed strip should show the icon for a keyless inactive item:\n%s", out)
+	}
+	if !strings.Contains(out, "[9]") {
+		t.Fatalf("collapsed strip should fall back to the key when there is no icon to show:\n%s", out)
 	}
 }
 

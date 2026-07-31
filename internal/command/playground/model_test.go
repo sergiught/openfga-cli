@@ -738,10 +738,11 @@ func TestVerdictFlashClearsAfterOneTick(t *testing.T) {
 	}
 }
 
-// TestDigitKeyRerunsHistoryEntry drives a full check through the form, then
-// presses "1" in the Query section (not editing) and asserts it reruns the
-// same query — hitting the server again — rather than switching sections.
-func TestDigitKeyRerunsHistoryEntry(t *testing.T) {
+// TestDigitKeyJumpsSectionInsteadOfRerunning drives a full check through the
+// form so real history exists, then presses "1" in the Query section (not
+// editing) and asserts it now jumps to Profiles (section index 0) rather
+// than rerunning the history entry that binding used to own.
+func TestDigitKeyJumpsSectionInsteadOfRerunning(t *testing.T) {
 	hits := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/check") {
@@ -785,33 +786,136 @@ func TestDigitKeyRerunsHistoryEntry(t *testing.T) {
 	}
 
 	// A query leaves editing on for immediate re-typing; esc drops to the panel
-	// layer where the history digits work.
+	// layer where digit jumps now live.
 	var mq tea.Model = mod
 	mq, _ = mq.Update(key("esc"))
-	m2 := pump(t, mq.(Model), key("1")) // rerun history[0]
+	m2 := pump(t, mq.(Model), key("1")) // jump to Profiles, not a rerun
 	mod2 := m2.(Model)
-	if hits != 2 {
-		t.Errorf("server hits after digit rerun = %d, want 2 (digit should have rerun the check)", hits)
+	if hits != 1 {
+		t.Errorf("server hits after digit press = %d, want 1 (digit must not rerun the check)", hits)
 	}
-	if mod2.section != secQuery {
-		t.Errorf("digit rerun should not change section; got %v", mod2.section)
+	if mod2.section != secProfiles {
+		t.Errorf("digit should jump to Profiles; got %v", mod2.section)
 	}
-	if len(mod2.history) != 2 {
-		t.Errorf("history len after rerun = %d, want 2", len(mod2.history))
+	if len(mod2.history) != 1 {
+		t.Errorf("history len after digit press = %d, want 1 (unchanged)", len(mod2.history))
 	}
 }
 
-// TestQueryDigitWithoutHistoryIsNoop verifies that inside the Query panel a
-// digit addressing no history entry is a no-op: strict panel focus never
-// switches sections (only the sidebar does).
-func TestQueryDigitWithoutHistoryIsNoop(t *testing.T) {
+// TestQueryDigitJumpsSectionWithoutHistory verifies that inside the Query
+// panel a digit jumps sections even when there is no history to have
+// addressed under the old binding.
+func TestQueryDigitJumpsSectionWithoutHistory(t *testing.T) {
 	m := newTestModel()
 	m, _ = m.Update(key("6"))     // Query, no history yet
-	m, _ = m.Update(key("enter")) // descend into the panel
-	m, _ = m.Update(key("1"))     // no matching history -> no-op
+	m, _ = m.Update(key("enter")) // descend into the panel (starts editing)
+	m, _ = m.Update(key("esc"))   // drop editing, stay on the panel layer
+	m, _ = m.Update(key("1"))     // jump to Profiles
+	mod := m.(Model)
+	if mod.section != secProfiles {
+		t.Errorf("digit in the panel should jump to Profiles; got %v", mod.section)
+	}
+}
+
+// TestDigitTypesIntoQueryFormFieldWhileEditing guards the invariant that
+// keeps the global digit-jump guard from eating user input: handleKey routes
+// to handleQueryForm before the digit-jump check runs, so a digit typed
+// while editing a query field lands as a character, not a section jump.
+func TestDigitTypesIntoQueryFormFieldWhileEditing(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(key("6"))     // Query section
+	m, _ = m.Update(key("enter")) // descend -> editing the first field
+	m = pump(t, m, key("2"))
 	mod := m.(Model)
 	if mod.section != secQuery {
-		t.Errorf("digit with no history in the panel should stay in Query; got %v", mod.section)
+		t.Fatalf("typing a digit while editing must not jump sections; got %v", mod.section)
+	}
+	if got := mod.qform.Values()[0]; got != "2" {
+		t.Fatalf("digit should have been typed into the field, got %q", got)
+	}
+}
+
+// TestDigitJumpClosesStaleResolutionTree reproduces a leak the unconditional
+// digit-jump guard opened up: showRes (the resolution-tree sub-mode) used to
+// be unreachable from a digit press because digits were excluded in
+// secQuery. Now that digits jump from every panel, leaving secQuery with the
+// tree open must close it — otherwise re-entering finds queryBody() still
+// rendering the stale tree ahead of the editing form.
+func TestDigitJumpClosesStaleResolutionTree(t *testing.T) {
+	m := newTestModel().(Model)
+	m.section = secQuery
+	m.focus = shell.FocusPanel
+	m.showRes = true
+	m.resTree = &fga.ResNode{Name: "document:roadmap#viewer", Granted: true}
+
+	var tm tea.Model = m
+	tm, _ = tm.Update(key("2")) // jump away to Stores
+	if tm.(Model).showRes {
+		t.Fatal("jumping away from Tuple Queries should close its resolution tree")
+	}
+	tm, _ = tm.Update(key("6")) // jump back to Tuple Queries, still panel focus
+	if tm.(Model).showRes {
+		t.Fatal("jumping back into Tuple Queries should not resurrect a stale resolution tree")
+	}
+}
+
+// TestSelfDigitJumpClosesStaleResolutionTree covers the case the two
+// section-changing tests around it cannot reach: pressing Tuple Queries' own
+// digit while sitting in Tuple Queries. onEnterSection re-enters the query
+// form regardless of whether the section actually changed, so a showRes clear
+// guarded on "the section changed" left the stale tree painted over a focused,
+// invisible form.
+func TestSelfDigitJumpClosesStaleResolutionTree(t *testing.T) {
+	m := newTestModel().(Model)
+	m.section = secQuery
+	m.focus = shell.FocusPanel
+	m.showRes = true
+	m.resTree = &fga.ResNode{Name: "document:roadmap#viewer", Granted: true}
+
+	var tm tea.Model = m
+	tm, _ = tm.Update(key("6")) // secQuery's own digit, the one its tab advertises
+	mod := tm.(Model)
+	if !mod.editing {
+		t.Fatal("precondition: the self-jump re-enters the query form; that is what makes a surviving tree harmful")
+	}
+	if mod.showRes {
+		t.Fatal("pressing the current section's own digit must close its resolution tree, not render it over the form")
+	}
+}
+
+// TestCommandPaletteJumpClosesStaleResolutionTree covers the same leak as
+// TestDigitJumpClosesStaleResolutionTree, reached through ctrl+k instead of a
+// digit: the palette's "enter" handler used to be a second, independent
+// implementation of "jump to a section" that never cleared showRes.
+func TestCommandPaletteJumpClosesStaleResolutionTree(t *testing.T) {
+	m := newTestModel().(Model)
+	m.section = secQuery
+	m.focus = shell.FocusPanel
+	m.showRes = true
+	m.resTree = &fga.ResNode{Name: "document:roadmap#viewer", Granted: true}
+
+	openPalette := func(m Model) Model {
+		var tm tea.Model = m
+		tm, _ = tm.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+		return tm.(Model)
+	}
+	choose := func(m Model, idx int) Model {
+		m.paletteList.SelectIndex(idx)
+		var tm tea.Model = m
+		tm, _ = tm.Update(key("enter"))
+		return tm.(Model)
+	}
+
+	m = openPalette(m)
+	m = choose(m, int(secStores)) // "Go to Stores"
+	if m.showRes {
+		t.Fatal("jumping away via the palette should close the resolution tree")
+	}
+
+	m = openPalette(m)
+	m = choose(m, int(secQuery)) // "Go to Tuple Queries"
+	if m.showRes {
+		t.Fatal("jumping back via the palette should not resurrect a stale resolution tree")
 	}
 }
 
