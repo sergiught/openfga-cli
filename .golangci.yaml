@@ -74,19 +74,6 @@ linters:
         linters:
           - gosec
         text: 'G602'
-      # G115 has a single hit: toUint32 validates the lower bound of a
-      # user-supplied ofga.yaml `server:` option but not the upper, so a value
-      # above MaxUint32 wraps silently instead of erroring. That is a genuine
-      # bug rather than a lint artifact, but fixing it changes behaviour (a new
-      # error for input that is currently accepted), so it is tracked separately
-      # and scoped out here instead of being quietly rewritten in a lint pass.
-      # Matched on the offending expression, not just the file, so a second
-      # conversion added here later is still flagged.
-      - path: internal/modeltest/engine_embedded\.go
-        linters:
-          - gosec
-        text: 'G115'
-        source: 'return uint32\(n\), nil'
 
 formatters:
   enable:

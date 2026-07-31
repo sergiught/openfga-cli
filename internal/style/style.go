@@ -162,8 +162,109 @@ func Allowed(ok bool) string {
 // Bullet returns a primary-colored bullet prefix.
 func Bullet() string { return lipgloss.NewStyle().Foreground(Primary).Render(IconBullet) }
 
-// SanitizeTerminal removes escape sequences and control characters from
-// untrusted text before it is styled for an interactive terminal.
+// spoofingRune reports whether r can make displayed text disagree with the
+// bytes behind it, independently of ANSI escapes.
+//
+// The first group is Unicode's explicit bidirectional formatting: the
+// embeddings/overrides U+202A-U+202E and the isolates U+2066-U+2069. A store or
+// tuple name carrying these renders in an order other than its byte order — the
+// Trojan Source class (CVE-2021-42574) — so `document:txt.gnp` can be drawn for
+// a name that actually reads `document:png.txt`.
+//
+// The second group is the zero-width characters with no shaping role: U+200B
+// (zero-width space) and U+FEFF (zero-width no-break space), which can hide a
+// difference between two otherwise identical-looking identifiers.
+//
+// Deliberately NOT included: U+200C/U+200D (ZWNJ/ZWJ) and U+200E/U+200F
+// (LRM/RLM). Those carry real linguistic meaning — emoji ZWJ sequences and
+// Indic/Persian shaping depend on them, and the marks only nudge direction
+// rather than opening an override scope — so removing them would corrupt
+// legitimate names to defend against a weaker attack than the overrides allow.
+func spoofingRune(r rune) bool {
+	return (r >= 0x202A && r <= 0x202E) ||
+		(r >= 0x2066 && r <= 0x2069) ||
+		r == 0x200B || r == 0xFEFF
+}
+
+// SanitizeTerminalKeepSGR removes everything SanitizeTerminal does *except*
+// SGR sequences (CSI … m), which only choose colors and weights.
+//
+// It exists for lines the CLI composes itself and deliberately styles — the
+// success/info/warning printers are handed values already wrapped in
+// style.Bold.Render — where stripping every escape would silently discard that
+// styling. Sequences that can act rather than merely paint (OSC clipboard and
+// title writes, cursor movement, screen clears), raw control characters and
+// bidi overrides are still removed, so a hostile value interpolated into such a
+// line cannot do anything beyond changing its own colour.
+//
+// Use SanitizeTerminal for text that arrives from the server or a file, where
+// no styling is expected in the first place.
+func SanitizeTerminalKeepSGR(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); {
+		if s[i] != 0x1b {
+			r, size := utf8.DecodeRuneInString(s[i:])
+			i += size
+			if r == utf8.RuneError && size == 1 {
+				b.WriteRune(utf8.RuneError)
+				continue
+			}
+			if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) || spoofingRune(r) {
+				continue
+			}
+			b.WriteRune(r)
+			continue
+		}
+		seq, final, n := scanEscape(s[i:])
+		i += n
+		// Keep only SGR: ESC [ <params> m. Every other escape is dropped.
+		if final == 'm' && strings.HasPrefix(seq, "\x1b[") {
+			b.WriteString(seq)
+		}
+	}
+	return b.String()
+}
+
+// scanEscape reads one escape sequence starting at s[0] (which must be ESC) and
+// returns the raw sequence, its final byte (0 if malformed or truncated) and
+// how many bytes were consumed.
+func scanEscape(s string) (seq string, final byte, n int) {
+	if len(s) < 2 {
+		return "", 0, len(s)
+	}
+	switch s[1] {
+	case '[': // CSI: params 0x30-0x3F, intermediates 0x20-0x2F, final 0x40-0x7E
+		for j := 2; j < len(s); j++ {
+			c := s[j]
+			if c >= 0x30 && c <= 0x3f || c >= 0x20 && c <= 0x2f {
+				continue
+			}
+			if c >= 0x40 && c <= 0x7e {
+				return s[:j+1], c, j + 1
+			}
+			return s[:j], 0, j // malformed; drop what we scanned
+		}
+		return s, 0, len(s)
+	case ']': // OSC: runs to BEL or ST (ESC \)
+		for j := 2; j < len(s); j++ {
+			if s[j] == 0x07 {
+				return s[:j+1], 0, j + 1
+			}
+			if s[j] == 0x1b && j+1 < len(s) && s[j+1] == '\\' {
+				return s[:j+2], 0, j + 2
+			}
+		}
+		return s, 0, len(s)
+	default:
+		// Two-byte escape (or a lone ESC at end of input).
+		return s[:2], 0, 2
+	}
+}
+
+// SanitizeTerminal removes escape sequences, control characters and
+// text-direction spoofing characters from untrusted text before it is styled
+// for an interactive terminal.
 func SanitizeTerminal(s string) string {
 	s = ansi.Strip(s)
 	var b strings.Builder
@@ -176,6 +277,9 @@ func SanitizeTerminal(s string) string {
 			continue
 		}
 		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+			continue
+		}
+		if spoofingRune(r) {
 			continue
 		}
 		b.WriteRune(r)

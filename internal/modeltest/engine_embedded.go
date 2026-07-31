@@ -3,6 +3,7 @@ package modeltest
 import (
 	"context"
 	"fmt"
+	"math"
 
 	openfgav1 "github.com/openfga/api/proto/openfga/v1"
 	"github.com/openfga/openfga/pkg/server"
@@ -166,6 +167,11 @@ func toInt(key string, val any) (int, error) {
 	}
 }
 
+// toUint32 converts a manifest `server:` value to the uint32 the server option
+// takes. Both bounds are checked: without the upper one the conversion wraps
+// silently on 64-bit, so an out-of-range request like 4294967296 would
+// configure the server with 0 — the most restrictive possible setting — rather
+// than telling the operator the value was rejected.
 func toUint32(key string, val any) (uint32, error) {
 	n, err := toInt(key, val)
 	if err != nil {
@@ -173,6 +179,9 @@ func toUint32(key string, val any) (uint32, error) {
 	}
 	if n < 0 {
 		return 0, fmt.Errorf("server option %q: want a non-negative number, got %d", key, n)
+	}
+	if uint64(n) > math.MaxUint32 {
+		return 0, fmt.Errorf("server option %q: want a number no greater than %d, got %d", key, uint32(math.MaxUint32), n)
 	}
 	return uint32(n), nil
 }

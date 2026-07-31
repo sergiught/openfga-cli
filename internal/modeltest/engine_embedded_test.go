@@ -3,6 +3,7 @@ package modeltest
 import (
 	"context"
 	"fmt"
+	"math"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -94,6 +95,33 @@ func TestToUint32RejectsNegative(t *testing.T) {
 	}
 	if got != 3 {
 		t.Fatalf("toUint32(3) = %d, want 3", got)
+	}
+}
+
+// TestToUint32RejectsAboveMaxUint32 pins the upper bound. Without it the
+// conversion wraps silently on 64-bit, so a manifest asking for a
+// resolve_node_limit of 4294967296 would quietly configure the server with 0 —
+// an out-of-range request answered by the most restrictive possible setting
+// rather than by an error.
+func TestToUint32RejectsAboveMaxUint32(t *testing.T) {
+	for _, val := range []any{
+		int(math.MaxUint32) + 1,
+		int64(math.MaxUint32) + 1,
+		float64(math.MaxUint32) + 1,
+	} {
+		got, err := toUint32("resolve_node_limit", val)
+		if err == nil {
+			t.Errorf("toUint32(%v) = %d, <nil>; want an out-of-range error", val, got)
+			continue
+		}
+		if !strings.Contains(err.Error(), "resolve_node_limit") {
+			t.Errorf("toUint32(%v) error = %q, want it to name the option", val, err)
+		}
+	}
+
+	// The boundary itself is still valid.
+	if got, err := toUint32("k", int(math.MaxUint32)); err != nil || got != math.MaxUint32 {
+		t.Fatalf("toUint32(MaxUint32) = %d, %v; want %d, <nil>", got, err, uint32(math.MaxUint32))
 	}
 }
 

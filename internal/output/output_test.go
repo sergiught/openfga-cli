@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"syscall"
 	"testing"
@@ -257,6 +258,48 @@ func TestWarnfAndNotefSuppressedByQuiet(t *testing.T) {
 	}
 }
 
+// Errorf and Hintf already sanitized; the success/info/warn/note printers did
+// not, so a tuple or store name carrying escapes reached the terminal raw
+// depending only on whether the operation happened to succeed. Every printer
+// that renders interpolated text must sanitize it.
+func TestStatusPrintersSanitizeInterpolatedText(t *testing.T) {
+	defer func(p, q bool) { Plain, Quiet = p, q }(Plain, Quiet)
+	Plain, Quiet = false, false
+
+	// An OSC 52 clipboard-write sequence, a bidi override, and a bare control
+	// character — none of which may reach the terminal.
+	const hostile = "na\x1b]52;c;evil\ame\u202edeknil\x1b[31m"
+	const want = "namedeknil"
+
+	printers := map[string]func(io.Writer, string, ...any){
+		"Successf": Successf,
+		"Infof":    Infof,
+		"Warnf":    Warnf,
+		"Notef":    Notef,
+		"Errorf":   Errorf,
+		"Hintf":    Hintf,
+	}
+	for name, print := range printers {
+		t.Run(name, func(t *testing.T) {
+			var b bytes.Buffer
+			print(&b, "wrote %s", hostile)
+			got := b.String()
+			if strings.Contains(got, "52;c;evil") {
+				t.Errorf("%s leaked an OSC 52 clipboard write: %q", name, got)
+			}
+			if strings.ContainsRune(got, '\a') {
+				t.Errorf("%s leaked a BEL: %q", name, got)
+			}
+			if strings.ContainsRune(got, '\u202e') {
+				t.Errorf("%s leaked a bidi override: %q", name, got)
+			}
+			if !strings.Contains(got, want) {
+				t.Errorf("%s = %q, want it to contain the sanitized %q", name, got, want)
+			}
+		})
+	}
+}
+
 func TestErrorfNotSuppressedByQuiet(t *testing.T) {
 	defer func(p, q bool) { Plain, Quiet = p, q }(Plain, Quiet)
 	Plain = false
@@ -269,5 +312,41 @@ func TestErrorfNotSuppressedByQuiet(t *testing.T) {
 	}
 	if !strings.Contains(b.String(), "●") {
 		t.Fatalf("Errorf output missing dot: %q", b.String())
+	}
+}
+
+// The styled printers are handed values the command deliberately wrapped in
+// style.Bold.Render, so sanitizing must not strip colour — an earlier version of
+// this fix removed every escape and silently un-styled a dozen call sites.
+// Colour survives; anything that can act on the terminal does not.
+func TestStyledPrintersKeepDeliberateStylingButNotActions(t *testing.T) {
+	defer func(p, q bool) { Plain, Quiet = p, q }(Plain, Quiet)
+	Plain, Quiet = false, false
+
+	const bold = "\x1b[1mnord\x1b[0m"
+	for name, print := range map[string]func(io.Writer, string, ...any){
+		"Successf": Successf,
+		"Infof":    Infof,
+		"Warnf":    Warnf,
+		"Notef":    Notef,
+	} {
+		t.Run(name, func(t *testing.T) {
+			var b bytes.Buffer
+			print(&b, "theme set to %s", bold)
+			if !strings.Contains(b.String(), "\x1b[1m") {
+				t.Errorf("%s stripped the caller's own styling: %q", name, b.String())
+			}
+
+			// An OSC clipboard write and a cursor move must still go.
+			b.Reset()
+			print(&b, "wrote %s", "a\x1b]52;c;evil\x07b\x1b[2Jc")
+			got := b.String()
+			if strings.Contains(got, "52;c;evil") || strings.Contains(got, "\x1b[2J") {
+				t.Errorf("%s leaked an actionable sequence: %q", name, got)
+			}
+			if !strings.Contains(got, "abc") {
+				t.Errorf("%s dropped the visible text: %q", name, got)
+			}
+		})
 	}
 }

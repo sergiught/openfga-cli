@@ -69,7 +69,10 @@ func serverVersion(info *debug.BuildInfo) string {
 	return "unknown"
 }
 
-// String returns a one-line, human-readable build description.
+// String returns a one-line, human-readable build description. The server
+// version is qualified as "embedded" because it describes the OpenFGA library
+// linked into this binary for `ofga model test`, not the server the active
+// profile points at.
 func String() string {
-	return fmt.Sprintf("%s (commit %s, built %s, openfga server %s)", resolveVersion(), Commit, Date, Server())
+	return fmt.Sprintf("%s (commit %s, built %s, embedded openfga server %s)", resolveVersion(), Commit, Date, Server())
 }

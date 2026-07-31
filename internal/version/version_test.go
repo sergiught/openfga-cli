@@ -6,6 +6,22 @@ import (
 	"testing"
 )
 
+// CLI-84: Server() reports the OpenFGA library linked into this binary for
+// `ofga model test`, never the server the active profile points at. The
+// human-readable line must say so, or a user pointed at a remote OpenFGA reads
+// this number as their server's version.
+func TestStringQualifiesServerVersionAsEmbedded(t *testing.T) {
+	s := String()
+	if !strings.Contains(s, "embedded openfga server") {
+		t.Errorf("String() = %q, want the server version qualified as embedded", s)
+	}
+	// Guard against the qualifier being dropped while the bare phrasing stays:
+	// "openfga server vX" alone is the misleading form.
+	if i := strings.Index(s, "openfga server"); i >= 0 && !strings.HasSuffix(s[:i], "embedded ") {
+		t.Errorf("String() = %q, want no unqualified %q", s, "openfga server")
+	}
+}
+
 // DOC-4: an ldflags-set Version is authoritative; the build-info fallback only
 // applies to the "dev" placeholder.
 func TestResolveVersion(t *testing.T) {

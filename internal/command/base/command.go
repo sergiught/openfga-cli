@@ -424,6 +424,11 @@ func (c *Command) RanCommand() bool { return c.ranCommand }
 // versionCmd prints the full build info (version, commit, date, and the
 // version of the OpenFGA server embedded for `ofga model test`). Under --json
 // or --yaml it emits a machine-readable object so scripts can parse the build.
+//
+// The embedded server version is labelled "embedded" everywhere. It is the
+// version of the OpenFGA library this binary links and runs in-process for
+// `ofga model test` — not the version of whatever server the active profile
+// points at, which this command never contacts.
 func (c *Command) versionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "version",
@@ -433,10 +438,10 @@ func (c *Command) versionCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if c.cli.JSON || c.cli.YAML {
 				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]string{
-					"version":        version.Resolved(),
-					"commit":         version.Commit,
-					"built":          version.Date,
-					"openfga_server": version.Server(),
+					"version":                 version.Resolved(),
+					"commit":                  version.Commit,
+					"built":                   version.Date,
+					"embedded_openfga_server": version.Server(),
 				})
 			}
 			if c.cli.Plain || c.cli.Output == "table" {
@@ -444,7 +449,7 @@ func (c *Command) versionCmd() *cobra.Command {
 					{"version", version.Resolved()},
 					{"commit", version.Commit},
 					{"built", version.Date},
-					{"openfga server", version.Server()},
+					{"embedded openfga server", version.Server()},
 				})
 			}
 			_, err := fmt.Fprintln(cmd.OutOrStdout(), "ofga "+version.String())
