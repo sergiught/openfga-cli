@@ -1,5 +1,6 @@
-// Package apilog captures OpenFGA HTTP traffic for the playground's API Logs
-// view. It is transport-level and independent of the TUI.
+// Package apilog captures OpenFGA HTTP traffic. It is transport-level and
+// independent of the TUI: the playground buffers entries in a Recorder for its
+// API Logs view, and `ofga --debug` streams them to stderr via a TraceWriter.
 package apilog
 
 import (
@@ -25,6 +26,17 @@ type Entry struct {
 	ServerQueryDuration string
 	Err                 string
 	Attempt             int
+}
+
+// Sink receives each captured entry as it completes. The playground buffers
+// them in a Recorder to render its API Logs view; the CLI's --debug streams
+// them straight to stderr through a TraceWriter. Transport talks to this
+// interface so neither consumer has to care what the other does.
+//
+// Add is called from HTTP goroutines and may run concurrently, so
+// implementations must be safe for concurrent use.
+type Sink interface {
+	Add(Entry)
 }
 
 // Recorder is a concurrency-safe ring buffer of the most recent entries. Add is

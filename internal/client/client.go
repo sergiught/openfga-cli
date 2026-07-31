@@ -45,13 +45,14 @@ func baseTransport(timeout time.Duration) http.RoundTripper {
 type Option func(*options)
 
 type options struct {
-	capture *apilog.Recorder
+	capture apilog.Sink
 	timeout time.Duration
 }
 
 // WithCapture records every HTTP request/response into rec by wrapping the base
-// transport. Used by the playground's API Logs view; unused by CLI commands.
-func WithCapture(rec *apilog.Recorder) Option {
+// transport. The playground passes a Recorder to back its API Logs view; the
+// CLI passes a TraceWriter under --debug to stream the exchange to stderr.
+func WithCapture(rec apilog.Sink) Option {
 	return func(o *options) { o.capture = rec }
 }
 

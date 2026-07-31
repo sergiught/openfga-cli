@@ -71,7 +71,7 @@ func redactBody(b []byte) []byte {
 // deployments where the token endpoint shares a host with the API (e.g. behind
 // a gateway), captured bodies also go through redactBody, which masks known
 // secret field names regardless of host.
-func Transport(base http.RoundTripper, rec *Recorder, apiURL string) http.RoundTripper {
+func Transport(base http.RoundTripper, rec Sink, apiURL string) http.RoundTripper {
 	var apiHost string
 	if apiURL != "" {
 		if u, err := url.Parse(apiURL); err == nil {
@@ -83,7 +83,7 @@ func Transport(base http.RoundTripper, rec *Recorder, apiURL string) http.RoundT
 
 type roundTripper struct {
 	base    http.RoundTripper
-	rec     *Recorder
+	rec     Sink
 	apiHost string
 
 	mu      sync.Mutex

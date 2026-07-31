@@ -18,6 +18,45 @@ sidebar:
 
 ---
 
+## Tracing requests with `--debug`
+
+`-d`/`--debug` prints the configuration a command resolved and every API
+exchange it makes — method, URL, headers, bodies, status, elapsed time, the
+server's `Fga-Request-Id`, and its reported query duration:
+
+```bash
+ofga query check user:anne viewer document:roadmap --debug
+```
+
+```
+DEBU ofga: resolved configuration profile=default api_url=http://localhost:8080 store_id=01ABC… auth=api_token timeout=30s
+> POST http://localhost:8080/stores/01ABC…/check
+>   Authorization: Bearer ***redacted***
+>   {"tuple_key":{"user":"user:anne","relation":"viewer","object":"document:roadmap"}}
+< 200 OK  (12ms, server 3ms, request-id 1J9…)
+<   {"allowed":true}
+```
+
+This answers the questions a one-line error cannot: which profile and store the
+command actually resolved to, whether a retry happened and how many, whether
+time was spent in the network or in the server, and exactly what the server was
+sent and returned.
+
+The trace goes to **stderr**, so `--debug` composes with `--json` and friends
+without corrupting piped output:
+
+```bash
+ofga stores list --json --debug 2>trace.log | jq '.[].id'
+```
+
+Credentials are redacted before anything is printed: `Authorization` and cookie
+headers, secret-named JSON and form fields, and URL query values are masked, and
+OAuth token-fetch requests are never captured at all. A trace is safe to paste
+into a bug report, though it is worth a glance first — tuple and object names
+are your data.
+
+---
+
 ## Shell completion
 
 ```bash

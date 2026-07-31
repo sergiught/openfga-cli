@@ -6,12 +6,14 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 	"time"
 
 	"charm.land/log/v2"
 	"github.com/sergiught/go-openfga/openfga"
+	"github.com/sergiught/openfga-cli/internal/apilog"
 	"github.com/sergiught/openfga-cli/internal/client"
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/config"
@@ -43,6 +45,10 @@ type CLI struct {
 	ThemeName string
 	// RequestTimeout bounds each HTTP exchange; zero disables the deadline.
 	RequestTimeout time.Duration
+	// TraceWriter receives the --debug request trace. Nil means os.Stderr; it
+	// exists so tests (and any future --debug-file) can capture the trace
+	// without touching the process's stderr.
+	TraceWriter io.Writer
 	// Runtime secret files provide process-scoped credentials without exposing
 	// their contents in argv or environment variables.
 	APITokenFile     string
@@ -90,13 +96,64 @@ func emitNotices(notices []string) {
 	})
 }
 
+// tracing reports whether -d/--debug asked for a request trace.
+func (cli *CLI) tracing() bool {
+	return cli.Logger != nil && cli.Logger.GetLevel() <= log.DebugLevel
+}
+
+// clientOptions returns the options every command's client is built with. Under
+// --debug it adds a TraceWriter so each API exchange is printed to stderr as it
+// completes, rather than the command failing with only a one-line Go error to
+// go on.
+func (cli *CLI) clientOptions() []client.Option {
+	opts := []client.Option{client.WithTimeout(cli.RequestTimeout)}
+	if cli.tracing() {
+		w := cli.TraceWriter
+		if w == nil {
+			w = os.Stderr
+		}
+		opts = append(opts, client.WithCapture(apilog.NewTraceWriter(w)))
+	}
+	return opts
+}
+
+// traceResolved prints the configuration a command actually resolved, so a
+// "wrong store" or "wrong profile" bug is visible without guessing which of the
+// flag, environment and profile layers won. Secrets are never printed — only
+// which auth method was selected.
+func (cli *CLI) traceResolved(r config.Resolved) {
+	if !cli.tracing() {
+		return
+	}
+	method := r.Auth.Method
+	if method == "" {
+		method = config.AuthNone
+	}
+	cli.Logger.Debug("resolved configuration",
+		"profile", r.Profile,
+		"api_url", r.APIURL,
+		"store_id", orUnset(r.StoreID),
+		"model_id", orUnset(r.ModelID),
+		"auth", method,
+		"timeout", cli.RequestTimeout,
+	)
+}
+
+func orUnset(s string) string {
+	if s == "" {
+		return "(unset)"
+	}
+	return s
+}
+
 // Client returns a configured OpenFGA client for the resolved configuration.
 func (cli *CLI) Client() (*openfga.Client, error) {
 	r, err := cli.Resolve()
 	if err != nil {
 		return nil, err
 	}
-	return client.New(r, client.WithTimeout(cli.RequestTimeout))
+	cli.traceResolved(r)
+	return client.New(r, cli.clientOptions()...)
 }
 
 // ClientWithStore returns a client and guarantees a store ID is configured,
@@ -109,7 +166,8 @@ func (cli *CLI) ClientWithStore() (*openfga.Client, config.Resolved, error) {
 	if r.StoreID == "" {
 		return nil, r, clierr.WithCode(clierr.CodeUsage, errors.New("no store selected: pass --store-id, set OPENFGA_STORE_ID, or run `ofga profiles set store_id <id>`"))
 	}
-	c, err := client.New(r, client.WithTimeout(cli.RequestTimeout))
+	cli.traceResolved(r)
+	c, err := client.New(r, cli.clientOptions()...)
 	if err != nil {
 		return nil, r, err
 	}
