@@ -1221,7 +1221,11 @@ func (m Model) onEnterSection() (tea.Model, tea.Cmd) {
 		// (same as arriving via tab). Browsing tabs in the sidebar keeps
 		// FocusSidebar, so it must not begin editing.
 		if m.focus == shell.FocusPanel {
-			return m, m.enterQueryEdit()
+			// Hoisted: enterQueryEdit mutates m through a pointer (editing, and
+			// status on the no-store path), and Go leaves a plain read of m
+			// unordered against that call — see TUI-F8.
+			cmd := m.enterQueryEdit()
+			return m, cmd
 		}
 	case secAPILogs:
 		m.apiLogSel = 0

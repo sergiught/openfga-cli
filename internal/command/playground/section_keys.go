@@ -308,14 +308,20 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 		}
 		switch key {
 		case "i", "enter":
-			return m, m.enterQueryEdit()
+			// Hoisted: enterQueryEdit mutates m through a pointer (editing, and
+			// status on the no-store path), and Go leaves a plain read of m
+			// unordered against that call — see TUI-F8. Same below.
+			cmd := m.enterQueryEdit()
+			return m, cmd
 		case "tab":
 			// Switch to the next mode and land in its first field, ready to type.
 			m.cycleQueryMode(1)
-			return m, m.enterQueryEdit()
+			cmd := m.enterQueryEdit()
+			return m, cmd
 		case "shift+tab":
 			m.cycleQueryMode(-1)
-			return m, m.enterQueryEdit()
+			cmd := m.enterQueryEdit()
+			return m, cmd
 		case "m":
 			// Browse modes without entering the form.
 			m.cycleQueryMode(1)
