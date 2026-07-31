@@ -90,6 +90,11 @@ upgrades on a positive signal (a recognised terminal, or a Nerd Font found in
 your font directories). It never upgrades over SSH, because fonts installed on
 the remote host say nothing about the terminal you are actually looking at.
 
+When detection guesses `nerdfont` — the only rung that can render as boxes if
+your font lacks coverage — the playground says so once on startup and points at
+`ctrl+g`. You will not see that notice on the `unicode` or `off` rungs, which
+always render, nor when you have set a value yourself.
+
 To override the guess, press `ctrl+g` in the playground — it cycles `nerdfont` →
 `unicode` → `off` and saves your choice. Or set it directly:
 
