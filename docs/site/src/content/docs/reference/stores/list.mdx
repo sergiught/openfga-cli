@@ -9,7 +9,7 @@ import CommandDemo from '../../../../components/CommandDemo.astro';
 
 <CommandDemo slug="stores-list" />
 
-List stores. By default all stores are returned (the CLI auto-pages); --max-results caps the total returned and stops paging once reached.
+List stores. By default all stores are returned (the CLI auto-pages); --max-results caps the total returned and stops paging once reached. --name filters server-side to stores with that exact name (the API matches exactly, not as a substring or pattern).
 
 ## Usage
 
@@ -21,6 +21,7 @@ ofga stores list [flags]
 
 ```sh
   ofga stores list
+  ofga stores list --name dev
 ```
 
 ## Flags
@@ -29,6 +30,7 @@ ofga stores list [flags]
 | --- | --- | --- |
 | `--limit` | alias for --max-results | `0` |
 | `--max-results` | cap the total number of stores returned (0 = unbounded) | `0` |
+| `--name` | only stores with this exact name (filtered server-side) |   |
 
 <details>
 <summary>Global flags</summary>
@@ -40,6 +42,8 @@ ofga stores list [flags]
       --auth-token-file string           read the process-scoped API token from a file
       --config string                    path to the config file (overrides OPENFGA_CONFIG)
   -d, --debug                            enable debug logging
+      --header stringArray               extra request header as 'Name: value' (repeatable; adds to the profile's headers)
+      --jq string                        filter machine-readable output through this jq expression (implies -o json)
       --json                             output machine-readable JSON (alias for --output json)
       --model-id string                  authorization model ID (overrides profile/env)
       --no-color                         disable colored output

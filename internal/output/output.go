@@ -150,6 +150,12 @@ func yamlNode(v any) (*yaml.Node, error) {
 // support --json also support the parallel --output yaml (or -o yaml) via
 // this helper, so the two structured formats never need separate branches.
 func Emit(w io.Writer, asYAML bool, v any) error {
+	// --jq replaces the rendering entirely: the filter's results are the output,
+	// in jq's own form, so it composes the same way whether the command would
+	// otherwise have printed JSON or YAML.
+	if JQ != "" {
+		return applyJQ(w, v)
+	}
 	if asYAML {
 		return YAML(w, v)
 	}

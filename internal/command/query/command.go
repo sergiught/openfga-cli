@@ -189,12 +189,18 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 	var (
 		checks       []string
 		fConsistency string
+		contextJSON  string
+		ctxTuples    []string
 	)
 	cmd := &cobra.Command{
-		Use:     "batch-check --check user,relation,object [...]",
-		Short:   "Run several checks in one request",
-		Example: "  ofga query batch-check --check user:anne,viewer,doc:1 --check user:bob,editor,doc:1",
-		Args:    cobra.NoArgs,
+		Use:   "batch-check --check user,relation,object [...]",
+		Short: "Run several checks in one request",
+		Example: `  ofga query batch-check --check user:anne,viewer,doc:1 --check user:bob,editor,doc:1
+  ofga query batch-check --check user:anne,viewer,doc:1 --context '{"hour":9}'`,
+		Long: "Run several checks in one request. --context and --contextual-tuple apply to " +
+			"every check in the batch, matching the other query commands; the API accepts them " +
+			"per item, so pass separate invocations when checks need different context.",
+		Args: cobra.NoArgs,
 		// A partial per-item failure is reported by an already-emitted table plus
 		// a non-nil error for the exit code (see batchCheckErr); cobra's default
 		// "Error: ..." + usage dump on a non-nil RunE error would duplicate that
@@ -206,6 +212,14 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if len(checks) == 0 {
 				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("provide at least one --check user,relation,object"))
+			}
+			cx, err := fga.ParseJSONObject("--context", contextJSON)
+			if err != nil {
+				return clierr.WithCode(clierr.CodeUsage, err)
+			}
+			ct, err := parseContextualTuples(ctxTuples)
+			if err != nil {
+				return clierr.WithCode(clierr.CodeUsage, err)
 			}
 			items := make([]openfga.BatchCheckItem, 0, len(checks))
 			labels := make([]string, 0, len(checks))
@@ -224,8 +238,10 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 				}
 				id := fmt.Sprintf("c%d", i)
 				items = append(items, openfga.BatchCheckItem{
-					TupleKey:      openfga.CheckRequestTupleKey{User: key.User, Relation: key.Relation, Object: key.Object},
-					CorrelationID: id,
+					TupleKey:         openfga.CheckRequestTupleKey{User: key.User, Relation: key.Relation, Object: key.Object},
+					CorrelationID:    id,
+					Context:          cx,
+					ContextualTuples: ct,
 				})
 				labels = append(labels, fmt.Sprintf("%s %s %s", key.User, key.Relation, key.Object))
 			}
@@ -279,6 +295,8 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 	}
 	cmd.Flags().StringArrayVar(&checks, "check", nil, "a check as user,relation,object (repeatable)")
 	_ = cmd.MarkFlagRequired("check")
+	cmd.Flags().StringVar(&contextJSON, "context", "", "JSON object of condition context, applied to every check")
+	cmd.Flags().StringArrayVar(&ctxTuples, "contextual-tuple", nil, "contextual tuple as user,relation,object (repeatable), applied to every check")
 	cli.RegisterConsistencyFlag(cmd.Flags(), &fConsistency)
 	return cmd
 }
