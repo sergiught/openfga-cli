@@ -56,14 +56,16 @@ linters:
       # G301/G302/G306 in production: the only files this tool writes that need
       # a restrictive mode are the config and the secrets in it, and
       # internal/config already writes those at 0600 under a 0700 dir
-      # unconditionally — the rule stays enabled there. These four write
+      # unconditionally — the rule stays enabled there. These five write
       # artifacts that exist to be read by something else: a JUnit report a
       # later CI step consumes (possibly as another UID), source files scaffolded
-      # into the user's own repo, and the generated command reference. Narrowing
-      # them to 0600/0700 to satisfy a rule aimed at credential files would be a
-      # silent behaviour change for no security gain, so the modes stay at
-      # 0644/0755 and respect the caller's umask.
-      - path: (internal/command/model/test_(cmd|init)|internal/command/playground/workbench|tools/docgen/main)\.go
+      # into the user's own repo, the generated command reference, and the
+      # release-time shell completions and man pages that a packager copies into
+      # /usr/share (where world-readable is the whole point). Narrowing them to
+      # 0600/0700 to satisfy a rule aimed at credential files would be a silent
+      # behaviour change for no security gain, so the modes stay at 0644/0755
+      # and respect the caller's umask.
+      - path: (internal/command/model/test_(cmd|init)|internal/command/playground/workbench|tools/(docgen|genassets)/main)\.go
         linters:
           - gosec
         text: 'G301|G302|G306'
