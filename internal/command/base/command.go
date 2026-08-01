@@ -153,6 +153,8 @@ source <(ofga completion bash)`,
 	pf.StringVar(&cli.Overrides.StoreID, "store-id", "", "store ID (overrides profile/env)")
 	pf.StringVar(&cli.Overrides.ModelID, "model-id", "", "authorization model ID (overrides profile/env)")
 	pf.String("config", "", "path to the config file (overrides OPENFGA_CONFIG)")
+	pf.StringArrayVar(&cli.Overrides.Headers, "header", nil, "extra request header as 'Name: value' (repeatable; adds to the profile's headers)")
+	pf.StringVar(&output.JQ, "jq", "", "filter machine-readable output through this jq expression (implies -o json)")
 	pf.StringVar(&cli.APITokenFile, "auth-token-file", "", "read the process-scoped API token from a file")
 	pf.StringVar(&cli.ClientSecretFile, "auth-client-secret-file", "", "read the process-scoped OAuth client secret from a file")
 	pf.StringVar(&cli.PrivateKeyFile, "auth-private-key-file", "", "read the process-scoped private-key JWT signing key from a file")
@@ -254,6 +256,26 @@ func FirstUnknownFlag(cmd *cobra.Command, args []string) string {
 // removes the "what if both?" ambiguity. An unset -o leaves the boolean output
 // aliases as parsed.
 func (c *Command) resolveOutput() error {
+	// --jq operates on the structured document, so it selects machine output the
+	// way `gh --jq` does. Without this a filtered command would take the human
+	// path, never reach Emit, and silently print a table instead of the filter's
+	// result. An explicit -o table with --jq is contradictory, so reject it.
+	if output.JQ != "" {
+		if err := output.ValidateJQ(); err != nil {
+			return clierr.WithCode(clierr.CodeUsage, err)
+		}
+		// Both spellings of every unstructured mode have to be caught here:
+		// -o plain and -o table are read from c.cli.Output, while --plain sets
+		// the boolean directly. Missing one makes --jq a silent no-op — the
+		// command prints its table and the filter never runs.
+		if c.cli.Output == "table" || c.cli.Output == "plain" || c.cli.Plain {
+			return clierr.WithCode(clierr.CodeUsage,
+				fmt.Errorf("--jq needs structured output; drop --plain/-o plain/-o table (--jq implies -o json)"))
+		}
+		if c.cli.Output == "" && !c.cli.YAML {
+			c.cli.Output = "json"
+		}
+	}
 	switch c.cli.Output {
 	case "":
 		// With no authoritative -o, the boolean aliases stand as parsed.

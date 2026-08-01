@@ -42,6 +42,48 @@ already committed.
 > a large store that can be a lot of output: cap it with `--max-results`
 > (alias `--limit`), or pipe through `head` or `--json | jq`.
 
+## Extracting fields without jq
+
+`--jq` filters machine-readable output through a built-in jq engine, so a
+container image carrying only `ofga` can still pull a field out:
+
+```bash
+STORE_ID=$(ofga stores create my-store --jq '.store.id')
+ofga stores list --jq '.[] | select(.name=="prod") | .id'
+ofga tuples read --jq 'length'
+```
+
+It implies `-o json`, so it does not need to be combined with `--json`. String
+results print bare (like `jq -r`) so they can be captured straight into a shell
+variable; every other type prints as compact JSON, one result per line. An
+invalid filter is rejected before any request is made.
+
+Because a filter such as `length` or `sort_by(.x)` has to see the whole
+document, `--jq` buffers output that would otherwise stream — worth remembering
+when filtering a very large `tuples read`.
+
+## Sending extra request headers
+
+Deployments that put OpenFGA behind a gateway with its own header-based
+authentication can add headers per request or per profile:
+
+```bash
+ofga stores list --header 'X-Scope-OrgID: tenant-7'
+```
+
+```toml
+# ~/.config/ofga/config.toml
+[profiles.prod]
+api_url = "https://openfga.internal"
+headers = ["X-Scope-OrgID: tenant-7"]
+```
+
+A `--header` flag adds to the profile's headers, and repeating a name replaces
+it rather than sending it twice. Headers are sent only to the OpenFGA API — the
+OAuth token endpoint is deliberately excluded, so a gateway credential is never
+forwarded to your identity provider. `Authorization` cannot be set this way
+(the API client owns it); use the profile's auth settings or `--auth-token-file`.
+
 ## Exporting a large store
 
 `ofga tuples read` streams its output, so memory stays flat no matter how many

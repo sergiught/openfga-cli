@@ -354,6 +354,15 @@ func New(r config.Resolved, opts ...Option) (*openfga.Client, error) {
 		// SDK's default RetryableStatus ({429}); 5xx retry for safe RPCs is
 		// handled by idempotentRetryTransport above instead.
 	}
+	// Extra headers for gateways that authenticate OpenFGA themselves. The SDK
+	// applies these only to API traffic — its OAuth token client is built on the
+	// bare base transport — so a gateway credential is not also sent to the IdP.
+	if hdrs, err := ParseHeaders(r.Headers); err != nil {
+		return nil, err
+	} else if len(hdrs) > 0 {
+		opts2 = append(opts2, openfga.WithHeaders(hdrs))
+	}
+
 	if r.StoreID != "" {
 		opts2 = append(opts2, openfga.WithStoreID(r.StoreID))
 	}

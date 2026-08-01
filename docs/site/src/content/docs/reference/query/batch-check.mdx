@@ -9,7 +9,7 @@ import CommandDemo from '../../../../components/CommandDemo.astro';
 
 <CommandDemo slug="query-batch-check" />
 
-Run several checks in one request
+Run several checks in one request. --context and --contextual-tuple apply to every check in the batch, matching the other query commands; the API accepts them per item, so pass separate invocations when checks need different context.
 
 ## Usage
 
@@ -21,6 +21,7 @@ ofga query batch-check --check user,relation,object [...] [flags]
 
 ```sh
   ofga query batch-check --check user:anne,viewer,doc:1 --check user:bob,editor,doc:1
+  ofga query batch-check --check user:anne,viewer,doc:1 --context '{"hour":9}'
 ```
 
 ## Flags
@@ -29,6 +30,8 @@ ofga query batch-check --check user,relation,object [...] [flags]
 | --- | --- | --- |
 | `--check` | a check as user,relation,object (repeatable) | `[]` |
 | `--consistency` | read consistency: HIGHER_CONSISTENCY, MINIMIZE_LATENCY, UNSPECIFIED (default HIGHER_CONSISTENCY) |   |
+| `--context` | JSON object of condition context, applied to every check |   |
+| `--contextual-tuple` | contextual tuple as user,relation,object (repeatable), applied to every check | `[]` |
 
 <details>
 <summary>Global flags</summary>
@@ -40,6 +43,8 @@ ofga query batch-check --check user,relation,object [...] [flags]
       --auth-token-file string           read the process-scoped API token from a file
       --config string                    path to the config file (overrides OPENFGA_CONFIG)
   -d, --debug                            enable debug logging
+      --header stringArray               extra request header as 'Name: value' (repeatable; adds to the profile's headers)
+      --jq string                        filter machine-readable output through this jq expression (implies -o json)
       --json                             output machine-readable JSON (alias for --output json)
       --model-id string                  authorization model ID (overrides profile/env)
       --no-color                         disable colored output

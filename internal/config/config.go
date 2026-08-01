@@ -106,6 +106,10 @@ type Profile struct {
 	StoreID string `toml:"store_id,omitempty" json:"store_id,omitempty"`
 	ModelID string `toml:"model_id,omitempty" json:"model_id,omitempty"`
 	Auth    Auth   `toml:"auth,omitempty" json:"auth"`
+	// Headers are extra HTTP headers sent with every API request, as
+	// "Name: value" strings. They exist for deployments that put OpenFGA behind
+	// a gateway with its own header-based authentication (openfga/cli#669).
+	Headers []string `toml:"headers,omitempty" json:"headers,omitempty"`
 }
 
 // ResolvedAuth returns the profile's effective auth.
@@ -184,6 +188,10 @@ type Resolved struct {
 	StoreID string
 	ModelID string
 	Auth    Auth
+	// Headers are the profile's extra request headers with any --header flags
+	// appended, so a flag can add to (or replace, by repeating the name) what
+	// the profile configures.
+	Headers []string
 
 	// Notices holds non-fatal advisories gathered during resolution (e.g. an
 	// environment token ignored under an OAuth profile, or an incomplete env
@@ -836,6 +844,7 @@ type Overrides struct {
 	APIToken     string
 	ClientSecret string
 	PrivateKey   string
+	Headers      []string
 }
 
 // firstEnv returns the first non-empty value among the named environment
@@ -929,6 +938,7 @@ func (c *Config) Resolve(o Overrides) (Resolved, error) {
 		StoreID: p.StoreID,
 		ModelID: p.ModelID,
 		Auth:    p.ResolvedAuth(),
+		Headers: append(append([]string(nil), p.Headers...), o.Headers...),
 	}
 
 	// Replace keyring sentinels with the real values before env overrides

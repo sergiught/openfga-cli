@@ -23,11 +23,39 @@ type Streamer interface {
 }
 
 // NewStreamer returns a Streamer matching Emit's choice of format.
+//
+// Under --jq the values are buffered instead of streamed: a filter like
+// `length` or `sort_by(.x)` has to see the whole document, so there is nothing
+// to stream. That trades the memory bound for correctness, and only for
+// invocations that opted into a filter.
 func NewStreamer(w io.Writer, asYAML bool) Streamer {
+	if JQ != "" {
+		return &bufferedStream{w: w, asYAML: asYAML}
+	}
 	if asYAML {
 		return &yamlStream{w: w}
 	}
 	return &jsonStream{w: w}
+}
+
+// bufferedStream collects values and renders them once, for the cases that
+// cannot stream.
+type bufferedStream struct {
+	w      io.Writer
+	asYAML bool
+	items  []any
+}
+
+func (s *bufferedStream) Write(v any) error {
+	s.items = append(s.items, v)
+	return nil
+}
+
+func (s *bufferedStream) Close() error {
+	if s.items == nil {
+		s.items = []any{}
+	}
+	return Emit(s.w, s.asYAML, s.items)
 }
 
 // jsonStream writes a JSON array one element at a time, reproducing the

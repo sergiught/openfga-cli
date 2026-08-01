@@ -142,14 +142,19 @@ func (c *Command) createCmd() *cobra.Command {
 }
 
 func (c *Command) listCmd() *cobra.Command {
-	var maxResults int
+	var (
+		maxResults int
+		name       string
+	)
 	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
 		Short:   "List all stores",
-		Example: "  ofga stores list",
-		Long:    "List stores. By default all stores are returned (the CLI auto-pages); --max-results caps the total returned and stops paging once reached.",
-		Args:    cobra.NoArgs,
+		Example: `  ofga stores list
+  ofga stores list --name dev`,
+		Long: "List stores. By default all stores are returned (the CLI auto-pages); --max-results caps the total returned and stops paging once reached. " +
+			"--name filters server-side to stores with that exact name (the API matches exactly, not as a substring or pattern).",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if maxResults < 0 {
 				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--max-results must be non-negative"))
@@ -160,7 +165,7 @@ func (c *Command) listCmd() *cobra.Command {
 			}
 			output.Progressf(cmd.ErrOrStderr(), "fetching stores…")
 			var stores []openfga.Store
-			for st, err := range cl.Stores.All(cmd.Context(), nil) {
+			for st, err := range cl.Stores.All(cmd.Context(), &openfga.ListStoresOptions{Name: name}) {
 				if err != nil {
 					return err
 				}
@@ -173,6 +178,13 @@ func (c *Command) listCmd() *cobra.Command {
 				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, stores)
 			}
 			if len(stores) == 0 {
+				if name != "" {
+					// Say what was filtered on: the API matches the name
+					// exactly, so "no stores found" alone reads as an empty
+					// server rather than a near-miss on the name.
+					output.Infof(cmd.ErrOrStderr(), "no stores named %q", name)
+					return nil
+				}
 				output.Infof(cmd.ErrOrStderr(), "no stores found")
 				return nil
 			}
@@ -196,6 +208,7 @@ func (c *Command) listCmd() *cobra.Command {
 	}
 	cmd.Flags().IntVar(&maxResults, "max-results", 0, "cap the total number of stores returned (0 = unbounded)")
 	cmd.Flags().IntVar(&maxResults, "limit", 0, "alias for --max-results")
+	cmd.Flags().StringVar(&name, "name", "", "only stores with this exact name (filtered server-side)")
 	return cmd
 }
 

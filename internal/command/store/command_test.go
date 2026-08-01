@@ -270,3 +270,50 @@ func TestCreateUseMissingProfileWarnsAndReportsNotSaved(t *testing.T) {
 		}
 	})
 }
+
+// FEAT-9 / openfga/cli#552: --name must reach the server as a query parameter.
+// Filtering client-side would still page through every store, which is the cost
+// the flag exists to avoid.
+func TestListNameFiltersServerSide(t *testing.T) {
+	var gotName string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotName = r.URL.Query().Get("name")
+		_ = json.NewEncoder(w).Encode(openfga.ListStoresResponse{
+			Stores: []openfga.Store{{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Name: "dev"}},
+		})
+	}))
+	defer srv.Close()
+
+	cmd := New(newStoreCLI(t, srv.URL)).listCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--name", "dev"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if gotName != "dev" {
+		t.Errorf("server received name=%q, want dev", gotName)
+	}
+}
+
+// An empty --name result must say what was filtered on: the API matches names
+// exactly, so a bare "no stores found" reads as an empty server.
+func TestListNameEmptyResultNamesTheFilter(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(openfga.ListStoresResponse{})
+	}))
+	defer srv.Close()
+
+	cmd := New(newStoreCLI(t, srv.URL)).listCmd()
+	var errBuf bytes.Buffer
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(&errBuf)
+	cmd.SetArgs([]string{"--name", "nope"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(errBuf.String(), `no stores named "nope"`) {
+		t.Errorf("message = %q, want it to name the filter", errBuf.String())
+	}
+}
