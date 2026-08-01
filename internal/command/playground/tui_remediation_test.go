@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/log/v2"
@@ -150,7 +151,18 @@ func TestAssertionDeleteMissingIdentityDoesNothing(t *testing.T) {
 	nm, cmd := m.handleKey(key("y"))
 	got := nm.(Model)
 	if cmd != nil {
-		_ = cmd()
+		// Run the command, but do not block on it. The only command this path
+		// can legitimately return is the toast's auto-expire tick, which sleeps
+		// for toast.errorDwell (12s) — waiting for that timer to fire made this
+		// single test a third of the package's runtime. A delete, which is what
+		// this test exists to rule out, would reach the local test server in
+		// microseconds, so a short bound still catches it.
+		done := make(chan struct{})
+		go func() { defer close(done); _ = cmd() }()
+		select {
+		case <-done:
+		case <-time.After(500 * time.Millisecond):
+		}
 	}
 	if calls.Load() != 0 || !strings.Contains(got.status, "nothing deleted") {
 		t.Fatalf("missing target should not issue a write: calls=%d status=%q", calls.Load(), got.status)
