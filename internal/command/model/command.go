@@ -229,6 +229,8 @@ func (c *Command) getCmd() *cobra.Command {
 		Short:             "Show an authorization model as DSL",
 		Example: `  ofga model get 01ARZ3NDEKTSV4RRFFQ69G5FAV
   ofga model get 01ARZ3NDEKTSV4RRFFQ69G5FAV --json`,
+		Long: "Fetch one authorization model by ID.\n\n" +
+			"Output: the `.fga` DSL by default, the raw model JSON/YAML with --json/--yaml, and a compact model_id/schema/types summary with --plain (or -o table).",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl, _, err := c.cli.ClientWithStore()
@@ -250,6 +252,8 @@ func (c *Command) latestCmd() *cobra.Command {
 		Short: "Show the most recent authorization model as DSL",
 		Example: `  ofga model latest
   ofga model latest --json`,
+		Long: "Fetch the store's most recent authorization model.\n\n" +
+			"Output: the `.fga` DSL by default, the raw model JSON/YAML with --json/--yaml, and a compact model_id/schema/types summary with --plain (or -o table).",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cl, _, err := c.cli.ClientWithStore()

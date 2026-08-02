@@ -9,12 +9,20 @@ import CommandDemo from '../../../../components/CommandDemo.astro';
 
 <CommandDemo slug="playground" />
 
-Launch the interactive playground
+Launch the interactive terminal UI for browsing stores, editing models and running queries. Running `ofga` with no arguments does the same thing.
+
+The playground needs an interactive terminal: with stdin or stdout redirected, or under --no-input, it exits with a usage error rather than hanging.
 
 ## Usage
 
 ```sh
 ofga playground
+```
+
+## Examples
+
+```sh
+  ofga playground
 ```
 
 <details>

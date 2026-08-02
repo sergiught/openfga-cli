@@ -509,10 +509,15 @@ func (c *Command) RegisterSubCommands() {
 
 func (c *Command) playgroundCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "playground",
-		Short: "Launch the interactive playground",
-		Args:  cobra.NoArgs,
-		RunE:  c.runPlayground,
+		Use:     "playground",
+		Short:   "Launch the interactive playground",
+		Example: "  ofga playground",
+		Long: "Launch the interactive terminal UI for browsing stores, editing models and running queries. " +
+			"Running `ofga` with no arguments does the same thing.\n\n" +
+			"The playground needs an interactive terminal: with stdin or stdout redirected, or under --no-input, " +
+			"it exits with a usage error rather than hanging.",
+		Args: cobra.NoArgs,
+		RunE: c.runPlayground,
 	}
 }
 
