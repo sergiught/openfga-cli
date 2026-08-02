@@ -71,8 +71,8 @@ ofga model test [path] [flags]
 | `--run` | glob to select tests by "\<relative-file>/\<test-name>" or by name alone |   |
 | `--server-addr` | run tests against an already-running OpenFGA server at this gRPC host:port instead of the embedded server |   |
 | `--slowest` | after the run, list the N slowest tests (0 = don't) | `0` |
+| `--test-timeout` | per-test timeout bounding each test's engine work (e.g. 30s; 0 = no timeout) | `0s` |
 | `--tests` | test-file glob(s) to run (repeatable; overrides the manifest's tests, or runs manifest-free with --model) | `[]` |
-| `--timeout` | per-test timeout bounding each test's engine work (e.g. 30s; 0 = no timeout) | `0s` |
 | `--watch` | re-run the tests whenever a workspace file changes (interactive; Ctrl-C to stop) | `false` |
 
 <details>

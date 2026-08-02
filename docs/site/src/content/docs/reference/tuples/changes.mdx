@@ -30,11 +30,11 @@ ofga tuples changes [flags]
 | Flag | Description | Default |
 | --- | --- | --- |
 | `--continuation-token` | resume from a token returned by an earlier run |   |
+| `--cursor-file` | write the next continuation token to this file (read it back with --continuation-token) |   |
 | `--limit` | alias for --max-results | `0` |
 | `--max-results` | cap the total number of changes returned (0 = unbounded) | `0` |
 | `--page-size` | per-request page size (0 = server default; not a total cap) | `50` |
 | `--start-time` | only changes at/after this RFC3339 time |   |
-| `--token-file` | write the next continuation token to this file (read it back with --continuation-token) |   |
 | `--type` | filter changes by object type |   |
 
 <details>

@@ -279,3 +279,38 @@ func TestChangesTokenIsSentAsQueryParam(t *testing.T) {
 		t.Errorf("continuation_token = %q, want it round-tripped intact", got.Get("continuation_token"))
 	}
 }
+
+// --token-file read as "read the API token from a file" (its meaning on
+// `profiles add`) while it actually writes a changelog cursor. The new name
+// says what it does; the old one keeps working, hidden.
+func TestChangesCursorFileAndItsDeprecatedAlias(t *testing.T) {
+	for _, flag := range []string{"--cursor-file", "--token-file"} {
+		t.Run(flag, func(t *testing.T) {
+			srv := newChangesServer(t, 4, 10)
+			path := filepath.Join(t.TempDir(), "cursor")
+
+			a := newHumanTupleCLI(t, srv.URL)
+			a.JSON = true
+			cmd := New(a).changesCmd()
+			cmd.SetArgs([]string{flag, path})
+			silenced(cmd)
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			if strings.TrimSpace(readFile(t, path)) == "" {
+				t.Fatalf("%s did not record a cursor", flag)
+			}
+		})
+	}
+
+	// They write the same value, so passing both would silently pick one.
+	srv := newChangesServer(t, 4, 10)
+	dir := t.TempDir()
+	a := newHumanTupleCLI(t, srv.URL)
+	cmd := New(a).changesCmd()
+	cmd.SetArgs([]string{"--cursor-file", filepath.Join(dir, "a"), "--token-file", filepath.Join(dir, "b")})
+	silenced(cmd)
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("passing both the flag and its alias should be rejected")
+	}
+}

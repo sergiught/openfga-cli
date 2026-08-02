@@ -217,31 +217,49 @@ func (c *Command) listCmd() *cobra.Command {
 
 func (c *Command) getCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:               "get <store-id>",
+		Use:               "get [store-id]",
 		ValidArgsFunction: c.completeIDs,
-		Short:             "Show details of a store",
-		Example:           "  ofga stores get 01ARZ3NDEKTSV4RRFFQ69G5FAV",
-		Args:              cobra.ExactArgs(1),
+		Short:             "Show details of a store (default: the active store)",
+		Example: `  ofga stores get
+  ofga stores get 01ARZ3NDEKTSV4RRFFQ69G5FAV`,
+		Long: "Show a store's details. With no argument the configured store is used, " +
+			"the same one every store-scoped command works against.",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Falling back to the configured store matches every other
+			// store-scoped command (and `fga store get`), so the ID only has to
+			// be typed when inspecting some *other* store.
+			if len(args) == 0 {
+				cl, r, err := c.cli.ClientWithStore()
+				if err != nil {
+					return err
+				}
+				return c.emitStore(cmd, cl, r.StoreID)
+			}
 			cl, err := c.cli.Client()
 			if err != nil {
 				return err
 			}
-			st, err := cl.Stores.Get(cmd.Context(), args[0])
-			if err != nil {
-				return err
-			}
-			if c.cli.JSON || c.cli.YAML {
-				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, st)
-			}
-			return output.KeyValues(cmd.OutOrStdout(), [][2]string{
-				{"id", st.ID},
-				{"name", st.Name},
-				{"created_at", st.CreatedAt.Format(time.RFC3339)},
-				{"updated_at", st.UpdatedAt.Format(time.RFC3339)},
-			})
+			return c.emitStore(cmd, cl, args[0])
 		},
 	}
+}
+
+// emitStore renders one store in whichever output mode is active.
+func (c *Command) emitStore(cmd *cobra.Command, cl *openfga.Client, id string) error {
+	st, err := cl.Stores.Get(cmd.Context(), id)
+	if err != nil {
+		return err
+	}
+	if c.cli.JSON || c.cli.YAML {
+		return output.Emit(cmd.OutOrStdout(), c.cli.YAML, st)
+	}
+	return output.KeyValues(cmd.OutOrStdout(), [][2]string{
+		{"id", st.ID},
+		{"name", st.Name},
+		{"created_at", st.CreatedAt.Format(time.RFC3339)},
+		{"updated_at", st.UpdatedAt.Format(time.RFC3339)},
+	})
 }
 
 func (c *Command) deleteCmd() *cobra.Command {
