@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/go-openfga/openfga"
+	"github.com/sergiught/openfga-cli/internal/atomicfile"
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/command/playground"
@@ -262,22 +263,26 @@ func (c *Command) testCmd() *cobra.Command {
 
 			if report != "" {
 				w := cmd.OutOrStdout()
+				var staged *atomicfile.File
 				if reportFile != "" {
 					f, err := createReportFile(reportFile)
 					if err != nil {
 						return err
 					}
-					// FIXME(report-file): unlike every other Close in this
-					// package this one is on a file we *wrote*, so a failed
-					// flush (ENOSPC, EDQUOT, an NFS commit) currently leaves a
-					// truncated report behind while the command still exits 0.
-					// Handling it changes behaviour, so it is tracked
-					// separately rather than fixed in this lint pass.
-					defer func() { _ = f.Close() }()
-					w = f
+					// Discarded unless the report is written and flushed in
+					// full, so a failure (ENOSPC, EDQUOT, a deferred NFS
+					// commit) can no longer leave a truncated report behind
+					// while the command exits 0.
+					defer f.Abort()
+					staged, w = f, f
 				}
 				if err := modeltest.WriteReport(report, w, res); err != nil {
 					return err
+				}
+				if staged != nil {
+					if err := staged.Commit(); err != nil {
+						return err
+					}
 				}
 			}
 
@@ -430,16 +435,16 @@ func rejectInertConnectionFlags(cmd *cobra.Command) error {
 	return nil
 }
 
-// createReportFile creates path's parent directories if needed and opens it
-// for writing, truncating any existing content.
-func createReportFile(path string) (*os.File, error) {
+// createReportFile creates path's parent directories if needed and stages the
+// report beside it. The existing file, if any, is replaced only on Commit.
+func createReportFile(path string) (*atomicfile.File, error) {
 	if dir := filepath.Dir(path); dir != "." {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, fmt.Errorf("create report dir: %w", err)
 		}
 	}
 
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	f, err := atomicfile.Create(path, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("create report file: %w", err)
 	}
