@@ -166,6 +166,12 @@ func (cli *CLI) ClientWithStore() (*openfga.Client, config.Resolved, error) {
 	if r.StoreID == "" {
 		return nil, r, clierr.WithCode(clierr.CodeUsage, errors.New("no store selected: pass --store-id, set OPENFGA_STORE_ID, or run `ofga profiles set store_id <id>`"))
 	}
+	// Checked here rather than at client construction so a stale store ID only
+	// blocks the commands that actually use it, and names the layer it came
+	// from instead of leaving the user to guess.
+	if err := client.ValidateStoreID(r.StoreID, r.StoreIDSource); err != nil {
+		return nil, r, clierr.WithCode(clierr.CodeUsage, err)
+	}
 	cli.traceResolved(r)
 	c, err := client.New(r, cli.clientOptions()...)
 	if err != nil {
