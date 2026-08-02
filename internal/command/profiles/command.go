@@ -254,7 +254,8 @@ func (c *Command) setCmd() *cobra.Command {
   ofga profiles set headers 'CF-Access-Client-Id: abc' 'CF-Access-Client-Secret: xyz'`,
 		// headers takes a list, so it accepts more than one value; every other
 		// key still takes at most one.
-		Args: cobra.MinimumNArgs(1),
+		Args:              cobra.MinimumNArgs(1),
+		ValidArgsFunction: completeKeys,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 2 && !isHeadersKey(args[0]) {
 				return clierr.WithCode(clierr.CodeUsage,
@@ -445,8 +446,9 @@ func (c *Command) unsetCmd() *cobra.Command {
 			"`auth` (alias `auth_method`) clears the ENTIRE auth config — method, client_id,\n" +
 			"token_url, audience and any keyring-stored secrets — not just the method. It\n" +
 			"prompts for confirmation unless --force is given.",
-		Example: "  ofga profiles unset store_id\n  ofga profiles unset headers\n  ofga profiles unset auth --force",
-		Args:    cobra.ExactArgs(1),
+		Example:           "  ofga profiles unset store_id\n  ofga profiles unset headers\n  ofga profiles unset auth --force",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeKeys,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := c.activeProfile()
 			p, ok := c.cli.Config.Get(name)
@@ -637,6 +639,7 @@ func (c *Command) addCmd() *cobra.Command {
 	f.StringVar(&storeID, "store-id", "", "store ID to save in the profile")
 	f.StringVar(&modelID, "model-id", "", "authorization model ID to save in the profile")
 	f.StringVar(&authMethod, "auth-method", "", "none | api_token | client_credentials | private_key_jwt")
+	_ = cmd.RegisterFlagCompletionFunc("auth-method", cobra.FixedCompletions(authMethods, cobra.ShellCompDirectiveNoFileComp))
 	f.StringVar(&token, "token", "", "rejected: use --token-file or --token-stdin")
 	f.StringVar(&tokenFile, "token-file", "", "read the API token from a file")
 	f.BoolVar(&tokenStdin, "token-stdin", false, "read the API token from stdin")
@@ -745,6 +748,33 @@ func (c *Command) cleanupCredentialsCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&purge, "purge", false, "delete ALL ofga secrets from the OS keyring, including orphans from deleted configs")
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "skip the confirmation prompt (with --purge)")
 	return cmd
+}
+
+// authMethods are the accepted auth_method values, for completion.
+var authMethods = []string{
+	config.AuthNone, config.AuthAPIToken, config.AuthClientCredentials, config.AuthPrivateKeyJWT,
+}
+
+// settableKeys are the keys `profiles set` accepts, in the order its help lists
+// them. `unset` accepts the same set.
+var settableKeys = []string{
+	"api_url", "store_id", "model_id",
+	"auth_method", "token", "client_id", "client_secret", "token_url",
+	"audience", "api_audience", "key_file", "private_key", "signing_method",
+	"key_id", "scopes",
+	"headers",
+}
+
+// completeKeys suggests the settable keys for the first positional argument,
+// and the accepted values for a key that has a closed set.
+func completeKeys(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+	switch {
+	case len(args) == 0:
+		return settableKeys, cobra.ShellCompDirectiveNoFileComp
+	case len(args) == 1 && (strings.ToLower(args[0]) == "auth_method" || strings.ToLower(args[0]) == "auth"):
+		return authMethods, cobra.ShellCompDirectiveNoFileComp
+	}
+	return nil, cobra.ShellCompDirectiveNoFileComp
 }
 
 func orDash(s string) string {

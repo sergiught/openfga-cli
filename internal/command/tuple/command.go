@@ -170,6 +170,10 @@ func (c *Command) writeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&bulk.onDuplicate, "on-duplicate", string(openfga.OnDuplicateError),
 		"how --file handles a tuple that already exists: error|ignore (requires OpenFGA >= 1.10 for ignore)")
 	registerBulkThroughputFlags(cmd, &bulk, "written")
+	registerBulkFormatCompletion(cmd)
+	_ = cmd.RegisterFlagCompletionFunc("on-duplicate", cobra.FixedCompletions(
+		[]string{string(openfga.OnDuplicateError), string(openfga.OnDuplicateIgnore)},
+		cobra.ShellCompDirectiveNoFileComp))
 	return cmd
 }
 
@@ -190,6 +194,14 @@ func rejectInertBulkFlags(cmd *cobra.Command, verb string) error {
 		}
 	}
 	return nil
+}
+
+// registerBulkFormatCompletion completes --file-format's closed set of
+// encodings; without it the flag falls back to filename completion.
+func registerBulkFormatCompletion(cmd *cobra.Command) {
+	_ = cmd.RegisterFlagCompletionFunc("file-format", cobra.FixedCompletions(
+		[]string{string(formatJSON), string(formatJSONL), string(formatYAML), string(formatCSV)},
+		cobra.ShellCompDirectiveNoFileComp))
 }
 
 // registerBulkThroughputFlags adds the --file execution flags shared by write
@@ -308,6 +320,10 @@ func (c *Command) deleteCmd() *cobra.Command {
 	cmd.Flags().StringVar(&bulk.onMissing, "on-missing", string(openfga.OnMissingError),
 		"how --file handles a tuple that does not exist: error|ignore (requires OpenFGA >= 1.10 for ignore)")
 	registerBulkThroughputFlags(cmd, &bulk, "deleted")
+	registerBulkFormatCompletion(cmd)
+	_ = cmd.RegisterFlagCompletionFunc("on-missing", cobra.FixedCompletions(
+		[]string{string(openfga.OnMissingError), string(openfga.OnMissingIgnore)},
+		cobra.ShellCompDirectiveNoFileComp))
 	return cmd
 }
 
@@ -430,7 +446,7 @@ func (c *Command) readCmd() *cobra.Command {
 	f.IntVar(&maxResults, "limit", 0, "alias for --max-results")
 	f.StringVar(&outputFile, "output-file", "", "write tuples to this file instead of stdout (JSON unless --yaml/--plain)")
 	_ = cmd.MarkFlagFilename("output-file")
-	cli.RegisterConsistencyFlag(f, &fConsistency)
+	cli.RegisterConsistencyFlag(cmd, &fConsistency)
 	return cmd
 }
 

@@ -186,6 +186,8 @@ source <(ofga completion bash)`,
 	_ = c.cmd.RegisterFlagCompletionFunc("output", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 		return []string{"json", "yaml", "plain", "table"}, cobra.ShellCompDirectiveNoFileComp
 	})
+	_ = c.cmd.RegisterFlagCompletionFunc("theme",
+		cobra.FixedCompletions(theme.Names(), cobra.ShellCompDirectiveNoFileComp))
 
 	c.RegisterSubCommands()
 	return c
