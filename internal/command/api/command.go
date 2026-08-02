@@ -147,12 +147,23 @@ func validatePath(path string) error {
 	return nil
 }
 
-// write emits the response body: raw under --json and --plain (for stable,
-// machine-safe piping), converted to YAML under --output yaml, and
-// pretty-printed JSON for the default human presentation.
+// write emits the response body: filtered when --jq is set, otherwise raw
+// under --json and --plain (for stable, machine-safe piping), converted to
+// YAML under --output yaml, and pretty-printed JSON for the default human
+// presentation.
 func (c *Command) write(w io.Writer, data []byte) error {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil
+	}
+	// This command hands back the server's bytes rather than a rendered
+	// document, so it has to run the filter itself — every other command gets
+	// this from output.Emit.
+	if output.JQ != "" {
+		var generic any
+		if err := json.Unmarshal(data, &generic); err != nil {
+			return errors.New("--jq needs a JSON response, but the server returned a body that is not JSON")
+		}
+		return output.Emit(w, c.cli.YAML, generic)
 	}
 	if c.cli.YAML {
 		var generic any
