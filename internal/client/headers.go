@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/textproto"
+	"sort"
 	"strings"
 )
 
@@ -56,6 +57,21 @@ func ParseHeaders(raw []string) (http.Header, error) {
 		h.Set(canonical, value)
 	}
 	return h, nil
+}
+
+// headerNames lists the canonical names in h, sorted so the result is stable.
+// The API-log capture masks these values: a header the user configured is there
+// to authenticate against a gateway, so it holds a credential.
+func headerNames(h http.Header) []string {
+	if len(h) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(h))
+	for name := range h {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // validHeaderName reports whether name is a valid RFC 7230 field-name (a

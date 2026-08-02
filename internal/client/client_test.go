@@ -140,6 +140,44 @@ func TestWithCaptureRecordsThroughTransport(t *testing.T) {
 	}
 }
 
+// A --header value is a gateway credential, so it must reach the server but
+// never appear in a capture — which is what --debug traces and the TUI's API
+// Logs pane render.
+func TestCaptureRedactsConfiguredHeaderValues(t *testing.T) {
+	const secret = "gateway-secret-value"
+	var sent string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sent = r.Header.Get("Cf-Access-Client-Secret")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"stores":[]}`))
+	}))
+	defer srv.Close()
+
+	rec := apilog.NewRecorder(8)
+	c, err := New(
+		config.Resolved{APIURL: srv.URL, Headers: []string{"Cf-Access-Client-Secret: " + secret}},
+		WithCapture(rec),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range c.Stores.All(context.Background(), nil) { // drive one request
+	}
+
+	if sent != secret {
+		t.Fatalf("server saw header %q, want the configured value to be sent", sent)
+	}
+	entries := rec.Snapshot()
+	if len(entries) == 0 {
+		t.Fatal("expected a captured request")
+	}
+	for _, e := range entries {
+		if got := e.ReqHeaders.Get("Cf-Access-Client-Secret"); strings.Contains(got, secret) {
+			t.Errorf("captured header = %q, want the credential redacted", got)
+		}
+	}
+}
+
 func TestWithTimeoutBoundsResponseBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

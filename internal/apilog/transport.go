@@ -71,20 +71,25 @@ func redactBody(b []byte) []byte {
 // deployments where the token endpoint shares a host with the API (e.g. behind
 // a gateway), captured bodies also go through redactBody, which masks known
 // secret field names regardless of host.
-func Transport(base http.RoundTripper, rec Sink, apiURL string) http.RoundTripper {
+//
+// configuredHeaders names the extra headers the caller sends on API requests
+// (--header / a profile's headers list). Those carry gateway credentials, so
+// their values are masked in captures too.
+func Transport(base http.RoundTripper, rec Sink, apiURL string, configuredHeaders []string) http.RoundTripper {
 	var apiHost string
 	if apiURL != "" {
 		if u, err := url.Parse(apiURL); err == nil {
 			apiHost = u.Host
 		}
 	}
-	return &roundTripper{base: base, rec: rec, apiHost: apiHost}
+	return &roundTripper{base: base, rec: rec, apiHost: apiHost, configuredHeaders: configuredHeaders}
 }
 
 type roundTripper struct {
-	base    http.RoundTripper
-	rec     Sink
-	apiHost string
+	base              http.RoundTripper
+	rec               Sink
+	apiHost           string
+	configuredHeaders []string
 
 	mu      sync.Mutex
 	lastURL string
@@ -100,7 +105,7 @@ func (rt *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 		Time:       time.Now(),
 		Method:     req.Method,
 		URL:        redactURL(req.URL),
-		ReqHeaders: redactHeaders(req.Header),
+		ReqHeaders: redactHeaders(req.Header, rt.configuredHeaders),
 	}
 	var reqCapture *bodyCapture
 	if req.Body != nil {
@@ -124,7 +129,7 @@ func (rt *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	e.Status = resp.StatusCode
 	e.StatusText = resp.Status
-	e.RespHeaders = redactHeaders(resp.Header)
+	e.RespHeaders = redactHeaders(resp.Header, rt.configuredHeaders)
 	e.RequestID = resp.Header.Get("Fga-Request-Id")
 	e.ServerQueryDuration = resp.Header.Get("Fga-Query-Duration-Ms")
 
@@ -222,8 +227,12 @@ func (rt *roundTripper) nextAttempt(url string) int {
 }
 
 // redactHeaders clones h and masks credentials and session material commonly
-// carried in request or response headers.
-func redactHeaders(h http.Header) http.Header {
+// carried in request or response headers, plus the headers the user configured
+// themselves (--header / a profile's headers list). Those exist to authenticate
+// against a gateway in front of OpenFGA, so their values are credentials by
+// definition and a fixed allowlist would miss them — a name like
+// CF-Access-Client-Secret is not something this package can enumerate.
+func redactHeaders(h http.Header, configured []string) http.Header {
 	c := h.Clone()
 	if c == nil {
 		return http.Header{}
@@ -232,13 +241,14 @@ func redactHeaders(h http.Header) http.Header {
 	if _, ok := c["Authorization"]; ok {
 		c.Set("Authorization", "Bearer ***redacted***")
 	}
-	for _, name := range []string{
+	names := []string{
 		"Proxy-Authorization",
 		"Cookie",
 		"Set-Cookie",
 		"X-API-Key",
 		"X-Auth-Token",
-	} {
+	}
+	for _, name := range append(names, configured...) {
 		if c.Values(name) != nil {
 			c.Set(name, "******")
 		}
@@ -251,6 +261,14 @@ func redactURL(u *url.URL) string {
 		return ""
 	}
 	copy := *u
+	// url.URL.String() writes userinfo out in full, so an API URL configured
+	// with basic-auth credentials (http://user:pass@host) would otherwise print
+	// its password on every traced line.
+	if copy.User != nil {
+		if _, hasPassword := copy.User.Password(); hasPassword {
+			copy.User = url.UserPassword(copy.User.Username(), "******")
+		}
+	}
 	query := copy.Query()
 	for _, key := range sensitiveBodyFields {
 		if query.Has(key) {
