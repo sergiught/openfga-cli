@@ -585,3 +585,79 @@ func TestTokenStateNeverLeaksSecret(t *testing.T) {
 		t.Errorf("tokenState(\"\") = %q, want em dash", tokenState(""))
 	}
 }
+
+// Gateway headers were configurable only by hand-editing config.toml: no
+// profiles key set them, and profiles show never rendered them.
+func TestProfilesSetHeaders(t *testing.T) {
+	// This path saves, so it needs a config of its own on disk.
+	cfg, err := config.LoadFrom(filepath.Join(t.TempDir(), "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := cli.New(charmlog.New(io.Discard), cfg, "test")
+	run := subCmd(t, c, "set").RunE
+	cmd := &cobra.Command{}
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	if err := run(cmd, []string{"headers", "CF-Access-Client-Id: abc", "CF-Access-Client-Secret: xyz"}); err != nil {
+		t.Fatalf("setting headers: %v", err)
+	}
+	p, _ := c.Config.Get("default")
+	if len(p.Headers) != 2 || p.Headers[0] != "CF-Access-Client-Id: abc" {
+		t.Fatalf("profile headers = %v, want both headers in order", p.Headers)
+	}
+
+	// Setting again replaces the list rather than appending to it.
+	if err := run(cmd, []string{"headers", "X-Tenant: acme"}); err != nil {
+		t.Fatalf("replacing headers: %v", err)
+	}
+	p, _ = c.Config.Get("default")
+	if len(p.Headers) != 1 || p.Headers[0] != "X-Tenant: acme" {
+		t.Fatalf("profile headers = %v, want the list replaced", p.Headers)
+	}
+}
+
+// A header that would be dropped or would fight with the profile's own auth
+// must be refused before it reaches the config file.
+func TestProfilesSetHeadersRejectsBadValues(t *testing.T) {
+	run, c := setRunE(t)
+	cmd := &cobra.Command{}
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	for _, bad := range []string{"Authorization: Bearer x", "NotAHeader", "Bad Name: x"} {
+		if err := run(cmd, []string{"headers", bad}); err == nil {
+			t.Errorf("header %q should be rejected", bad)
+		}
+	}
+	if p, _ := c.Config.Get("default"); len(p.Headers) != 0 {
+		t.Fatalf("a rejected header was still written: %v", p.Headers)
+	}
+}
+
+// The value is a gateway credential, so only names are shown or emitted.
+func TestHeaderSummaryHidesValues(t *testing.T) {
+	got := headerSummary([]string{"CF-Access-Client-Secret: super-secret"})
+	if strings.Contains(got, "super-secret") {
+		t.Errorf("headerSummary = %q, want the value hidden", got)
+	}
+	if !strings.Contains(got, "CF-Access-Client-Secret") {
+		t.Errorf("headerSummary = %q, want the name shown", got)
+	}
+	if got := headerSummary(nil); got != "—" {
+		t.Errorf("headerSummary(nil) = %q, want a dash", got)
+	}
+}
+
+// `profiles add --scopes` documented commas and `profiles set scopes`
+// documented spaces for the same field; both now accept either.
+func TestSplitScopesAcceptsCommasAndSpaces(t *testing.T) {
+	want := []string{"read", "write"}
+	for _, in := range []string{"read write", "read,write", "read, write"} {
+		got := splitScopes(in)
+		if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+			t.Errorf("splitScopes(%q) = %v, want %v", in, got, want)
+		}
+	}
+}

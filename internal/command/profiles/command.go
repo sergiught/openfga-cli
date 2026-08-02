@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/openfga-cli/internal/cli"
+	"github.com/sergiught/openfga-cli/internal/client"
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/output"
@@ -163,6 +164,7 @@ func (c *Command) showCmd() *cobra.Command {
 					{"api_url", p.APIURL},
 					{"store_id", orDash(p.StoreID)},
 					{"model_id", orDash(p.ModelID)},
+					{"headers", headerSummary(p.Headers)},
 				}
 				return output.KeyValues(cmd.OutOrStdout(), append(rows, authRows(p.ResolvedAuth())...))
 			}
@@ -180,6 +182,9 @@ func (c *Command) showCmd() *cobra.Command {
 					"model_id":  r.ModelID,
 					"auth":      authName(r.Auth),
 					"has_token": r.APIToken() != "",
+					// Names only: an extra header is there to authenticate
+					// against a gateway, so its value is a credential.
+					"header_names": headerNames(r.Headers),
 				})
 			}
 			rows := [][2]string{
@@ -187,6 +192,7 @@ func (c *Command) showCmd() *cobra.Command {
 				{"api_url", r.APIURL},
 				{"store_id", orDash(r.StoreID)},
 				{"model_id", orDash(r.ModelID)},
+				{"headers", headerSummary(r.Headers)},
 			}
 			return output.KeyValues(cmd.OutOrStdout(), append(rows, authRows(r.Auth)...))
 		},
@@ -227,13 +233,16 @@ func (c *Command) setCmd() *cobra.Command {
 		valueStdin bool
 	)
 	cmd := &cobra.Command{
-		Use:   "set <key> [value]",
+		Use:   "set <key> <value>...",
 		Short: "Set a field on a profile",
 		Long: "Set a field on the active profile (or --profile).\n\n" +
 			"Connection: api_url, store_id, model_id.\n" +
 			"Auth: auth_method (none|api_token|client_credentials|private_key_jwt), token,\n" +
 			"client_id, client_secret, token_url, audience, api_audience, key_file,\n" +
-			"private_key, signing_method, key_id, scopes (space-separated).\n\n" +
+			"private_key, signing_method, key_id, scopes (space- or comma-separated).\n" +
+			"Headers: headers — extra request headers as 'Name: value', for a gateway\n" +
+			"that authenticates OpenFGA itself. Pass every header in one command; they\n" +
+			"replace the profile's list. Clear them with `ofga profiles unset headers`.\n\n" +
 			"For secrets (token, client_secret, private_key) prefer --value-file or\n" +
 			"--value-stdin so the value never appears in `ps` output or your shell\n" +
 			"history. token, client_secret, and private_key are stored in the OS keyring.",
@@ -241,21 +250,36 @@ func (c *Command) setCmd() *cobra.Command {
   ofga profiles set auth_method api_token
   ofga profiles set token --value-stdin < token.txt
   ofga profiles set client_secret --value-file ./secret
-  ofga profiles set private_key --value-file ./key.pem`,
-		Args: cobra.RangeArgs(1, 2),
+  ofga profiles set private_key --value-file ./key.pem
+  ofga profiles set headers 'CF-Access-Client-Id: abc' 'CF-Access-Client-Secret: xyz'`,
+		// headers takes a list, so it accepts more than one value; every other
+		// key still takes at most one.
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 2 && !isHeadersKey(args[0]) {
+				return clierr.WithCode(clierr.CodeUsage,
+					fmt.Errorf("%q takes a single value, but %d were given", args[0], len(args)-1))
+			}
 			name := c.activeProfile()
 			p, ok := c.cli.Config.Get(name)
 			if !ok {
 				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("%w: %q", config.ErrNoProfile, name))
 			}
 			var literal string
-			if len(args) == 2 {
+			switch {
+			case isHeadersKey(args[0]):
+				// A list of plain header lines: no secret plumbing, and the
+				// values are taken from the arguments below.
+				if len(args) < 2 {
+					return clierr.WithCode(clierr.CodeUsage,
+						errors.New("provide at least one header as 'Name: value'"))
+				}
+			case len(args) == 2:
 				if k := strings.ToLower(args[0]); k == "token" || k == "api_token" || k == "client_secret" || k == "private_key" {
 					return fmt.Errorf("refusing to read %s from the command line (it would leak to `ps` and shell history); use --value-file or --value-stdin", k)
 				}
 				literal = args[1]
-			} else if valueFile == "" && !valueStdin {
+			case valueFile == "" && !valueStdin:
 				return errors.New("value required: pass it as an argument, or use --value-file/--value-stdin")
 			}
 			val, err := readSecret(cmd.InOrStdin(), literal, valueFile, valueStdin)
@@ -322,7 +346,15 @@ func (c *Command) setCmd() *cobra.Command {
 			case "key_id":
 				p.Auth.KeyID = val
 			case "scopes":
-				p.Auth.Scopes = strings.Fields(val)
+				p.Auth.Scopes = splitScopes(val)
+			case "headers", "header":
+				hdrs := args[1:]
+				// Rejected here rather than at the next request, so a reserved or
+				// malformed header cannot be written into the config at all.
+				if _, err := client.ParseHeaders(hdrs); err != nil {
+					return clierr.WithCode(clierr.CodeUsage, err)
+				}
+				p.Headers = hdrs
 			default:
 				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("unknown key %q (see `ofga profiles set --help`)", args[0]))
 			}
@@ -413,7 +445,7 @@ func (c *Command) unsetCmd() *cobra.Command {
 			"`auth` (alias `auth_method`) clears the ENTIRE auth config — method, client_id,\n" +
 			"token_url, audience and any keyring-stored secrets — not just the method. It\n" +
 			"prompts for confirmation unless --force is given.",
-		Example: "  ofga profiles unset store_id\n  ofga profiles unset auth --force",
+		Example: "  ofga profiles unset store_id\n  ofga profiles unset headers\n  ofga profiles unset auth --force",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := c.activeProfile()
@@ -456,6 +488,8 @@ func (c *Command) unsetCmd() *cobra.Command {
 				p.Auth.Audience = ""
 			case "api_audience":
 				p.Auth.APIAudience = ""
+			case "headers", "header":
+				p.Headers = nil
 			case "key_file":
 				p.Auth.KeyFile = ""
 			case "private_key":
@@ -559,8 +593,10 @@ func (c *Command) addCmd() *cobra.Command {
 			case config.AuthAPIToken:
 				p.Auth = config.Auth{Method: config.AuthAPIToken, Token: token}
 			case config.AuthClientCredentials:
+				// StringSlice splits on commas; re-split so a single
+				// space-separated value works too, as OPENFGA_SCOPES does.
 				p.Auth = config.Auth{Method: method, ClientID: clientID, ClientSecret: secret,
-					TokenURL: tokenURL, Audience: audience, Scopes: scopes}
+					TokenURL: tokenURL, Audience: audience, Scopes: splitScopes(strings.Join(scopes, " "))}
 			case config.AuthPrivateKeyJWT:
 				p.Auth = config.Auth{Method: method, ClientID: clientID, TokenURL: tokenURL,
 					Audience: audience, APIAudience: apiAudience, KeyFile: keyFile,
@@ -611,7 +647,7 @@ func (c *Command) addCmd() *cobra.Command {
 	f.BoolVar(&clientSecretStdin, "client-secret-stdin", false, "read the client secret from stdin")
 	f.StringVar(&tokenURL, "token-url", "", "OAuth token endpoint URL")
 	f.StringVar(&audience, "audience", "", "OAuth audience")
-	f.StringSliceVar(&scopes, "scopes", nil, "OAuth scopes (comma-separated)")
+	f.StringSliceVar(&scopes, "scopes", nil, "OAuth scopes (comma- or space-separated)")
 	f.StringVar(&apiAudience, "api-audience", "", "API audience (private_key_jwt)")
 	f.StringVar(&keyFile, "key-file", "", "PEM signing key path (private_key_jwt)")
 	f.StringVar(&signingMethod, "signing-method", "", "JWT signing method, e.g. RS256 (private_key_jwt)")
@@ -716,6 +752,50 @@ func orDash(s string) string {
 		return "—"
 	}
 	return s
+}
+
+// isHeadersKey reports whether key names the profile's extra-header list, which
+// is the one `profiles set` key that takes more than a single value.
+func isHeadersKey(key string) bool {
+	switch strings.ToLower(key) {
+	case "headers", "header":
+		return true
+	}
+	return false
+}
+
+// splitScopes accepts OAuth scopes separated by spaces or commas. `profiles
+// add --scopes` documented commas and `profiles set scopes` documented spaces
+// for the same field; the environment variable has always taken either.
+func splitScopes(s string) []string {
+	return strings.FieldsFunc(s, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n'
+	})
+}
+
+// headerNames lists the configured headers by name. Values are omitted because
+// an extra header exists to authenticate against a gateway, so it holds a
+// credential.
+func headerNames(headers []string) []string {
+	names := make([]string, 0, len(headers))
+	for _, h := range headers {
+		name, _, ok := strings.Cut(h, ":")
+		if !ok {
+			continue
+		}
+		names = append(names, strings.TrimSpace(name))
+	}
+	return names
+}
+
+// headerSummary renders the configured headers for the human view: the names,
+// without their credential values.
+func headerSummary(headers []string) string {
+	names := headerNames(headers)
+	if len(names) == 0 {
+		return "—"
+	}
+	return strings.Join(names, ", ") + style.Faint.Render(" (values hidden)")
 }
 
 // authName returns a profile auth method label, defaulting to "none".
