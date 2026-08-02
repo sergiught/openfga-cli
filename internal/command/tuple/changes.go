@@ -36,9 +36,18 @@ func readChanges(
 		if err != nil {
 			return nil, "", err
 		}
-		for _, ch := range page.Changes {
+		for i, ch := range page.Changes {
 			changes = append(changes, ch)
 			if maxResults > 0 && len(changes) >= maxResults {
+				if i == len(page.Changes)-1 {
+					// The cap fell on the page's last change, so the page was
+					// delivered in full and its token resumes cleanly after it.
+					// Returning the pre-page token here instead would re-deliver
+					// the whole page — and with --max-results equal to the page
+					// size, that is every page, so a polling loop would never
+					// advance at all.
+					return changes, page.ContinuationToken, nil
+				}
 				// Stopping mid-page: the page's token covers changes that were
 				// not returned, so resuming from it would skip them. The caller
 				// re-reads from the token that produced this page instead.
