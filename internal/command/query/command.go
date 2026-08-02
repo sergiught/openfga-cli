@@ -4,6 +4,7 @@ package query
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -582,17 +583,29 @@ func (c *Command) listUsersCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			filters := make([]openfga.UserTypeFilter, 0, len(userTypes))
+			for _, t := range userTypes {
+				// MarkFlagRequired is satisfied by --type "", and "org#" parses
+				// into a filter with an empty relation. Both reach the server as
+				// degenerate filters and come back as a bare 400, so say what is
+				// wrong here instead.
+				if i := strings.Index(t, "#"); i >= 0 {
+					typ, rel := t[:i], t[i+1:]
+					if typ == "" || rel == "" {
+						return clierr.WithCode(clierr.CodeUsage, fmt.Errorf(
+							"--type %q must be a type or a userset like team:eng#member", t))
+					}
+					filters = append(filters, openfga.UserTypeFilter{Type: typ, Relation: rel})
+					continue
+				}
+				if strings.TrimSpace(t) == "" {
+					return clierr.WithCode(clierr.CodeUsage, errors.New("--type must name a user type, for example user"))
+				}
+				filters = append(filters, openfga.UserTypeFilter{Type: t})
+			}
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
 				return err
-			}
-			filters := make([]openfga.UserTypeFilter, 0, len(userTypes))
-			for _, t := range userTypes {
-				if i := strings.Index(t, "#"); i >= 0 {
-					filters = append(filters, openfga.UserTypeFilter{Type: t[:i], Relation: t[i+1:]})
-				} else {
-					filters = append(filters, openfga.UserTypeFilter{Type: t})
-				}
 			}
 			req := &openfga.ListUsersRequest{
 				Object:           openfga.FGAObjectRelation{Object: values[0]},

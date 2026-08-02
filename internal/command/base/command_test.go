@@ -145,6 +145,36 @@ func TestUnknownSubcommandDiagnosis(t *testing.T) {
 	}
 }
 
+// A bad --header used to surface only while a client was being built, as a
+// runtime error (exit 1) with a "run with --debug" hint — and not at all for
+// commands that build no client. It is a bad invocation, so it is a usage
+// error, checked before the command runs, like --jq and -o.
+func TestBadHeaderIsAUsageError(t *testing.T) {
+	home := t.TempDir()
+	cases := []struct {
+		name    string
+		header  string
+		wantErr string
+	}{
+		{"reserved header", "Authorization: Bearer x", "Authorization"},
+		{"missing colon", "NotAHeader", "Name: value"},
+		{"invalid name", "Bad Name: x", "not allowed"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// `version` builds no client at all, so this only passes if the
+			// header is validated up front.
+			_, errb, code := runOfga(t, home, "", nil, "--header", tc.header, "version")
+			if code != clierr.CodeUsage {
+				t.Fatalf("exit code = %d, want %d\nstderr: %s", code, clierr.CodeUsage, errb)
+			}
+			if !strings.Contains(errb, tc.wantErr) {
+				t.Fatalf("stderr = %q, want it to contain %q", errb, tc.wantErr)
+			}
+		})
+	}
+}
+
 // TestApplyEnvironmentRejectsUnknownThemeFlag guards CLI-34: an explicit
 // --theme with an unknown value is a usage error, while a bad theme coming only
 // from the config file keeps its silent fallback.

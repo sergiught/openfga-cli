@@ -159,6 +159,9 @@ func (c *Command) listCmd() *cobra.Command {
 			if maxResults < 0 {
 				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--max-results must be non-negative"))
 			}
+			if err := cli.RejectFlagAliasConflict(cmd, "max-results", "limit"); err != nil {
+				return err
+			}
 			cl, err := c.cli.Client()
 			if err != nil {
 				return err

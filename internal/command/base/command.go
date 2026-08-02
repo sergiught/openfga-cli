@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/sergiught/openfga-cli/internal/cli"
+	"github.com/sergiught/openfga-cli/internal/client"
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/command/api"
 	"github.com/sergiught/openfga-cli/internal/command/assertions"
@@ -97,6 +98,12 @@ source <(ofga completion bash)`,
 			// value is treated as a usage error (exit 2), like other bad flags.
 			if err := c.resolveOutput(); err != nil {
 				return err
+			}
+			// Same for --header. It is otherwise only parsed while building a
+			// client, which reports a malformed value as a runtime error and
+			// never looks at it at all for commands that build no client.
+			if _, err := client.ParseHeaders(cli.Overrides.Headers); err != nil {
+				return clierr.WithCode(clierr.CodeUsage, err)
 			}
 			// Reaching here means flag/arg validation passed, so any later error
 			// is a runtime failure rather than a bad invocation.

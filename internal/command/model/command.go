@@ -189,6 +189,9 @@ func (c *Command) listCmd() *cobra.Command {
 		Example: "  ofga model list",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := cli.RejectFlagAliasConflict(cmd, "max-results", "limit"); err != nil {
+				return err
+			}
 			if maxResults < 0 {
 				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--max-results must be non-negative"))
 			}

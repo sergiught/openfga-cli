@@ -348,6 +348,9 @@ func (c *Command) readCmd() *cobra.Command {
 			if pageSize < 0 {
 				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--page-size must be non-negative"))
 			}
+			if err := cli.RejectFlagAliasConflict(cmd, "max-results", "limit"); err != nil {
+				return err
+			}
 			if err := validateOutputFile(outputFile); err != nil {
 				return err
 			}
@@ -430,6 +433,13 @@ func (c *Command) changesCmd() *cobra.Command {
 			}
 			if pageSize < 0 {
 				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--page-size must be non-negative"))
+			}
+			if err := cli.RejectFlagAliasConflict(cmd, "max-results", "limit"); err != nil {
+				return err
+			}
+			startTime, err := cli.ParseTimestamp("start-time", startTime)
+			if err != nil {
+				return err
 			}
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {
