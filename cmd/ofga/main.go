@@ -170,7 +170,21 @@ func noColorFromArgs(args []string, configuredTheme string) bool {
 	return base.ForceMono() || (noColorEnv && !base.ForceColor())
 }
 
-func boolFlagFromArgs(args []string, name string) bool {
+// valueShorthands are the single-letter flags that consume a value, so a
+// cluster like "-pdev" is --profile=dev rather than the flags p, d, e and v.
+// Anything else in a cluster is treated as a boolean flag, which is what makes
+// "-dq" read as --debug --quiet.
+const valueShorthands = "pof"
+
+// boolFlagFromArgs reports the final value of a boolean flag as pflag would
+// read it, scanning the raw arguments before cobra parses them. shorthands are
+// the flag's single-letter forms.
+//
+// It has to match pflag rather than merely look for the flag, because these
+// values decide the log level and color mode before any command runs: a
+// grouped "-dq" is a legal way to write --debug --quiet, and a later
+// --debug=false must override an earlier -d rather than being ignored.
+func boolFlagFromArgs(args []string, name string, shorthands ...byte) bool {
 	enabled := false
 	for _, arg := range args {
 		if arg == "--" {
@@ -183,6 +197,27 @@ func boolFlagFromArgs(args []string, name string) bool {
 		if value, ok := strings.CutPrefix(arg, name+"="); ok {
 			if parsed, err := strconv.ParseBool(value); err == nil {
 				enabled = parsed
+			}
+			continue
+		}
+		if len(shorthands) == 0 || len(arg) < 2 || arg[0] != '-' || arg[1] == '-' {
+			continue
+		}
+		// A shorthand cluster: "-dq", or "-d=false" for a single one.
+		cluster, value, hasValue := strings.Cut(arg[1:], "=")
+		for i := range len(cluster) {
+			c := cluster[i]
+			if slices.Contains(shorthands, c) {
+				enabled = true
+				if hasValue && i == len(cluster)-1 {
+					if parsed, err := strconv.ParseBool(value); err == nil {
+						enabled = parsed
+					}
+				}
+				continue
+			}
+			if strings.IndexByte(valueShorthands, c) >= 0 {
+				break // the rest of the cluster is this flag's value
 			}
 		}
 	}
@@ -228,8 +263,7 @@ func configPathFromArgs(args []string) string {
 // logLevel raises verbosity when the preferred debug flag or its legacy
 // verbose alias is present.
 func logLevel(args []string) log.Level {
-	if boolFlagFromArgs(args, "--debug") || boolFlagFromArgs(args, "--verbose") ||
-		slices.Contains(args, "-d") || slices.Contains(args, "-v") {
+	if boolFlagFromArgs(args, "--debug", 'd') || boolFlagFromArgs(args, "--verbose", 'v') {
 		return log.DebugLevel
 	}
 	return log.WarnLevel
