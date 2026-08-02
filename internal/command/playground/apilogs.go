@@ -122,7 +122,7 @@ func (m Model) apiLogsBody() string {
 	title := safeText(e.Method) + " " + safeText(urlPath(e.URL))
 	// The status line and sub-section tab strip sit above the scrollable
 	// section content; the active section (headers/body) lives in the viewport.
-	card := apiLogDetailHeader(e, m.apiLogTab) + "\n\n" + m.apiLogVP.View()
+	card := apiLogDetailHeader(e, m.apiLogTab, w-lw-2) + "\n\n" + m.apiLogVP.View()
 	split := masterDetailW(list, title, card, lw, w, mdH)
 	// m.cli is nil in unit tests that build a Model directly; only production
 	// (via Run) has a resolved API URL to show.
@@ -297,24 +297,66 @@ func apiLogStatusLine(e apilog.Entry) string {
 // apiLogTabStrip renders the sub-section labels with the active one bold and
 // accented and the rest faint. It stays compact (no chip padding) so it fits
 // the detail pane, wrapping to a second line only on a very narrow terminal.
-func apiLogTabStrip(active int) string {
-	segs := make([]string, len(apiLogTabs))
+// apiLogTabSep is the gap between two tab labels on the same row.
+const apiLogTabSep = "  "
+
+// apiLogTabLayout packs the tab labels into rows no wider than width, returning
+// the label indices on each row. The full strip is 46 columns, so a detail pane
+// narrower than that (a terminal around 93 columns) needs more than one row.
+//
+// Rendering and hit-testing both go through this, which is what keeps a wrapped
+// strip clickable: laying the rows out here rather than letting the pane word-
+// wrap the joined string means the click map always matches what was drawn.
+func apiLogTabLayout(width int) [][]int {
+	var (
+		rows [][]int
+		cur  []int
+		used int
+	)
 	for i, name := range apiLogTabs {
-		if i == active {
-			segs[i] = lipgloss.NewStyle().Bold(true).Foreground(style.Secondary).Render(name)
-			continue
+		segW := lipgloss.Width(name)
+		next := segW
+		if len(cur) > 0 {
+			next += len(apiLogTabSep)
 		}
-		segs[i] = style.Faint.Render(name)
+		if len(cur) > 0 && used+next > width {
+			rows = append(rows, cur)
+			cur, used = nil, 0
+			next = segW
+		}
+		cur = append(cur, i)
+		used += next
 	}
-	return strings.Join(segs, "  ")
+	if len(cur) > 0 {
+		rows = append(rows, cur)
+	}
+	return rows
+}
+
+func apiLogTabStrip(active, width int) string {
+	rows := apiLogTabLayout(width)
+	lines := make([]string, len(rows))
+	for r, row := range rows {
+		segs := make([]string, len(row))
+		for j, i := range row {
+			if i == active {
+				segs[j] = lipgloss.NewStyle().Bold(true).Foreground(style.Secondary).Render(apiLogTabs[i])
+				continue
+			}
+			segs[j] = style.Faint.Render(apiLogTabs[i])
+		}
+		lines[r] = strings.Join(segs, apiLogTabSep)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // apiLogTabAt maps a click position to a detail sub-section tab index. It
 // returns false when the click is not on the tab strip: the wrong row, an error
 // entry (which renders no strip), or a layout too narrow to show the detail
-// pane. The strip sits at by+3 — the base-URL header (1), the detail section
-// title (1) and the status line (1) precede it — and starts at the detail
-// pane's left edge (list width + the one-column gap from masterDetailW).
+// pane. The strip starts at by+3 — the base-URL header (1), the detail section
+// title (1) and the status line (1) precede it — at the detail pane's left edge
+// (list width + the one-column gap from masterDetailW), and continues onto
+// further rows when the pane is too narrow to hold every label on one line.
 func (m Model) apiLogTabAt(x, y int) (int, bool) {
 	if m.recorder == nil {
 		return 0, false
@@ -335,31 +377,34 @@ func (m Model) apiLogTabAt(x, y int) (int, bool) {
 	}
 	w, _ := m.contentSize()
 	lw := apiLogListWidth(w)
-	if w-lw-2 < 10 {
+	cw := w - lw - 2
+	if cw < 10 {
 		return 0, false
 	}
 	bx, by := m.sh.MainBodyOrigin()
-	if y != by+3 {
+	rows := apiLogTabLayout(cw)
+	row := y - (by + 3)
+	if row < 0 || row >= len(rows) {
 		return 0, false
 	}
 	cur := bx + lw + 1
-	for i, name := range apiLogTabs {
-		segW := lipgloss.Width(name)
+	for _, i := range rows[row] {
+		segW := lipgloss.Width(apiLogTabs[i])
 		if x >= cur && x < cur+segW {
 			return i, true
 		}
-		cur += segW + 2 // the two-space separator between labels
+		cur += segW + len(apiLogTabSep)
 	}
 	return 0, false
 }
 
 // apiLogDetailHeader is the fixed header above the scrollable section content:
 // the status line and (for a non-error entry) the sub-section tab strip.
-func apiLogDetailHeader(e apilog.Entry, tab int) string {
+func apiLogDetailHeader(e apilog.Entry, tab, width int) string {
 	if e.Err != "" {
 		return apiLogStatusLine(e)
 	}
-	return apiLogStatusLine(e) + "\n" + apiLogTabStrip(tab)
+	return apiLogStatusLine(e) + "\n" + apiLogTabStrip(tab, width)
 }
 
 // apiLogSection renders the content of the active detail sub-section, with JSON
@@ -450,7 +495,7 @@ func (m *Model) refreshAPILogVP() {
 	// which may wrap), and a blank separator (1) above the viewport.
 	headerLines := 2
 	if haveEntry {
-		headerLines = lipgloss.Height(lipgloss.NewStyle().Width(cw).Render(apiLogDetailHeader(e, m.apiLogTab)))
+		headerLines = lipgloss.Height(lipgloss.NewStyle().Width(cw).Render(apiLogDetailHeader(e, m.apiLogTab, cw)))
 	}
 	// Height budget: the base-URL header (apiLogURLHeaderLines), the
 	// master/detail title (1), the detail header (status + tab strip), and a

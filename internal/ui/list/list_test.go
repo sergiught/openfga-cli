@@ -182,6 +182,36 @@ func TestIndexAtAccountsForPersistentTitleRow(t *testing.T) {
 	}
 }
 
+// A click on empty space below the last match must not select anything. The
+// index IndexAt returns is fed to SelectIndex, which addresses the filtered
+// rows, so bounding it by the unfiltered item count let a click past the end
+// move the cursor to a row that is not rendered — leaving the pane with
+// nothing highlighted.
+func TestIndexAtIgnoresRowsBelowTheLastVisibleMatch(t *testing.T) {
+	l := New()
+	l.SetCompact(true)
+	l.SetSize(40, 12)
+	l.SetItems([]Item{
+		{TitleText: "alpha"}, {TitleText: "beta"}, {TitleText: "gamma"},
+		{TitleText: "delta"}, {TitleText: "epsilon"},
+	})
+	l.Model.SetFilterText("alpha")
+
+	visible := len(l.Model.VisibleItems())
+	if visible != 1 {
+		t.Fatalf("filter matched %d items, want 1", visible)
+	}
+	// Row 0 is the title/filter bar, so row 1 is the only match.
+	if got := l.IndexAt(1); got != 0 {
+		t.Fatalf("the matching row mapped to %d, want 0", got)
+	}
+	for _, row := range []int{2, 3, 4} {
+		if got := l.IndexAt(row); got != -1 {
+			t.Errorf("row %d is below the last match but mapped to item %d", row, got)
+		}
+	}
+}
+
 // SetFilterPrompt renames the "/" input's label, for a section that also offers
 // a filter of its own and needs the two named apart.
 func TestSetFilterPrompt(t *testing.T) {
