@@ -835,3 +835,54 @@ func TestBulkWritePlainSuccessIsOneRow(t *testing.T) {
 		t.Errorf("--plain success output = %q, want %q", got, "written\t3\n")
 	}
 }
+
+// The --file execution flags are read only inside the bulk branch, so setting
+// one on a single-tuple write or delete used to do nothing at all — no
+// duplicate handling, no --failed-file, no warning.
+func TestBulkOnlyFlagsAreRejectedWithoutFile(t *testing.T) {
+	cases := []struct {
+		cmd  string
+		args []string
+	}{
+		{"write", []string{"user:anne", "viewer", "doc:1", "--on-duplicate", "ignore"}},
+		{"write", []string{"user:anne", "viewer", "doc:1", "--failed-file", "f.json"}},
+		{"write", []string{"user:anne", "viewer", "doc:1", "--max-parallel-requests", "4"}},
+		{"write", []string{"user:anne", "viewer", "doc:1", "--file-format", "csv"}},
+		{"delete", []string{"user:anne", "viewer", "doc:1", "--on-missing", "ignore", "--force"}},
+		{"delete", []string{"user:anne", "viewer", "doc:1", "--max-tuples-per-write", "10", "--force"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.cmd+" "+tc.args[3], func(t *testing.T) {
+			c := &Command{}
+			cmd := c.writeCmd()
+			if tc.cmd == "delete" {
+				cmd = c.deleteCmd()
+			}
+			cmd.SetArgs(tc.args)
+			silenced(cmd)
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("%s %v should be rejected without --file", tc.cmd, tc.args)
+			}
+			if got := clierr.Code(err); got != clierr.CodeUsage {
+				t.Fatalf("exit code = %d, want usage; err=%v", got, err)
+			}
+		})
+	}
+}
+
+// The same flags must stay usable with --file.
+func TestBulkOnlyFlagsAreAcceptedWithFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tuples.json")
+	const tuples = `[{"user":"user:anne","relation":"viewer","object":"doc:1"}]`
+	if err := os.WriteFile(path, []byte(tuples), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// --dry-run issues no request, so the URL is never dialled.
+	cmd := New(newHumanTupleCLI(t, "http://127.0.0.1:1")).writeCmd()
+	cmd.SetArgs([]string{"--file", path, "--on-duplicate", "ignore", "--dry-run"})
+	silenced(cmd)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("bulk flags with --file should be accepted, got %v", err)
+	}
+}
