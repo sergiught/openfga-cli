@@ -14,7 +14,10 @@ Set a field on the active profile (or --profile).
 Connection: api_url, store_id, model_id.
 Auth: auth_method (none|api_token|client_credentials|private_key_jwt), token,
 client_id, client_secret, token_url, audience, api_audience, key_file,
-private_key, signing_method, key_id, scopes (space-separated).
+private_key, signing_method, key_id, scopes (space- or comma-separated).
+Headers: headers — extra request headers as 'Name: value', for a gateway
+that authenticates OpenFGA itself. Pass every header in one command; they
+replace the profile's list. Clear them with `ofga profiles unset headers`.
 
 For secrets (token, client_secret, private_key) prefer --value-file or
 --value-stdin so the value never appears in `ps` output or your shell
@@ -23,7 +26,7 @@ history. token, client_secret, and private_key are stored in the OS keyring.
 ## Usage
 
 ```sh
-ofga profiles set <key> [value] [flags]
+ofga profiles set <key> <value>... [flags]
 ```
 
 ## Examples
@@ -34,6 +37,7 @@ ofga profiles set <key> [value] [flags]
   ofga profiles set token --value-stdin < token.txt
   ofga profiles set client_secret --value-file ./secret
   ofga profiles set private_key --value-file ./key.pem
+  ofga profiles set headers 'CF-Access-Client-Id: abc' 'CF-Access-Client-Secret: xyz'
 ```
 
 ## Flags
