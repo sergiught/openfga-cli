@@ -20,9 +20,10 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Track the goreleaser version pinned in the release workflow",
+      "description": "Track the goreleaser version pinned in the release and ci workflows",
       "managerFilePatterns": [
-        "/^\\.github/workflows/release\\.yml$/"
+        "/^\\.github/workflows/release\\.yml$/",
+        "/^\\.github/workflows/ci\\.yml$/"
       ],
       "matchStrings": ["GORELEASER_VERSION:\\s*'?(?<currentValue>v[0-9.]+)'?"],
       "depNameTemplate": "goreleaser/goreleaser",
