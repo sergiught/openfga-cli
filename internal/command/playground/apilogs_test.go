@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	lipgloss "charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sergiught/openfga-cli/internal/apilog"
@@ -37,6 +38,33 @@ func TestAPILogTabAtMapsClickToTab(t *testing.T) {
 	}
 	if _, ok := m.apiLogTabAt(bx, y); ok {
 		t.Fatal("a click over the list pane must not hit a tab")
+	}
+}
+
+// On a narrow terminal the tab strip needs a second row. Those labels are drawn
+// and must be clickable: hit-testing a fixed single row left them dead.
+func TestAPILogTabAtMapsClickOnAWrappedRow(t *testing.T) {
+	m := apiLogModel(sampleEntry())
+	m.sh.SetSize(93, 30) // narrow enough that the 46-column strip wraps
+	m.refreshAPILogVP()
+
+	bx, by := m.sh.MainBodyOrigin()
+	w, _ := m.contentSize()
+	lw := apiLogListWidth(w)
+	rows := apiLogTabLayout(w - lw - 2)
+	if len(rows) < 2 {
+		t.Fatalf("expected the strip to wrap at this width, got %d row(s)", len(rows))
+	}
+
+	// The first label of the second row.
+	second := rows[1][0]
+	rx := bx + lw + 1
+	if i, ok := m.apiLogTabAt(rx, by+4); !ok || i != second {
+		t.Fatalf("click on the wrapped row = (%d,%v), want (%d,true)", i, ok, second)
+	}
+	// A row past the end of the strip still misses.
+	if _, ok := m.apiLogTabAt(rx, by+3+len(rows)); ok {
+		t.Error("a click below the last strip row must not hit a tab")
 	}
 }
 
@@ -146,10 +174,31 @@ func TestAPILogRenderingSanitizesTerminalControls(t *testing.T) {
 }
 
 func TestAPILogDetailHeaderShowsTabStrip(t *testing.T) {
-	header := ansi.Strip(apiLogDetailHeader(sampleEntry(), 0))
+	header := ansi.Strip(apiLogDetailHeader(sampleEntry(), 0, 80))
 	for _, want := range apiLogTabs {
 		if !strings.Contains(header, want) {
 			t.Fatalf("detail header should list sub-section tab %q:\n%s", want, header)
+		}
+	}
+}
+
+// The full strip is wider than a narrow detail pane, so it has to wrap — and
+// every label must survive the wrap rather than being clipped.
+func TestAPILogTabStripWrapsWithoutLosingLabels(t *testing.T) {
+	const narrow = 45
+	strip := ansi.Strip(apiLogTabStrip(0, narrow))
+	lines := strings.Split(strip, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("strip should wrap at width %d, got one line: %q", narrow, strip)
+	}
+	for _, want := range apiLogTabs {
+		if !strings.Contains(strip, want) {
+			t.Errorf("wrapped strip dropped tab %q:\n%s", want, strip)
+		}
+	}
+	for i, ln := range lines {
+		if w := lipgloss.Width(ln); w > narrow {
+			t.Errorf("row %d is %d columns wide, want at most %d: %q", i, w, narrow, ln)
 		}
 	}
 }

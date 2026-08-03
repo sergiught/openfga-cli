@@ -270,7 +270,12 @@ func (l *List) IndexAt(row int) int {
 		return -1
 	}
 	abs := p.Page*p.PerPage + itemInPage
-	if abs < 0 || abs >= len(l.Model.Items()) {
+	// Bound against the visible rows, not the full item set: the index returned
+	// here is fed to SelectIndex, which (like SelectID) addresses filtered
+	// items. Measuring against every item let a click on blank space below a
+	// filtered list select a row that is not rendered, leaving the pane with
+	// nothing highlighted until an arrow key nudged it back.
+	if abs < 0 || abs >= len(l.Model.VisibleItems()) {
 		return -1
 	}
 	return abs
