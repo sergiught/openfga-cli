@@ -57,6 +57,33 @@ func TestDebugFlagsEnableDebugLogging(t *testing.T) {
 	}
 }
 
+// The log level is decided from the raw arguments before cobra parses them, so
+// this pre-parse has to agree with pflag: grouped shorthands are a legal way to
+// write -d, and a later explicit value overrides an earlier one.
+func TestDebugFlagParsingMatchesPflag(t *testing.T) {
+	cases := []struct {
+		args []string
+		want bool
+	}{
+		{[]string{"-dq"}, true},                  // grouped with --quiet
+		{[]string{"-qd"}, true},                  // ...in either order
+		{[]string{"-vq"}, true},                  // the --verbose alias groups too
+		{[]string{"-d", "--debug=false"}, false}, // last value wins
+		{[]string{"--debug=false", "-d"}, true},  // ...in either order
+		{[]string{"-d=false"}, false},            // shorthand with an explicit value
+		{[]string{"-pdefault"}, false},           // --profile=default, not a d flag
+		{[]string{"-p", "dev", "stores", "list"}, false},
+		{[]string{"--", "-d"}, false}, // after the terminator
+		{[]string{"stores", "list"}, false},
+	}
+	for _, tc := range cases {
+		got := logLevel(tc.args) == log.DebugLevel
+		if got != tc.want {
+			t.Errorf("logLevel(%q) debug = %v, want %v", tc.args, got, tc.want)
+		}
+	}
+}
+
 func TestReportCanceledPrintsPartialCommitDetail(t *testing.T) {
 	var buf bytes.Buffer
 	inner := fmt.Errorf("tuples 26-50 failed after 25 of 100 tuple(s) were committed: %w", context.Canceled)
