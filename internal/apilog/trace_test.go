@@ -83,7 +83,7 @@ func TestTraceWriterDoesNotUnmaskRedactedValues(t *testing.T) {
 	NewTraceWriter(&b).Add(Entry{
 		Method:     "GET",
 		URL:        "http://localhost:8080/stores",
-		ReqHeaders: redactHeaders(http.Header{"Authorization": []string{"Bearer super-secret-token"}}),
+		ReqHeaders: redactHeaders(http.Header{"Authorization": []string{"Bearer super-secret-token"}}, nil),
 		Status:     200,
 	})
 

@@ -332,9 +332,17 @@ func New(r config.Resolved, opts ...Option) (*openfga.Client, error) {
 		fn(&o)
 	}
 
+	// Parsed up front so the capture transport below knows which header values
+	// to mask: they are gateway credentials, and a --debug trace or the TUI's
+	// API log would otherwise print them verbatim.
+	hdrs, err := ParseHeaders(r.Headers)
+	if err != nil {
+		return nil, err
+	}
+
 	base := baseTransport(o.timeout)
 	if o.capture != nil {
-		base = apilog.Transport(base, o.capture, r.APIURL)
+		base = apilog.Transport(base, o.capture, r.APIURL, headerNames(hdrs))
 	}
 	// idempotentRetryTransport adds 5xx retries scoped to RPCs that are safe
 	// to repeat (see its doc comment for the full rule and the CLI-76
@@ -357,9 +365,7 @@ func New(r config.Resolved, opts ...Option) (*openfga.Client, error) {
 	// Extra headers for gateways that authenticate OpenFGA themselves. The SDK
 	// applies these only to API traffic — its OAuth token client is built on the
 	// bare base transport — so a gateway credential is not also sent to the IdP.
-	if hdrs, err := ParseHeaders(r.Headers); err != nil {
-		return nil, err
-	} else if len(hdrs) > 0 {
+	if len(hdrs) > 0 {
 		opts2 = append(opts2, openfga.WithHeaders(hdrs))
 	}
 
