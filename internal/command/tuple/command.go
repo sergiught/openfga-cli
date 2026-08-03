@@ -478,6 +478,13 @@ func (c *Command) changesCmd() *cobra.Command {
 			if err := cli.RejectFlagAliasConflict(cmd, "max-results", "limit"); err != nil {
 				return err
 			}
+			// Both names write the same variable, so passing both would silently
+			// let whichever came last win. Unlike --limit, --token-file is the
+			// superseded spelling, so say which one to keep.
+			if cmd.Flags().Changed("cursor-file") && cmd.Flags().Changed("token-file") {
+				return clierr.WithCode(clierr.CodeUsage,
+					errors.New("--cursor-file and --token-file are the same flag; pass only --cursor-file"))
+			}
 			startTime, err := cli.ParseTimestamp("start-time", startTime)
 			if err != nil {
 				return err
@@ -545,7 +552,13 @@ func (c *Command) changesCmd() *cobra.Command {
 	f.IntVar(&maxResults, "max-results", 0, "cap the total number of changes returned (0 = unbounded)")
 	f.IntVar(&maxResults, "limit", 0, "alias for --max-results")
 	f.StringVar(&continuationToken, "continuation-token", "", "resume from a token returned by an earlier run")
-	f.StringVar(&tokenFile, "token-file", "", "write the next continuation token to this file (read it back with --continuation-token)")
+	f.StringVar(&tokenFile, "cursor-file", "", "write the next continuation token to this file (read it back with --continuation-token)")
+	_ = cmd.MarkFlagFilename("cursor-file")
+	// --token-file means "read the API token from a file" on `profiles add`, so
+	// the old name here read as the opposite of what it does. Kept working, and
+	// hidden, so existing pollers are unaffected.
+	f.StringVar(&tokenFile, "token-file", "", "deprecated alias for --cursor-file")
+	_ = f.MarkHidden("token-file")
 	_ = cmd.MarkFlagFilename("token-file")
 	return cmd
 }

@@ -317,3 +317,57 @@ func TestListNameEmptyResultNamesTheFilter(t *testing.T) {
 		t.Errorf("message = %q, want it to name the filter", errBuf.String())
 	}
 }
+
+// `stores get` used to demand a store ID even with one configured, unlike
+// every other store-scoped command.
+func TestGetDefaultsToTheConfiguredStore(t *testing.T) {
+	const configured = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	var requested string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested = strings.TrimPrefix(r.URL.Path, "/stores/")
+		_ = json.NewEncoder(w).Encode(openfga.Store{ID: requested, Name: "acme"})
+	}))
+	defer srv.Close()
+
+	cfg := config.New()
+	cfg.Set("default", config.Profile{APIURL: srv.URL, StoreID: configured})
+	a := cli.New(log.New(io.Discard), cfg, "test")
+
+	cmd := New(a).getCmd()
+	cmd.SetArgs(nil)
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("stores get with no argument: %v", err)
+	}
+	if requested != configured {
+		t.Errorf("requested store %q, want the configured %q", requested, configured)
+	}
+}
+
+// An explicit ID still wins, so another store can be inspected without
+// switching profiles.
+func TestGetAcceptsAnExplicitStoreID(t *testing.T) {
+	const other = "01BX5ZZKBKACTAV9WEVGEMMVRZ"
+	var requested string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested = strings.TrimPrefix(r.URL.Path, "/stores/")
+		_ = json.NewEncoder(w).Encode(openfga.Store{ID: requested})
+	}))
+	defer srv.Close()
+
+	cfg := config.New()
+	cfg.Set("default", config.Profile{APIURL: srv.URL, StoreID: "01ARZ3NDEKTSV4RRFFQ69G5FAV"})
+	a := cli.New(log.New(io.Discard), cfg, "test")
+
+	cmd := New(a).getCmd()
+	cmd.SetArgs([]string{other})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if requested != other {
+		t.Errorf("requested store %q, want %q", requested, other)
+	}
+}

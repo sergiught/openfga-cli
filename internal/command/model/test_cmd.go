@@ -91,8 +91,12 @@ func (c *Command) testCmd() *cobra.Command {
 			if parallel < 0 {
 				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--parallel must be 0 or greater"))
 			}
+			if cmd.Flags().Changed("test-timeout") && cmd.Flags().Changed("timeout") {
+				return clierr.WithCode(clierr.CodeUsage,
+					errors.New("--test-timeout and --timeout are the same flag; pass only --test-timeout"))
+			}
 			if timeout < 0 {
-				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--timeout must be 0 or greater"))
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--test-timeout must be 0 or greater"))
 			}
 			if slowest < 0 {
 				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--slowest must be 0 or greater"))
@@ -335,7 +339,12 @@ func (c *Command) testCmd() *cobra.Command {
 	cmd.Flags().StringVar(&run, "run", "", "glob to select tests by \"<relative-file>/<test-name>\" or by name alone")
 	cmd.Flags().IntVar(&parallel, "parallel", 0, "max concurrent tests (0 = number of CPUs)")
 	cmd.Flags().BoolVar(&failFast, "fail-fast", false, "stop after the first failing test instead of running the whole suite")
-	cmd.Flags().DurationVar(&timeout, "timeout", 0, "per-test timeout bounding each test's engine work (e.g. 30s; 0 = no timeout)")
+	cmd.Flags().DurationVar(&timeout, "test-timeout", 0, "per-test timeout bounding each test's engine work (e.g. 30s; 0 = no timeout)")
+	// The old name shadowed the global per-request --timeout, so the same flag
+	// meant two different things depending on the command. Kept working, and
+	// hidden, so existing invocations are unaffected.
+	cmd.Flags().DurationVar(&timeout, "timeout", 0, "deprecated alias for --test-timeout")
+	_ = cmd.Flags().MarkHidden("timeout")
 	cmd.Flags().IntVar(&slowest, "slowest", 0, "after the run, list the N slowest tests (0 = don't)")
 	cmd.Flags().BoolVar(&dedupe, "dedupe-fixtures", false, "drop duplicate tuples when resolving fixtures")
 	cmd.Flags().StringVar(&report, "report", "", "write a report in this format (\"junit\", \"json\", or \"github\"); to --report-file if set, otherwise printed to the terminal")

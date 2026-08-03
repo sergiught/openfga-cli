@@ -1,6 +1,6 @@
 ---
 title: "ofga stores get"
-description: "Show details of a store"
+description: "Show details of a store (default: the active store)"
 sidebar:
   order: 102
 ---
@@ -9,17 +9,18 @@ import CommandDemo from '../../../../components/CommandDemo.astro';
 
 <CommandDemo slug="stores-get" />
 
-Show details of a store
+Show a store's details. With no argument the configured store is used, the same one every store-scoped command works against.
 
 ## Usage
 
 ```sh
-ofga stores get <store-id>
+ofga stores get [store-id]
 ```
 
 ## Examples
 
 ```sh
+  ofga stores get
   ofga stores get 01ARZ3NDEKTSV4RRFFQ69G5FAV
 ```
 

@@ -847,7 +847,8 @@ func TestModelTestRejectsInvalidNumericFlags(t *testing.T) {
 	for _, args := range [][]string{
 		{"--parallel", "-1"},
 		{"--slowest", "-1"},
-		{"--timeout", "-1s"},
+		{"--test-timeout", "-1s"},
+		{"--timeout", "-1s"}, // deprecated alias
 		{"--coverage", "--coverage-min", "-1"},
 		{"--coverage", "--coverage-min", "101"},
 		{"--coverage", "--coverage-min", "NaN"},
