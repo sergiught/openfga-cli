@@ -92,7 +92,14 @@ jobs:
           # Optional publishers — skipped by .goreleaser.yaml when unset.
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
           AUR_KEY: ${{ secrets.AUR_KEY }}
+      # goreleaser publishes AUR last, after the GitHub release, images, and tap
+      # have all landed. An AUR outage there used to skip the attestation steps
+      # below and ship a release with no provenance (v0.267.0, 2026-08-03), so
+      # they run even when goreleaser failed. The job still reports failure —
+      # goreleaser has no continue-on-error — and the checksums guard keeps them
+      # from firing when goreleaser died before producing anything to attest.
       - name: attest release artifacts
+        if: ${{ !cancelled() && hashFiles('dist/checksums.txt') != '' }}
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4
         with:
           subject-checksums: dist/checksums.txt
@@ -100,6 +107,7 @@ jobs:
       # attestation (`cosign verify-attestation --type spdxjson`). Targets the
       # GHCR manifest (always pushed); Docker Hub is an optional mirror.
       - name: attest SBOM for the container image
+        if: ${{ !cancelled() && hashFiles('dist/checksums.txt') != '' }}
         env:
           IMAGE: ghcr.io/sergiught/openfga-cli
           TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
