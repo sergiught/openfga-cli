@@ -147,67 +147,44 @@ aurs:
 # pushed with GITHUB_TOKEN (always present). The docker.io tags/manifests are
 # only emitted when DOCKERHUB_TOKEN is set, so releases still succeed before the
 # Docker Hub secrets are wired up (mirrors the brews/aurs skip pattern above).
-dockers:
-  - id: ghcr-amd64
-    use: buildx
-    goos: linux
-    goarch: amd64
+dockers_v2:
+  - id: ghcr
     dockerfile: Dockerfile.release
-    image_templates:
-      - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-amd64'
-      - '{{ if ne (envOrDefault "DOCKERHUB_TOKEN" "") "" }}docker.io/sergiught/openfga-cli:{{ .Version }}-amd64{{ end }}'
-    build_flag_templates:
-      - '--platform=linux/amd64'
-      - '--label=org.opencontainers.image.title={{ .ProjectName }}'
-      - '--label=org.opencontainers.image.description=A modern CLI & TUI for OpenFGA.'
-      - '--label=org.opencontainers.image.url=https://github.com/sergiught/openfga-cli'
-      - '--label=org.opencontainers.image.source=https://github.com/sergiught/openfga-cli'
-      - '--label=org.opencontainers.image.version={{ .Version }}'
-      - '--label=org.opencontainers.image.revision={{ .FullCommit }}'
-      - '--label=org.opencontainers.image.created={{ .Date }}'
-      - '--label=org.opencontainers.image.licenses=MIT'
+    images:
+      - 'ghcr.io/sergiught/openfga-cli'
+    tags:
+      - '{{ .Version }}'
+      - 'latest'
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels: &image_labels
+      org.opencontainers.image.title: '{{ .ProjectName }}'
+      org.opencontainers.image.description: 'A modern CLI & TUI for OpenFGA.'
+      org.opencontainers.image.url: 'https://github.com/sergiught/openfga-cli'
+      org.opencontainers.image.source: 'https://github.com/sergiught/openfga-cli'
+      org.opencontainers.image.version: '{{ .Version }}'
+      org.opencontainers.image.revision: '{{ .FullCommit }}'
+      org.opencontainers.image.created: '{{ .Date }}'
+      org.opencontainers.image.licenses: MIT
     extra_files:
       - LICENSE
-  - id: ghcr-arm64
-    use: buildx
-    goos: linux
-    goarch: arm64
+  - id: dockerhub
+    # Disabled until the Docker Hub secrets are wired up, so a release still
+    # succeeds with GHCR alone (mirrors the brews/aurs skip pattern above).
+    disable: '{{ if eq (envOrDefault "DOCKERHUB_TOKEN" "") "" }}true{{ else }}false{{ end }}'
     dockerfile: Dockerfile.release
-    image_templates:
-      - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-arm64'
-      - '{{ if ne (envOrDefault "DOCKERHUB_TOKEN" "") "" }}docker.io/sergiught/openfga-cli:{{ .Version }}-arm64{{ end }}'
-    build_flag_templates:
-      - '--platform=linux/arm64'
-      - '--label=org.opencontainers.image.title={{ .ProjectName }}'
-      - '--label=org.opencontainers.image.description=A modern CLI & TUI for OpenFGA.'
-      - '--label=org.opencontainers.image.url=https://github.com/sergiught/openfga-cli'
-      - '--label=org.opencontainers.image.source=https://github.com/sergiught/openfga-cli'
-      - '--label=org.opencontainers.image.version={{ .Version }}'
-      - '--label=org.opencontainers.image.revision={{ .FullCommit }}'
-      - '--label=org.opencontainers.image.created={{ .Date }}'
-      - '--label=org.opencontainers.image.licenses=MIT'
+    images:
+      - 'docker.io/sergiught/openfga-cli'
+    tags:
+      - '{{ .Version }}'
+      - 'latest'
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels: *image_labels
     extra_files:
       - LICENSE
-
-docker_manifests:
-  - name_template: 'ghcr.io/sergiught/openfga-cli:{{ .Version }}'
-    image_templates:
-      - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-amd64'
-      - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-arm64'
-  - name_template: 'ghcr.io/sergiught/openfga-cli:latest'
-    image_templates:
-      - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-amd64'
-      - 'ghcr.io/sergiught/openfga-cli:{{ .Version }}-arm64'
-  - name_template: 'docker.io/sergiught/openfga-cli:{{ .Version }}'
-    skip_push: '{{ if eq (envOrDefault "DOCKERHUB_TOKEN" "") "" }}true{{ else }}false{{ end }}'
-    image_templates:
-      - 'docker.io/sergiught/openfga-cli:{{ .Version }}-amd64'
-      - 'docker.io/sergiught/openfga-cli:{{ .Version }}-arm64'
-  - name_template: 'docker.io/sergiught/openfga-cli:latest'
-    skip_push: '{{ if eq (envOrDefault "DOCKERHUB_TOKEN" "") "" }}true{{ else }}false{{ end }}'
-    image_templates:
-      - 'docker.io/sergiught/openfga-cli:{{ .Version }}-amd64'
-      - 'docker.io/sergiught/openfga-cli:{{ .Version }}-arm64'
 
 # Keyless cosign signatures for the pushed multi-arch manifests, so consumers
 # can `cosign verify` the images. Uses the release job's OIDC identity
