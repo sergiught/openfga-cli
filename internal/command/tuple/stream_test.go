@@ -165,6 +165,71 @@ func TestReadOutputFileWritesTuplesAndLeavesStdoutClean(t *testing.T) {
 	}
 }
 
+// An export that fails must not take the previous export down with it: the
+// destination is only replaced once a complete result has been flushed.
+func TestReadOutputFileKeepsPreviousContentsWhenTheReadFails(t *testing.T) {
+	// One good page, then a hard failure on the page that follows.
+	var mu sync.Mutex
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		calls++
+		if calls > 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"code":"internal_error","message":"boom"}`))
+			return
+		}
+		resp := openfga.ReadResponse{
+			Tuples: []openfga.Tuple{{
+				Key:       openfga.TupleKey{User: "user:anne", Relation: "viewer", Object: "doc:1"},
+				Timestamp: time.Unix(1600000000, 0).UTC(),
+			}},
+			ContinuationToken: "more",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	t.Cleanup(srv.Close)
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tuples.json")
+	const previous = `[{"key":{"user":"user:bob","relation":"owner","object":"doc:9"}}]`
+	if err := os.WriteFile(path, []byte(previous), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	a := newHumanTupleCLI(t, srv.URL)
+	cmd := New(a).readCmd()
+	cmd.SetArgs([]string{"--output-file", path})
+	silenced(cmd)
+
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("a failed read should return an error")
+	}
+
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != previous {
+		t.Errorf("--output-file was modified by a failed export:\ngot  %s\nwant %s", b, previous)
+	}
+
+	// The staging file must not be left behind either.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Errorf("failed export left files behind: %v", names)
+	}
+}
+
 func TestReadOutputFileRejectsDirectory(t *testing.T) {
 	srv := tupleServer(t, 1, 10)
 	a := newHumanTupleCLI(t, srv.URL)

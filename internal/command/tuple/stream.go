@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/go-openfga/openfga"
+	"github.com/sergiught/openfga-cli/internal/atomicfile"
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/output"
@@ -42,9 +43,8 @@ type tupleSink struct {
 	out   io.Writer
 	errW  io.Writer
 
-	file *os.File // non-nil when --output-file was given
+	file *atomicfile.File // non-nil when --output-file was given and not yet committed
 	path string
-	done bool
 }
 
 // tableSink buffers rows for the styled table.
@@ -59,9 +59,11 @@ func newTupleSink(cmd *cobra.Command, c *cli.CLI, path string) (*tupleSink, erro
 	s := &tupleSink{out: cmd.OutOrStdout(), errW: cmd.ErrOrStderr(), path: path}
 
 	if path != "" {
-		// 0600 to match the --failed-file bulk path: these are the store's
-		// relationship data, not something to widen by default.
-		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+		// Staged next to the destination and renamed in by finish, so a read
+		// that fails halfway leaves any existing export untouched rather than
+		// truncated. 0600 matches the --failed-file bulk path: these are the
+		// store's relationship data, not something to widen by default.
+		f, err := atomicfile.Create(path, 0o600)
 		if err != nil {
 			return nil, fmt.Errorf("open --output-file %s: %w", path, err)
 		}
@@ -99,8 +101,6 @@ func (s *tupleSink) add(t openfga.Tuple) error {
 // finish closes the output and prints the human summary. n is the number of
 // tuples written, tracked by the caller so the streaming paths do not have to.
 func (s *tupleSink) finish(n int) error {
-	s.done = true
-
 	if s.stream != nil {
 		if err := s.stream.Close(); err != nil {
 			return err
@@ -119,8 +119,14 @@ func (s *tupleSink) finish(n int) error {
 			output.Infof(s.errW, "%d tuple(s)", n)
 		}
 	}
-	if err := s.closeFile(); err != nil {
-		return err
+	// Only now, with every tuple written and flushed, does the export replace
+	// whatever was at --output-file before.
+	if s.file != nil {
+		f := s.file
+		s.file = nil
+		if err := f.Commit(); err != nil {
+			return err
+		}
 	}
 	if s.path != "" {
 		output.Successf(s.errW, "wrote %d tuple(s) to %s", n, s.path)
@@ -128,25 +134,15 @@ func (s *tupleSink) finish(n int) error {
 	return nil
 }
 
-// abort releases the output file when the command returns early (a read error,
-// a cancelled context). It is a no-op once finish has run.
+// abort discards a staged export when the command returns early (a read error,
+// a cancelled context), leaving any previous --output-file contents in place.
+// It is a no-op once finish has committed.
 func (s *tupleSink) abort() {
-	if s.done {
+	if s.file == nil {
 		return
 	}
-	_ = s.closeFile()
-}
-
-func (s *tupleSink) closeFile() error {
-	if s.file == nil {
-		return nil
-	}
-	f := s.file
+	s.file.Abort()
 	s.file = nil
-	if err := f.Close(); err != nil {
-		return fmt.Errorf("close --output-file %s: %w", s.path, err)
-	}
-	return nil
 }
 
 var tupleHeaders = []string{"USER", "RELATION", "OBJECT", "CONDITION", "WRITTEN"}
