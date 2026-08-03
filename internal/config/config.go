@@ -186,8 +186,13 @@ type Resolved struct {
 	Profile string
 	APIURL  string
 	StoreID string
-	ModelID string
-	Auth    Auth
+	// StoreIDSource names the layer StoreID came from ("--store-id", an
+	// environment variable, or a profile), so an error about a bad value can
+	// point at the place that needs fixing rather than leaving the user to
+	// guess which layer won.
+	StoreIDSource string
+	ModelID       string
+	Auth          Auth
 	// Headers are the profile's extra request headers with any --header flags
 	// appended, so a flag can add to (or replace, by repeating the name) what
 	// the profile configures.
@@ -851,12 +856,19 @@ type Overrides struct {
 // variables. The OPENFGA_* names are canonical; the FGA_* names are accepted as
 // aliases for compatibility with the official CLI.
 func firstEnv(names ...string) string {
+	v, _ := firstEnvNamed(names...)
+	return v
+}
+
+// firstEnvNamed is firstEnv, also reporting which variable supplied the value
+// so an error can name the layer the user actually needs to fix.
+func firstEnvNamed(names ...string) (value, name string) {
 	for _, n := range names {
 		if v := os.Getenv(n); v != "" {
-			return v
+			return v, n
 		}
 	}
-	return ""
+	return "", ""
 }
 
 // secretEnvOverride returns the environment value that would override a
@@ -933,12 +945,13 @@ func (c *Config) Resolve(o Overrides) (Resolved, error) {
 	}
 
 	r := Resolved{
-		Profile: name,
-		APIURL:  p.APIURL,
-		StoreID: p.StoreID,
-		ModelID: p.ModelID,
-		Auth:    p.ResolvedAuth(),
-		Headers: append(append([]string(nil), p.Headers...), o.Headers...),
+		Profile:       name,
+		APIURL:        p.APIURL,
+		StoreID:       p.StoreID,
+		StoreIDSource: fmt.Sprintf("profile %q", name),
+		ModelID:       p.ModelID,
+		Auth:          p.ResolvedAuth(),
+		Headers:       append(append([]string(nil), p.Headers...), o.Headers...),
 	}
 
 	// Replace keyring sentinels with the real values before env overrides
@@ -979,8 +992,8 @@ func (c *Config) Resolve(o Overrides) (Resolved, error) {
 	if v := firstEnv("OPENFGA_API_URL", "FGA_API_URL"); v != "" {
 		r.APIURL = v
 	}
-	if v := firstEnv("OPENFGA_STORE_ID", "FGA_STORE_ID"); v != "" {
-		r.StoreID = v
+	if v, name := firstEnvNamed("OPENFGA_STORE_ID", "FGA_STORE_ID"); v != "" {
+		r.StoreID, r.StoreIDSource = v, name
 	}
 	if v := firstEnv("OPENFGA_MODEL_ID", "OPENFGA_AUTHORIZATION_MODEL_ID",
 		"FGA_MODEL_ID", "FGA_AUTHORIZATION_MODEL_ID"); v != "" {
@@ -1066,7 +1079,7 @@ func (c *Config) Resolve(o Overrides) (Resolved, error) {
 		r.APIURL = o.APIURL
 	}
 	if o.StoreID != "" {
-		r.StoreID = o.StoreID
+		r.StoreID, r.StoreIDSource = o.StoreID, "--store-id"
 	}
 	if o.ModelID != "" {
 		r.ModelID = o.ModelID

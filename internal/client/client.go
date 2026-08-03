@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -322,6 +323,29 @@ func replayableBody(req *http.Request) (func() (io.ReadCloser, error), error) {
 // New builds an *openfga.Client from a resolved configuration. The store and
 // authorization-model IDs are registered as client defaults so per-call
 // overrides remain optional.
+// storeIDRE matches a Crockford base32 ULID, mirroring the SDK's own check so
+// the CLI can decide whether an ID is usable before handing it over (the SDK
+// rejects a bad one by failing client construction, which is too blunt for
+// commands that never touch a store).
+var storeIDRE = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$`)
+
+// ValidStoreID reports whether id is a well-formed store ID.
+func ValidStoreID(id string) bool { return storeIDRE.MatchString(id) }
+
+// ValidateStoreID returns a usage error describing a malformed store ID, naming
+// the configuration layer it came from so the user knows what to fix. source is
+// config.Resolved's StoreIDSource.
+func ValidateStoreID(id, source string) error {
+	if ValidStoreID(id) {
+		return nil
+	}
+	where := ""
+	if source != "" {
+		where = " (from " + source + ")"
+	}
+	return fmt.Errorf("store ID %q%s is not valid: it must be a ULID, like 01ARZ3NDEKTSV4RRFFQ69G5FAV", id, where)
+}
+
 func New(r config.Resolved, opts ...Option) (*openfga.Client, error) {
 	if r.APIURL == "" {
 		return nil, fmt.Errorf("no API URL configured: set one with --api-url, OPENFGA_API_URL, or `ofga profiles set`")
@@ -369,7 +393,11 @@ func New(r config.Resolved, opts ...Option) (*openfga.Client, error) {
 		opts2 = append(opts2, openfga.WithHeaders(hdrs))
 	}
 
-	if r.StoreID != "" {
+	// A malformed store ID is only a problem for commands that use the store.
+	// Passing it here would fail client construction outright, so `ofga stores
+	// list` — which takes no store — died on a stale OPENFGA_STORE_ID. Commands
+	// that do need one call ValidateStoreID and report it properly.
+	if ValidStoreID(r.StoreID) {
 		opts2 = append(opts2, openfga.WithStoreID(r.StoreID))
 	}
 	if r.ModelID != "" {
