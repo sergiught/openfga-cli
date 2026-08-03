@@ -186,8 +186,9 @@ func (c *Command) testCmd() *cobra.Command {
 		ValidArgsFunction: c.cli.CompleteModelIDs,
 		Short:             "Run the model's assertions and report pass/fail",
 		Example:           "  ofga assertions test",
-		Long:              "Read the stored assertions for a model and verify each one with a live Check, comparing the result to the expectation.",
-		Args:              cobra.MaximumNArgs(1),
+		Long: "Read the stored assertions for a model and verify each one with a live Check, comparing the result to the expectation.\n\n" +
+			"Exit codes: 0 success · 1 error · 2 usage · 3 one or more assertions failed · 4 network · 130 canceled.",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl, r, err := c.cli.ClientWithStore()
 			if err != nil {

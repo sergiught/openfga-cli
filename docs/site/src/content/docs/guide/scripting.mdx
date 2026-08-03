@@ -14,7 +14,7 @@ sidebar:
   remains one record. Key/value results are `key<TAB>value`, so
   `query check --plain` prints `allowed<TAB>true` or `allowed<TAB>false`
   (a denied check is still a successful query, so the exit code stays `0`).
-- Meaningful **exit codes**: `0` success, `1` generic failure, `2` usage error, `3` failed `model test` (or coverage gate), `4` network error, `130` interrupted by Ctrl-C/SIGINT.
+- Meaningful **exit codes**: `0` success, `1` generic failure, `2` usage error, `3` failed tests — `model test` (or its coverage gate) and `assertions test` — `4` network error, `130` interrupted by Ctrl-C/SIGINT.
 - First-class server mutation commands support `-n`/`--dry-run`; `ofga api` is an expert escape hatch.
 - Destructive replacements and deletes prompt on a TTY and require `--force` when non-interactive, so scripts fail safe.
 - Piped output drops colors and box-drawing automatically.
@@ -48,7 +48,7 @@ already committed.
 container image carrying only `ofga` can still pull a field out:
 
 ```bash
-STORE_ID=$(ofga stores create my-store --jq '.store.id')
+STORE_ID=$(ofga stores create my-store --jq '.id')
 ofga stores list --jq '.[] | select(.name=="prod") | .id'
 ofga tuples read --jq 'length'
 ```
