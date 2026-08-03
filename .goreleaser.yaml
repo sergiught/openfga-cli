@@ -155,7 +155,7 @@ aurs:
 # Container images (multi-arch), published to GHCR and Docker Hub. GHCR is
 # pushed with GITHUB_TOKEN (always present). The docker.io tags/manifests are
 # only emitted when DOCKERHUB_TOKEN is set, so releases still succeed before the
-# Docker Hub secrets are wired up (mirrors the brews/aurs skip pattern above).
+# Docker Hub secrets are wired up (mirrors the casks/aurs skip pattern above).
 dockers_v2:
   - id: ghcr
     dockerfile: Dockerfile.release
@@ -180,7 +180,7 @@ dockers_v2:
       - LICENSE
   - id: dockerhub
     # Disabled until the Docker Hub secrets are wired up, so a release still
-    # succeeds with GHCR alone (mirrors the brews/aurs skip pattern above).
+    # succeeds with GHCR alone (mirrors the casks/aurs skip pattern above).
     disable: '{{ if eq (envOrDefault "DOCKERHUB_TOKEN" "") "" }}true{{ else }}false{{ end }}'
     dockerfile: Dockerfile.release
     images:
