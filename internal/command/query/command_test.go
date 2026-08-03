@@ -308,6 +308,26 @@ func TestMalformedContextIsUsageError(t *testing.T) {
 	}
 }
 
+// MarkFlagRequired is satisfied by --type "", and "org#" yields a filter with
+// an empty relation. Both used to reach the server and come back as a bare 400.
+func TestListUsersRejectsDegenerateTypeFilters(t *testing.T) {
+	for _, typ := range []string{"", "  ", "org#", "#member"} {
+		t.Run("type="+typ, func(t *testing.T) {
+			cmd := (&Command{}).listUsersCmd()
+			cmd.SetArgs([]string{"document:roadmap", "viewer", "--type", typ})
+			cmd.SetOut(io.Discard)
+			cmd.SetErr(io.Discard)
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("--type %q should be rejected", typ)
+			}
+			if got := clierr.Code(err); got != clierr.CodeUsage {
+				t.Fatalf("exit code = %d, want usage; err=%v", got, err)
+			}
+		})
+	}
+}
+
 func TestCheckPlainEmitsAllowedRow(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"allowed":true}`))
