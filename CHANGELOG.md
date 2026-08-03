@@ -1,5 +1,69 @@
 # Changelog
 
+## [0.267.0](https://github.com/sergiught/openfga-cli/compare/v0.266.0...v0.267.0) (2026-08-03)
+
+
+### Features
+
+* add a GitHub Pages docs site with a demo for every command ([#49](https://github.com/sergiught/openfga-cli/issues/49)) ([eae7b78](https://github.com/sergiught/openfga-cli/commit/eae7b7864f3cb28a87f4f6dbe04926e5bd9b5612))
+* **cli:** complete enumerated flag values and model IDs ([#110](https://github.com/sergiught/openfga-cli/issues/110)) ([ceab261](https://github.com/sergiught/openfga-cli/commit/ceab261066f0a2f1c04bfe3890c93fa4b29104db))
+* **cli:** trace resolved config and API exchanges under --debug ([#93](https://github.com/sergiught/openfga-cli/issues/93)) ([c64da16](https://github.com/sergiught/openfga-cli/commit/c64da1608bfa9aae3c4d2c58815aff2abcc83e9a))
+* default stores get to the active store and clarify two flag names ([#111](https://github.com/sergiught/openfga-cli/issues/111)) ([d617212](https://github.com/sergiught/openfga-cli/commit/d6172129bdaa8fa9bdfc44c6f22b74b39b924b8a))
+* **playground:** label nav tabs with their digit keys ([#87](https://github.com/sergiught/openfga-cli/issues/87)) ([b6dfe0c](https://github.com/sergiught/openfga-cli/commit/b6dfe0ce97b06b0b5aba341f0a4623aadfaf91e5))
+* **playground:** server-side /read tuple filter, shared with the CLI ([#82](https://github.com/sergiught/openfga-cli/issues/82)) ([c1a309a](https://github.com/sergiught/openfga-cli/commit/c1a309a79dfe7ec5db4f54b86cd66c49f33a0e20))
+* **profiles:** manage gateway headers from the CLI ([#109](https://github.com/sergiught/openfga-cli/issues/109)) ([ab3d131](https://github.com/sergiught/openfga-cli/commit/ab3d131722e86abf90ef4e1e3d45a24d9a24a176))
+* **query,stores:** add --jq, --header, stores list --name and batch-check context ([#96](https://github.com/sergiught/openfga-cli/issues/96)) ([540cfd1](https://github.com/sergiught/openfga-cli/commit/540cfd18633d137cbbb984a07922b03c2b5fe924))
+* **query,tuples:** add --consistency to read commands ([#72](https://github.com/sergiught/openfga-cli/issues/72)) ([1a0e156](https://github.com/sergiught/openfga-cli/commit/1a0e1569604695dd99b98d0cb08da6656a977f04))
+* **query:** add list-relations ([#73](https://github.com/sergiught/openfga-cli/issues/73)) ([5c54673](https://github.com/sergiught/openfga-cli/commit/5c54673e87697e002e9b8a91f62bdb722556cec6))
+* **release:** ship completions and man pages, document release verification ([#92](https://github.com/sergiught/openfga-cli/issues/92)) ([54603ed](https://github.com/sergiught/openfga-cli/commit/54603ed2564b16a7a139f951d40b9da6a64d4c15))
+* **tuples:** CSV/YAML/JSONL bulk formats, continue-on-error writes, --failed-file, parallelism ([#71](https://github.com/sergiught/openfga-cli/issues/71)) ([9080355](https://github.com/sergiught/openfga-cli/commit/908035536445bd91a8f5ac838b26b10368dfda54))
+* **tuples:** stream read output, add --output-file and changelog cursors ([#94](https://github.com/sergiught/openfga-cli/issues/94)) ([9119ec7](https://github.com/sergiught/openfga-cli/commit/9119ec792b7e33b23d3277b08cfbf7d1d8faad33))
+* **version:** report the embedded OpenFGA server version ([#55](https://github.com/sergiught/openfga-cli/issues/55)) ([dac7afd](https://github.com/sergiught/openfga-cli/commit/dac7afd827d0e6b75ea21cd38a92843066e84ee8))
+
+
+### Bug fixes
+
+* **api:** apply --jq to ofga api responses ([#104](https://github.com/sergiught/openfga-cli/issues/104)) ([3d89988](https://github.com/sergiught/openfga-cli/commit/3d89988e8778835cc1fcabf65270cefcc24fd1e4))
+* **assertions:** reject unknown fields in assertion files ([#101](https://github.com/sergiught/openfga-cli/issues/101)) ([feb7402](https://github.com/sergiught/openfga-cli/commit/feb7402d3b63048757455dae4f15061df06d40f5))
+* **ci:** isolate keyring state so the test recipe is safe to run locally ([#79](https://github.com/sergiught/openfga-cli/issues/79)) ([b67c7d1](https://github.com/sergiught/openfga-cli/commit/b67c7d15df2d37ff6489285b3b1528e76d5b7c70))
+* **cli:** correct misleading version label and close sanitization gaps ([#90](https://github.com/sergiught/openfga-cli/issues/90)) ([261f590](https://github.com/sergiught/openfga-cli/commit/261f590a2421b65632973a4226a97421cea6afc7))
+* **client:** retry 5xx only on idempotent requests ([#61](https://github.com/sergiught/openfga-cli/issues/61)) ([e50b751](https://github.com/sergiught/openfga-cli/commit/e50b7512d650aa276ab032bb4bd8c7dc91121cad))
+* **client:** validate the store ID only when a command needs one ([#105](https://github.com/sergiught/openfga-cli/issues/105)) ([cbc3e77](https://github.com/sergiught/openfga-cli/commit/cbc3e777800829503de5c5095709ffb78cde4df2))
+* **clierr:** classify usage errors structurally instead of by substring ([#63](https://github.com/sergiught/openfga-cli/issues/63)) ([1042129](https://github.com/sergiught/openfga-cli/commit/104212985780531ef7a47f37f50d5f0eb34760c8))
+* **cli:** handle SIGTERM gracefully and report partial commits on cancel ([#62](https://github.com/sergiught/openfga-cli/issues/62)) ([6e0e3f2](https://github.com/sergiught/openfga-cli/commit/6e0e3f2133ccec4ef76874206e6072ce0786a993))
+* **cli:** honor grouped and negated debug shorthands ([#108](https://github.com/sergiught/openfga-cli/issues/108)) ([2af17f8](https://github.com/sergiught/openfga-cli/commit/2af17f8a568c98f203079b903d9f897b8184a1d4))
+* **cli:** redact gateway credentials in debug traces ([#103](https://github.com/sergiught/openfga-cli/issues/103)) ([174254d](https://github.com/sergiught/openfga-cli/commit/174254dc2b5087310c36e38836aed042abd820f0))
+* **cli:** report invalid flag values as usage errors ([#106](https://github.com/sergiught/openfga-cli/issues/106)) ([b1e03c8](https://github.com/sergiught/openfga-cli/commit/b1e03c807b26038edf75f717a190d34edec59109))
+* **cli:** write output files atomically ([#99](https://github.com/sergiught/openfga-cli/issues/99)) ([f4457f2](https://github.com/sergiught/openfga-cli/commit/f4457f284b3bd7df993815757f16dbcf337d672e))
+* **config:** warn on every command when the config file is corrupt ([#59](https://github.com/sergiught/openfga-cli/issues/59)) ([fdf3743](https://github.com/sergiught/openfga-cli/commit/fdf37435e60116898e5c11d2946bcfa3ffe2e840))
+* **playground:** cancel superseded requests instead of letting them run out ([#68](https://github.com/sergiught/openfga-cli/issues/68)) ([cb9e304](https://github.com/sergiught/openfga-cli/commit/cb9e3041f58264cd3c5b5bf0e455cbcbecf0d7c2))
+* **playground:** changes pane shows latest activity and refreshes after writes ([#60](https://github.com/sergiught/openfga-cli/issues/60)) ([bdcfbae](https://github.com/sergiught/openfga-cli/commit/bdcfbaef32a93503efb1ad5af9f2fa429e96138c))
+* **playground:** correct mouse hit-testing for lists and wrapped tabs ([#102](https://github.com/sergiught/openfga-cli/issues/102)) ([b7f29cf](https://github.com/sergiught/openfga-cli/commit/b7f29cf72c1bbe5d5d24cdd0a8669e57c0879b59))
+* **playground:** hoist enterQueryEdit out of its value-receiver returns ([#89](https://github.com/sergiught/openfga-cli/issues/89)) ([1026c95](https://github.com/sergiught/openfga-cli/commit/1026c95ee7cd68bae3d029fce5b3d9b9221f823d))
+* **playground:** input robustness — focus preservation, modal wheel gating, defined eval order ([#65](https://github.com/sergiught/openfga-cli/issues/65)) ([3e3e6ea](https://github.com/sergiught/openfga-cli/commit/3e3e6ea421fce14a2b248698055d2242fdf701c5))
+* **playground:** redraw after the terminal clears the screen behind us ([#84](https://github.com/sergiught/openfga-cli/issues/84)) ([935a342](https://github.com/sergiught/openfga-cli/commit/935a342598f4d066f4ee53767be8a68e0d98f9df))
+* **playground:** stop printing ? on every nav tab without a Nerd Font ([#86](https://github.com/sergiught/openfga-cli/issues/86)) ([8a5fd17](https://github.com/sergiught/openfga-cli/commit/8a5fd172f5d6899a8a147ac48ad2ec57c4c9ce11))
+* **profiles:** OAuth field auto-switch and env-aware active marker ([#64](https://github.com/sergiught/openfga-cli/issues/64)) ([4e25493](https://github.com/sergiught/openfga-cli/commit/4e25493e2eac083aa69d3fe4b30465f5ad4f204a))
+* **query:** batch-check works past 50 checks and surfaces per-item errors ([#57](https://github.com/sergiught/openfga-cli/issues/57)) ([b900087](https://github.com/sergiught/openfga-cli/commit/b9000873e801009757c7c77530d860fff17e0cb1))
+* **stores:** create --use honors profile overrides and reports save failures ([#58](https://github.com/sergiught/openfga-cli/issues/58)) ([8579611](https://github.com/sergiught/openfga-cli/commit/857961197695fb1e0e276a1ebd3145b0db97ccfd))
+* **test:** isolate config in the tests [#62](https://github.com/sergiught/openfga-cli/issues/62) and [#69](https://github.com/sergiught/openfga-cli/issues/69) reintroduced ([#77](https://github.com/sergiught/openfga-cli/issues/77)) ([7cc3126](https://github.com/sergiught/openfga-cli/commit/7cc3126d6ce016e89fec185752a6faf0aefe06d5))
+* **test:** repair main — staticcheck-on-tests and macOS config isolation ([#76](https://github.com/sergiught/openfga-cli/issues/76)) ([86bb63e](https://github.com/sergiught/openfga-cli/commit/86bb63e552a13f1bf987f19cb2dfe111f63ac601))
+* **tuples:** advance the changelog cursor on exact page boundaries ([#100](https://github.com/sergiught/openfga-cli/issues/100)) ([32dc572](https://github.com/sergiught/openfga-cli/commit/32dc572e501b30f2d6a27c40f2924aedcd296703))
+* **tuples:** reject bulk-only flags on single-tuple writes ([#107](https://github.com/sergiught/openfga-cli/issues/107)) ([38d698a](https://github.com/sergiught/openfga-cli/commit/38d698ad276f51b4a27d4c5c5471e87bc4e927b9))
+* **tuples:** support ABAC conditions and reject unknown bulk-file fields ([#56](https://github.com/sergiught/openfga-cli/issues/56)) ([9ee3126](https://github.com/sergiught/openfga-cli/commit/9ee312686a0b0310cecc9fad0ebb59e1a34c79b5))
+
+
+### Tests
+
+* **playground:** stop waiting on a 12s toast timer ([#95](https://github.com/sergiught/openfga-cli/issues/95)) ([0888a4c](https://github.com/sergiught/openfga-cli/commit/0888a4c1930816829890ac9697f6a87df50347b6))
+* **tuple,assertions:** cover the bulk write path and the assertion runner ([#69](https://github.com/sergiught/openfga-cli/issues/69)) ([2e9452b](https://github.com/sergiught/openfga-cli/commit/2e9452bf0d5455a07a3c5858f5bd348e70b7258b))
+
+
+### Documentation
+
+* correct the --jq store example and document test exit codes ([#112](https://github.com/sergiught/openfga-cli/issues/112)) ([8871e19](https://github.com/sergiught/openfga-cli/commit/8871e193c621508916cfccf1386f1833bd6e7034))
+* restructure README into docs/guide and add a command GIF gallery ([#46](https://github.com/sergiught/openfga-cli/issues/46)) ([0b51e29](https://github.com/sergiught/openfga-cli/commit/0b51e29ba7bcdf7bb64811a2bb179882e2f32ffe))
+
 ## [0.266.0](https://github.com/sergiught/openfga-cli/compare/v0.265.1...v0.266.0) (2026-07-21)
 
 
