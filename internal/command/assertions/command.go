@@ -3,7 +3,7 @@
 package assertions
 
 import (
-	"encoding/json"
+	"bytes"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -317,15 +317,25 @@ func readFileOrStdin(path string, cmd *cobra.Command) ([]byte, error) {
 }
 
 // parseAssertions accepts either a bare array or a {"assertions":[...]} object.
+//
+// Decoding is strict because an ignored field here silently inverts meaning: a
+// mistyped "expecation" would leave Expectation false, so a suite the author
+// wrote to require access would be uploaded demanding the opposite — and would
+// then "pass" against a model that denies.
 func parseAssertions(data []byte) ([]openfga.Assertion, error) {
-	var wrapper struct {
-		Assertions []openfga.Assertion `json:"assertions"`
-	}
-	if err := json.Unmarshal(data, &wrapper); err == nil && wrapper.Assertions != nil {
+	// The shape is sniffed first so the strict decode reports the precise field
+	// error rather than a generic "neither schema matched".
+	if bytes.HasPrefix(bytes.TrimSpace(data), []byte("{")) {
+		var wrapper struct {
+			Assertions []openfga.Assertion `json:"assertions"`
+		}
+		if err := fga.DecodeStrictJSON(data, &wrapper); err != nil {
+			return nil, clierr.WithCode(clierr.CodeUsage, fmt.Errorf("parse assertions JSON: %w", err))
+		}
 		return wrapper.Assertions, nil
 	}
 	var list []openfga.Assertion
-	if err := json.Unmarshal(data, &list); err != nil {
+	if err := fga.DecodeStrictJSON(data, &list); err != nil {
 		return nil, clierr.WithCode(clierr.CodeUsage, fmt.Errorf("parse assertions JSON: %w", err))
 	}
 	return list, nil

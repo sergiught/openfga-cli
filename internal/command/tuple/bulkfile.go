@@ -16,6 +16,7 @@ import (
 
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/fga"
 )
 
 // bulkFormat is the on-disk encoding of a bulk --file payload.
@@ -137,23 +138,6 @@ func parseTupleFile(data []byte, format bulkFormat, source string) ([]tupleInput
 	}
 }
 
-// decodeStrict JSON-decodes data into v, rejecting unknown fields anywhere in
-// the value so a mistyped field name surfaces as a parse error instead of
-// being silently dropped. It also rejects trailing data after the value,
-// matching json.Unmarshal's stricter behavior (json.Decoder.Decode alone only
-// reads one value and ignores what follows).
-func decodeStrict(data []byte, v any) error {
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(v); err != nil {
-		return err
-	}
-	if dec.More() {
-		return fmt.Errorf("unexpected trailing data after JSON value")
-	}
-	return nil
-}
-
 // parseJSONTuples accepts the three JSON shapes: a bare array of tuples, an
 // object {"tuples":[...]}, and the {key,timestamp} array `tuples read --json`
 // emits. The shape is sniffed first so the strict decode that follows reports
@@ -167,20 +151,20 @@ func parseJSONTuples(data []byte, source string) ([]tupleInput, error) {
 		var wrapper struct {
 			Tuples []tupleInput `json:"tuples"`
 		}
-		if err := decodeStrict(trimmed, &wrapper); err != nil {
+		if err := fga.DecodeStrictJSON(trimmed, &wrapper); err != nil {
 			return nil, schemaErr(source, formatJSON, err)
 		}
 		return wrapper.Tuples, nil
 	case trimmed[0] == '[':
 		if jsonArrayIsExport(trimmed) {
 			var exports []exportInput
-			if err := decodeStrict(trimmed, &exports); err != nil {
+			if err := fga.DecodeStrictJSON(trimmed, &exports); err != nil {
 				return nil, schemaErr(source, formatJSON, err)
 			}
 			return exportKeys(exports), nil
 		}
 		var raw []tupleInput
-		if err := decodeStrict(trimmed, &raw); err != nil {
+		if err := fga.DecodeStrictJSON(trimmed, &raw); err != nil {
 			return nil, schemaErr(source, formatJSON, err)
 		}
 		return raw, nil
@@ -251,13 +235,13 @@ func decodeJSONLLine(raw []byte) (tupleInput, error) {
 	}
 	if _, ok := probe["key"]; ok {
 		var e exportInput
-		if err := decodeStrict(raw, &e); err != nil {
+		if err := fga.DecodeStrictJSON(raw, &e); err != nil {
 			return tupleInput{}, err
 		}
 		return e.Key, nil
 	}
 	var t tupleInput
-	if err := decodeStrict(raw, &t); err != nil {
+	if err := fga.DecodeStrictJSON(raw, &t); err != nil {
 		return tupleInput{}, err
 	}
 	return t, nil

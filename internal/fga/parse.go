@@ -3,6 +3,7 @@
 package fga
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,27 @@ import (
 
 	"github.com/sergiught/go-openfga/openfga"
 )
+
+// DecodeStrictJSON JSON-decodes data into v, rejecting unknown fields anywhere
+// in the value so a mistyped field name surfaces as a parse error instead of
+// being silently dropped. It also rejects trailing data after the value,
+// matching json.Unmarshal's stricter behavior (json.Decoder.Decode alone only
+// reads one value and ignores what follows).
+//
+// Every document the CLI accepts from a user should go through this: dropping
+// an unrecognised field quietly turns a typo into a semantic change, since the
+// field the author meant to set keeps its zero value.
+func DecodeStrictJSON(data []byte, v any) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		return err
+	}
+	if dec.More() {
+		return errors.New("unexpected trailing data after JSON value")
+	}
+	return nil
+}
 
 // ParseJSONObject parses s as a JSON object into a map, returning nil for empty
 // input. label names the field in the error message (e.g. "--context" or

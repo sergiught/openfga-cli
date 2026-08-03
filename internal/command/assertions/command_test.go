@@ -30,6 +30,14 @@ func TestParseAssertions(t *testing.T) {
 		{name: "wrapper object", data: `{"assertions":[{"tuple_key":{"user":"user:anne","relation":"viewer","object":"doc:1"},"expectation":true},{"tuple_key":{"user":"user:bob","relation":"viewer","object":"doc:1"},"expectation":false}]}`, wantN: 2},
 		{name: "empty array", data: `[]`, wantN: 0},
 		{name: "invalid json", data: `{not json`, wantErr: true},
+		// A dropped field here inverts the suite: "expecation" would leave
+		// Expectation false, so an assertion written to require access would be
+		// uploaded demanding a denial — and would then pass against a model
+		// that denies. It has to be a parse error, not a silent default.
+		{name: "misspelled expectation", data: `[{"tuple_key":{"user":"user:anne","relation":"viewer","object":"doc:1"},"expecation":true}]`, wantErr: true},
+		{name: "misspelled tuple key field", data: `[{"tuple_key":{"user":"user:anne","relaton":"viewer","object":"doc:1"},"expectation":true}]`, wantErr: true},
+		{name: "unknown field in wrapper", data: `{"assertions":[],"asssertions":[]}`, wantErr: true},
+		{name: "trailing data", data: `[] {"assertions":[]}`, wantErr: true},
 	}
 
 	for _, tt := range tests {
