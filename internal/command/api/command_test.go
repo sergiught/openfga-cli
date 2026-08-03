@@ -10,6 +10,7 @@ import (
 
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/output"
 )
 
 func TestRequestBody(t *testing.T) {
@@ -104,6 +105,35 @@ func TestPlainResponsePreservesRawJSON(t *testing.T) {
 	}
 	if got, want := out.String(), raw+"\n"; got != want {
 		t.Fatalf("api --plain output = %q, want raw response %q", got, want)
+	}
+}
+
+// --jq is a global flag this command advertises in its help, so it has to
+// actually filter the response rather than being silently dropped.
+func TestJQFiltersTheResponse(t *testing.T) {
+	defer func(f string) { output.JQ = f }(output.JQ)
+	output.JQ = ".stores[0].id"
+
+	c := &Command{cli: &cli.CLI{JSON: true}}
+	var out bytes.Buffer
+	if err := c.write(&out, []byte(`{"stores":[{"id":"01ABC","name":"prod"}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(out.String()); got != "01ABC" {
+		t.Fatalf("api --jq output = %q, want the filtered id", got)
+	}
+}
+
+// A filter over a non-JSON body has nothing to work with; failing beats
+// printing the raw bytes as though the filter had run.
+func TestJQOnNonJSONResponseFails(t *testing.T) {
+	defer func(f string) { output.JQ = f }(output.JQ)
+	output.JQ = ".id"
+
+	c := &Command{cli: &cli.CLI{JSON: true}}
+	var out bytes.Buffer
+	if err := c.write(&out, []byte("not json at all")); err == nil {
+		t.Fatal("--jq over a non-JSON body should fail")
 	}
 }
 
