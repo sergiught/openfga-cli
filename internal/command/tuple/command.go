@@ -113,6 +113,9 @@ func (c *Command) writeCmd() *cobra.Command {
 				}
 				return runBulk(cmd, c.cli, cl, keys, false, bulk)
 			}
+			if err := rejectInertBulkFlags(cmd, "write"); err != nil {
+				return err
+			}
 			user, relation, object, err := fga.Triple(args, fUser, fRel, fObj)
 			if err != nil {
 				return clierr.WithCode(clierr.CodeUsage, err)
@@ -168,6 +171,25 @@ func (c *Command) writeCmd() *cobra.Command {
 		"how --file handles a tuple that already exists: error|ignore (requires OpenFGA >= 1.10 for ignore)")
 	registerBulkThroughputFlags(cmd, &bulk, "written")
 	return cmd
+}
+
+// rejectInertBulkFlags errors if a --file-only flag was set explicitly on a
+// single-tuple write or delete. Those flags are read only inside the --file
+// branch, so `tuples write user:anne viewer doc:1 --on-duplicate ignore`
+// silently did nothing about duplicates — the same footgun
+// rejectInertConnectionFlags guards against on `model test`. Only a flag set on
+// the command line trips this, so defaults are unaffected.
+func rejectInertBulkFlags(cmd *cobra.Command, verb string) error {
+	for _, name := range []string{
+		"file-format", "failed-file", "max-tuples-per-write",
+		"max-parallel-requests", "on-duplicate", "on-missing",
+	} {
+		if f := cmd.Flags().Lookup(name); f != nil && f.Changed {
+			return clierr.WithCode(clierr.CodeUsage, fmt.Errorf(
+				"--%s only applies to a bulk --file run; pass --file, or drop it to %s the single tuple given as arguments", name, verb))
+		}
+	}
+	return nil
 }
 
 // registerBulkThroughputFlags adds the --file execution flags shared by write
@@ -232,6 +254,9 @@ func (c *Command) deleteCmd() *cobra.Command {
 					return err
 				}
 				return runBulk(cmd, c.cli, cl, keys, true, bulk)
+			}
+			if err := rejectInertBulkFlags(cmd, "delete"); err != nil {
+				return err
 			}
 			user, relation, object, err := fga.Triple(args, fUser, fRel, fObj)
 			if err != nil {
