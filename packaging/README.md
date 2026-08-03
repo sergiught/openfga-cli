@@ -11,12 +11,13 @@ This directory holds the one-time bootstrap material and setup steps.
 
 ## 🍺 Homebrew tap
 
-goreleaser pushes a `Formula/ofga.rb` to the tap repo on each release. You only
+goreleaser pushes a `Casks/ofga.rb` to the tap repo on each release. You only
 need to create the tap repo once and give the release workflow a token.
 
 1. Create a public repo named **`homebrew-tap`** under your account
    (`sergiught/homebrew-tap`). Seed it with
-   [`homebrew-tap/README.md`](homebrew-tap/README.md).
+   [`homebrew-tap/README.md`](homebrew-tap/README.md) and
+   [`homebrew-tap/tap_migrations.json`](homebrew-tap/tap_migrations.json).
 2. Create a fine-grained **Personal Access Token** with *Contents: read & write*
    on that repo.
 3. Add it as an Actions secret named **`HOMEBREW_TAP_GITHUB_TOKEN`** on this repo
