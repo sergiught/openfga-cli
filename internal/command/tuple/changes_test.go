@@ -183,6 +183,53 @@ func TestChangesMaxResultsResumeTokenDoesNotSkip(t *testing.T) {
 	}
 }
 
+// When the cap lands exactly on a page's last change the page was delivered in
+// full, so the token must move past it. Returning the pre-page token here made
+// a poll loop with --max-results equal to the page size re-read the same page
+// forever, never advancing.
+func TestChangesMaxResultsOnPageBoundaryAdvancesTheCursor(t *testing.T) {
+	srv := newChangesServer(t, 20, 10)
+	path := filepath.Join(t.TempDir(), "tok")
+
+	// A poll loop resumes by feeding the recorded token back in.
+	run := func(token string) []openfga.TupleChange {
+		t.Helper()
+		a := newHumanTupleCLI(t, srv.URL)
+		a.JSON = true
+		cmd := New(a).changesCmd()
+		args := []string{"--max-results", "10", "--token-file", path}
+		if token != "" {
+			args = append(args, "--continuation-token", token)
+		}
+		cmd.SetArgs(args)
+		out, _ := silenced(cmd)
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		var got []openfga.TupleChange
+		if err := json.Unmarshal([]byte(out.String()), &got); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+
+	first := run("")
+	if len(first) != 10 || first[0].TupleKey.Object != "doc:0" {
+		t.Fatalf("first run returned %d changes starting at %q, want 10 starting at doc:0",
+			len(first), first[0].TupleKey.Object)
+	}
+	if tok := strings.TrimSpace(readFile(t, path)); tok != "10" {
+		t.Fatalf("resume token = %q, want %q — the full page was delivered", tok, "10")
+	}
+
+	// The second poll must make progress rather than replay the first page.
+	second := run(strings.TrimSpace(readFile(t, path)))
+	if len(second) != 10 || second[0].TupleKey.Object != "doc:10" {
+		t.Fatalf("second run returned %d changes starting at %q, want 10 starting at doc:10",
+			len(second), second[0].TupleKey.Object)
+	}
+}
+
 func readFile(t *testing.T, path string) string {
 	t.Helper()
 	b, err := os.ReadFile(path)
