@@ -182,7 +182,7 @@ func (c *Command) checkCmd() *cobra.Command {
 	f.StringVar(&fObj, "object", "", "object (alternative to the positional arg)")
 	f.StringVar(&contextJSON, "context", "", "JSON object of condition context")
 	f.StringArrayVar(&ctxTuples, "contextual-tuple", nil, "contextual tuple as user,relation,object (repeatable)")
-	cli.RegisterConsistencyFlag(f, &fConsistency)
+	cli.RegisterConsistencyFlag(cmd, &fConsistency)
 	return cmd
 }
 
@@ -298,7 +298,7 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 	_ = cmd.MarkFlagRequired("check")
 	cmd.Flags().StringVar(&contextJSON, "context", "", "JSON object of condition context, applied to every check")
 	cmd.Flags().StringArrayVar(&ctxTuples, "contextual-tuple", nil, "contextual tuple as user,relation,object (repeatable), applied to every check")
-	cli.RegisterConsistencyFlag(cmd.Flags(), &fConsistency)
+	cli.RegisterConsistencyFlag(cmd, &fConsistency)
 	return cmd
 }
 
@@ -346,7 +346,7 @@ func (c *Command) expandCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&fRel, "relation", "", "relation (alternative to the positional arg)")
 	cmd.Flags().StringVar(&fObj, "object", "", "object (alternative to the positional arg)")
-	cli.RegisterConsistencyFlag(cmd.Flags(), &fConsistency)
+	cli.RegisterConsistencyFlag(cmd, &fConsistency)
 	return cmd
 }
 
@@ -452,7 +452,7 @@ func (c *Command) listRelationsCmd() *cobra.Command {
 		"relation to test (repeatable; default: every relation on the object's type)")
 	cmd.Flags().StringVar(&contextJSON, "context", "", "JSON object of condition context")
 	cmd.Flags().StringArrayVar(&ctxTuples, "contextual-tuple", nil, "contextual tuple as user,relation,object (repeatable)")
-	cli.RegisterConsistencyFlag(cmd.Flags(), &fConsistency)
+	cli.RegisterConsistencyFlag(cmd, &fConsistency)
 	return cmd
 }
 
@@ -542,7 +542,7 @@ func (c *Command) listObjectsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&objectType, "type", "", "object type")
 	cmd.Flags().StringVar(&rel, "relation", "", "relation")
 	cmd.Flags().StringVar(&user, "user", "", "user")
-	cli.RegisterConsistencyFlag(cmd.Flags(), &fConsistency)
+	cli.RegisterConsistencyFlag(cmd, &fConsistency)
 	return cmd
 }
 
@@ -645,7 +645,7 @@ func (c *Command) listUsersCmd() *cobra.Command {
 	cmd.Flags().StringVar(&rel, "relation", "", "relation")
 	cmd.Flags().StringVar(&contextJSON, "context", "", "JSON object of condition context")
 	cmd.Flags().StringArrayVar(&ctxTuples, "contextual-tuple", nil, "contextual tuple as user,relation,object (repeatable)")
-	cli.RegisterConsistencyFlag(cmd.Flags(), &fConsistency)
+	cli.RegisterConsistencyFlag(cmd, &fConsistency)
 	_ = cmd.MarkFlagRequired("type")
 	return cmd
 }

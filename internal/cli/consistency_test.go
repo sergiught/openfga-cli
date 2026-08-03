@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/pflag"
+	"github.com/spf13/cobra"
 
 	"github.com/sergiught/go-openfga/openfga"
 
@@ -54,9 +54,9 @@ func TestConsistencyOptionRejectsUnknownValue(t *testing.T) {
 
 func TestRegisterConsistencyFlagDocumentsTheDefault(t *testing.T) {
 	var target string
-	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
-	RegisterConsistencyFlag(fs, &target)
-	f := fs.Lookup("consistency")
+	cmd := &cobra.Command{Use: "test"}
+	RegisterConsistencyFlag(cmd, &target)
+	f := cmd.Flags().Lookup("consistency")
 	if f == nil {
 		t.Fatal("--consistency not registered")
 	}

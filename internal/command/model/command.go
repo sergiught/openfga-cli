@@ -4,12 +4,10 @@ package model
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
-	"time"
 
 	transformer "github.com/openfga/language/pkg/go/transformer"
 	"github.com/spf13/cobra"
@@ -48,27 +46,6 @@ func New(cli *cli.CLI) *Command {
 
 // Command returns the cobra command.
 func (c *Command) Command() *cobra.Command { return c.cmd }
-
-// completeModelIDs suggests authorization model IDs for the resolved store.
-func (c *Command) completeModelIDs(cmd *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
-	if len(args) > 0 {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-	cl, _, err := c.cli.ClientWithStore()
-	if err != nil {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-	ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Second)
-	defer cancel()
-	var out []string
-	for m, err := range cl.AuthorizationModels.All(ctx, nil) {
-		if err != nil {
-			break
-		}
-		out = append(out, m.ID)
-	}
-	return out, cobra.ShellCompDirectiveNoFileComp
-}
 
 // RegisterSubCommands wires the model sub-commands.
 func (c *Command) RegisterSubCommands() {
@@ -248,7 +225,7 @@ func (c *Command) listCmd() *cobra.Command {
 func (c *Command) getCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:               "get <model-id>",
-		ValidArgsFunction: c.completeModelIDs,
+		ValidArgsFunction: c.cli.CompleteModelIDs,
 		Short:             "Show an authorization model as DSL",
 		Example: `  ofga model get 01ARZ3NDEKTSV4RRFFQ69G5FAV
   ofga model get 01ARZ3NDEKTSV4RRFFQ69G5FAV --json`,
@@ -331,11 +308,12 @@ func modelToDSL(m *openfga.AuthorizationModel) (string, error) {
 
 func (c *Command) graphCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:     "graph [model-id]",
-		Short:   "Render the model as a colored relation graph",
-		Example: "  ofga model graph",
-		Long:    "Render an authorization model as a colored tree showing, for each type and relation, the directly-assignable types, implied relations, and inherited (tuple-to-userset) paths. With no argument, the latest model is used.",
-		Args:    cobra.MaximumNArgs(1),
+		Use:               "graph [model-id]",
+		ValidArgsFunction: c.cli.CompleteModelIDs,
+		Short:             "Render the model as a colored relation graph",
+		Example:           "  ofga model graph",
+		Long:              "Render an authorization model as a colored tree showing, for each type and relation, the directly-assignable types, implied relations, and inherited (tuple-to-userset) paths. With no argument, the latest model is used.",
+		Args:              cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl, _, err := c.cli.ClientWithStore()
 			if err != nil {

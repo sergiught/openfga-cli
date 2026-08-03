@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/spf13/pflag"
+	"github.com/spf13/cobra"
 
 	"github.com/sergiught/go-openfga/openfga"
 
@@ -22,18 +22,27 @@ var consistencyValues = []openfga.ConsistencyPreference{
 
 // consistencyNames lists the accepted values for help and error text.
 func consistencyNames() string {
+	return strings.Join(ConsistencyValues(), ", ")
+}
+
+// RegisterConsistencyFlag adds --consistency to cmd, storing the raw value in
+// target for ConsistencyOption to resolve once the flag has been parsed. It
+// also registers the completion for the flag's closed set of values, so every
+// command that offers --consistency completes it the same way.
+func RegisterConsistencyFlag(cmd *cobra.Command, target *string) {
+	cmd.Flags().StringVar(target, "consistency", "", fmt.Sprintf(
+		"read consistency: %s (default %s)", consistencyNames(), openfga.ConsistencyHigherConsistency))
+	_ = cmd.RegisterFlagCompletionFunc("consistency",
+		cobra.FixedCompletions(ConsistencyValues(), cobra.ShellCompDirectiveNoFileComp))
+}
+
+// ConsistencyValues lists the accepted --consistency values.
+func ConsistencyValues() []string {
 	names := make([]string, 0, len(consistencyValues))
 	for _, v := range consistencyValues {
 		names = append(names, string(v))
 	}
-	return strings.Join(names, ", ")
-}
-
-// RegisterConsistencyFlag adds --consistency to f, storing the raw value in
-// target for ConsistencyOption to resolve once the flag has been parsed.
-func RegisterConsistencyFlag(f *pflag.FlagSet, target *string) {
-	f.StringVar(target, "consistency", "", fmt.Sprintf(
-		"read consistency: %s (default %s)", consistencyNames(), openfga.ConsistencyHigherConsistency))
+	return names
 }
 
 // ConsistencyOption turns a --consistency value into the request option that

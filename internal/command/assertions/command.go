@@ -59,10 +59,11 @@ func (c *Command) resolveModelID(cmd *cobra.Command, cl *openfga.Client, storeID
 
 func (c *Command) readCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:     "read [model-id]",
-		Short:   "Read the assertions for a model (default: latest)",
-		Example: "  ofga assertions read",
-		Args:    cobra.MaximumNArgs(1),
+		Use:               "read [model-id]",
+		ValidArgsFunction: c.cli.CompleteModelIDs,
+		Short:             "Read the assertions for a model (default: latest)",
+		Example:           "  ofga assertions read",
+		Args:              cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl, r, err := c.cli.ClientWithStore()
 			if err != nil {
@@ -181,11 +182,12 @@ func (c *Command) writeCmd() *cobra.Command {
 
 func (c *Command) testCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:     "test [model-id]",
-		Short:   "Run the model's assertions and report pass/fail",
-		Example: "  ofga assertions test",
-		Long:    "Read the stored assertions for a model and verify each one with a live Check, comparing the result to the expectation.",
-		Args:    cobra.MaximumNArgs(1),
+		Use:               "test [model-id]",
+		ValidArgsFunction: c.cli.CompleteModelIDs,
+		Short:             "Run the model's assertions and report pass/fail",
+		Example:           "  ofga assertions test",
+		Long:              "Read the stored assertions for a model and verify each one with a live Check, comparing the result to the expectation.",
+		Args:              cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl, r, err := c.cli.ClientWithStore()
 			if err != nil {
