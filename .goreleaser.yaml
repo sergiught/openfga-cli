@@ -103,7 +103,7 @@ nfpms:
 
 # Homebrew tap. Skipped unless HOMEBREW_TAP_GITHUB_TOKEN is set, so the first
 # release works before the tap is wired up.
-brews:
+homebrew_casks:
   - name: ofga
     repository:
       owner: sergiught
@@ -113,17 +113,26 @@ brews:
     homepage: https://github.com/sergiught/openfga-cli
     description: A modern CLI & TUI for OpenFGA.
     license: MIT
-    directory: Formula
+    directory: Casks
+    binaries:
+      - ofga
     # The archive already carries completions/ and man/, so install them from
     # there rather than re-running the binary: `brew install` then gives
     # `ofga <tab>` and `man ofga` with no extra step.
-    extra_install: |
-      bash_completion.install "completions/ofga.bash" => "ofga"
-      zsh_completion.install "completions/ofga.zsh" => "_ofga"
-      fish_completion.install "completions/ofga.fish"
-      man1.install Dir["man/*.1"]
-    test: |
-      system "#{bin}/ofga version"
+    completions:
+      bash: completions/ofga.bash
+      zsh: completions/ofga.zsh
+      fish: completions/ofga.fish
+    manpages:
+      - 'man/*.1'
+    # The darwin binaries are not notarized, and Homebrew quarantines cask
+    # downloads, so without this macOS Gatekeeper blocks the binary on first run.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/ofga"]
+          end
 
 # Arch User Repository (ofga-bin). Skipped unless AUR_KEY (SSH private key) is
 # set. Requires the AUR package repo to exist and the key registered on aur.
@@ -146,7 +155,7 @@ aurs:
 # Container images (multi-arch), published to GHCR and Docker Hub. GHCR is
 # pushed with GITHUB_TOKEN (always present). The docker.io tags/manifests are
 # only emitted when DOCKERHUB_TOKEN is set, so releases still succeed before the
-# Docker Hub secrets are wired up (mirrors the brews/aurs skip pattern above).
+# Docker Hub secrets are wired up (mirrors the casks/aurs skip pattern above).
 dockers_v2:
   - id: ghcr
     dockerfile: Dockerfile.release
@@ -171,7 +180,7 @@ dockers_v2:
       - LICENSE
   - id: dockerhub
     # Disabled until the Docker Hub secrets are wired up, so a release still
-    # succeeds with GHCR alone (mirrors the brews/aurs skip pattern above).
+    # succeeds with GHCR alone (mirrors the casks/aurs skip pattern above).
     disable: '{{ if eq (envOrDefault "DOCKERHUB_TOKEN" "") "" }}true{{ else }}false{{ end }}'
     dockerfile: Dockerfile.release
     images:
