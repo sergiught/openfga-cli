@@ -21,7 +21,7 @@ require (
 	github.com/lucasb-eyer/go-colorful v1.4.1
 	github.com/muesli/go-app-paths v0.2.2
 	github.com/openfga/api/proto v0.0.0-20260723150800-6981fff8d33b
-	github.com/openfga/language/pkg/go v0.3.2-0.20260730144454-83fedf8a4e70
+	github.com/openfga/language/pkg/go v0.3.2-0.20260806074015-db371bf4d738
 	github.com/openfga/openfga v1.18.3
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/sergiught/go-openfga v0.110.0
