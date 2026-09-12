@@ -5,7 +5,7 @@ test, and submit changes.
 
 ## Development setup
 
-You need **Go 1.26+**. Clone the repo and build:
+You need **Go 1.27+**. Clone the repo and build:
 
 ```bash
 git clone https://github.com/sergiught/openfga-cli
