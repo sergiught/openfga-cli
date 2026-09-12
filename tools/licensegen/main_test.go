@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -147,6 +149,46 @@ func TestGenerateAllowsARecordedExceptionAndStatesWhy(t *testing.T) {
 
 	if want := "Exception:"; !strings.Contains(buf.String(), want) {
 		t.Errorf("bundle does not record why the exception was granted; want a %q line", want)
+	}
+}
+
+// Build constraints make the linked module set platform-specific:
+// github.com/ebitengine/purego is reachable only on darwin. Generating the
+// bundle for the host alone would ship the macOS archives an attribution list
+// that omits a module those binaries actually link, so the bundle covers every
+// target in the release matrix. This test fails if that matrix drifts from
+// .goreleaser.yaml.
+func TestReleaseTargetsMatchTheGoreleaserMatrix(t *testing.T) {
+	cfg, err := os.ReadFile("../../.goreleaser.yaml")
+	if err != nil {
+		t.Fatalf("read goreleaser config: %v", err)
+	}
+
+	list := func(field string) []string {
+		m := regexp.MustCompile(`(?m)^\s+` + field + `: \[([^\]]+)\]`).FindSubmatch(cfg)
+		if m == nil {
+			t.Fatalf("no %s: [...] line in .goreleaser.yaml", field)
+		}
+		var vals []string
+		for _, v := range strings.Split(string(m[1]), ",") {
+			vals = append(vals, strings.TrimSpace(v))
+		}
+		return vals
+	}
+
+	var want []target
+	for _, goos := range list("goos") {
+		for _, goarch := range list("goarch") {
+			want = append(want, target{goos: goos, goarch: goarch})
+		}
+	}
+
+	got := slices.Clone(releaseTargets)
+	slices.SortFunc(got, func(a, b target) int { return strings.Compare(a.goos+a.goarch, b.goos+b.goarch) })
+	slices.SortFunc(want, func(a, b target) int { return strings.Compare(a.goos+a.goarch, b.goos+b.goarch) })
+
+	if !slices.Equal(got, want) {
+		t.Errorf("releaseTargets is %v, but .goreleaser.yaml builds %v", got, want)
 	}
 }
 

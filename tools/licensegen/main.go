@@ -53,6 +53,21 @@ type module struct {
 // mainModule is this repository's own module path, excluded from its own bundle.
 const mainModule = "github.com/sergiught/openfga-cli"
 
+type target struct{ goos, goarch string }
+
+// releaseTargets mirrors the goos/goarch matrix in .goreleaser.yaml. Build
+// constraints make the linked module set platform-specific — purego is reachable
+// only on darwin — so the bundle is the union across every platform we release,
+// not just whichever one happens to be generating it. Over-attributing on one
+// platform is harmless; omitting a module the binary links is the violation this
+// tool exists to prevent.
+var releaseTargets = []target{
+	{goos: "linux", goarch: "amd64"},
+	{goos: "linux", goarch: "arm64"},
+	{goos: "darwin", goarch: "amd64"},
+	{goos: "darwin", goarch: "arm64"},
+}
+
 func main() {
 	out := flag.String("out", "THIRD_PARTY_LICENSES", "output path for the attribution bundle")
 	pkg := flag.String("pkg", "./cmd/ofga", "package whose linked dependencies are attributed")
@@ -66,15 +81,20 @@ func main() {
 func run(out, pkg string) error {
 	// Scoped to the binary's package rather than ./... so that build-time tools
 	// under tools/, which ship to nobody, stay out of what ofga must attribute.
-	cmd := exec.Command("go", "list", "-deps", "-f",
-		"{{if not .Standard}}{{with .Module}}{{.Path}}\t{{.Version}}\t{{.Dir}}{{end}}{{end}}", pkg)
-	cmd.Stderr = os.Stderr
-	listed, err := cmd.Output()
-	if err != nil {
-		return fmt.Errorf("go list: %w", err)
+	var listed strings.Builder
+	for _, t := range releaseTargets {
+		cmd := exec.Command("go", "list", "-deps", "-f",
+			"{{if not .Standard}}{{with .Module}}{{.Path}}\t{{.Version}}\t{{.Dir}}{{end}}{{end}}", pkg)
+		cmd.Env = append(os.Environ(), "GOOS="+t.goos, "GOARCH="+t.goarch)
+		cmd.Stderr = os.Stderr
+		out, err := cmd.Output()
+		if err != nil {
+			return fmt.Errorf("go list for %s/%s: %w", t.goos, t.goarch, err)
+		}
+		listed.Write(out)
 	}
 
-	mods, err := parseModules(string(listed), mainModule)
+	mods, err := parseModules(listed.String(), mainModule)
 	if err != nil {
 		return err
 	}
