@@ -44,6 +44,12 @@ jobs:
         run: |
           go run ./tools/docgen
           git diff --exit-code -- docs/site/src/content/docs/reference
+      # Fails two ways: licensegen itself rejects a dependency license that is
+      # not on the allowlist, and the diff catches a bundle that went stale.
+      - name: verify third-party licenses are allowed and attributed
+        run: |
+          go run ./tools/licensegen
+          git diff --exit-code -- THIRD_PARTY_LICENSES
       # The profiles e2e tests run the real binary, which stores secrets in the
       # OS keyring and refuses to fall back to plaintext. Headless runners have
       # no Secret Service, so provide gnome-keyring under a private D-Bus session.

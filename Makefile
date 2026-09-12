@@ -98,7 +98,7 @@ lint-commits: $(BINARIES_DIR)/commitlint ## Lint the current commit message agai
 	@$(BINARIES_DIR)/commitlint lint
 
 .PHONY: check
-check: fmt vet lint test docs-check ## Run fmt, vet, lint, test and the docs freshness check
+check: fmt vet lint test docs-check license-check ## Run fmt, vet, lint, test and the docs/license freshness checks
 
 .PHONY: docs-check
 docs-check: ## Fail if the generated command reference is out of date (CI checks this too)
@@ -106,6 +106,19 @@ docs-check: ## Fail if the generated command reference is out of date (CI checks
 		go run ./tools/docgen -out $$tmp; \
 		if ! diff -qr $$tmp docs/site/src/content/docs/reference; then \
 			echo "command reference is stale — run 'make docs-reference' and commit"; \
+			exit 1; \
+		fi
+
+.PHONY: licenses
+licenses: ## Regenerate THIRD_PARTY_LICENSES from the modules linked into the binary
+	@go run ./tools/licensegen
+
+.PHONY: license-check
+license-check: ## Fail if a dependency license is disallowed or the bundle is stale (CI checks this too)
+	@set -e; tmp=$$(mktemp -d); trap 'rm -rf $$tmp' EXIT; \
+		go run ./tools/licensegen -out $$tmp/THIRD_PARTY_LICENSES; \
+		if ! diff -q $$tmp/THIRD_PARTY_LICENSES THIRD_PARTY_LICENSES >/dev/null; then \
+			echo "third-party licenses are stale — run 'make licenses' and commit"; \
 			exit 1; \
 		fi
 

@@ -41,6 +41,7 @@ archives:
       {{- else }}{{ .Arch }}{{ end }}
     files:
       - LICENSE
+      - THIRD_PARTY_LICENSES
       - README.md
       - src: .assets/completions/*
         dst: completions
@@ -100,6 +101,14 @@ nfpms:
       - src: .assets/man/*.1
         dst: /usr/share/man/man1
         file_info: {mode: 0o644}
+      # dpkg and rpm both expect the license text on disk, not just in package
+      # metadata; /usr/share/doc/<pkg>/copyright is where Debian tooling looks.
+      - src: LICENSE
+        dst: /usr/share/doc/ofga/copyright
+        file_info: {mode: 0o644}
+      - src: THIRD_PARTY_LICENSES
+        dst: /usr/share/doc/ofga/THIRD_PARTY_LICENSES
+        file_info: {mode: 0o644}
 
 # Homebrew tap. Skipped unless HOMEBREW_TAP_GITHUB_TOKEN is set, so the first
 # release works before the tap is wired up.
@@ -151,6 +160,7 @@ aurs:
     package: |-
       install -Dm755 "./ofga" "${pkgdir}/usr/bin/ofga"
       install -Dm644 "./LICENSE" "${pkgdir}/usr/share/licenses/ofga-bin/LICENSE"
+      install -Dm644 "./THIRD_PARTY_LICENSES" "${pkgdir}/usr/share/licenses/ofga-bin/THIRD_PARTY_LICENSES"
 
 # Container images (multi-arch), published to GHCR and Docker Hub. GHCR is
 # pushed with GITHUB_TOKEN (always present). The docker.io tags/manifests are
@@ -178,6 +188,7 @@ dockers_v2:
       org.opencontainers.image.licenses: MIT
     extra_files:
       - LICENSE
+      - THIRD_PARTY_LICENSES
   - id: dockerhub
     # Disabled until the Docker Hub secrets are wired up, so a release still
     # succeeds with GHCR alone (mirrors the casks/aurs skip pattern above).
@@ -194,6 +205,7 @@ dockers_v2:
     labels: *image_labels
     extra_files:
       - LICENSE
+      - THIRD_PARTY_LICENSES
 
 # Keyless cosign signatures for the pushed multi-arch manifests, so consumers
 # can `cosign verify` the images. Uses the release job's OIDC identity
