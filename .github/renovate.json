@@ -15,6 +15,11 @@
       "description": "Group all GitHub Actions updates into one PR",
       "matchManagers": ["github-actions"],
       "groupName": "github-actions"
+    },
+    {
+      "description": "Group docs-site npm updates into one PR. Starlight and its plugins share transitive dependencies and have to move together: bumping @astrojs/starlight on its own left starlight-links-validator pinning an older satteri, which npm hoisted over the version Starlight needed and broke the site build.",
+      "matchManagers": ["npm"],
+      "groupName": "docs site npm"
     }
   ],
   "customManagers": [
