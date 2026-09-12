@@ -12,7 +12,7 @@ permissions:
 # Kept in lockstep with release.yml so the config is validated against the same
 # goreleaser that will publish it (renovate updates both together).
 env:
-  GORELEASER_VERSION: 'v2.17.1'
+  GORELEASER_VERSION: 'v2.18.1'
 
 concurrency:
   group: ci-${{ github.ref }}
