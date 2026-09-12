@@ -10,6 +10,7 @@ RUN apk add --no-cache ca-certificates && adduser -D -u 10001 ofga
 ARG TARGETPLATFORM
 COPY ${TARGETPLATFORM}/ofga /usr/bin/ofga
 COPY LICENSE /usr/share/licenses/ofga/LICENSE
+COPY THIRD_PARTY_LICENSES /usr/share/licenses/ofga/THIRD_PARTY_LICENSES
 
 USER ofga
 ENTRYPOINT ["/usr/bin/ofga"]
