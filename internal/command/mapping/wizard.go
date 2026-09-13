@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/sergiught/go-openfga/openfga"
@@ -87,6 +88,9 @@ type wizardModel struct {
 	rules      *uilist.List
 	sections   *picker.Picker
 	trigger    *field.Form
+	events     *uilist.List
+	paste      textarea.Model
+	eventPath  *field.Form
 	confirmMsg string
 
 	// loadCmd is the pending model fetch, kept on the model so tests can drive
@@ -120,6 +124,16 @@ func newWizard(ctx context.Context, path, profile string, load modelLoader) *wiz
 		field.New("When (expression)", `input.type == "organization.member.added"`),
 	)
 	m.sections = picker.New(nil)
+	m.events = uilist.New()
+	m.events.SetFilterPlaceholder("filter events")
+	// Compact: 21 catalog entries plus the two escapes do not fit on one page
+	// at title+description height, which would hide the escapes below the
+	// fold. Filter still searches type, group and summary via each item's
+	// Filter field even though the description itself is not drawn.
+	m.events.SetCompact(true)
+	m.paste = textarea.New()
+	m.paste.Placeholder = `{"type": "...", "data": {"object": {}}}`
+	m.eventPath = field.NewForm(field.New("Event file", "event.json"))
 	m.refresh()
 	return m
 }
@@ -205,6 +219,12 @@ func (m *wizardModel) key(k tea.KeyPressMsg) tea.Cmd {
 		return m.keyRule(k)
 	case screenTrigger:
 		return m.keyTrigger(k)
+	case screenEventPick:
+		return m.keyEventPick(k)
+	case screenEventPaste:
+		return m.keyEventPaste(k)
+	case screenEventFile:
+		return m.keyEventFile(k)
 	case screenConfirmDelete:
 		return m.keyConfirmDelete(k)
 	}

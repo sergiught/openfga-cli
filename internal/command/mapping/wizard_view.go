@@ -36,6 +36,10 @@ func (m *wizardModel) applySize() {
 	cw := m.contentWidth()
 	m.modelPath.SetWidth(cw)
 	m.rules.SetSize(cw, m.listHeight())
+	m.events.SetSize(cw, m.listHeight())
+	m.paste.SetWidth(cw)
+	m.paste.SetHeight(m.listHeight())
+	m.eventPath.SetWidth(cw)
 }
 
 func (m *wizardModel) listHeight() int {
@@ -82,6 +86,12 @@ func (m *wizardModel) editor() string {
 		b.WriteString(m.sections.View(m.contentWidth()))
 	case screenTrigger:
 		b.WriteString(m.trigger.View())
+	case screenEventPick:
+		b.WriteString(m.events.View())
+	case screenEventPaste:
+		b.WriteString(m.paste.View())
+	case screenEventFile:
+		b.WriteString(m.eventPath.View())
 	case screenConfirmDelete:
 		b.WriteString(m.confirmMsg + "\n\n" + "y delete · n cancel")
 	default:
@@ -106,6 +116,9 @@ func (m *wizardModel) header() string {
 		screenRules:         "Rules",
 		screenRule:          "Rule",
 		screenTrigger:       "Trigger",
+		screenEventPick:     "Pick an event",
+		screenEventPaste:    "Paste an event",
+		screenEventFile:     "Load an event",
 		screenConfirmDelete: "Delete rule",
 	}
 	t := titles[m.top()]
@@ -123,6 +136,9 @@ func (m *wizardModel) footer() string {
 		screenRules:         "a add · enter open · d delete · ctrl+s save · esc quit",
 		screenRule:          "↑/↓ move · enter open · ctrl+s save · esc back",
 		screenTrigger:       "tab next · ctrl+e pick event · ctrl+p insert path · esc back",
+		screenEventPick:     "/ filter · enter select · esc back",
+		screenEventPaste:    "ctrl+d accept · esc cancel",
+		screenEventFile:     "enter load · esc back",
 		screenConfirmDelete: "y delete · n cancel",
 	}
 	return lipgloss.NewStyle().Foreground(style.Faintc).Render(keys[m.top()])
