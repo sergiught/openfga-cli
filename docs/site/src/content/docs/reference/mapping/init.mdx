@@ -1,28 +1,35 @@
 ---
-title: "ofga theme"
-description: "Show or set the color theme"
+title: "ofga mapping init"
+description: "Create a mapping file interactively"
 sidebar:
-  order: 12
+  order: 100
 ---
 
-import CommandDemo from '../../../../components/CommandDemo.astro';
+Walk through creating an openfga/mapper mapping file: pick an event, describe the tuples it should produce, and watch the YAML and its output update as you go.
 
-<CommandDemo slug="theme" />
-
-With no argument, lists available themes and marks the current one. With a name, sets and saves the global theme.
+The wizard needs an interactive terminal. The file defaults to mapping.yaml.
 
 ## Usage
 
 ```sh
-ofga theme [name]
+ofga mapping init [file] [flags]
 ```
 
 ## Examples
 
 ```sh
-  ofga theme
-  ofga theme dracula
+# Create ./mapping.yaml
+ofga mapping init
+
+# Create a named file, overwriting it if it exists
+ofga mapping init auth0.yaml --force
 ```
+
+## Flags
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--force` | overwrite the file if it already exists | `false` |
 
 <details>
 <summary>Global flags</summary>
