@@ -94,11 +94,9 @@ func (m *wizardModel) keyTuples(k tea.KeyPressMsg) tea.Cmd {
 		}
 		return nil
 	case "d":
-		if ts != nil {
-			if it, ok := m.tupleList.Selected(); ok {
-				*ts = append((*ts)[:it.Index], (*ts)[it.Index+1:]...)
-				m.syncTuples()
-			}
+		if it, ok := m.tupleList.Selected(); ok && ts != nil && it.Index < len(*ts) {
+			*ts = append((*ts)[:it.Index], (*ts)[it.Index+1:]...)
+			m.syncTuples()
 		}
 		return nil
 	case "esc":
@@ -276,9 +274,9 @@ func (m *wizardModel) applyFieldPick(f tupleField, v string) {
 	values := m.tupleForm.Values()
 	switch f {
 	case fieldObject:
-		values[f] = v + ":{{  }}"
+		values[fieldObject] = v + ":{{  }}"
 	case fieldUser:
-		values[f] = userPrefill(v)
+		values[fieldUser] = userPrefill(v)
 	default:
 		values[f] = v
 	}
