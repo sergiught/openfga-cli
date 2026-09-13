@@ -186,6 +186,81 @@ func TestServerLoadFailureContinuesWithoutAModel(t *testing.T) {
 	}
 }
 
+// atInFlightLoad walks to the model source, picks the connected store and
+// stops with the fetch dispatched but not yet delivered — the state a user is
+// in while an unreachable server is being retried.
+func atInFlightLoad(t *testing.T, load modelLoader) *wizardModel {
+	t.Helper()
+	m := newTestWizard(t, load)
+	send(m, key("enter"), key("up"), key("up"), key("enter"))
+	if !m.loading {
+		t.Fatal("choosing the connected store must put the wizard in its loading state")
+	}
+	return m
+}
+
+func TestAnInFlightLoadSaysSoAndOffersAWayOut(t *testing.T) {
+	m := atInFlightLoad(t, nil)
+	v := m.viewString()
+	if !strings.Contains(v, "Reading the authorization model") {
+		t.Fatalf("a load in flight must say so:\n%s", v)
+	}
+	if !strings.Contains(v, "cancel") {
+		t.Fatalf("a load in flight must offer a way out:\n%s", v)
+	}
+}
+
+func TestASecondEnterDuringALoadDoesNotStartAnother(t *testing.T) {
+	calls := 0
+	m := atInFlightLoad(t, func(context.Context) (*openfga.AuthorizationModel, error) {
+		calls++
+		return testModel(), nil
+	})
+
+	// Pressing enter again is what a user does when nothing appears to happen.
+	// Each extra fetch would push the rules hub again on its way back.
+	if _, cmd := m.Update(key("enter")); cmd != nil {
+		t.Fatal("a second enter dispatched another fetch")
+	}
+	if m.top() != screenModelSource {
+		t.Fatalf("top = %v, want the source screen to stay put", m.top())
+	}
+
+	m.Update(m.loadCmd())
+	if calls != 1 {
+		t.Fatalf("loader called %d times, want 1", calls)
+	}
+	if m.top() != screenRules {
+		t.Fatalf("top = %v, want rules", m.top())
+	}
+	if m.loading {
+		t.Fatal("loading should be over once the result arrives")
+	}
+}
+
+func TestEscCancelsALoadAndIgnoresItsLateResult(t *testing.T) {
+	m := atInFlightLoad(t, nil)
+	cmd := m.loadCmd
+
+	send(m, key("esc"))
+	if m.loading {
+		t.Fatal("esc must stop the wait")
+	}
+	if m.top() != screenModelSource {
+		t.Fatalf("top = %v, want the source picker back", m.top())
+	}
+	if !strings.Contains(m.viewString(), "Connected store") {
+		t.Fatalf("the picker should be back:\n%s", m.viewString())
+	}
+
+	// The abandoned fetch still reports back. Acting on it would drop the user
+	// into the rules hub they just backed out of.
+	m.Update(cmd())
+	if m.top() != screenModelSource {
+		t.Fatalf("a cancelled load moved the wizard to %v", m.top())
+	}
+}
+
 func TestModelFileLoadsAndBadFileStaysOnTheField(t *testing.T) {
 	dir := t.TempDir()
 	good := dir + "/model.fga"

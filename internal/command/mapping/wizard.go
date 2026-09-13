@@ -6,13 +6,16 @@ import (
 	"os"
 	"strings"
 
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/sergiught/go-openfga/openfga"
 
 	"github.com/sergiught/openfga-cli/internal/mapping"
 	"github.com/sergiught/openfga-cli/internal/modeltest"
+	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/field"
 	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
 	"github.com/sergiught/openfga-cli/internal/ui/picker"
@@ -53,10 +56,13 @@ const sideBySideMin = 100
 // no server.
 type modelLoader func(ctx context.Context) (*openfga.AuthorizationModel, error)
 
-// modelLoadedMsg carries the result of a background model fetch.
+// modelLoadedMsg carries the result of a background model fetch. gen identifies
+// the fetch that produced it, so a result the user has already walked away from
+// can be told apart from the one being waited on.
 type modelLoadedMsg struct {
 	model *openfga.AuthorizationModel
 	err   error
+	gen   int
 }
 
 type wizardModel struct {
@@ -111,6 +117,13 @@ type wizardModel struct {
 	// loadCmd is the pending model fetch, kept on the model so tests can drive
 	// it without a bubbletea runtime.
 	loadCmd tea.Cmd
+	// loading is true between dispatching a fetch and its result arriving. The
+	// server can be slow or down, and the SDK retries before giving up, so this
+	// is the only thing standing between the user and a frozen screen.
+	loading    bool
+	loadCancel context.CancelFunc
+	loadGen    int
+	spin       spinner.Model
 
 	errMsg    string
 	noteMsg   string
@@ -129,6 +142,10 @@ func newWizard(ctx context.Context, path, profile string, load modelLoader) *wiz
 		load:    load,
 		stack:   []screen{screenWelcome},
 		rules:   uilist.New(),
+		spin: spinner.New(
+			spinner.WithSpinner(spinner.Dot),
+			spinner.WithStyle(lipgloss.NewStyle().Foreground(style.Primary)),
+		),
 	}
 	m.sourcePick = picker.New(m.sourceItems())
 	// "Skip" is the recommended default and the last row, so start there.
@@ -216,8 +233,23 @@ func (m *wizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applySize()
 		return m, nil
 
+	case spinner.TickMsg:
+		if !m.loading {
+			// Nothing to animate — let the tick loop end so the UI can idle.
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.spin, cmd = m.spin.Update(msg)
+		return m, cmd
+
 	case modelLoadedMsg:
+		if msg.gen != m.loadGen {
+			// A fetch the user cancelled, finally reporting back.
+			return m, nil
+		}
 		m.loadCmd = nil
+		m.loading = false
+		m.loadCancel = nil
 		if msg.err != nil {
 			// A missing model is a degraded mode, not a failure: the pickers fall
 			// back to free text and the mapping is just as valid.
@@ -301,6 +333,15 @@ func (m *wizardModel) key(k tea.KeyPressMsg) tea.Cmd {
 }
 
 func (m *wizardModel) keyModelSource(k tea.KeyPressMsg) tea.Cmd {
+	// A fetch in flight owns the screen. Moving the cursor or selecting again
+	// would either dispatch a second fetch over the top of the first or land the
+	// user on a row that is not the one being loaded; esc is the way out.
+	if m.loading {
+		if k.String() == "esc" {
+			m.cancelLoad()
+		}
+		return nil
+	}
 	switch k.String() {
 	case "up", "k":
 		m.sourcePick.Move(-1)
@@ -311,8 +352,7 @@ func (m *wizardModel) keyModelSource(k tea.KeyPressMsg) tea.Cmd {
 	case "enter", " ":
 		switch m.sourcePick.Selected().Value {
 		case "server":
-			m.loadCmd = m.fetchModel()
-			return m.loadCmd
+			return m.startLoad()
 		case "file":
 			m.push(screenModelFile)
 		default:
@@ -322,10 +362,38 @@ func (m *wizardModel) keyModelSource(k tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
-func (m *wizardModel) fetchModel() tea.Cmd {
+// startLoad dispatches a model fetch and puts the screen into its loading
+// state. The spinner's tick loop starts with it and stops itself once loading
+// ends, so an idle wizard is not redrawn forever.
+func (m *wizardModel) startLoad() tea.Cmd {
+	m.noteMsg = ""
+	m.loading = true
+	m.loadGen++
+	ctx, cancel := context.WithCancel(m.ctx)
+	m.loadCancel = cancel
+	m.loadCmd = m.fetchModel(ctx, m.loadGen)
+	return tea.Batch(m.spin.Tick, m.loadCmd)
+}
+
+// cancelLoad abandons the fetch in flight. The generation bump is what makes it
+// an abandonment rather than a wait: the result is still on its way, and
+// without it a user who cancels and immediately retries would be shown the
+// first attempt's answer.
+func (m *wizardModel) cancelLoad() {
+	if m.loadCancel != nil {
+		m.loadCancel()
+		m.loadCancel = nil
+	}
+	m.loading = false
+	m.loadCmd = nil
+	m.loadGen++
+	m.noteMsg = "Cancelled — pick another source."
+}
+
+func (m *wizardModel) fetchModel(ctx context.Context, gen int) tea.Cmd {
 	return func() tea.Msg {
-		model, err := m.load(m.ctx)
-		return modelLoadedMsg{model: model, err: err}
+		model, err := m.load(ctx)
+		return modelLoadedMsg{model: model, err: err, gen: gen}
 	}
 }
 

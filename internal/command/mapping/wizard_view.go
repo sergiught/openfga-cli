@@ -175,6 +175,10 @@ var screenChrome = map[screen]chrome{
 func (m *wizardModel) chromeFor() chrome {
 	c := screenChrome[m.top()]
 	switch {
+	case m.loading:
+		// Every other key is ignored while a fetch is in flight, so esc is the
+		// only one worth offering.
+		c.keys = []keyHint{{"esc", "cancel"}}
 	case m.top() == screenRules && len(m.doc.Rules) == 0:
 		// An empty hub has nothing to open, delete or save, and offering the keys
 		// anyway sends the user to a dialog whose only content is that there was
@@ -340,6 +344,9 @@ func (m *wizardModel) editorPane(cw int) string {
 func (m *wizardModel) screenBody(cw int) string {
 	switch m.top() {
 	case screenModelSource:
+		if m.loading {
+			return m.loadingBody()
+		}
 		return m.sourcePick.View(cw)
 	case screenModelFile:
 		return m.modelPath.View()
@@ -481,6 +488,17 @@ func listOrEmpty(l *uilist.List, what, key, action string) string {
 		return emptyState(what, key, action)
 	}
 	return l.View()
+}
+
+// loadingBody stands in for the source picker while a fetch is in flight. The
+// second line is the point of it: an unreachable server is retried by the SDK
+// before it gives up, and without saying so the wizard just looks frozen.
+func (m *wizardModel) loadingBody() string {
+	return m.spin.View() + " " +
+		style.Value.Render(fmt.Sprintf("Reading the authorization model from profile %s…", m.profile)) +
+		"\n\n" +
+		lipgloss.NewStyle().Foreground(style.Muted).
+			Render("Retried a few times before giving up.")
 }
 
 func (m *wizardModel) rulesBody() string {
