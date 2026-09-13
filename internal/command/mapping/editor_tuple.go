@@ -179,6 +179,11 @@ func (m *wizardModel) keyTuple(k tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 	cmd := m.tupleForm.Update(k)
+	if m.tupleForm.Completed() {
+		m.commitTuple()
+		m.pop()
+		return nil
+	}
 	// Action and condition changes make other fields' visibility change, so
 	// re-evaluate every keystroke rather than only on blur.
 	m.syncTupleVisibility()

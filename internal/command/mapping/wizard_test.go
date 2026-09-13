@@ -348,3 +348,61 @@ func TestPreviewPaneStacksOnNarrowTerminals(t *testing.T) {
 		t.Fatal("empty view")
 	}
 }
+
+// ctrl+c is the one key a user reaches for when they want out, and on most of
+// these screens the focus is inside a text field where esc means "done", not
+// "quit". bubbletea delivers ctrl+c as an ordinary key, so every screen that
+// does not handle it traps the user.
+func TestCtrlCQuitsFromAnyScreen(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		open func(t *testing.T) *wizardModel
+	}{
+		{"welcome", func(t *testing.T) *wizardModel { return newTestWizard(t, nil) }},
+		{"model source", func(t *testing.T) *wizardModel {
+			m := newTestWizard(t, nil)
+			send(m, key("enter"))
+			return m
+		}},
+		{"rules hub", atRulesHub},
+		{"trigger form", func(t *testing.T) *wizardModel {
+			m := atRulesHub(t)
+			send(m, key("a"))
+			return m
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m := c.open(t)
+			send(m, tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+			if !m.cancelled {
+				t.Fatalf("ctrl+c did not cancel on %s (top = %v)", c.name, m.top())
+			}
+		})
+	}
+}
+
+// A form submits on enter at its last field and then stops accepting keys, so a
+// screen that does not act on the submit goes inert and silently swallows
+// everything typed next.
+func TestEnterOnTheLastFieldCommitsAndLeavesTheForm(t *testing.T) {
+	m := atRulesHub(t)
+	send(m, key("a"))
+	if m.top() != screenTrigger {
+		t.Fatalf("top = %v, want trigger", m.top())
+	}
+
+	typeText(m, "myrule")
+	send(m, key("tab"))
+	typeText(m, "true")
+	send(m, key("enter"))
+
+	if m.top() == screenTrigger {
+		t.Fatal("the form is still on screen after submitting")
+	}
+	if len(m.doc.Rules) != 1 {
+		t.Fatalf("rules = %d", len(m.doc.Rules))
+	}
+	if got := m.doc.Rules[0]; got.Name != "myrule" || got.When != "true" {
+		t.Fatalf("rule = %+v", got)
+	}
+}

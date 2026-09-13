@@ -55,7 +55,18 @@ func (m *wizardModel) keyTrigger(k tea.KeyPressMsg) tea.Cmd {
 		m.openPathPick(m.trigger, m.trigger.FocusedIndex(), false)
 		return nil
 	}
-	return m.trigger.Update(k)
+	cmd := m.trigger.Update(k)
+	// A form submits on enter at its last field and on ctrl+s anywhere, and a
+	// submitted form stops accepting keys. Every form screen here therefore has
+	// to treat a submit as the exit esc already performs; without it the form
+	// silently swallows everything the user types next. Same shape in keyTuple,
+	// keyVariable, keyIterator and keyFilter.
+	if m.trigger.Completed() {
+		m.commitTrigger()
+		m.pop()
+		return nil
+	}
+	return cmd
 }
 
 // applyEventType records the picked event on the rule, auto-filling name and

@@ -240,12 +240,21 @@ func (m *wizardModel) key(k tea.KeyPressMsg) tea.Cmd {
 	// fresh screen is worse than none.
 	m.errMsg = ""
 
+	// ctrl+c gets out from anywhere, ahead of the per-screen routing. bubbletea
+	// delivers it as an ordinary key, so a screen that does not handle it traps
+	// the user — and most of these screens are text fields, where esc is the only
+	// other way out and it means "done", not "quit".
+	if k.String() == "ctrl+c" {
+		m.cancelled = true
+		return tea.Quit
+	}
+
 	switch m.top() {
 	case screenWelcome:
 		switch k.String() {
 		case "enter":
 			m.push(screenModelSource)
-		case "esc", "ctrl+c":
+		case "esc":
 			m.cancelled = true
 			return tea.Quit
 		}

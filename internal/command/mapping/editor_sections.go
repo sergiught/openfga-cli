@@ -115,18 +115,24 @@ func (m *wizardModel) openVariable(i int) {
 	m.push(screenVariable)
 }
 
+// commitVariable writes the form back into the rule. Called on every exit from
+// the variable screen so a half-finished edit is never silently dropped.
+func (m *wizardModel) commitVariable() {
+	r := m.rule()
+	if r != nil && m.varIdx < len(r.Variables) {
+		v := m.varForm.Values()
+		r.Variables[m.varIdx] = mapping.Variable{
+			Name: strings.TrimSpace(v[0]),
+			Expr: strings.TrimSpace(v[1]),
+		}
+	}
+	m.syncVariables()
+}
+
 func (m *wizardModel) keyVariable(k tea.KeyPressMsg) tea.Cmd {
 	switch k.String() {
 	case "esc":
-		r := m.rule()
-		if r != nil && m.varIdx < len(r.Variables) {
-			v := m.varForm.Values()
-			r.Variables[m.varIdx] = mapping.Variable{
-				Name: strings.TrimSpace(v[0]),
-				Expr: strings.TrimSpace(v[1]),
-			}
-		}
-		m.syncVariables()
+		m.commitVariable()
 		m.pop()
 		return nil
 	case "ctrl+p":
@@ -134,7 +140,13 @@ func (m *wizardModel) keyVariable(k tea.KeyPressMsg) tea.Cmd {
 		m.openPathPick(m.varForm, m.varForm.FocusedIndex(), false)
 		return nil
 	}
-	return m.varForm.Update(k)
+	cmd := m.varForm.Update(k)
+	if m.varForm.Completed() {
+		m.commitVariable()
+		m.pop()
+		return nil
+	}
+	return cmd
 }
 
 // --- iterator ---
@@ -195,7 +207,13 @@ func (m *wizardModel) keyIterator(k tea.KeyPressMsg) tea.Cmd {
 		m.openPathPick(m.iterForm, m.iterForm.FocusedIndex(), false)
 		return nil
 	}
-	return m.iterForm.Update(k)
+	cmd := m.iterForm.Update(k)
+	if m.iterForm.Completed() {
+		m.commitIterator()
+		m.pop()
+		return nil
+	}
+	return cmd
 }
 
 // --- tuple filters ---
@@ -280,20 +298,26 @@ func (m *wizardModel) openFilter(i int) {
 	m.push(screenFilter)
 }
 
+// commitFilter writes the form back into the rule. Called on every exit from
+// the filter screen so a half-finished edit is never silently dropped.
+func (m *wizardModel) commitFilter() {
+	r := m.rule()
+	if r != nil && m.filterIdx < len(r.Filters) {
+		v := m.filterForm.Values()
+		r.Filters[m.filterIdx] = mapping.TupleFilter{
+			User:     strings.TrimSpace(v[0]),
+			Relation: strings.TrimSpace(v[1]),
+			Object:   strings.TrimSpace(v[2]),
+			Action:   strings.TrimSpace(v[3]),
+		}
+	}
+	m.syncFilters()
+}
+
 func (m *wizardModel) keyFilter(k tea.KeyPressMsg) tea.Cmd {
 	switch k.String() {
 	case "esc":
-		r := m.rule()
-		if r != nil && m.filterIdx < len(r.Filters) {
-			v := m.filterForm.Values()
-			r.Filters[m.filterIdx] = mapping.TupleFilter{
-				User:     strings.TrimSpace(v[0]),
-				Relation: strings.TrimSpace(v[1]),
-				Object:   strings.TrimSpace(v[2]),
-				Action:   strings.TrimSpace(v[3]),
-			}
-		}
-		m.syncFilters()
+		m.commitFilter()
 		m.pop()
 		return nil
 	case "ctrl+p":
@@ -302,5 +326,11 @@ func (m *wizardModel) keyFilter(k tea.KeyPressMsg) tea.Cmd {
 		m.openPathPick(m.filterForm, m.filterForm.FocusedIndex(), m.filterForm.FocusedIndex() < 3)
 		return nil
 	}
-	return m.filterForm.Update(k)
+	cmd := m.filterForm.Update(k)
+	if m.filterForm.Completed() {
+		m.commitFilter()
+		m.pop()
+		return nil
+	}
+	return cmd
 }
