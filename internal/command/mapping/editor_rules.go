@@ -45,7 +45,15 @@ func (m *wizardModel) keyRules(k tea.KeyPressMsg) tea.Cmd {
 		m.push(screenConfirmSave)
 		return nil
 	}
-	return m.rules.Update(k)
+	cmd := m.rules.Update(k)
+	// The preview evaluates the current rule's sample, so moving the cursor has
+	// to move the preview with it. Without this the pane keeps showing whichever
+	// rule was last opened, which is the opposite of what the highlight says.
+	if it, ok := m.rules.Selected(); ok && it.Index != m.ruleIdx {
+		m.ruleIdx = it.Index
+		m.refresh()
+	}
+	return cmd
 }
 
 // addRule appends an empty rule and opens it on Trigger, which is the only

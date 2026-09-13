@@ -212,3 +212,36 @@ func TestRuleHubEnterOpensSectionWithoutRenderingFirst(t *testing.T) {
 		t.Fatalf("top = %v, want action; the section picker was likely empty", m.top())
 	}
 }
+
+// The wizard's premise is that the preview tracks what you are looking at, so
+// the evaluation pane has to follow the highlight around the hub rather than
+// staying on whichever rule was opened last.
+func TestMovingTheRulesCursorMovesThePreview(t *testing.T) {
+	m := atRulesHub(t)
+	m.doc.Rules = []mapping.Rule{
+		{
+			Name:   "first",
+			When:   `input.type == "organization.member.added"`,
+			Sample: &mapping.Sample{Label: "member added", Event: memberAddedEvent()},
+			Tuples: []mapping.Tuple{{User: "user:a", Relation: "member", Object: "organization:1"}},
+		},
+		{
+			Name:   "second",
+			When:   `input.type == "organization.member.added"`,
+			Sample: &mapping.Sample{Label: "member added", Event: memberAddedEvent()},
+			Tuples: []mapping.Tuple{{User: "user:b", Relation: "admin", Object: "organization:2"}},
+		},
+	}
+	m.syncRules()
+	m.ruleIdx = 0
+	m.refresh()
+
+	send(m, key("down"))
+
+	if m.ruleIdx != 1 {
+		t.Fatalf("ruleIdx = %d, want 1", m.ruleIdx)
+	}
+	if r := m.rule(); r == nil || r.Name != "second" {
+		t.Fatalf("current rule = %+v", r)
+	}
+}
