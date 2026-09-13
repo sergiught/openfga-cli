@@ -78,6 +78,12 @@ func (m *wizardModel) editor() string {
 		b.WriteString(m.modelPath.View())
 	case screenRules:
 		b.WriteString(m.rulesBody())
+	case screenRule:
+		b.WriteString(m.sections.View(m.contentWidth()))
+	case screenTrigger:
+		b.WriteString(m.trigger.View())
+	case screenConfirmDelete:
+		b.WriteString(m.confirmMsg + "\n\n" + "y delete · n cancel")
 	default:
 		b.WriteString("")
 	}
@@ -94,10 +100,13 @@ func (m *wizardModel) editor() string {
 
 func (m *wizardModel) header() string {
 	titles := map[screen]string{
-		screenWelcome:     "Create a mapping",
-		screenModelSource: "Authorization model",
-		screenModelFile:   "Load a model file",
-		screenRules:       "Rules",
+		screenWelcome:       "Create a mapping",
+		screenModelSource:   "Authorization model",
+		screenModelFile:     "Load a model file",
+		screenRules:         "Rules",
+		screenRule:          "Rule",
+		screenTrigger:       "Trigger",
+		screenConfirmDelete: "Delete rule",
 	}
 	t := titles[m.top()]
 	if t == "" {
@@ -108,10 +117,13 @@ func (m *wizardModel) header() string {
 
 func (m *wizardModel) footer() string {
 	keys := map[screen]string{
-		screenWelcome:     "enter continue · esc cancel",
-		screenModelSource: "↑/↓ move · enter select · esc back",
-		screenModelFile:   "enter load · esc back",
-		screenRules:       "a add · enter open · d delete · ctrl+s save · esc quit",
+		screenWelcome:       "enter continue · esc cancel",
+		screenModelSource:   "↑/↓ move · enter select · esc back",
+		screenModelFile:     "enter load · esc back",
+		screenRules:         "a add · enter open · d delete · ctrl+s save · esc quit",
+		screenRule:          "↑/↓ move · enter open · ctrl+s save · esc back",
+		screenTrigger:       "tab next · ctrl+e pick event · ctrl+p insert path · esc back",
+		screenConfirmDelete: "y delete · n cancel",
 	}
 	return lipgloss.NewStyle().Foreground(style.Faintc).Render(keys[m.top()])
 }

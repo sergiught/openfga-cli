@@ -1,0 +1,242 @@
+package mapping
+
+import (
+	"fmt"
+
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/sergiught/openfga-cli/internal/mapping"
+	"github.com/sergiught/openfga-cli/internal/ui/field"
+	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
+	"github.com/sergiught/openfga-cli/internal/ui/picker"
+)
+
+// keyRules handles the rules hub: the list of every rule in the document.
+func (m *wizardModel) keyRules(k tea.KeyPressMsg) tea.Cmd {
+	if m.rules.SettingFilter() {
+		return m.rules.Update(k)
+	}
+	switch k.String() {
+	case "a":
+		m.addRule()
+		return nil
+	case "enter":
+		if it, ok := m.rules.Selected(); ok {
+			m.openRule(it.Index)
+		}
+		return nil
+	case "d":
+		if len(m.doc.Rules) > 0 {
+			if it, ok := m.rules.Selected(); ok {
+				m.ruleIdx = it.Index
+				m.confirmMsg = fmt.Sprintf("Delete rule %q?", m.doc.Rules[m.ruleIdx].Name)
+				m.push(screenConfirmDelete)
+			}
+		}
+		return nil
+	case "ctrl+s", "s":
+		m.push(screenConfirmSave)
+		return nil
+	case "esc", "q":
+		if len(m.doc.Rules) == 0 {
+			m.cancelled = true
+			return tea.Quit
+		}
+		m.push(screenConfirmSave)
+		return nil
+	}
+	return m.rules.Update(k)
+}
+
+// addRule appends an empty rule and opens it on Trigger, which is the only
+// section that must be filled in for the rule to mean anything.
+func (m *wizardModel) addRule() {
+	m.doc.Rules = append(m.doc.Rules, mapping.Rule{})
+	m.ruleIdx = len(m.doc.Rules) - 1
+	m.syncRules()
+	m.push(screenRule)
+	m.openTrigger()
+}
+
+func (m *wizardModel) openRule(i int) {
+	m.ruleIdx = i
+	m.inIter = false
+	m.refresh()
+	m.push(screenRule)
+}
+
+func (m *wizardModel) deleteRule(i int) {
+	if i < 0 || i >= len(m.doc.Rules) {
+		return
+	}
+	m.doc.Rules = append(m.doc.Rules[:i], m.doc.Rules[i+1:]...)
+	if m.ruleIdx >= len(m.doc.Rules) {
+		m.ruleIdx = len(m.doc.Rules) - 1
+	}
+	m.syncRules()
+}
+
+// syncRules rebuilds the hub list from the document and recomputes the preview.
+// Called after every change that could alter a row.
+func (m *wizardModel) syncRules() {
+	items := make([]uilist.Item, 0, len(m.doc.Rules))
+	for i, r := range m.doc.Rules {
+		name := r.Name
+		if name == "" {
+			name = "(unnamed)"
+		}
+		mark := "✓"
+		if m.ruleHasBlockingProblem(i) {
+			mark = "✗"
+		}
+		n := len(r.Tuples)
+		if r.Iterator != nil {
+			n += len(r.Iterator.Tuples)
+		}
+		event := "no event"
+		if r.Sample != nil && r.Sample.Label != "" {
+			event = r.Sample.Label
+		}
+		items = append(items, uilist.Item{
+			TitleText: fmt.Sprintf("%s %s", mark, name),
+			DescText:  fmt.Sprintf("%s · %s", event, plural(n, "tuple")),
+			Filter:    name + " " + event,
+			ID:        fmt.Sprintf("rule-%d", i),
+			Index:     i,
+		})
+	}
+	m.rules.SetItems(items)
+	m.refresh()
+}
+
+func (m *wizardModel) ruleHasBlockingProblem(i int) bool {
+	for _, p := range mapping.Blocking(m.problems) {
+		if p.Rule == i {
+			return true
+		}
+	}
+	return false
+}
+
+// --- rule hub ---
+
+// ruleSections builds the six-row menu, each row annotated with a summary and
+// its first problem, so the hub doubles as the rule's checklist.
+func (m *wizardModel) ruleSections() []picker.Item {
+	r := m.rule()
+	if r == nil {
+		return nil
+	}
+	rows := []struct{ title, section, desc string }{
+		{"Trigger", "trigger", m.triggerSummary(r)},
+		{"Action", "action", actionSummary(r)},
+		{"Variables", "variables", plural(len(r.Variables), "variable")},
+		{"Iterator", "iterator", iteratorSummary(r)},
+		{"Tuple filters", "filters", plural(len(r.Filters), "filter")},
+		{"Tuples", "tuples", plural(len(r.Tuples), "tuple")},
+	}
+	items := make([]picker.Item, 0, len(rows))
+	for _, row := range rows {
+		desc := row.desc
+		if p, ok := m.firstProblem(row.section); ok {
+			desc = "✗ " + p.Message
+		}
+		items = append(items, picker.Item{Title: row.title, Desc: desc, Value: row.section})
+	}
+	return items
+}
+
+func (m *wizardModel) firstProblem(section string) (mapping.Problem, bool) {
+	for _, p := range m.problems {
+		if p.Rule == m.ruleIdx && p.Section == section {
+			return p, true
+		}
+	}
+	// The "rule has no tuples yet" problem is filed under "tuple"; surface it on
+	// the Tuples row, which is where the user fixes it.
+	if section == "tuples" {
+		for _, p := range m.problems {
+			if p.Rule == m.ruleIdx && p.Section == "tuple" {
+				return p, true
+			}
+		}
+	}
+	return mapping.Problem{}, false
+}
+
+func (m *wizardModel) triggerSummary(r *mapping.Rule) string {
+	if r.When == "" {
+		return "no condition"
+	}
+	return r.When
+}
+
+func actionSummary(r *mapping.Rule) string {
+	if r.Action == "" {
+		return "per tuple"
+	}
+	return r.Action
+}
+
+func iteratorSummary(r *mapping.Rule) string {
+	if r.Iterator == nil {
+		return "none"
+	}
+	return fmt.Sprintf("%s as %s · %s", r.Iterator.Source, r.Iterator.As, plural(len(r.Iterator.Tuples), "tuple"))
+}
+
+// keyRule handles the rule hub.
+func (m *wizardModel) keyRule(k tea.KeyPressMsg) tea.Cmd {
+	switch k.String() {
+	case "up", "k":
+		m.sections.Move(-1)
+	case "down", "j":
+		m.sections.Move(1)
+	case "esc":
+		m.pop()
+		m.syncRules()
+	case "ctrl+s":
+		m.push(screenConfirmSave)
+	case "enter", " ":
+		switch m.sections.Selected().Value {
+		case "trigger":
+			m.openTrigger()
+		case "action":
+			m.openAction()
+		case "variables":
+			m.openVariables()
+		case "iterator":
+			m.openIterator()
+		case "filters":
+			m.openFilters()
+		case "tuples":
+			m.inIter = false
+			m.openTuples()
+		}
+	}
+	return nil
+}
+
+// keyConfirmDelete handles the delete confirmation dialog.
+func (m *wizardModel) keyConfirmDelete(k tea.KeyPressMsg) tea.Cmd {
+	switch k.String() {
+	case "y", "enter":
+		m.deleteRule(m.ruleIdx)
+		m.pop()
+	case "n", "esc":
+		m.pop()
+	}
+	return nil
+}
+
+// Section openers filled in by later tasks. Each pushes its screen so the hub's
+// routing is complete and testable now.
+func (m *wizardModel) openAction()    { m.push(screenAction) }
+func (m *wizardModel) openVariables() { m.push(screenVariables) }
+func (m *wizardModel) openIterator()  { m.push(screenIterator) }
+func (m *wizardModel) openFilters()   { m.push(screenFilters) }
+func (m *wizardModel) openTuples()    { m.push(screenTuples) }
+func (m *wizardModel) openEventPick() { m.push(screenEventPick) }
+
+// openPathPick is implemented in Task 15.
+func (m *wizardModel) openPathPick(_ *field.Form, _ int, _ bool) {}

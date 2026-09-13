@@ -72,10 +72,10 @@ type wizardModel struct {
 	// filterIdx address the open rule's slices. inIter selects which tuple slice
 	// the tuple editor is bound to.
 	ruleIdx   int
-	tupleIdx  int  //nolint:unused // wired up by the rule/tuple editor screens in task 12+
-	varIdx    int  //nolint:unused // wired up by the variable editor screen in task 12+
-	filterIdx int  //nolint:unused // wired up by the filter editor screen in task 12+
-	inIter    bool //nolint:unused // wired up by the iterator editor screen in task 12+
+	tupleIdx  int //nolint:unused // wired up by the rule/tuple editor screens in task 12+
+	varIdx    int //nolint:unused // wired up by the variable editor screen in task 12+
+	filterIdx int //nolint:unused // wired up by the filter editor screen in task 12+
+	inIter    bool
 
 	// Live state recomputed by refresh.
 	preview  mapping.Preview
@@ -85,6 +85,9 @@ type wizardModel struct {
 	sourcePick *picker.Picker
 	modelPath  *field.Form
 	rules      *uilist.List
+	sections   *picker.Picker
+	trigger    *field.Form
+	confirmMsg string
 
 	// loadCmd is the pending model fetch, kept on the model so tests can drive
 	// it without a bubbletea runtime.
@@ -112,6 +115,11 @@ func newWizard(ctx context.Context, path, profile string, load modelLoader) *wiz
 	// "Skip" is the recommended default and the last row, so start there.
 	m.sourcePick.SetCursor(m.sourcePick.Len() - 1)
 	m.modelPath = field.NewForm(field.New("Model file", defaultModelFile()))
+	m.trigger = field.NewForm(
+		field.New("Rule name", "organization.member.added"),
+		field.New("When (expression)", `input.type == "organization.member.added"`),
+	)
+	m.sections = picker.New(nil)
 	m.refresh()
 	return m
 }
@@ -193,6 +201,12 @@ func (m *wizardModel) key(k tea.KeyPressMsg) tea.Cmd {
 		return m.keyModelFile(k)
 	case screenRules:
 		return m.keyRules(k)
+	case screenRule:
+		return m.keyRule(k)
+	case screenTrigger:
+		return m.keyTrigger(k)
+	case screenConfirmDelete:
+		return m.keyConfirmDelete(k)
 	}
 	return nil
 }
@@ -254,20 +268,6 @@ func (m *wizardModel) keyModelFile(k tea.KeyPressMsg) tea.Cmd {
 	return m.modelPath.Update(k)
 }
 
-// keyRules handles the rules hub. Task 12 fills in add/open/delete; for now it
-// carries only the exits, so the skeleton is navigable and testable.
-func (m *wizardModel) keyRules(k tea.KeyPressMsg) tea.Cmd {
-	switch k.String() {
-	case "esc", "q":
-		if len(m.doc.Rules) == 0 {
-			m.cancelled = true
-			return tea.Quit
-		}
-		m.push(screenConfirmSave)
-	}
-	return nil
-}
-
 // --- navigation ---
 
 func (m *wizardModel) push(s screen) {
@@ -325,4 +325,8 @@ func (m *wizardModel) refresh() {
 	}
 	m.preview = mapping.Evaluate(m.ctx, &m.doc, sample)
 	m.problems = mapping.Lint(&m.doc, m.index)
+
+	cursor := m.sections.Cursor()
+	m.sections = picker.New(m.ruleSections())
+	m.sections.SetCursor(cursor)
 }
