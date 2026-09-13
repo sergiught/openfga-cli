@@ -180,6 +180,24 @@ func (f *Field) setCursor(pos int) {
 	}
 }
 
+// insert splices text into the field's value at its caret, leaving the caret
+// after the inserted text. No-op on non-text fields.
+func (f *Field) insert(text string) {
+	if f.kind != kindText {
+		return
+	}
+	pos := f.in.Position()
+	val := []rune(f.in.Value())
+	if pos < 0 {
+		pos = 0
+	}
+	if pos > len(val) {
+		pos = len(val)
+	}
+	f.in.SetValue(string(val[:pos]) + text + string(val[pos:]))
+	f.in.SetCursor(pos + len([]rune(text)))
+}
+
 // inputView renders the field's input line (no label), honoring focus and the
 // optional highlight background.
 func (f *Field) inputView(focused bool, hl color.Color) string {
@@ -368,6 +386,15 @@ func (f *Form) SetCursor(i, pos int) {
 		return
 	}
 	f.fields[i].setCursor(pos)
+}
+
+// Insert splices text into field i at its caret, leaving the caret after the
+// inserted text so the user can keep typing where they left off.
+func (f *Form) Insert(i int, text string) {
+	if i < 0 || i >= len(f.fields) {
+		return
+	}
+	f.fields[i].insert(text)
 }
 
 func (f *Form) ensureVisible() {

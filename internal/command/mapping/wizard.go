@@ -97,6 +97,10 @@ type wizardModel struct {
 	pickField  tupleField
 	ctxKeys    []string
 	confirmMsg string
+	paths      *uilist.List
+	pathTarget *field.Form
+	pathIdx    int
+	pathTmpl   bool
 
 	// loadCmd is the pending model fetch, kept on the model so tests can drive
 	// it without a bubbletea runtime.
@@ -141,6 +145,8 @@ func newWizard(ctx context.Context, path, profile string, load modelLoader) *wiz
 	m.eventPath = field.NewForm(field.New("Event file", "event.json"))
 	m.tupleList = uilist.New()
 	m.tupleForm = newTupleForm()
+	m.paths = uilist.New()
+	m.paths.SetFilterPlaceholder("filter paths")
 	m.refresh()
 	return m
 }
@@ -236,6 +242,8 @@ func (m *wizardModel) key(k tea.KeyPressMsg) tea.Cmd {
 		return m.keyTuples(k)
 	case screenTuple:
 		return m.keyTuple(k)
+	case screenPathPick:
+		return m.keyPathPick(k)
 	case screenConfirmDelete:
 		return m.keyConfirmDelete(k)
 	}

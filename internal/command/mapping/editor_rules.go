@@ -6,7 +6,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/sergiught/openfga-cli/internal/mapping"
-	"github.com/sergiught/openfga-cli/internal/ui/field"
 	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
 	"github.com/sergiught/openfga-cli/internal/ui/picker"
 )
@@ -235,6 +234,3 @@ func (m *wizardModel) openAction()    { m.push(screenAction) }
 func (m *wizardModel) openVariables() { m.push(screenVariables) }
 func (m *wizardModel) openIterator()  { m.push(screenIterator) }
 func (m *wizardModel) openFilters()   { m.push(screenFilters) }
-
-// openPathPick is implemented in Task 15.
-func (m *wizardModel) openPathPick(_ *field.Form, _ int, _ bool) {}

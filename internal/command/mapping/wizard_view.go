@@ -43,6 +43,7 @@ func (m *wizardModel) applySize() {
 	m.tupleList.SetSize(cw, m.listHeight())
 	m.tupleForm.SetWidth(cw)
 	m.tupleForm.SetHeight(m.listHeight())
+	m.paths.SetSize(cw, m.listHeight())
 }
 
 func (m *wizardModel) listHeight() int {
@@ -114,6 +115,8 @@ func (m *wizardModel) editor() string {
 			b.WriteString("\n" + lipgloss.NewStyle().Foreground(style.Muted).Render(
 				"condition parameters: "+strings.Join(m.ctxKeys, ", ")))
 		}
+	case screenPathPick:
+		b.WriteString(m.paths.View())
 	case screenConfirmDelete:
 		b.WriteString(m.confirmMsg + "\n\n" + "y delete · n cancel")
 	default:
@@ -143,6 +146,7 @@ func (m *wizardModel) header() string {
 		screenEventFile:     "Load an event",
 		screenTuples:        "Tuples",
 		screenTuple:         "Tuple",
+		screenPathPick:      "Insert a path",
 		screenConfirmDelete: "Delete rule",
 	}
 	t := titles[m.top()]
@@ -165,6 +169,7 @@ func (m *wizardModel) footer() string {
 		screenEventFile:     "enter load · esc back",
 		screenTuples:        "a add · enter edit · d delete · esc back",
 		screenTuple:         "tab next · ctrl+o pick from model · ctrl+p insert path · esc back",
+		screenPathPick:      "/ filter · enter insert · esc cancel",
 		screenConfirmDelete: "y delete · n cancel",
 	}
 	return lipgloss.NewStyle().Foreground(style.Faintc).Render(keys[m.top()])
