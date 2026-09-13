@@ -15,7 +15,7 @@ func (m *wizardModel) keyConfirmSave(k tea.KeyPressMsg) tea.Cmd {
 		m.pop()
 		return nil
 	}
-	blocking := mapping.Blocking(m.problems)
+	blocking := m.saveProblems()
 	switch k.String() {
 	case "esc", "b":
 		m.pop()
@@ -72,6 +72,15 @@ func countTuples(rules []mapping.Rule) int {
 	return n
 }
 
+// saveProblems is everything standing between the document and the file: Lint's
+// blocking problems plus mapper's diagnostics. Lint checks the structure the
+// wizard lets you leave half-finished and never parses an expression, so it
+// cannot answer the question the dialog puts to the user — whether the mapping
+// compiles. Only mapper can, and refresh has already asked it.
+func (m *wizardModel) saveProblems() []mapping.Problem {
+	return append(mapping.Blocking(m.problems), m.preview.Problems()...)
+}
+
 // saveSummary is the dialog's body: what is about to be written, and what is
 // wrong with it.
 func (m *wizardModel) saveSummary() string {
@@ -84,7 +93,7 @@ func (m *wizardModel) saveSummary() string {
 	fmt.Fprintf(&b, "%s, %s.\n",
 		plural(countTuples(m.doc.Rules), "tuple"), plural(m.sampledRules(), "sampled rule"))
 
-	blocking := mapping.Blocking(m.problems)
+	blocking := m.saveProblems()
 	if len(blocking) == 0 {
 		b.WriteString("\nThe mapping compiles.\n\nenter save · esc back · q quit without saving")
 		return b.String()

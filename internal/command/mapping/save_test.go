@@ -83,6 +83,79 @@ func TestSavedYAMLParsesAndCarriesTests(t *testing.T) {
 	}
 }
 
+// Lint never parses an expression, so it has nothing to say about an unfinished
+// `when` — which the user is one keystroke away from at all times. Only mapper
+// knows whether the document compiles, and the dialog claims exactly that, so
+// the gate has to ask it.
+func TestSaveGateSpeaksForMapperNotOnlyLint(t *testing.T) {
+	m := atRulesHub(t)
+	completeRule(m)
+	m.doc.Rules[0].When = "input.type =="
+	m.syncRules()
+
+	if got := mapping.Blocking(m.problems); len(got) != 0 {
+		t.Fatalf("lint is supposed to be blind here, but reported %+v", got)
+	}
+	if len(m.preview.Diagnostics) == 0 {
+		t.Fatal("mapper is supposed to reject this document")
+	}
+
+	send(m, key("ctrl+s"))
+	if m.top() != screenConfirmSave {
+		t.Fatalf("top = %v", m.top())
+	}
+
+	summary := m.saveSummary()
+	if strings.Contains(summary, "The mapping compiles.") {
+		t.Fatalf("the dialog claims a document mapper rejects compiles:\n%s", summary)
+	}
+	if !strings.Contains(strings.ToLower(summary), "save anyway") {
+		t.Fatalf("the dialog should offer to save anyway:\n%s", summary)
+	}
+	// The diagnostic has to be in the list, not merely counted.
+	firstLine, _, _ := strings.Cut(m.preview.Diagnostics[0].Message, "\n")
+	if !strings.Contains(summary, firstLine) {
+		t.Fatalf("mapper's diagnostic %q is missing from the dialog:\n%s", firstLine, summary)
+	}
+
+	send(m, key("enter"))
+	if m.done || m.result != nil {
+		t.Fatalf("enter must not write a document mapper rejects: done=%v result=%+v", m.done, m.result)
+	}
+
+	// `s` stays the deliberate escape hatch.
+	send(m, key("s"))
+	if !m.done || m.result == nil {
+		t.Fatalf("s should still save anyway: done=%v result=%+v", m.done, m.result)
+	}
+}
+
+// The dialog reads m.preview, which is recomputed on mutation rather than when
+// the dialog opens. Breaking the trigger on the way to it and reading the
+// dialog is the check that the preview it reads is the current one.
+func TestSaveDialogSeesAnEditMadeOnTheWayToIt(t *testing.T) {
+	m := atRulesHub(t)
+	completeRule(m)
+
+	send(m, key("enter")) // rules hub -> rule hub
+	send(m, key("enter")) // Trigger is the first row
+	if m.top() != screenTrigger {
+		t.Fatalf("top = %v", m.top())
+	}
+
+	const when = 1
+	m.trigger.FocusIndex(when)
+	m.trigger.SetCursor(when, len(m.trigger.Values()[when]))
+	typeText(m, " ==") // break the expression
+
+	send(m, key("esc"))    // commit the trigger, back to the rule hub
+	send(m, key("ctrl+s")) // straight to the dialog
+
+	if summary := m.saveSummary(); strings.Contains(summary, "The mapping compiles.") {
+		t.Fatalf("the dialog is reading a preview from before the edit:\n%s", summary)
+	}
+}
+
 func TestSaveWithProblemsAsksFirst(t *testing.T) {
 	m := atRulesHub(t)
 	send(m, key("a"), key("esc"), key("esc")) // a rule with no tuples

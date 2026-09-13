@@ -2,6 +2,8 @@ package mapping
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/openfga/mapper"
 	"github.com/openfga/mapper/language"
@@ -26,6 +28,29 @@ type Preview struct {
 
 // OK reports whether the document both compiled and evaluated cleanly.
 func (p Preview) OK() bool { return len(p.Diagnostics) == 0 && p.EvalErr == nil }
+
+// Problems renders the diagnostics as document-level problems, so a caller can
+// list mapper's verdict alongside Lint's. Only the first line of a diagnostic
+// is kept: the rest is the caret art the preview pane already draws.
+//
+// EvalErr is deliberately not included. A diagnostic means the document itself
+// is wrong; EvalErr is the residue mapper produced no diagnostic for, and one
+// sample event that fails to evaluate does not make the mapping invalid.
+func (p Preview) Problems() []Problem {
+	var ps []Problem
+	for _, d := range p.Diagnostics {
+		msg, _, _ := strings.Cut(d.Message, "\n")
+		if d.Field != "" {
+			msg = d.Field + ": " + msg
+		}
+		ps = append(ps, Problem{
+			Rule:    -1,
+			Section: "document",
+			Message: fmt.Sprintf("line %d: %s", d.Position.StartLine, msg),
+		})
+	}
+	return ps
+}
 
 // Compile renders d and compiles it, returning the rendered bytes even when
 // compilation fails — the preview pane shows the YAML the diagnostics point at.
