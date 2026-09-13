@@ -26,9 +26,10 @@ const (
 func (m *wizardModel) sideBySide() bool { return m.width >= sideBySideMin }
 
 // contentWidth is the editor column's width: the full width when stacked, a bit
-// under half when side by side, clamped so neither pane collapses. The extra
-// 6 leaves room for the frame's border and padding, which is measured against
-// this same width.
+// under half when side by side, clamped so neither pane collapses. The extra 6
+// reserves room for the frame's border and padding around this column; the
+// frame itself is measured off the assembled body, not cw, because side by
+// side the body is the joined pair of panes, not just this one column.
 func (m *wizardModel) contentWidth() int {
 	w := m.width - 4 - 6
 	if m.sideBySide() {
@@ -312,7 +313,7 @@ func (m *wizardModel) editorPane(cw int) string {
 	b.WriteString(style.Title.Render(c.title))
 	b.WriteString("\n")
 	if c.subtitle != "" {
-		b.WriteString(style.Subtitle.Render(c.subtitle))
+		b.WriteString(style.Subtitle.Render(lipgloss.NewStyle().Width(cw).Render(c.subtitle)))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")

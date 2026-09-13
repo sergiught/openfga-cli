@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	lipgloss "charm.land/lipgloss/v2"
 
 	"github.com/sergiught/go-openfga/openfga"
 
@@ -426,6 +427,31 @@ func TestAFramedEditorStillShowsItsPreview(t *testing.T) {
 	}
 	if !strings.Contains(out, "organization:acme") {
 		t.Fatalf("the preview vanished from the framed editor:\n%s", out)
+	}
+}
+
+// No screen may render a line wider than the terminal it was given: the
+// frame's border and padding are new cells competing for the same width, and
+// nothing else in the suite checks for this class of overflow.
+func TestNoScreenOverflowsTheTerminal(t *testing.T) {
+	sizes := []struct{ w, h int }{
+		{minCols, minRows},  // the floor
+		{72, 24},            // stacked, mid width
+		{sideBySideMin, 30}, // side by side
+	}
+	for scr, c := range screenChrome {
+		for _, sz := range sizes {
+			m := newTestWizard(t, nil)
+			m.stack = []screen{scr}
+			m.Update(tea.WindowSizeMsg{Width: sz.w, Height: sz.h})
+			out := m.viewString()
+			for _, line := range strings.Split(out, "\n") {
+				if w := lipgloss.Width(line); w > sz.w {
+					t.Fatalf("%q at %dx%d: a line is %d cells wide, wider than the terminal:\n%s",
+						c.title, sz.w, sz.h, w, out)
+				}
+			}
+		}
 	}
 }
 
