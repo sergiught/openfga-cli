@@ -10,66 +10,8 @@ import (
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/logo"
+	"github.com/sergiught/openfga-cli/internal/ui/picker"
 )
-
-// --- picker: a small vertical single-select list with descriptions ---
-
-type pickItem struct {
-	title string
-	desc  string
-	value string
-}
-
-type picker struct {
-	items  []pickItem
-	cursor int
-}
-
-func newPicker(items []pickItem) *picker { return &picker{items: items} }
-
-func (p *picker) move(d int) {
-	if len(p.items) == 0 {
-		return
-	}
-	p.cursor = (p.cursor + d + len(p.items)) % len(p.items)
-}
-
-func (p *picker) selected() pickItem {
-	if p.cursor < 0 || p.cursor >= len(p.items) {
-		return pickItem{}
-	}
-	return p.items[p.cursor]
-}
-
-func (p *picker) view(width int) string {
-	var b strings.Builder
-	for i, it := range p.items {
-		if i > 0 {
-			b.WriteString("\n")
-		}
-		if i == p.cursor {
-			b.WriteString(lipgloss.NewStyle().Foreground(style.Primary).Render("▌ "))
-			b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(style.Fg).Render(it.title))
-		} else {
-			b.WriteString("  " + lipgloss.NewStyle().Foreground(style.Muted).Render(it.title))
-		}
-		if it.desc != "" {
-			b.WriteString("\n    " + lipgloss.NewStyle().Foreground(style.Faintc).Render(clamp(it.desc, width-4)))
-		}
-	}
-	return b.String()
-}
-
-func clamp(s string, w int) string {
-	r := []rune(s)
-	if w < 1 || len(r) <= w {
-		return s
-	}
-	if w <= 1 {
-		return string(r[:w])
-	}
-	return string(r[:w-1]) + "…"
-}
 
 // --- view ---
 
@@ -177,7 +119,7 @@ func (m *wizardModel) stepBody(cw int) string {
 	case stepConnection:
 		return m.connForm.View()
 	case stepAuthMethod:
-		return m.authPick.view(cw)
+		return m.authPick.View(cw)
 	case stepAuthDetails:
 		return m.authForm.View()
 	case stepProbe:
@@ -199,7 +141,7 @@ func (m *wizardModel) probeBody() string {
 	}
 	if m.connErr != nil {
 		return style.Failure.Render("✗ Couldn't connect") + "\n" +
-			lipgloss.NewStyle().Foreground(style.Muted).Render(clamp(m.connErr.Error(), 60)) + "\n\n" +
+			lipgloss.NewStyle().Foreground(style.Muted).Render(picker.Clamp(m.connErr.Error(), 60)) + "\n\n" +
 			style.Warn.Render("That's OK — you can finish setup and fix the connection later.")
 	}
 	n := len(m.stores)
@@ -221,7 +163,7 @@ func (m *wizardModel) storeBody(cw int) string {
 	}
 	head := lipgloss.NewStyle().Foreground(style.Faintc).Render(
 		fmt.Sprintf("%d store%s available", len(m.stores), plural(len(m.stores))))
-	return head + "\n\n" + m.storePick.view(cw)
+	return head + "\n\n" + m.storePick.View(cw)
 }
 
 func (m *wizardModel) modelBody(cw int) string {
@@ -238,9 +180,9 @@ func (m *wizardModel) modelBody(cw int) string {
 	}
 	if len(m.models) == 0 {
 		return lipgloss.NewStyle().Foreground(style.Muted).Render("This store has no models yet.") +
-			"\n\n" + m.modelPick.view(cw)
+			"\n\n" + m.modelPick.View(cw)
 	}
-	return m.modelPick.view(cw)
+	return m.modelPick.View(cw)
 }
 
 func (m *wizardModel) reviewBody(cw int) string {
@@ -256,7 +198,7 @@ func (m *wizardModel) reviewBody(cw int) string {
 			b.WriteString("\n")
 		}
 		key := lipgloss.NewStyle().Foreground(style.Muted).Width(10).Render(r[0])
-		b.WriteString(key + "  " + style.Value.Render(clamp(r[1], cw-12)))
+		b.WriteString(key + "  " + style.Value.Render(picker.Clamp(r[1], cw-12)))
 	}
 	if m.seed.overwrite {
 		b.WriteString("\n\n" + lipgloss.NewStyle().Foreground(style.Amber).Width(cw).Render(
