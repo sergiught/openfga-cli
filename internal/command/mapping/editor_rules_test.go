@@ -192,3 +192,23 @@ func TestEscFromRuleHubReturnsToRulesHubAndSyncs(t *testing.T) {
 		t.Fatalf("the hub was not resynced:\n%s", m.rulesBody())
 	}
 }
+
+// TestRuleHubEnterOpensSectionWithoutRenderingFirst guards the C1 fix:
+// m.sections must be populated by refresh() (reached from every mutation),
+// not by rendering. If the picker were instead rebuilt only in the view, the
+// first keypress against a never-rendered rule hub would hit an empty picker,
+// Selected() would return a zero Item, and the keypress would be silently
+// swallowed. Do not "simplify" this test by calling m.viewString() or
+// m.View() before the keys below — that would repopulate m.sections as a
+// side effect and mask the exact regression this test exists to catch.
+func TestRuleHubEnterOpensSectionWithoutRenderingFirst(t *testing.T) {
+	m := atRulesHub(t)
+	send(m, key("a"), key("esc"))
+	if m.top() != screenRule {
+		t.Fatalf("top = %v, want the rule hub", m.top())
+	}
+	send(m, key("down"), key("enter")) // cursor -> "Action" row, non-zero cursor
+	if m.top() != screenAction {
+		t.Fatalf("top = %v, want action; the section picker was likely empty", m.top())
+	}
+}
