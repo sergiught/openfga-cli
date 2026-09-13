@@ -208,7 +208,7 @@ func TestModelFileLoadsAndBadFileStaysOnTheField(t *testing.T) {
 	if m.top() != screenModelFile {
 		t.Fatalf("a bad model must keep the field: top = %v", m.top())
 	}
-	if !strings.Contains(m.viewString(), "model.fga") && m.errMsg == "" {
+	if m.errMsg == "" {
 		t.Fatalf("expected an error on the field:\n%s", m.viewString())
 	}
 
@@ -226,7 +226,7 @@ func TestRulesHubEmptyStateAndQuit(t *testing.T) {
 	m := newTestWizard(t, nil)
 	send(m, key("enter"), key("enter")) // skip the model
 
-	if !strings.Contains(m.viewString(), "a") || !strings.Contains(strings.ToLower(m.viewString()), "add") {
+	if !strings.Contains(strings.ToLower(m.viewString()), "add") {
 		t.Fatalf("empty state should explain `a`:\n%s", m.viewString())
 	}
 	// With no rules there is nothing to lose, so esc quits without confirming.
