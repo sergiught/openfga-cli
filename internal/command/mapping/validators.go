@@ -113,10 +113,13 @@ func vFilterObject(s string) error {
 	if strings.Contains(stripped, ":") {
 		return nil
 	}
-	// A value that is entirely one template (stripped down to nothing but
-	// placeholders) has no literal text to check the colon in at all — its shape
-	// is decided at evaluation time, not here.
-	if strings.Trim(stripped, "T") == "" {
+	// A value that is nothing but one template has no literal text to check the
+	// colon in at all — its shape is decided at evaluation time, not here. Test
+	// the original rather than the stripped form: stripTemplates marks each
+	// template with a "T" but does not record which "T"s it wrote, so a literal
+	// value of "TTT" is indistinguishable from three placeholders once stripped.
+	t := strings.TrimSpace(s)
+	if strings.HasPrefix(t, "{{") && strings.HasSuffix(t, "}}") && strings.Count(t, "{{") == 1 {
 		return nil
 	}
 	return errors.New("needs a type prefix like organization: before the id")

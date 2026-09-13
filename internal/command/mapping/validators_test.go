@@ -52,6 +52,13 @@ func TestValidatorsCheckShapeAndStayQuietOnEmpty(t *testing.T) {
 		{"filter object templated id", vFilterObject, "organization:{{ input.data.object.id }}", false},
 		{"filter object bare type", vFilterObject, "organization", true},
 		{"filter object templated whole", vFilterObject, "{{ input.obj }}", false},
+		// stripTemplates marks a template with "T", so a literal run of T's must
+		// not be mistaken for one: it is as colonless as "organization".
+		{"filter object literal T", vFilterObject, "T", true},
+		{"filter object literal TTT", vFilterObject, "TTT", true},
+		{"filter object literal T then template", vFilterObject, "T{{ x }}", true},
+		{"filter object two templates no colon", vFilterObject, "{{ a }}{{ b }}", true},
+		{"filter object two templates with colon", vFilterObject, "{{ a }}:{{ b }}", false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
