@@ -163,6 +163,35 @@ func TestPathPickInIteratorScopeUsesTheAlias(t *testing.T) {
 	}
 }
 
+// A user who is inside an iterator has already picked a sample event, so being
+// told to go and pick one sends them to a screen where nothing is wrong. What is
+// wrong is the iterator source: it finds no list in the event they picked.
+func TestPathPickInsideAnUnresolvableIteratorNamesTheSource(t *testing.T) {
+	m := atTuples(t)
+	event := userCreatedEvent()
+	event["data"].(map[string]any)["object"].(map[string]any)["identities"] = []any{}
+	m.rule().Sample = &mapping.Sample{Label: "user.created", Event: event}
+	m.rule().Iterator = &mapping.Iterator{
+		Source: "input.data.object.identities",
+		As:     "identity",
+	}
+	m.inIter = true
+	m.openTuples()
+	send(m, key("a"))
+	m.tupleForm.FocusIndex(int(fieldObject))
+	send(m, key("ctrl+p"))
+
+	if m.top() == screenPathPick {
+		t.Fatal("an iterator over an empty list has no paths to pick")
+	}
+	if !strings.Contains(m.errMsg, "input.data.object.identities") {
+		t.Fatalf("the message should name the iterator source, got %q", m.errMsg)
+	}
+	if strings.Contains(m.errMsg, "pick a sample event") {
+		t.Fatalf("the sample is already picked, got %q", m.errMsg)
+	}
+}
+
 func TestEscClosesThePathPickWithoutChanging(t *testing.T) {
 	m := atTupleWithSample(t)
 	m.tupleForm.SetValues(tupleValues(map[tupleField]string{fieldObject: "untouched"}))

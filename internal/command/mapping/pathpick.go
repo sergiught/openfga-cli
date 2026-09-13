@@ -19,13 +19,29 @@ import (
 func (m *wizardModel) openPathPick(f *field.Form, idx int, template bool) {
 	items := m.pathItems()
 	if len(items) == 0 {
-		m.errMsg = "pick a sample event first (ctrl+e on the Trigger screen) to browse its paths"
+		m.errMsg = m.noPathsMessage()
 		return
 	}
 	m.pathTarget, m.pathIdx, m.pathTmpl = f, idx, template
 	m.paths.SetItems(items)
 	m.paths.ResetFilter()
 	m.push(screenPathPick)
+}
+
+// noPathsMessage says why there is nothing to browse. A missing sample is the
+// usual reason, but inside an iterator the source has to resolve to a non-empty
+// array in that sample too — and telling a user who has already picked an event
+// to go and pick one sends them somewhere they cannot fix it.
+func (m *wizardModel) noPathsMessage() string {
+	r := m.rule()
+	if r == nil || r.Sample == nil {
+		return "pick a sample event first (ctrl+e on the Trigger screen) to browse its paths"
+	}
+	if m.inIter && r.Iterator != nil && r.Iterator.As != "" {
+		return fmt.Sprintf("%s does not resolve to a list of objects in the sample event",
+			r.Iterator.Source)
+	}
+	return "the sample event has no paths to browse"
 }
 
 // pathItems lists the sample's paths. Inside an iterator the paths are rewritten
