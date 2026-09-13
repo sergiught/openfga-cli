@@ -186,16 +186,11 @@ func (f *Field) insert(text string) {
 	if f.kind != kindText {
 		return
 	}
+	clean := []rune(style.SanitizeTerminal(text))
 	pos := f.in.Position()
 	val := []rune(f.in.Value())
-	if pos < 0 {
-		pos = 0
-	}
-	if pos > len(val) {
-		pos = len(val)
-	}
-	f.in.SetValue(string(val[:pos]) + text + string(val[pos:]))
-	f.in.SetCursor(pos + len([]rune(text)))
+	f.in.SetValue(string(val[:pos]) + string(clean) + string(val[pos:]))
+	f.in.SetCursor(pos + len(clean))
 }
 
 // inputView renders the field's input line (no label), honoring focus and the

@@ -107,6 +107,26 @@ func TestPathPickIsFilterable(t *testing.T) {
 	}
 }
 
+// TestPathPickFilterKeepsTheCaretWhereTheUserLeftIt guards against a real
+// interactive regression: resyncing the filter's matches must not also drag
+// the filter input's caret to the end, or editing in the middle of a filter
+// (arrow left, then type) would land the new characters in the wrong place.
+func TestPathPickFilterKeepsTheCaretWhereTheUserLeftIt(t *testing.T) {
+	m := atTupleWithSample(t)
+	m.tupleForm.FocusIndex(int(fieldUser))
+	send(m, key("ctrl+p"))
+
+	send(m, key("/"))
+	typeText(m, "user")
+	send(m, key("left"))
+	typeText(m, "X")
+
+	want := "useXr"
+	if got := m.paths.Model.FilterValue(); got != want {
+		t.Fatalf("filter value = %q, want %q", got, want)
+	}
+}
+
 func TestPathPickWithoutASampleExplainsItself(t *testing.T) {
 	m := atTuples(t) // atTuples sets no sample
 	send(m, key("a"))
@@ -114,7 +134,7 @@ func TestPathPickWithoutASampleExplainsItself(t *testing.T) {
 	send(m, key("ctrl+p"))
 
 	if m.top() == screenPathPick {
-		t.Fatal("there is nothing to pick without a sample")
+		t.Fatal("there is nothing to pick from without a sample")
 	}
 	if !strings.Contains(m.errMsg, "sample") {
 		t.Fatalf("errMsg = %q", m.errMsg)

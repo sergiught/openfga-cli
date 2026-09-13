@@ -3,7 +3,6 @@ package mapping
 import (
 	"fmt"
 
-	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/sergiught/openfga-cli/internal/mapping"
@@ -71,7 +70,7 @@ func (m *wizardModel) pathItems() []uilist.Item {
 func (m *wizardModel) keyPathPick(k tea.KeyPressMsg) tea.Cmd {
 	if m.paths.SettingFilter() {
 		cmd := m.paths.Update(k)
-		m.resyncPathFilter()
+		m.paths.ResyncFilter()
 		return cmd
 	}
 	switch k.String() {
@@ -86,22 +85,6 @@ func (m *wizardModel) keyPathPick(k tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 	return m.paths.Update(k)
-}
-
-// resyncPathFilter recomputes the path list's filtered matches synchronously.
-// bubbles hands the recomputed matches back as a command for a running program
-// to execute and feed back in; without a bubbletea runtime driving the wizard
-// (as in its tests, which send keys directly) that command never runs, so the
-// visible items would lag a keystroke behind. Reapplying inline is safe: it is
-// pure matching over items already set, the same justification List.SetItems
-// gives for doing the same.
-func (m *wizardModel) resyncPathFilter() {
-	if !m.paths.Model.SettingFilter() {
-		return
-	}
-	text := m.paths.Model.FilterValue()
-	m.paths.Model.SetFilterText(text)
-	m.paths.Model.SetFilterState(list.Filtering)
 }
 
 // insertPath splices the chosen path into the field at the cursor: wrapped in

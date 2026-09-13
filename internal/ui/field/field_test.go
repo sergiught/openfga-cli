@@ -104,6 +104,20 @@ func TestSetValuesSanitizesTerminalControls(t *testing.T) {
 	}
 }
 
+// TestInsertSanitizesTerminalControls guards the same invariant as
+// TestSetValuesSanitizesTerminalControls, but for Insert's own write path:
+// Field.insert must run text through style.SanitizeTerminal rather than
+// writing it straight into the textinput, or a Unicode bidi-override rune
+// (invisible on screen, reordering what is displayed) and CSI residue that
+// bubbles' own textinput leaves behind would both survive a paste.
+func TestInsertSanitizesTerminalControls(t *testing.T) {
+	f := NewForm(New("Name", ""))
+	f.Insert(0, "doc\u202egnp")
+	if got := f.Values()[0]; got != "docgnp" {
+		t.Fatalf("field retained a bidi-override rune: %q", got)
+	}
+}
+
 func TestFocusedInputStartsAtCursor(t *testing.T) {
 	f := NewForm(New("User", "user:anne"), New("Relation", "viewer"))
 	f.SetWidth(40)
