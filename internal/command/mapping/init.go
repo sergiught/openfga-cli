@@ -111,8 +111,10 @@ func targetPath(args []string) string {
 	return defaultFile
 }
 
-// saveMapping writes data to path atomically, creating parent directories —
-// atomicfile needs the destination directory to exist.
+// saveMapping writes data to path atomically. atomicfile deliberately leaves
+// creating the destination directory to its caller; for a wizard that has just
+// spent the user's time authoring a mapping, failing the save on a missing
+// parent is worse than creating one, so we create it.
 func saveMapping(path string, data []byte) error {
 	if dir := filepath.Dir(path); dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0o750); err != nil {
