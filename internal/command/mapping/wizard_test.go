@@ -491,7 +491,7 @@ func TestCtrlCQuitsFromAnyScreen(t *testing.T) {
 		{"rules hub", atRulesHub},
 		{"trigger form", func(t *testing.T) *wizardModel {
 			m := atRulesHub(t)
-			send(m, key("a"))
+			addRuleAtTrigger(m)
 			return m
 		}},
 	} {
@@ -510,7 +510,7 @@ func TestCtrlCQuitsFromAnyScreen(t *testing.T) {
 // everything typed next.
 func TestEnterOnTheLastFieldCommitsAndLeavesTheForm(t *testing.T) {
 	m := atRulesHub(t)
-	send(m, key("a"))
+	addRuleAtTrigger(m)
 	if m.top() != screenTrigger {
 		t.Fatalf("top = %v, want trigger", m.top())
 	}

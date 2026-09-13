@@ -9,11 +9,19 @@ import (
 	"github.com/sergiught/openfga-cli/internal/mapping"
 )
 
-// atTrigger returns a wizard with one fresh rule, sitting on the trigger screen.
+// atTrigger returns a wizard with one fresh rule, sitting on the trigger
+// screen. "a" now opens the payload-kind fork rather than a blank rule (see
+// TestAddRuleOpensTheRuleHubOnTrigger), so this wires the rule directly —
+// exactly what addRule used to do — to keep testing the trigger screen itself
+// independent of that fork.
 func atTrigger(t *testing.T) *wizardModel {
 	t.Helper()
 	m := atRulesHub(t)
-	send(m, key("a"))
+	m.doc.Rules = append(m.doc.Rules, mapping.Rule{})
+	m.ruleIdx = len(m.doc.Rules) - 1
+	m.syncRules()
+	m.push(screenRule)
+	m.openTrigger()
 	if m.top() != screenTrigger {
 		t.Fatalf("top = %v", m.top())
 	}

@@ -56,14 +56,12 @@ func (m *wizardModel) keyRules(k tea.KeyPressMsg) tea.Cmd {
 	return cmd
 }
 
-// addRule appends an empty rule and opens it on Trigger, which is the only
-// section that must be filled in for the rule to mean anything.
+// addRule asks what the user is mapping before creating anything. The rule
+// itself is only appended once a pick is accepted (see keyPayloadKind and
+// keyEventPaste) — an abandoned pick must not leave an empty rule behind on
+// the hub.
 func (m *wizardModel) addRule() {
-	m.doc.Rules = append(m.doc.Rules, mapping.Rule{})
-	m.ruleIdx = len(m.doc.Rules) - 1
-	m.syncRules()
-	m.push(screenRule)
-	m.openTrigger()
+	m.openPayloadKind()
 }
 
 func (m *wizardModel) openRule(i int) {

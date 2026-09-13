@@ -18,6 +18,19 @@ func atRulesHub(t *testing.T) *wizardModel {
 	return m
 }
 
+// addRuleAtTrigger creates a fresh rule and opens it on the trigger screen,
+// exactly what "a" used to do before it started routing through the
+// payload-kind fork (see TestAddRuleOpensTheRuleHubOnTrigger). Tests below
+// that only exercise the rule hub or trigger machinery wire the rule in
+// directly rather than walking the fork.
+func addRuleAtTrigger(m *wizardModel) {
+	m.doc.Rules = append(m.doc.Rules, mapping.Rule{})
+	m.ruleIdx = len(m.doc.Rules) - 1
+	m.syncRules()
+	m.push(screenRule)
+	m.openTrigger()
+}
+
 // mappingRule builds a rule with n placeholder tuples, for hub-rendering tests.
 func mappingRule(name, event string, n int) []mapping.Rule {
 	r := mapping.Rule{Name: name, When: `input.type == "` + event + `"`}
@@ -27,17 +40,39 @@ func mappingRule(name, event string, n int) []mapping.Rule {
 	return []mapping.Rule{r}
 }
 
+// TestAddRuleOpensTheRuleHubOnTrigger proves the fix for the data-loss bug
+// task 6 could otherwise have introduced: "a" alone must append nothing (an
+// abandoned pick must not strand an empty rule on the hub), and walking the
+// full path — kind screen, own payload, paste, accept — must create exactly
+// one rule with the pasted sample attached, addressed by a fresh ruleIdx
+// rather than a stale one.
 func TestAddRuleOpensTheRuleHubOnTrigger(t *testing.T) {
 	m := atRulesHub(t)
 	send(m, key("a"))
-	if len(m.doc.Rules) != 1 {
-		t.Fatalf("rules = %d", len(m.doc.Rules))
+	if len(m.doc.Rules) != 0 {
+		t.Fatalf("rules = %d, want 0 — picking must not append until accepted", len(m.doc.Rules))
 	}
-	if m.top() != screenTrigger {
-		t.Fatalf("top = %v, want trigger", m.top())
+	send(m, key("esc"))
+	if len(m.doc.Rules) != 0 {
+		t.Fatalf("abandoning the pick appended a rule: %d", len(m.doc.Rules))
+	}
+
+	send(m, key("a"), key("down"), key("enter")) // kind screen -> "Another JSON payload" -> paste
+	if m.top() != screenEventPaste {
+		t.Fatalf("top = %v, want the paste screen", m.top())
+	}
+	m.paste.SetValue(`{"type": "user.created"}`)
+	send(m, key("ctrl+d"))
+
+	if len(m.doc.Rules) != 1 {
+		t.Fatalf("rules = %d, want 1", len(m.doc.Rules))
 	}
 	if m.ruleIdx != 0 {
 		t.Fatalf("ruleIdx = %d", m.ruleIdx)
+	}
+	r := m.rule()
+	if r == nil || r.Sample == nil || r.Sample.Label != "user.created" {
+		t.Fatalf("rule = %+v, want the pasted sample attached", r)
 	}
 }
 
@@ -56,7 +91,7 @@ func TestRulesHubListsRulesWithStatus(t *testing.T) {
 
 func TestDeleteRuleConfirms(t *testing.T) {
 	m := atRulesHub(t)
-	send(m, key("a"))   // add a rule
+	addRuleAtTrigger(m) // add a rule
 	send(m, key("esc")) // trigger -> rule hub
 	send(m, key("esc")) // rule hub -> rules hub
 	send(m, key("d"))
@@ -78,7 +113,8 @@ func TestDeleteRuleConfirms(t *testing.T) {
 
 func TestRuleHubListsSixSections(t *testing.T) {
 	m := atRulesHub(t)
-	send(m, key("a"), key("esc"))
+	addRuleAtTrigger(m)
+	send(m, key("esc"))
 	if m.top() != screenRule {
 		t.Fatalf("top = %v", m.top())
 	}
@@ -92,7 +128,8 @@ func TestRuleHubListsSixSections(t *testing.T) {
 
 func TestRuleHubShowsSectionProblems(t *testing.T) {
 	m := atRulesHub(t)
-	send(m, key("a"), key("esc"))
+	addRuleAtTrigger(m)
+	send(m, key("esc"))
 	// A brand-new rule has no tuples, which lint reports as blocking.
 	if !strings.Contains(m.viewString(), "no tuples") {
 		t.Fatalf("the hub should surface the lint problem:\n%s", m.viewString())
@@ -101,7 +138,7 @@ func TestRuleHubShowsSectionProblems(t *testing.T) {
 
 func TestApplyEventTypeAutoFillsNameAndWhen(t *testing.T) {
 	m := atRulesHub(t)
-	send(m, key("a"))
+	addRuleAtTrigger(m)
 	m.applyEventType("organization.member.added")
 
 	r := m.rule()
@@ -118,7 +155,7 @@ func TestApplyEventTypeAutoFillsNameAndWhen(t *testing.T) {
 
 func TestApplyEventTypeReplacesUntouchedAutoFill(t *testing.T) {
 	m := atRulesHub(t)
-	send(m, key("a"))
+	addRuleAtTrigger(m)
 	m.applyEventType("organization.member.added")
 	m.applyEventType("organization.member.deleted")
 
@@ -133,7 +170,7 @@ func TestApplyEventTypeReplacesUntouchedAutoFill(t *testing.T) {
 
 func TestApplyEventTypeNeverClobbersHandEdits(t *testing.T) {
 	m := atRulesHub(t)
-	send(m, key("a"))
+	addRuleAtTrigger(m)
 	m.applyEventType("organization.member.added")
 
 	r := m.rule()
@@ -153,7 +190,7 @@ func TestApplyEventTypeNeverClobbersHandEdits(t *testing.T) {
 
 func TestApplyEventTypeFillsEmptyFieldsEvenAfterAHandEdit(t *testing.T) {
 	m := atRulesHub(t)
-	send(m, key("a"))
+	addRuleAtTrigger(m)
 	r := m.rule()
 	r.Name = "my-rule"
 	// `when` was never set, so it is still fair game.
@@ -168,7 +205,7 @@ func TestApplyEventTypeFillsEmptyFieldsEvenAfterAHandEdit(t *testing.T) {
 
 func TestTriggerFormEditsNameAndWhen(t *testing.T) {
 	m := atRulesHub(t)
-	send(m, key("a"))
+	addRuleAtTrigger(m)
 	if m.top() != screenTrigger {
 		t.Fatalf("top = %v", m.top())
 	}
@@ -182,7 +219,7 @@ func TestTriggerFormEditsNameAndWhen(t *testing.T) {
 
 func TestEscFromRuleHubReturnsToRulesHubAndSyncs(t *testing.T) {
 	m := atRulesHub(t)
-	send(m, key("a"))
+	addRuleAtTrigger(m)
 	m.applyEventType("user.created")
 	send(m, key("esc"), key("esc"))
 	if m.top() != screenRules {
@@ -203,7 +240,8 @@ func TestEscFromRuleHubReturnsToRulesHubAndSyncs(t *testing.T) {
 // side effect and mask the exact regression this test exists to catch.
 func TestRuleHubEnterOpensSectionWithoutRenderingFirst(t *testing.T) {
 	m := atRulesHub(t)
-	send(m, key("a"), key("esc"))
+	addRuleAtTrigger(m)
+	send(m, key("esc"))
 	if m.top() != screenRule {
 		t.Fatalf("top = %v, want the rule hub", m.top())
 	}

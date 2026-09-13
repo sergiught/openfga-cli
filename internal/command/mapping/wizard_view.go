@@ -108,6 +108,10 @@ var screenChrome = map[screen]chrome{
 		"Rule", "Pick a part of this rule to edit.",
 		[]keyHint{{"↑↓", "move"}, {"↵", "open"}, {"^s", "save"}, {"esc", "back"}},
 	},
+	screenPayloadKind: {
+		"What are you mapping?", "Start from a ready-made example, or bring your own payload.",
+		[]keyHint{{"↑↓", "move"}, {"↵", "choose"}, {"esc", "back"}},
+	},
 	// Every form screen commits its fields on the way out, so its esc reads
 	// "done" rather than "back": "back" is what a user presses when they want to
 	// throw the edit away, and here it would keep it.
@@ -343,6 +347,8 @@ func (m *wizardModel) screenBody(cw int) string {
 		return m.rulesBody()
 	case screenRule:
 		return m.sections.View(cw)
+	case screenPayloadKind:
+		return m.kindPick.View(cw)
 	case screenTrigger:
 		return m.trigger.View()
 	case screenEventPick:

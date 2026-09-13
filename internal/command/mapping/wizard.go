@@ -46,6 +46,7 @@ const (
 	screenPathPick
 	screenConfirmSave
 	screenConfirmDelete
+	screenPayloadKind
 )
 
 // sideBySideMin is the width at which the preview pane moves beside the editor
@@ -92,6 +93,7 @@ type wizardModel struct {
 	sourcePick *picker.Picker
 	modelPath  *field.Form
 	rules      *uilist.List
+	kindPick   *picker.Picker
 	sections   *picker.Picker
 	trigger    *field.Form
 	events     *uilist.List
@@ -155,6 +157,10 @@ func newWizard(ctx context.Context, path, profile string, load modelLoader) *wiz
 		field.New("Rule name", "organization.member.added"),
 		field.New("When (expression)", `input.type == "organization.member.added"`),
 	)
+	m.kindPick = picker.New([]picker.Item{
+		{Title: "Auth0 events", Desc: "21 event types, each with a worked mapping", Value: "auth0"},
+		{Title: "Another JSON payload", Desc: "paste or load your own event", Value: "other"},
+	})
 	m.sections = picker.New(nil)
 	m.events = uilist.New()
 	m.events.SetFilterPlaceholder("filter events")
@@ -298,6 +304,8 @@ func (m *wizardModel) key(k tea.KeyPressMsg) tea.Cmd {
 		return m.keyRules(k)
 	case screenRule:
 		return m.keyRule(k)
+	case screenPayloadKind:
+		return m.keyPayloadKind(k)
 	case screenTrigger:
 		return m.keyTrigger(k)
 	case screenEventPick:

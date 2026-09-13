@@ -19,7 +19,7 @@ func atTuples(t *testing.T) *wizardModel {
 	})
 	send(m, key("enter"), key("up"), key("up"), key("enter"))
 	m.Update(m.loadCmd())
-	send(m, key("a"))   // add a rule; lands on trigger
+	addRuleAtTrigger(m) // add a rule; lands on trigger
 	send(m, key("esc")) // -> rule hub
 	m.sections.SetCursor(5)
 	send(m, key("enter"))
@@ -138,7 +138,9 @@ func TestOtherLeavesTheFieldAlone(t *testing.T) {
 
 func TestWithoutAModelEveryFieldIsFreeText(t *testing.T) {
 	m := newTestWizard(t, nil)
-	send(m, key("enter"), key("enter"), key("a"), key("esc"))
+	send(m, key("enter"), key("enter"))
+	addRuleAtTrigger(m)
+	send(m, key("esc"))
 	m.sections.SetCursor(5)
 	send(m, key("enter"), key("a"))
 

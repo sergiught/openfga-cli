@@ -158,7 +158,8 @@ func TestSaveDialogSeesAnEditMadeOnTheWayToIt(t *testing.T) {
 
 func TestSaveWithProblemsAsksFirst(t *testing.T) {
 	m := atRulesHub(t)
-	send(m, key("a"), key("esc"), key("esc")) // a rule with no tuples
+	addRuleAtTrigger(m) // a rule with no tuples
+	send(m, key("esc"), key("esc"))
 	send(m, key("ctrl+s"))
 
 	v := m.viewString()
@@ -181,7 +182,8 @@ func TestSaveWithProblemsAsksFirst(t *testing.T) {
 
 func TestSaveAnywayWritesTheBrokenDocument(t *testing.T) {
 	m := atRulesHub(t)
-	send(m, key("a"), key("esc"), key("esc"))
+	addRuleAtTrigger(m) // a rule with no tuples
+	send(m, key("esc"), key("esc"))
 	send(m, key("ctrl+s"))
 	send(m, key("s")) // save anyway
 
@@ -237,13 +239,9 @@ func TestTheWholeFlowWritesAMappingFile(t *testing.T) {
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	send(m, key("enter"), key("enter")) // welcome -> model source -> skip
 
-	send(m, key("a"))      // add rule, lands on Trigger
-	send(m, key("ctrl+e")) // pick an event from the catalog
-	if !m.events.SelectID("organization.member.added") {
-		t.Fatal("catalog event not found")
-	}
-	send(m, key("enter")) // pick it, back on Trigger
-	send(m, key("esc"))   // commit trigger, back to the rule hub
+	send(m, key("a"), key("down"), key("enter")) // add rule: kind screen -> own payload -> paste
+	m.paste.SetValue(`{"type": "organization.member.added", "data": {"object": {"organization": {"id": "org_1234567890abcdef"}, "user": {"user_id": "auth0|507f1f77bcf86cd799439020"}}}}`)
+	send(m, key("ctrl+d")) // accept the pasted event, lands on the rule hub
 
 	send(m, key("down"), key("down"), key("down"), key("down"), key("down")) // Trigger -> Tuples
 	send(m, key("enter"))                                                    // open Tuples

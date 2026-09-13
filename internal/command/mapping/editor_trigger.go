@@ -175,6 +175,20 @@ func (m *wizardModel) keyEventPaste(k tea.KeyPressMsg) tea.Cmd {
 			m.errMsg = err.Error()
 			return nil
 		}
+		if m.stack[len(m.stack)-2] == screenPayloadKind {
+			// Reached straight from the fork, with no rule behind it yet. The
+			// rule is created here, on accept, rather than when the fork was
+			// entered — otherwise esc on an abandoned pick would strand an
+			// empty rule on the hub.
+			m.doc.Rules = append(m.doc.Rules, mapping.Rule{})
+			m.ruleIdx = len(m.doc.Rules) - 1
+			m.syncRules()
+			m.setSample(eventLabel(event), event)
+			m.pop() // paste -> payload kind
+			m.pop() // payload kind -> rules hub
+			m.push(screenRule)
+			return nil
+		}
 		m.setSample(eventLabel(event), event)
 		m.pop() // paste -> event pick
 		m.pop() // event pick -> trigger
