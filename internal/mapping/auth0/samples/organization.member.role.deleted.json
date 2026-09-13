@@ -1,0 +1,28 @@
+{
+  "specversion": "1.0",
+  "type": "organization.member.role.deleted",
+  "source": "urn:auth0:example.auth0app.com",
+  "id": "evt_vjFVP5pVdfvsfRKatshkVV",
+  "time": "2025-02-01T12:34:56Z",
+  "data": {
+    "object": {
+      "organization": {
+        "id": "org_1234567890abcdef"
+      },
+      "user": {
+        "user_id": "auth0|507f1f77bcf86cd799439020"
+      },
+      "role": {
+        "id": "rol_1234567890abcdef",
+        "name": "role-name"
+      }
+    },
+    "context": {
+      "tenant": {
+        "id": "my-tenant"
+      }
+    }
+  },
+  "a0tenant": "my-tenant",
+  "a0stream": "est_vjFVP5pVdfvsfRKatshkVV"
+}

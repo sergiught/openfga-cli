@@ -1,0 +1,108 @@
+{
+  "specversion": "1.0",
+  "type": "user.updated",
+  "source": "urn:auth0:example.auth0app.com",
+  "id": "evt_vjFVP5pVdfvsfRKatshkVV",
+  "time": "2025-02-01T12:34:56Z",
+  "data": {
+    "object": {
+      "user_id": "auth0|507f1f77bcf86cd799439020",
+      "created_at": "2025-02-01T12:34:56Z",
+      "updated_at": "2025-02-01T12:34:56Z",
+      "identities": [
+        {
+          "connection": "Username-Password-Authentication",
+          "user_id": "user_id",
+          "provider": "custom",
+          "isSocial": false,
+          "profileData": {
+            "email": "john.doe@gmail.com",
+            "email_verified": false,
+            "name": "John Doe",
+            "username": "johndoe",
+            "given_name": "John",
+            "family_name": "Doe",
+            "phone_number": "+15555555555",
+            "phone_verified": false
+          }
+        }
+      ],
+      "email": "john.doe@gmail.com",
+      "email_verified": false,
+      "username": "johndoe",
+      "phone_number": "+15555555555",
+      "phone_verified": false,
+      "app_metadata": {
+        "plan": "pro"
+      },
+      "user_metadata": {
+        "hobby": "skydiving"
+      },
+      "picture": "https://secure.gravatar.com/avatar/15626c5e0c749cb912f9d1ad48dba440?s=480&r=pg&d=https%3A%2F%2Fssl.gstatic.com%2Fs2%2Fprofiles%2Fimages%2Fsilhouette80.png",
+      "name": "John Doe",
+      "nickname": "John Doe",
+      "multifactor": [
+        "multifactor"
+      ],
+      "last_ip": "10.0.0.1",
+      "last_login": "2025-02-01T12:34:56Z",
+      "logins_count": 42,
+      "blocked": false,
+      "given_name": "John",
+      "family_name": "Doe"
+    },
+    "previous_object": {
+      "user_id": "auth0|507f1f77bcf86cd799439020",
+      "created_at": "2025-02-01T12:34:56Z",
+      "updated_at": "2025-02-01T12:34:56Z",
+      "identities": [
+        {
+          "connection": "Username-Password-Authentication",
+          "user_id": "user_id",
+          "provider": "custom",
+          "isSocial": false,
+          "profileData": {
+            "email": "john.doe@gmail.com",
+            "email_verified": false,
+            "name": "John Doe",
+            "username": "johndoe",
+            "given_name": "John",
+            "family_name": "Doe",
+            "phone_number": "+15555555555",
+            "phone_verified": false
+          }
+        }
+      ],
+      "email": "john.doe@gmail.com",
+      "email_verified": false,
+      "username": "johndoe",
+      "phone_number": "+15555555555",
+      "phone_verified": false,
+      "app_metadata": {
+        "plan": "pro"
+      },
+      "user_metadata": {
+        "hobby": "skydiving"
+      },
+      "picture": "https://secure.gravatar.com/avatar/15626c5e0c749cb912f9d1ad48dba440?s=480&r=pg&d=https%3A%2F%2Fssl.gstatic.com%2Fs2%2Fprofiles%2Fimages%2Fsilhouette80.png",
+      "name": "John Doe",
+      "nickname": "John Doe",
+      "multifactor": [
+        "multifactor"
+      ],
+      "last_ip": "10.0.0.1",
+      "last_login": "2025-02-01T12:34:56Z",
+      "logins_count": 42,
+      "blocked": false,
+      "given_name": "John",
+      "family_name": "Doe"
+    },
+    "context": {
+      "tenant": {
+        "id": "my-tenant"
+      }
+    }
+  },
+  "a0tenant": "my-tenant",
+  "a0stream": "est_vjFVP5pVdfvsfRKatshkVV"
+}

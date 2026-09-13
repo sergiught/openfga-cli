@@ -1,0 +1,48 @@
+{
+  "specversion": "1.0",
+  "type": "connection.created",
+  "source": "urn:auth0:example.auth0app.com",
+  "id": "evt_vjFVP5pVdfvsfRKatshkVV",
+  "time": "2025-02-01T12:34:56Z",
+  "data": {
+    "object": {
+      "id": "con_kFOHQUeaCSC1Kjqz",
+      "name": "Username-Password-Authentication",
+      "strategy": "oidc",
+      "authentication": {
+        "active": false
+      },
+      "display_name": "My Enterprise Connection",
+      "enabled_clients": [
+        "QG4F6eABIgDzPvcKCMKUjo8c9iet2Skc"
+      ],
+      "is_domain_connection": false,
+      "metadata": {},
+      "realms": [
+        "example.com"
+      ],
+      "connected_accounts": {
+        "active": false,
+        "cross_app_access": false
+      },
+      "options": {
+        "client_id": "abc123def456ghi789",
+        "domain_aliases": [
+          "example.com"
+        ],
+        "issuer": "https://accounts.example.com",
+        "scope": "openid profile email",
+        "discovery_url": "https://provider.example.com/.well-known/openid-configuration",
+        "type": "back_channel"
+      },
+      "show_as_button": false
+    },
+    "context": {
+      "tenant": {
+        "id": "my-tenant"
+      }
+    }
+  },
+  "a0tenant": "my-tenant",
+  "a0stream": "est_vjFVP5pVdfvsfRKatshkVV"
+}

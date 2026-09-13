@@ -1,0 +1,22 @@
+{
+  "specversion": "1.0",
+  "type": "organization.deleted",
+  "source": "urn:auth0:example.auth0app.com",
+  "id": "evt_vjFVP5pVdfvsfRKatshkVV",
+  "time": "2025-02-01T12:34:56Z",
+  "data": {
+    "object": {
+      "id": "org_1234567890abcdef",
+      "name": "my-organization",
+      "display_name": "My Organization",
+      "metadata": {}
+    },
+    "context": {
+      "tenant": {
+        "id": "my-tenant"
+      }
+    }
+  },
+  "a0tenant": "my-tenant",
+  "a0stream": "est_vjFVP5pVdfvsfRKatshkVV"
+}
