@@ -56,6 +56,81 @@ func TestEveryRecipeLintsAndEvaluatesAgainstItsOwnEvent(t *testing.T) {
 	}
 }
 
+// renderRecipe evaluates one recipe against its own sample. Templates are the
+// whole point of a recipe, so the rendered values are the only ones worth
+// asserting on.
+func renderRecipe(t *testing.T, e Event) mapping.Preview {
+	t.Helper()
+	doc := &mapping.Document{Rules: []mapping.Rule{e.Recipe.Rule}}
+	p := mapping.Evaluate(context.Background(), doc, e.Sample)
+	if p.EvalErr != nil {
+		t.Fatalf("%s: evaluate: %v", e.Type, p.EvalErr)
+	}
+	return p
+}
+
+// typePrefix is the type half of "type:id", or the whole string when there is
+// no colon. A bare "organization:" prefix yields "organization", which is what
+// makes a wildcard filter comparable with a concrete tuple.
+func typePrefix(ref string) string {
+	typ, _, _ := strings.Cut(ref, ":")
+	return typ
+}
+
+// canMatch reports whether a filter aimed at these fields could ever select one
+// of the tuples, each held as its {user type, object type} prefixes. A blank
+// filter field is a wildcard in the FGA Read API, so it constrains nothing.
+func canMatch(user, object string, tuples [][2]string) bool {
+	for _, tp := range tuples {
+		if typePrefix(object) != tp[1] {
+			continue
+		}
+		if user != "" && typePrefix(user) != tp[0] {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// A tuple filter that names a field no tuple in this catalog uses deletes
+// nothing, and nothing else notices: lint only requires a filter to have an
+// object, and a rule whose filter matches nothing still evaluates cleanly. So
+// every rendered filter must be capable of selecting a tuple some recipe here
+// actually writes.
+//
+// Only type prefixes are compared. Each sample carries its own ids, so matching
+// whole rendered values would fail for unrelated reasons.
+func TestEveryFilterCanMatchATupleTheCatalogWrites(t *testing.T) {
+	var tuples [][2]string
+	for _, e := range Catalog() {
+		if len(e.Recipe.Rule.Tuples) == 0 {
+			continue
+		}
+		for _, tup := range renderRecipe(t, e).Tuples {
+			tuples = append(tuples, [2]string{typePrefix(tup.User), typePrefix(tup.Object)})
+		}
+	}
+	if len(tuples) == 0 {
+		t.Fatal("no recipe rendered a tuple, so there is nothing for a filter to match")
+	}
+
+	for _, e := range Catalog() {
+		if len(e.Recipe.Rule.Filters) == 0 {
+			continue
+		}
+		t.Run(e.Type, func(t *testing.T) {
+			for _, op := range renderRecipe(t, e).Filters {
+				for _, f := range op.Filters {
+					if !canMatch(f.User, f.Object, tuples) {
+						t.Errorf("filter user=%q object=%q matches no tuple this catalog writes", f.User, f.Object)
+					}
+				}
+			}
+		})
+	}
+}
+
 // Every event is classified exactly once. A sample added later fails here until
 // someone decides what it means.
 func TestEveryEventIsClassified(t *testing.T) {

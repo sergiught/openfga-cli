@@ -48,8 +48,9 @@ const (
 func when(typ string) string { return `input.type == "` + typ + `"` }
 
 // membership builds one of the eight relationship recipes. write says whether
-// the event grants the relationship or removes it; the action is set at rule
-// level because mapper rejects a rule that sets both levels.
+// the event grants the relationship or removes it: granting needs no action at
+// all, and removing sets "delete" once at rule level rather than on the tuple.
+// Either level is legal; what mapper rejects is a rule that sets both.
 func membership(typ, explain, user, relation, object string, write bool, reqs []mapping.Requirement) Recipe {
 	r := Recipe{Explain: explain, Requires: reqs}
 	r.Rule = mapping.Rule{
@@ -64,7 +65,9 @@ func membership(typ, explain, user, relation, object string, write bool, reqs []
 }
 
 // cleanup builds one of the four deletion recipes. A tuple filter's object is
-// mandatory — mapper rejects a blank one — so each filter names at least a type
+// mandatory — mapper rejects a blank one — while its user and relation are
+// optional. So a filter that can name the doomed object names it in full, and
+// one that cannot pins the user instead and leaves the object as a bare type
 // prefix, which is what "every organization" looks like.
 func cleanup(typ, explain string, filters []mapping.TupleFilter, reqs []mapping.Requirement) Recipe {
 	return Recipe{
@@ -99,13 +102,13 @@ func recipeFor(typ string) Recipe {
 
 	case "organization.member.role.assigned":
 		return membership(typ,
-			"A role assigned inside an organization. The relation comes from the event itself, so one rule covers every role you define.",
+			"A role assigned inside an organization. The relation comes from the event itself, so this one rule covers every role you define — but your model needs a relation per role name, and the admin relation below is only an example of the shape.",
 			tmplOrgUser, "{{ input.data.object.role.name }}", tmplOrgID, true,
 			[]mapping.Requirement{{Type: "organization", DSL: dslUser + "\n\n" + dslOrgRole}})
 
 	case "organization.member.role.deleted":
 		return membership(typ,
-			"A role taken away inside an organization. This deletes the tuple matching the assigned event that wrote it.",
+			"A role taken away inside an organization. This deletes the tuple matching the assigned event that wrote it. The relation comes from the event, so your model needs a relation per role name, and the admin relation below is only an example of the shape.",
 			tmplOrgUser, "{{ input.data.object.role.name }}", tmplOrgID, false,
 			[]mapping.Requirement{{Type: "organization", DSL: dslUser + "\n\n" + dslOrgRole}})
 
@@ -125,14 +128,14 @@ func recipeFor(typ string) Recipe {
 
 	case "organization.connection.added":
 		return membership(typ,
-			"A connection was enabled for an organization. This records which organization the connection belongs to.",
+			"A connection was associated with an organization. This records which organization the connection belongs to.",
 			tmplConnID, "connection", tmplOrgID, true,
 			[]mapping.Requirement{{Type: "organization", Relation: "connection", UserTypes: []string{"connection"},
 				DSL: dslConnection + "\n\n" + dslOrgConn}})
 
 	case "organization.connection.removed":
 		return membership(typ,
-			"A connection was disabled for an organization. This deletes the tuple the added event would have written.",
+			"A connection was dissociated from an organization. This deletes the tuple the added event would have written.",
 			tmplConnID, "connection", tmplOrgID, false,
 			[]mapping.Requirement{{Type: "organization", Relation: "connection", UserTypes: []string{"connection"},
 				DSL: dslConnection + "\n\n" + dslOrgConn}})
@@ -141,10 +144,10 @@ func recipeFor(typ string) Recipe {
 
 	case "user.deleted":
 		return cleanup(typ,
-			"A user was deleted. Tuple filters remove everything that user was related to, in every organization and every group, since no single object id names all of them.",
+			"A user was deleted. The two filters use different identifiers on purpose: the organization events identify a member by user_id, the group events by email address, so a single filter could not match both. No one object id names every organization and group, which is why these are filters and not tuples.",
 			[]mapping.TupleFilter{
 				{User: "user:{{ fga_escape(input.data.object.user_id) }}", Object: "organization:", Action: "delete"},
-				{User: "user:{{ fga_escape(input.data.object.user_id) }}", Object: "group:", Action: "delete"},
+				{User: "user:{{ fga_escape(input.data.object.email) }}", Object: "group:", Action: "delete"},
 			},
 			[]mapping.Requirement{
 				{Type: "organization", DSL: dslUser + "\n\n" + dslOrgBare},
@@ -165,15 +168,20 @@ func recipeFor(typ string) Recipe {
 
 	case "connection.deleted":
 		return cleanup(typ,
-			"A connection was deleted. This removes every tuple pointing at it.",
-			[]mapping.TupleFilter{{Object: "connection:{{ input.data.object.id }}", Action: "delete"}},
-			[]mapping.Requirement{{Type: "connection", DSL: dslConnection}})
+			"A connection was deleted. The added event put the connection on the user side of its tuple, so this filter matches on the user and sweeps every organization it was attached to.",
+			[]mapping.TupleFilter{{User: "connection:{{ input.data.object.id }}", Object: "organization:", Action: "delete"}},
+			[]mapping.Requirement{{Type: "organization", Relation: "connection", UserTypes: []string{"connection"},
+				DSL: dslConnection + "\n\n" + dslOrgConn}})
+
+	// --- no mapping: the connection settings event, which is a near miss ---
+	case "organization.connection.updated":
+		return Recipe{Explain: "Most of this event is attributes, not relationships. One field is different: is_enabled. If a tenant disables a connection rather than removing it, this is the event that fires, and you may want a rule that deletes the organization→connection tuple when is_enabled turns false."}
 
 	// --- no mapping: the four creation events ---
 	case "user.created", "organization.created", "group.created", "connection.created":
 		return Recipe{Explain: "Nothing to write yet. FGA stores relationships, not objects — a new object needs a tuple only once it is related to something. That happens in the membership events, not this one."}
 
-	// --- no mapping: the five update events ---
+	// --- no mapping: the four remaining update events ---
 	default:
 		return Recipe{Explain: "No relationship changed. This event carries a previous_object so you can compare attributes, but attributes are not relationships."}
 	}

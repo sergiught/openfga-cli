@@ -29,8 +29,8 @@ var catalog = []struct{ typ, group, summary string }{
 	{"user.deleted", "User", "A user was deleted"},
 	{"user.updated", "User", "A user's profile changed"},
 
-	{"organization.connection.added", "Organization", "A connection was enabled for an organization"},
-	{"organization.connection.removed", "Organization", "A connection was disabled for an organization"},
+	{"organization.connection.added", "Organization", "A connection was associated with an organization"},
+	{"organization.connection.removed", "Organization", "A connection was dissociated from an organization"},
 	{"organization.connection.updated", "Organization", "An organization's connection settings changed"},
 	{"organization.created", "Organization", "An organization was created"},
 	{"organization.deleted", "Organization", "An organization was deleted"},
