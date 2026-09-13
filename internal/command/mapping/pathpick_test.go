@@ -223,3 +223,49 @@ func userCreatedEvent() map[string]any {
 		},
 	}
 }
+
+// ctrl+o and ctrl+p sit next to each other in the tuple footer, and ctrl+o
+// leaves the caret inside the template it just prefilled, so inserting a path
+// there is the ordinary next keystroke — not an exotic one. Wrapping it in a
+// second pair of braces would produce `user:{{ {{ … }} }}`, which does not
+// compile.
+func TestPathInsertedInsideAnExistingTemplateIsNotWrappedAgain(t *testing.T) {
+	m := atTupleWithSample(t)
+	m.applyFieldPick(fieldUser, "user")
+	if got := m.tupleForm.Values()[fieldUser]; got != "user:{{ fga_escape() }}" {
+		t.Fatalf("prefill = %q", got)
+	}
+
+	m.tupleForm.FocusIndex(int(fieldUser))
+	send(m, key("ctrl+p"))
+	m.insertPath("input.data.object.user.user_id")
+
+	const want = "user:{{ fga_escape(input.data.object.user.user_id) }}"
+	if got := m.tupleForm.Values()[fieldUser]; got != want {
+		t.Fatalf("user = %q, want %q", got, want)
+	}
+}
+
+func TestInsideTemplate(t *testing.T) {
+	cases := []struct {
+		name string
+		s    string
+		pos  int
+		want bool
+	}{
+		{"empty field", "", 0, false},
+		{"plain text", "organization:", 13, false},
+		{"between braces", "organization:{{  }}", 16, true},
+		{"inside fga_escape", "user:{{ fga_escape() }}", 19, true},
+		{"after a closed template", "organization:{{ x }}", 20, false},
+		{"before the braces", "organization:{{ x }}", 5, false},
+		{"past the end clamps", "organization:{{  }}", 99, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := insideTemplate(c.s, c.pos); got != c.want {
+				t.Fatalf("insideTemplate(%q, %d) = %v, want %v", c.s, c.pos, got, c.want)
+			}
+		})
+	}
+}

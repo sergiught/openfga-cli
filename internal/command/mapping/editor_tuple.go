@@ -296,8 +296,13 @@ func (m *wizardModel) applyFieldPick(f tupleField, v string) {
 		values[f] = v
 	}
 	m.tupleForm.SetValues(values)
-	// Land the cursor between the braces of a freshly prefilled template so the
-	// user can type the expression straight away.
+	// Land the cursor where the expression goes, so the user can type — or press
+	// ctrl+p — straight away: inside fga_escape's parens where the prefill has
+	// them, otherwise between the braces.
+	if idx := strings.Index(values[f], "fga_escape()"); idx >= 0 {
+		m.tupleForm.SetCursor(int(f), idx+len("fga_escape("))
+		return
+	}
 	if idx := strings.Index(values[f], "{{  }}"); idx >= 0 {
 		m.tupleForm.SetCursor(int(f), idx+3)
 	}
@@ -306,6 +311,13 @@ func (m *wizardModel) applyFieldPick(f tupleField, v string) {
 // userPrefill renders a directly-related user type into its template. A
 // userset keeps its relation suffix; a wildcard has no id to fill, so it is
 // used literally.
+//
+// The plain case prefills fga_escape the way the field's own placeholder does:
+// subject ids come from the identity provider and routinely carry characters
+// FGA does not allow in an id — `auth0|507f…` is the common one — so leaving it
+// out here would teach the shape that silently produces bad tuples. The userset
+// and object prefills stay bare, matching their placeholders: those ids are
+// FGA's own, not the provider's.
 func userPrefill(v string) string {
 	if strings.HasSuffix(v, ":*") {
 		return v
@@ -313,7 +325,7 @@ func userPrefill(v string) string {
 	if typ, rel, ok := strings.Cut(v, "#"); ok {
 		return typ + ":{{  }}#" + rel
 	}
-	return v + ":{{  }}"
+	return v + ":{{ fga_escape() }}"
 }
 
 // typeOf reads the type half of an object template: "organization:{{ x }}" is

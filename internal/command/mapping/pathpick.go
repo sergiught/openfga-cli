@@ -2,6 +2,7 @@ package mapping
 
 import (
 	"fmt"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -105,6 +106,24 @@ func (m *wizardModel) keyPathPick(k tea.KeyPressMsg) tea.Cmd {
 	return m.paths.Update(k)
 }
 
+// insideTemplate reports whether the caret at pos already sits between a `{{`
+// and its closing `}}`. Picking a type from the model (ctrl+o) leaves the caret
+// inside an empty `{{  }}`, and the two shortcuts sit next to each other in the
+// same footer, so wrapping the path again there is the likely path, not the
+// exotic one — it would yield `organization:{{ {{ input.x }} }}`.
+func insideTemplate(s string, pos int) bool {
+	r := []rune(s)
+	if pos > len(r) {
+		pos = len(r)
+	}
+	if pos < 0 {
+		return false
+	}
+	before := string(r[:pos])
+	open := strings.LastIndex(before, "{{")
+	return open >= 0 && !strings.Contains(before[open:], "}}")
+}
+
 // insertPath splices the chosen path into the field at the cursor: wrapped in
 // `{{ }}` for a template field, bare for an expression field.
 func (m *wizardModel) insertPath(expr string) {
@@ -112,7 +131,7 @@ func (m *wizardModel) insertPath(expr string) {
 		return
 	}
 	text := expr
-	if m.pathTmpl {
+	if m.pathTmpl && !insideTemplate(m.pathTarget.Values()[m.pathIdx], m.pathTarget.Cursor(m.pathIdx)) {
 		text = "{{ " + expr + " }}"
 	}
 	m.pathTarget.Insert(m.pathIdx, text)

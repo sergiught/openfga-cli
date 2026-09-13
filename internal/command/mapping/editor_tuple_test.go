@@ -103,7 +103,7 @@ func TestUserPickerUsesDirectlyRelatedTypes(t *testing.T) {
 	}
 	selectByTitle(m.fieldPick, "user")
 	send(m, key("enter"))
-	if got := m.tupleForm.Values()[fieldUser]; got != "user:{{  }}" {
+	if got := m.tupleForm.Values()[fieldUser]; got != "user:{{ fga_escape() }}" {
 		t.Fatalf("user = %q", got)
 	}
 }
@@ -115,7 +115,10 @@ func TestUsersetAndWildcardPrefills(t *testing.T) {
 	if got := userPrefill("user:*"); got != "user:*" {
 		t.Fatalf("wildcard = %q", got)
 	}
-	if got := userPrefill("user"); got != "user:{{  }}" {
+	// The plain case carries fga_escape, matching the field's placeholder:
+	// subject ids come from the provider and need escaping. The userset's does
+	// not — that id is FGA's own.
+	if got := userPrefill("user"); got != "user:{{ fga_escape() }}" {
 		t.Fatalf("plain = %q", got)
 	}
 }

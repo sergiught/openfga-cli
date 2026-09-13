@@ -180,6 +180,15 @@ func (f *Field) setCursor(pos int) {
 	}
 }
 
+// cursor is the caret's rune offset within the field's text. Non-text fields
+// have no caret and report 0.
+func (f *Field) cursor() int {
+	if f.kind != kindText {
+		return 0
+	}
+	return f.in.Position()
+}
+
 // insert splices text into the field's value at its caret, leaving the caret
 // after the inserted text. No-op on non-text fields.
 func (f *Field) insert(text string) {
@@ -381,6 +390,15 @@ func (f *Form) SetCursor(i, pos int) {
 		return
 	}
 	f.fields[i].setCursor(pos)
+}
+
+// Cursor reports the caret's rune offset within field i, so a caller can see
+// what it is about to Insert into. Non-text fields have no caret and report 0.
+func (f *Form) Cursor(i int) int {
+	if i < 0 || i >= len(f.fields) {
+		return 0
+	}
+	return f.fields[i].cursor()
 }
 
 // Insert splices text into field i at its caret, leaving the caret after the
