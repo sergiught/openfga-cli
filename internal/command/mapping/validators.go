@@ -100,6 +100,28 @@ func vUserRef(s string) error {
 	return err
 }
 
+// vFilterObject checks a tuple filter's object. Unlike a filter's user and
+// relation, which may be blank to match anything, mapper requires the object to
+// carry at least a type prefix ("organization:") and rejects a blank one with
+// "must be set to at least an object type prefix". Blank is still allowed here —
+// required-ness belongs to Lint — but a value that is present must have the colon.
+func vFilterObject(s string) error {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	stripped := stripTemplates(s)
+	if strings.Contains(stripped, ":") {
+		return nil
+	}
+	// A value that is entirely one template (stripped down to nothing but
+	// placeholders) has no literal text to check the colon in at all — its shape
+	// is decided at evaluation time, not here.
+	if strings.Trim(stripped, "T") == "" {
+		return nil
+	}
+	return errors.New("must start with a type prefix, e.g. organization")
+}
+
 // vTupleAction and vFilterAction cover the two action vocabularies: a tuple is
 // written or deleted, a filter patches or deletes what a rule already owns.
 func vTupleAction(s string) error { return vOneOf(s, "write", "delete") }

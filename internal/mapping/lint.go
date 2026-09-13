@@ -63,6 +63,12 @@ func lintTuples(i int, r Rule, ix *ModelIndex) []Problem {
 		all = append(append([]Tuple{}, all...), r.Iterator.Tuples...)
 	}
 	if len(all) == 0 {
+		// A rule can do its whole job through tuple_filters — that is what the
+		// deletion events map to — so only a rule that does nothing at all is
+		// missing something.
+		if len(r.Filters) > 0 {
+			return ps
+		}
 		return append(ps, Problem{Rule: i, Section: "tuple",
 			Message: "rule has no tuples yet"})
 	}

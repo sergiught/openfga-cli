@@ -45,6 +45,13 @@ func TestValidatorsCheckShapeAndStayQuietOnEmpty(t *testing.T) {
 		{"context comma in template", vContextPairs, "r={{ f(a,b) }}, s={{ c }}", false},
 		{"context missing value", vContextPairs, "region=", true},
 		{"context missing equals", vContextPairs, "region", true},
+
+		{"filter object empty", vFilterObject, "", false},
+		{"filter object type prefix", vFilterObject, "organization:", false},
+		{"filter object full", vFilterObject, "organization:org_1", false},
+		{"filter object templated id", vFilterObject, "organization:{{ input.data.object.id }}", false},
+		{"filter object bare type", vFilterObject, "organization", true},
+		{"filter object templated whole", vFilterObject, "{{ input.obj }}", false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -101,6 +108,16 @@ func TestLintProblemsAppearWhileStillInTheForm(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("the unknown type was not reported while editing: %+v", m.problems)
+	}
+}
+
+// A blank filter object is a mapper validation error, not a wildcard, so the
+// form must say so before the document is compiled.
+func TestBlankFilterObjectIsFlaggedOnSubmit(t *testing.T) {
+	if err := vFilterObject("organization"); err == nil {
+		t.Fatal("a bare type with no colon should be rejected")
+	} else if !strings.Contains(err.Error(), "type prefix") {
+		t.Fatalf("message should name the type prefix, got %q", err)
 	}
 }
 

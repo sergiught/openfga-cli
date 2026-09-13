@@ -246,3 +246,33 @@ func TestLintCleanDocumentHasNoProblems(t *testing.T) {
 		t.Fatalf("expected a clean document: %+v", ps)
 	}
 }
+
+// A rule that only deletes tuples has no tuples of its own. mapper compiles
+// such a rule, so the wizard must let it be saved: this is the entire shape of
+// the four Auth0 deletion recipes.
+func TestAFilterOnlyRuleIsNotMissingTuples(t *testing.T) {
+	d := &mapping.Document{Rules: []mapping.Rule{{
+		Name:    "organization.deleted",
+		When:    `input.type == "organization.deleted"`,
+		Filters: []mapping.TupleFilter{{Object: "organization:{{ input.data.object.id }}", Action: "delete"}},
+	}}}
+
+	for _, p := range mapping.Blocking(mapping.Lint(d, nil)) {
+		t.Errorf("blocking problem on a valid filter-only rule: [%s/%s] %s", p.Section, p.Field, p.Message)
+	}
+}
+
+// A rule with neither tuples nor filters still does nothing, and still says so.
+func TestARuleWithNeitherTuplesNorFiltersIsFlagged(t *testing.T) {
+	d := &mapping.Document{Rules: []mapping.Rule{{Name: "r", When: "true"}}}
+
+	var found bool
+	for _, p := range mapping.Lint(d, nil) {
+		if p.Section == "tuple" && strings.Contains(p.Message, "no tuples") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("an empty rule should still be flagged")
+	}
+}

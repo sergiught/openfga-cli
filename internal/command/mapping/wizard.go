@@ -188,7 +188,7 @@ func newWizard(ctx context.Context, path, profile string, load modelLoader) *wiz
 	m.filterForm = field.NewForm(
 		field.New("User (optional)", "user:{{ fga_escape(input.data.object.user.user_id) }}").WithValidate(vUserRef),
 		field.New("Relation (optional)", "member").WithValidate(vTemplate),
-		field.New("Object (optional)", "organization:{{ input.data.object.organization.id }}").WithValidate(vObjectRef),
+		field.New("Object (optional)", "organization:{{ input.data.object.organization.id }}").WithValidate(vFilterObject),
 		field.New("Action", "delete").WithValidate(vFilterAction),
 	)
 	m.refresh()

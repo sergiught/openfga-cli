@@ -152,7 +152,7 @@ var screenChrome = map[screen]chrome{
 		[]keyHint{{"a", "add"}, {"↵", "edit"}, {"d", "delete"}, {"esc", "back"}},
 	},
 	screenFilter: {
-		"Tuple filter", "Leave a field blank to match anything.",
+		"Tuple filter", "Blank user or relation matches anything; object needs a type.",
 		[]keyHint{{"tab", "next"}, {"^p", "insert path"}, {"esc", "done"}},
 	},
 	screenPathPick: {
