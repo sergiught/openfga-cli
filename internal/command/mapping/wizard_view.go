@@ -6,11 +6,20 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/openfga/mapper/language"
 
 	"github.com/sergiught/openfga-cli/internal/style"
 	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
+	"github.com/sergiught/openfga-cli/internal/ui/logo"
+)
+
+// minCols and minRows match the connection wizard's floor, so the two refuse to
+// draw at the same size rather than one of them rendering a broken frame.
+const (
+	minCols = 44
+	minRows = 16
 )
 
 // sideBySide reports whether the preview pane sits beside the editor.
@@ -60,6 +69,130 @@ func (m *wizardModel) listHeight() int {
 	return h
 }
 
+// --- chrome ---
+
+// keyHint is one footer affordance: the key, and what pressing it does.
+type keyHint struct{ key, label string }
+
+// chrome is a screen's header copy and footer hints. Keeping every screen's
+// wording in one table means a new screen cannot ship with a title but no
+// guidance, which is how the first cut ended up with bare headings.
+type chrome struct {
+	title    string
+	subtitle string
+	keys     []keyHint
+}
+
+var screenChrome = map[screen]chrome{
+	screenWelcome: {
+		"Create a mapping", "Turn identity-provider events into OpenFGA tuples.",
+		[]keyHint{{"↵", "begin"}, {"esc", "cancel"}},
+	},
+	screenModelSource: {
+		"Authorization model", "Where should type and relation suggestions come from?",
+		[]keyHint{{"↑↓", "move"}, {"↵", "select"}, {"esc", "back"}},
+	},
+	screenModelFile: {
+		"Load a model file", "Point at a .fga or .json authorization model.",
+		[]keyHint{{"↵", "load"}, {"esc", "back"}},
+	},
+	screenRules: {
+		"Rules", "Each rule turns one kind of event into tuples.",
+		[]keyHint{{"a", "add"}, {"↵", "open"}, {"d", "delete"}, {"^s", "save"}, {"esc", "quit"}},
+	},
+	screenRule: {
+		"Rule", "Pick a part of this rule to edit.",
+		[]keyHint{{"↑↓", "move"}, {"↵", "open"}, {"^s", "save"}, {"esc", "back"}},
+	},
+	// Every form screen commits its fields on the way out, so its esc reads
+	// "done" rather than "back": "back" is what a user presses when they want to
+	// throw the edit away, and here it would keep it.
+	screenTrigger: {
+		"Trigger", "Name the rule, and say which events it matches.",
+		[]keyHint{{"tab", "next"}, {"^e", "pick event"}, {"^p", "insert path"}, {"esc", "done"}},
+	},
+	screenEventPick: {
+		"Pick an event", "Choose a sample payload to build the rule against.",
+		[]keyHint{{"/", "filter"}, {"↵", "select"}, {"esc", "back"}},
+	},
+	screenEventPaste: {
+		"Paste an event", "Paste one event payload as JSON.",
+		[]keyHint{{"^d", "accept"}, {"esc", "cancel"}},
+	},
+	screenEventFile: {
+		"Load an event", "Read a sample event from a JSON file.",
+		[]keyHint{{"↵", "load"}, {"esc", "back"}},
+	},
+	screenTuples: {
+		"Tuples", "The relationships this rule writes or deletes.",
+		[]keyHint{{"a", "add"}, {"↵", "edit"}, {"d", "delete"}, {"esc", "back"}},
+	},
+	screenTuple: {
+		"Tuple", "Wrap an expression in {{ }} to read from the event.",
+		[]keyHint{{"tab", "next"}, {"^o", "pick from model"}, {"^p", "insert path"}, {"esc", "done"}},
+	},
+	screenAction: {
+		"Rule action", "Write or delete every tuple in this rule?",
+		[]keyHint{{"↑↓", "move"}, {"↵", "select"}, {"esc", "back"}},
+	},
+	screenVariables: {
+		"Variables", "Name an expression once, then reuse it in tuples.",
+		[]keyHint{{"a", "add"}, {"↵", "edit"}, {"d", "delete"}, {"esc", "back"}},
+	},
+	screenVariable: {
+		"Variable", "A name, and the expression it stands for.",
+		[]keyHint{{"tab", "next"}, {"^p", "insert path"}, {"esc", "done"}},
+	},
+	screenIterator: {
+		"Iterator", "Repeat this rule's tuples for each item in a list.",
+		[]keyHint{{"tab", "next"}, {"^t", "edit tuples"}, {"^p", "insert path"}, {"esc", "done"}},
+	},
+	screenFilters: {
+		"Tuple filters", "Delete every existing tuple matching a pattern.",
+		[]keyHint{{"a", "add"}, {"↵", "edit"}, {"d", "delete"}, {"esc", "back"}},
+	},
+	screenFilter: {
+		"Tuple filter", "Leave a field blank to match anything.",
+		[]keyHint{{"tab", "next"}, {"^p", "insert path"}, {"esc", "done"}},
+	},
+	screenPathPick: {
+		"Insert a path", "Pick a value from the sample event.",
+		[]keyHint{{"/", "filter"}, {"↵", "insert"}, {"esc", "cancel"}},
+	},
+	screenConfirmSave: {
+		"Save the mapping", "Review what is about to be written.",
+		nil, // built by chromeFor: the offered keys depend on whether it compiles.
+	},
+	screenConfirmDelete: {
+		"Delete rule", "",
+		[]keyHint{{"y", "delete"}, {"n", "cancel"}},
+	},
+}
+
+// chromeFor returns the current screen's chrome, specialising the save dialog:
+// enter only saves a mapping with nothing to warn about, so offering it next to
+// a list of errors would invite confirming a file the user has not read.
+func (m *wizardModel) chromeFor() chrome {
+	c := screenChrome[m.top()]
+	switch {
+	case m.top() == screenRules && len(m.doc.Rules) == 0:
+		// An empty hub has nothing to open, delete or save, and offering the keys
+		// anyway sends the user to a dialog whose only content is that there was
+		// nothing to save.
+		c.keys = []keyHint{{"a", "add"}, {"esc", "quit"}}
+	case m.top() != screenConfirmSave:
+	case len(m.doc.Rules) == 0:
+		c.keys = []keyHint{{"esc", "back"}}
+	case len(m.saveProblems()) == 0:
+		c.keys = []keyHint{{"↵", "save"}, {"esc", "back"}, {"q", "quit without saving"}}
+	default:
+		c.keys = []keyHint{{"s", "save anyway"}, {"esc", "back"}, {"q", "quit without saving"}}
+	}
+	return c
+}
+
+// --- frame ---
+
 func (m *wizardModel) View() tea.View {
 	v := tea.NewView(m.viewString())
 	v.AltScreen = true
@@ -68,180 +201,307 @@ func (m *wizardModel) View() tea.View {
 }
 
 func (m *wizardModel) viewString() string {
-	body := m.editor()
-	if !m.sideBySide() {
-		return body + "\n\n" + m.previewPane(m.width-4)
+	if m.width < minCols || m.height < minRows {
+		return lipgloss.Place(max(m.width, 1), max(m.height, 1),
+			lipgloss.Center, lipgloss.Center,
+			style.Faint.Render(fmt.Sprintf("terminal too small — need %d×%d", minCols, minRows)))
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top,
-		lipgloss.NewStyle().Width(m.width/2).Render(body),
-		m.previewPane(m.width/2-4),
-	)
+	if m.carded() {
+		return m.cardView()
+	}
+	return m.paneView()
 }
 
-func (m *wizardModel) editor() string {
-	var b strings.Builder
-	b.WriteString(m.header())
-	b.WriteString("\n\n")
+// carded reports whether this screen draws as a centered card rather than the
+// flat two-pane editor. The welcome screen is the tour's front door and matches
+// the connection wizard exactly; the confirmations are modals, which is the one
+// surface the rest of the CLI also boxes.
+func (m *wizardModel) carded() bool {
+	switch m.top() {
+	case screenWelcome, screenConfirmSave, screenConfirmDelete:
+		return true
+	}
+	return false
+}
 
+// cardWidth is the centered card's content width. It deliberately ignores
+// contentWidth, which is half the screen so the preview can sit beside it — a
+// card has the whole terminal to itself.
+func (m *wizardModel) cardWidth() int {
+	w := m.width - 12
+	if w < 32 {
+		w = 32
+	}
+	if w > 64 {
+		w = 64
+	}
+	return w
+}
+
+func (m *wizardModel) cardView() string {
+	c := m.chromeFor()
+	cw := m.cardWidth()
+
+	var b strings.Builder
+	if m.top() == screenWelcome {
+		b.WriteString(logo.Wordmark(-1))
+		b.WriteString("\n\n")
+	}
+	b.WriteString(style.Title.Render(c.title))
+	b.WriteString("\n")
+	if c.subtitle != "" {
+		b.WriteString(style.Subtitle.Render(lipgloss.NewStyle().Width(cw).Render(c.subtitle)))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	b.WriteString(m.cardBody(cw))
+
+	// lipgloss counts the border and padding inside Width, so the card has to be
+	// cw + 4 columns of padding + 2 of border for the content area to be exactly
+	// cw. Anything narrower re-wraps text that was already wrapped to cw, which
+	// strands the last word of a line on its own row.
+	card := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(style.Subtle).
+		Padding(1, 2).
+		Width(cw + 6).
+		Render(b.String())
+
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+		card+"\n"+" "+renderHints(c.keys))
+}
+
+func (m *wizardModel) cardBody(cw int) string {
 	switch m.top() {
 	case screenWelcome:
-		b.WriteString(m.welcomeBody())
-	case screenModelSource:
-		b.WriteString(m.sourcePick.View(m.contentWidth()))
-	case screenModelFile:
-		b.WriteString(m.modelPath.View())
-	case screenRules:
-		b.WriteString(m.rulesBody())
-	case screenRule:
-		b.WriteString(m.sections.View(m.contentWidth()))
-	case screenTrigger:
-		b.WriteString(m.trigger.View())
-	case screenEventPick:
-		b.WriteString(m.events.View())
-	case screenEventPaste:
-		b.WriteString(m.paste.View())
-	case screenEventFile:
-		b.WriteString(m.eventPath.View())
-	case screenTuples:
-		if len(*m.tuplesOrEmpty()) == 0 {
-			b.WriteString(lipgloss.NewStyle().Foreground(style.Muted).Render(
-				"No tuples yet.\n\nPress " +
-					lipgloss.NewStyle().Bold(true).Foreground(style.Fg).Render("a") +
-					" to add one."))
-		} else {
-			b.WriteString(m.tupleList.View())
-		}
-	case screenTuple:
-		if m.fieldPick != nil {
-			b.WriteString(m.fieldPick.View(m.contentWidth()))
-			break
-		}
-		b.WriteString(m.tupleForm.View())
-		if len(m.ctxKeys) > 0 {
-			b.WriteString("\n" + lipgloss.NewStyle().Foreground(style.Muted).Render(
-				"condition parameters: "+strings.Join(m.ctxKeys, ", ")))
-		}
-	case screenAction:
-		b.WriteString(m.actionPick.View(m.contentWidth()))
-	case screenVariables:
-		b.WriteString(listOrEmpty(m.varList, "No variables yet.\n\nPress a to add one."))
-	case screenVariable:
-		b.WriteString(m.varForm.View())
-	case screenIterator:
-		b.WriteString(m.iterForm.View())
-	case screenFilters:
-		b.WriteString(listOrEmpty(m.filterList, "No tuple filters yet.\n\nPress a to add one."))
-	case screenFilter:
-		b.WriteString(m.filterForm.View())
-	case screenPathPick:
-		b.WriteString(m.paths.View())
+		return m.welcomeBody(cw)
 	case screenConfirmSave:
-		b.WriteString(m.saveSummary())
+		return m.saveSummary()
 	case screenConfirmDelete:
-		b.WriteString(m.confirmMsg + "\n\n" + "y delete · n cancel")
-	default:
-		b.WriteString("")
+		return lipgloss.NewStyle().Width(cw).Render(m.confirmMsg)
 	}
+	return ""
+}
+
+// paneView is the working frame: the editor on the left under a focused section
+// header, the live preview beside or below it, and a status bar pinned to the
+// last rows.
+func (m *wizardModel) paneView() string {
+	cw := m.contentWidth()
+
+	body := m.editorPane(cw)
+	if m.sideBySide() {
+		body = lipgloss.JoinHorizontal(lipgloss.Top,
+			lipgloss.NewStyle().Width(m.width/2).Render(body),
+			m.previewPane(m.width/2-4))
+	} else {
+		// Stacked, the two panes sit one above the other, so they share cw: a
+		// preview measured off the terminal instead would hang its rule past the
+		// editor's by however much contentWidth clamped.
+		body += "\n\n" + m.previewPane(cw)
+	}
+	// One column of breathing room so nothing sits flush against the edge; the
+	// status bar's rule spans the full width and indents its own text to match.
+	body = lipgloss.NewStyle().PaddingLeft(1).Render(body)
+
+	// Height pads the body out so the status bar lands on the bottom rows
+	// instead of floating directly under short content.
+	h := m.height - statusRows
+	if h < 1 {
+		h = 1
+	}
+	return lipgloss.NewStyle().Height(h).MaxHeight(h).Render(body) + "\n" + m.statusBar()
+}
+
+func (m *wizardModel) editorPane(cw int) string {
+	c := m.chromeFor()
+
+	var b strings.Builder
+	b.WriteString(style.SectionHeaderFocused(c.title, cw))
+	b.WriteString("\n")
+	if c.subtitle != "" {
+		b.WriteString(style.Subtitle.Render(c.subtitle))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	b.WriteString(m.screenBody(cw))
 
 	if m.errMsg != "" {
-		b.WriteString("\n\n" + lipgloss.NewStyle().Foreground(style.Red).Render("✗ "+m.errMsg))
+		b.WriteString("\n\n" + lipgloss.NewStyle().Foreground(style.Red).Render(
+			style.IconCross+" "+m.errMsg))
 	}
 	if m.noteMsg != "" {
 		b.WriteString("\n" + lipgloss.NewStyle().Foreground(style.Muted).Render(m.noteMsg))
 	}
-	b.WriteString("\n\n" + m.footer())
 	return b.String()
+}
+
+// screenBody renders the interactive content of the current screen.
+func (m *wizardModel) screenBody(cw int) string {
+	switch m.top() {
+	case screenModelSource:
+		return m.sourcePick.View(cw)
+	case screenModelFile:
+		return m.modelPath.View()
+	case screenRules:
+		return m.rulesBody()
+	case screenRule:
+		return m.sections.View(cw)
+	case screenTrigger:
+		return m.trigger.View()
+	case screenEventPick:
+		return m.events.View()
+	case screenEventPaste:
+		return m.paste.View()
+	case screenEventFile:
+		return m.eventPath.View()
+	case screenTuples:
+		if len(*m.tuplesOrEmpty()) == 0 {
+			return emptyState("No tuples yet.", "a", "add one")
+		}
+		return m.tupleList.View()
+	case screenTuple:
+		if m.fieldPick != nil {
+			return m.fieldPick.View(cw)
+		}
+		body := m.tupleForm.View()
+		if len(m.ctxKeys) > 0 {
+			body += "\n" + lipgloss.NewStyle().Foreground(style.Muted).Render(
+				"condition parameters: "+strings.Join(m.ctxKeys, ", "))
+		}
+		return body
+	case screenAction:
+		return m.actionPick.View(cw)
+	case screenVariables:
+		return listOrEmpty(m.varList, "No variables yet.", "a", "add one")
+	case screenVariable:
+		return m.varForm.View()
+	case screenIterator:
+		return m.iterForm.View()
+	case screenFilters:
+		return listOrEmpty(m.filterList, "No tuple filters yet.", "a", "add one")
+	case screenFilter:
+		return m.filterForm.View()
+	case screenPathPick:
+		return m.paths.View()
+	}
+	return ""
+}
+
+// --- status bar ---
+
+// statusRows is how many rows statusBar occupies: a rule, the location line and
+// the key hints.
+const statusRows = 3
+
+func (m *wizardModel) statusBar() string {
+	w := max(m.width, 1)
+	rule := lipgloss.NewStyle().Foreground(style.Subtle).Render(strings.Repeat("─", w))
+
+	left := m.breadcrumb()
+	if chips := m.contextChips(); chips != "" {
+		if left != "" {
+			left += lipgloss.NewStyle().Foreground(style.Faintc).Render("  ·  ")
+		}
+		left += chips
+	}
+	return rule +
+		"\n " + ansi.Truncate(left, w-2, "…") +
+		"\n " + ansi.Truncate(renderHints(m.chromeFor().keys), w-2, "…")
+}
+
+// breadcrumb answers "where am I" for a hub-and-spoke wizard, the way the
+// connection wizard's progress dots answer it for a linear one. The opening
+// screens are skipped: picking a model is a step you pass through on the way in,
+// not a level of the document you are inside, so listing it would imply the
+// rules hub hangs off it.
+func (m *wizardModel) breadcrumb() string {
+	var parts []string
+	for _, s := range m.stack {
+		switch s {
+		case screenWelcome, screenModelSource, screenModelFile:
+			continue
+		}
+		if t := screenChrome[s].title; t != "" {
+			parts = append(parts, t)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	// Keep the tail: on a deep spoke the last few hops locate you, and the hub
+	// you started from does not.
+	if len(parts) > 3 {
+		parts = append([]string{"…"}, parts[len(parts)-3:]...)
+	}
+	return lipgloss.NewStyle().Foreground(style.Muted).Render(strings.Join(parts, " › "))
+}
+
+// contextChips keep the two facts that change what the wizard can offer — the
+// file being written and whether a model is loaded — on screen at all times.
+func (m *wizardModel) contextChips() string {
+	faint := lipgloss.NewStyle().Foreground(style.Faintc)
+	chips := []string{faint.Render(style.IconStore + " " + m.path)}
+	if m.index.Empty() {
+		chips = append(chips, faint.Render(style.IconModel+" no model"))
+	} else {
+		chips = append(chips, faint.Render(fmt.Sprintf("%s %d types",
+			style.IconModel, len(m.index.TypeNames()))))
+	}
+	return strings.Join(chips, "  ")
+}
+
+// renderHints draws each affordance as a keycap pill followed by its label.
+// style.Keycap already pads one column each side, so the label is appended with
+// no separator of its own — adding one would double the gap.
+func renderHints(hs []keyHint) string {
+	parts := make([]string, 0, len(hs))
+	for _, h := range hs {
+		parts = append(parts, style.Keycap(h.key)+
+			lipgloss.NewStyle().Foreground(style.Muted).Render(h.label))
+	}
+	return strings.Join(parts, "  ")
+}
+
+// --- bodies ---
+
+// emptyState renders "nothing here yet" plus the one key that fixes it, with the
+// key picked out so it reads as an instruction rather than prose.
+func emptyState(what, key, action string) string {
+	muted := lipgloss.NewStyle().Foreground(style.Muted)
+	return muted.Render(what) + "\n\n" +
+		muted.Render("Press") + style.Keycap(key) + muted.Render("to "+action+".")
 }
 
 // listOrEmpty renders a list, or its empty state when it has no items. Every
 // list screen in the wizard needs this, so it lives here rather than in six
 // copies.
-func listOrEmpty(l *uilist.List, empty string) string {
+func listOrEmpty(l *uilist.List, what, key, action string) string {
 	if len(l.Model.Items()) == 0 {
-		return lipgloss.NewStyle().Foreground(style.Muted).Render(empty)
+		return emptyState(what, key, action)
 	}
 	return l.View()
 }
 
-func (m *wizardModel) header() string {
-	titles := map[screen]string{
-		screenWelcome:       "Create a mapping",
-		screenModelSource:   "Authorization model",
-		screenModelFile:     "Load a model file",
-		screenRules:         "Rules",
-		screenRule:          "Rule",
-		screenTrigger:       "Trigger",
-		screenEventPick:     "Pick an event",
-		screenEventPaste:    "Paste an event",
-		screenEventFile:     "Load an event",
-		screenTuples:        "Tuples",
-		screenTuple:         "Tuple",
-		screenAction:        "Rule action",
-		screenVariables:     "Variables",
-		screenVariable:      "Variable",
-		screenIterator:      "Iterator",
-		screenFilters:       "Tuple filters",
-		screenFilter:        "Tuple filter",
-		screenPathPick:      "Insert a path",
-		screenConfirmSave:   "Save the mapping",
-		screenConfirmDelete: "Delete rule",
-	}
-	t := titles[m.top()]
-	if t == "" {
-		t = "Create a mapping"
-	}
-	return lipgloss.NewStyle().Bold(true).Foreground(style.Primary).Render(t)
+func (m *wizardModel) rulesBody() string {
+	return listOrEmpty(m.rules, "No rules yet.", "a", "add the first one")
 }
 
-func (m *wizardModel) footer() string {
-	keys := map[screen]string{
-		screenWelcome:       "enter continue · esc cancel",
-		screenModelSource:   "↑/↓ move · enter select · esc back",
-		screenModelFile:     "enter load · esc back",
-		screenRules:         "a add · enter open · d delete · ctrl+s save · esc quit",
-		screenRule:          "↑/↓ move · enter open · ctrl+s save · esc back",
-		screenTrigger:       "tab next · ctrl+e pick event · ctrl+p insert path · esc back",
-		screenEventPick:     "/ filter · enter select · esc back",
-		screenEventPaste:    "ctrl+d accept · esc cancel",
-		screenEventFile:     "enter load · esc back",
-		screenTuples:        "a add · enter edit · d delete · esc back",
-		screenTuple:         "tab next · ctrl+o pick from model · ctrl+p insert path · esc back",
-		screenAction:        "↑/↓ move · enter select · esc back",
-		screenVariables:     "a add · enter edit · d delete · esc back",
-		screenVariable:      "tab next · ctrl+p insert path · esc back",
-		screenIterator:      "tab next · ctrl+t edit tuples · ctrl+p insert path · esc back",
-		screenFilters:       "a add · enter edit · d delete · esc back",
-		screenFilter:        "tab next · ctrl+p insert path · esc back",
-		screenPathPick:      "/ filter · enter insert · esc cancel",
-		screenConfirmDelete: "y delete · n cancel",
-	}
-	return lipgloss.NewStyle().Foreground(style.Faintc).Render(keys[m.top()])
-}
-
-func (m *wizardModel) welcomeBody() string {
+func (m *wizardModel) welcomeBody(cw int) string {
 	model := "no authorization model yet"
 	if !m.index.Empty() {
 		model = fmt.Sprintf("%d types loaded", len(m.index.TypeNames()))
 	}
+	prose := lipgloss.NewStyle().Foreground(style.Muted).Width(cw).Render(
+		"Pick an event, describe the tuples it should produce, and watch " +
+			"the file compile as you type.")
+	key := lipgloss.NewStyle().Foreground(style.Muted).Width(7)
 	return strings.Join([]string{
-		"Turn identity-provider events into OpenFGA tuples.",
+		prose,
 		"",
-		"You'll pick an event, describe the tuples it should produce, and watch",
-		"the mapping and its output update as you go.",
-		"",
-		lipgloss.NewStyle().Foreground(style.Muted).Render("file:  ") + m.path,
-		lipgloss.NewStyle().Foreground(style.Muted).Render("model: ") + model,
+		key.Render("file") + style.Value.Render(m.path),
+		key.Render("model") + style.Value.Render(model),
 	}, "\n")
-}
-
-func (m *wizardModel) rulesBody() string {
-	if len(m.doc.Rules) == 0 {
-		return lipgloss.NewStyle().Foreground(style.Muted).Render(
-			"No rules yet.\n\nPress " +
-				lipgloss.NewStyle().Bold(true).Foreground(style.Fg).Render("a") +
-				" to add the first one.")
-	}
-	return m.rules.View()
 }
 
 // previewPane renders the file being built and what the current sample turns
@@ -252,12 +512,15 @@ func (m *wizardModel) previewPane(w int) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString(paneTitle(m.path, w))
-	b.WriteString("\n")
-	b.WriteString(clampLines(string(m.preview.YAML), w, m.yamlLines()))
-
-	b.WriteString("\n\n")
-	b.WriteString(paneTitle("preview", w))
+	// On a short terminal the YAML half yields all its rows to the evaluation
+	// half; drop its header too, rather than leaving a heading over nothing.
+	if n := m.yamlLines(); n > 0 {
+		b.WriteString(style.SectionHeader(m.path, w))
+		b.WriteString("\n")
+		b.WriteString(clampLines(string(m.preview.YAML), w, n))
+		b.WriteString("\n\n")
+	}
+	b.WriteString(style.SectionHeader("preview", w))
 	b.WriteString("\n")
 	b.WriteString(m.evaluationLines(w))
 	return b.String()
@@ -275,15 +538,16 @@ func (m *wizardModel) yamlLines() int {
 func (m *wizardModel) evaluationLines(w int) string {
 	var out []string
 	for _, d := range m.preview.Diagnostics {
-		line := fmt.Sprintf("✗ line %d: %s", d.Position.StartLine, d.Message)
+		line := fmt.Sprintf("%s line %d: %s", style.IconCross, d.Position.StartLine, d.Message)
 		if d.Field != "" {
-			line = fmt.Sprintf("✗ line %d: %s: %s", d.Position.StartLine, d.Field, d.Message)
+			line = fmt.Sprintf("%s line %d: %s: %s",
+				style.IconCross, d.Position.StartLine, d.Field, d.Message)
 		}
 		out = append(out, lipgloss.NewStyle().Foreground(style.Red).Render(clamp(sanitizeKeepingLines(line), w)))
 	}
 	if m.preview.EvalErr != nil {
 		out = append(out, lipgloss.NewStyle().Foreground(style.Red).Render(
-			clamp(sanitizeKeepingLines("✗ "+m.preview.EvalErr.Error()), w)))
+			clamp(sanitizeKeepingLines(style.IconCross+" "+m.preview.EvalErr.Error()), w)))
 	}
 	for _, t := range m.preview.Tuples {
 		action := string(t.Action)
@@ -291,14 +555,15 @@ func (m *wizardModel) evaluationLines(w int) string {
 			action = "write"
 		}
 		// An evaluated tuple is built from the user's own event payload.
-		line := fmt.Sprintf("✓ %-6s %s  %s  %s", action, t.User, t.Relation, t.Object)
+		line := fmt.Sprintf("%s %-6s %s  %s  %s", style.IconCheck, action, t.User, t.Relation, t.Object)
 		out = append(out, lipgloss.NewStyle().Foreground(style.Green).Render(
 			clamp(style.SanitizeTerminal(line), w)))
 	}
 	for _, op := range m.preview.Filters {
 		for _, f := range op.Filters {
 			out = append(out, lipgloss.NewStyle().Foreground(style.Primary).Render(
-				clamp(style.SanitizeTerminal(fmt.Sprintf("⟳ %-6s %s", f.Action, filterSummary(f))), w)))
+				clamp(style.SanitizeTerminal(fmt.Sprintf("%s %-6s %s",
+					style.IconChange, f.Action, filterSummary(f))), w)))
 		}
 	}
 	for _, r := range m.preview.Rules {
@@ -321,14 +586,6 @@ func filterSummary(f language.TupleFilter) string {
 		}
 	}
 	return strings.Join(parts, " ")
-}
-
-func paneTitle(s string, w int) string {
-	line := s + " "
-	if pad := w - len(line); pad > 0 {
-		line += strings.Repeat("─", pad)
-	}
-	return lipgloss.NewStyle().Foreground(style.Muted).Render(line)
 }
 
 // clampLines truncates a block to n lines and each line to w cells. n <= 0 hides

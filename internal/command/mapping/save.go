@@ -95,7 +95,7 @@ func (m *wizardModel) saveSummary() string {
 
 	blocking := m.saveProblems()
 	if len(blocking) == 0 {
-		b.WriteString("\nThe mapping compiles.\n\nenter save · esc back · q quit without saving")
+		b.WriteString("\nThe mapping compiles.")
 		return b.String()
 	}
 
@@ -114,7 +114,6 @@ func (m *wizardModel) saveSummary() string {
 		}
 		fmt.Fprintf(&b, "  ✗ %s: %s\n", name, p.Message)
 	}
-	b.WriteString("\ns save anyway · esc back · q quit without saving")
 	return b.String()
 }
 
