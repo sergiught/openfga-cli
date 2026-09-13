@@ -26,11 +26,13 @@ const (
 func (m *wizardModel) sideBySide() bool { return m.width >= sideBySideMin }
 
 // contentWidth is the editor column's width: the full width when stacked, a bit
-// under half when side by side, clamped so neither pane collapses.
+// under half when side by side, clamped so neither pane collapses. The extra
+// 6 leaves room for the frame's border and padding, which is measured against
+// this same width.
 func (m *wizardModel) contentWidth() int {
-	w := m.width - 4
+	w := m.width - 4 - 6
 	if m.sideBySide() {
-		w = m.width/2 - 4
+		w = m.width/2 - 4 - 6
 	}
 	if w < 32 {
 		w = 32
@@ -62,7 +64,8 @@ func (m *wizardModel) applySize() {
 }
 
 func (m *wizardModel) listHeight() int {
-	h := m.height - 10
+	// The extra 4 leaves room for the frame's top/bottom border and padding.
+	h := m.height - 10 - 4
 	if h < 5 {
 		h = 5
 	}
@@ -210,22 +213,14 @@ func (m *wizardModel) viewString() string {
 			lipgloss.Center, lipgloss.Center,
 			style.Faint.Render(fmt.Sprintf("terminal too small — need %d×%d", minCols, minRows)))
 	}
-	if m.carded() {
+	// The welcome screen is the tour's front door and matches the connection
+	// wizard exactly; the confirmations are modals, which is the one surface the
+	// rest of the CLI also boxes. Every other screen is the two-pane editor.
+	switch m.top() {
+	case screenWelcome, screenConfirmSave, screenConfirmDelete:
 		return m.cardView()
 	}
 	return m.paneView()
-}
-
-// carded reports whether this screen draws as a centered card rather than the
-// flat two-pane editor. The welcome screen is the tour's front door and matches
-// the connection wizard exactly; the confirmations are modals, which is the one
-// surface the rest of the CLI also boxes.
-func (m *wizardModel) carded() bool {
-	switch m.top() {
-	case screenWelcome, screenConfirmSave, screenConfirmDelete:
-		return true
-	}
-	return false
 }
 
 // cardWidth is the centered card's content width. It deliberately ignores
@@ -287,8 +282,8 @@ func (m *wizardModel) paneView() string {
 	body := m.editorPane(cw)
 	if m.sideBySide() {
 		body = lipgloss.JoinHorizontal(lipgloss.Top,
-			lipgloss.NewStyle().Width(m.width/2).Render(body),
-			m.previewPane(m.width/2-4))
+			lipgloss.NewStyle().Width(m.width/2-6).Render(body),
+			m.previewPane(cw))
 	} else {
 		// Stacked, the two panes sit one above the other, so they share cw: a
 		// preview measured off the terminal instead would hang its rule past the
@@ -297,7 +292,9 @@ func (m *wizardModel) paneView() string {
 	}
 	// One column of breathing room so nothing sits flush against the edge; the
 	// status bar's rule spans the full width and indents its own text to match.
-	body = lipgloss.NewStyle().PaddingLeft(1).Render(body)
+	// The frame is measured off the assembled body rather than cw: side by
+	// side, cw is only the editor column's width, not the joined pair's.
+	body = lipgloss.NewStyle().PaddingLeft(1).Render(style.Frame(body, lipgloss.Width(body)))
 
 	// Height pads the body out so the status bar lands on the bottom rows
 	// instead of floating directly under short content.
@@ -312,7 +309,7 @@ func (m *wizardModel) editorPane(cw int) string {
 	c := m.chromeFor()
 
 	var b strings.Builder
-	b.WriteString(style.SectionHeaderFocused(c.title, cw))
+	b.WriteString(style.Title.Render(c.title))
 	b.WriteString("\n")
 	if c.subtitle != "" {
 		b.WriteString(style.Subtitle.Render(c.subtitle))

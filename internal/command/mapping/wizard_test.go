@@ -406,6 +406,29 @@ func TestSanitizingADiagnosticKeepsItsLayout(t *testing.T) {
 	}
 }
 
+// Every screen wears the same frame — that is the whole point of the visual
+// pass — and the editors keep their preview inside it.
+func TestEveryScreenIsFramed(t *testing.T) {
+	m := atRulesHub(t)
+	out := m.viewString()
+	if !strings.Contains(out, "╭") || !strings.Contains(out, "╯") {
+		t.Fatalf("the hub is not framed:\n%s", out)
+	}
+}
+
+func TestAFramedEditorStillShowsItsPreview(t *testing.T) {
+	m := atTuples(t)
+	send(m, key("a"))
+	typeText(m, "organization:acme")
+	out := m.viewString()
+	if !strings.Contains(out, "╭") {
+		t.Fatalf("the tuple form is not framed:\n%s", out)
+	}
+	if !strings.Contains(out, "organization:acme") {
+		t.Fatalf("the preview vanished from the framed editor:\n%s", out)
+	}
+}
+
 func TestPreviewPaneStacksOnNarrowTerminals(t *testing.T) {
 	m := newTestWizard(t, nil)
 	send(m, key("enter"), key("enter"))
