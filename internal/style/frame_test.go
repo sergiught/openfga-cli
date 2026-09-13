@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	lipgloss "charm.land/lipgloss/v2"
+
+	"github.com/sergiught/openfga-cli/internal/theme"
 )
 
 func TestFrameSizesToItsContent(t *testing.T) {
@@ -30,5 +32,16 @@ func TestFrameKeepsMultilineBodies(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("%q missing from frame:\n%s", want, out)
 		}
+	}
+}
+
+// The width checks above measure visible cells and the body checks look for
+// plain substrings, so both stay green if the border loses its tint. Frame is
+// the one border every wizard screen draws, so an untinted one is a visible
+// regression nothing else would catch.
+func TestFrameTintsItsBorder(t *testing.T) {
+	Apply(theme.Default())
+	if out := Frame("hello", 20); !strings.Contains(out, "\x1b[") {
+		t.Fatalf("border lost its colour — BorderForeground dropped:\n%q", out)
 	}
 }
