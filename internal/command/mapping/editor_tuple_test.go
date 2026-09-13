@@ -179,6 +179,37 @@ func TestConditionIsHiddenForDeletes(t *testing.T) {
 	}
 }
 
+// A hidden field keeps its value so unhiding restores it, but it must not
+// reach the document: mapper refuses `action: delete` alongside a condition,
+// and reopening the tuple hides the field again, so the user could not clear it
+// from the wizard.
+func TestCommitDropsFieldsTheFormIsHiding(t *testing.T) {
+	m := atTuples(t)
+	send(m, key("a"))
+	m.tupleForm.SetValues(tupleValues(map[tupleField]string{
+		fieldObject:    "organization:acme",
+		fieldRelation:  "member",
+		fieldUser:      "user:1",
+		fieldCondition: "in_region",
+		fieldContext:   "region={{ input.data.object.region }}",
+	}))
+
+	m.tupleForm.FocusIndex(int(fieldAction))
+	typeText(m, "delete")
+	if m.tupleForm.Visible(int(fieldCondition)) || m.tupleForm.Visible(int(fieldContext)) {
+		t.Fatal("a delete must hide the condition and its context")
+	}
+	send(m, key("esc"))
+
+	got := (*m.tuples())[0]
+	if got.Action != "delete" {
+		t.Fatalf("action = %q, want delete", got.Action)
+	}
+	if got.Condition != "" || len(got.Context) != 0 {
+		t.Fatalf("hidden fields reached the tuple: %+v", got)
+	}
+}
+
 func TestCommitWritesTheTupleBack(t *testing.T) {
 	m := atTuples(t)
 	send(m, key("a"))

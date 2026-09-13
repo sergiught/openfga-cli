@@ -139,15 +139,24 @@ func (m *wizardModel) commitTuple() {
 	if ts == nil || m.tupleIdx < 0 || m.tupleIdx >= len(*ts) {
 		return
 	}
-	v := m.tupleForm.Values()
+	// A hidden field keeps its value so unhiding can restore it, but it does not
+	// apply to this tuple — a delete carries no condition, and mapper refuses a
+	// document that says otherwise — so it contributes nothing here.
+	vals := m.tupleForm.Values()
+	v := func(f tupleField) string {
+		if !m.tupleForm.Visible(int(f)) {
+			return ""
+		}
+		return strings.TrimSpace(vals[f])
+	}
 	(*ts)[m.tupleIdx] = mapping.Tuple{
-		Object:    strings.TrimSpace(v[fieldObject]),
-		Relation:  strings.TrimSpace(v[fieldRelation]),
-		User:      strings.TrimSpace(v[fieldUser]),
-		When:      strings.TrimSpace(v[fieldWhen]),
-		Action:    strings.TrimSpace(v[fieldAction]),
-		Condition: strings.TrimSpace(v[fieldCondition]),
-		Context:   splitContext(v[fieldContext]),
+		Object:    v(fieldObject),
+		Relation:  v(fieldRelation),
+		User:      v(fieldUser),
+		When:      v(fieldWhen),
+		Action:    v(fieldAction),
+		Condition: v(fieldCondition),
+		Context:   splitContext(v(fieldContext)),
 	}
 	m.syncTuples()
 }
