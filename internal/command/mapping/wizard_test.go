@@ -312,6 +312,25 @@ func TestEventContentCannotDriveTheTerminal(t *testing.T) {
 	}
 }
 
+// TestSanitizingADiagnosticKeepsItsLayout guards the seam between stripping
+// escapes and preserving shape: mapper points a caret at the offending column
+// on its own line, and style.SanitizeTerminal deletes newlines along with the
+// escapes, so sanitizing a diagnostic whole collapses the caret into nonsense.
+func TestSanitizingADiagnosticKeepsItsLayout(t *testing.T) {
+	const msg = "unexpected token EOF (1:13)\n | input.type ==\x1b[31m\n | ............^"
+
+	got := sanitizeKeepingLines(msg)
+	if hasTerminalControls(got) {
+		t.Fatalf("escapes survived: %q", got)
+	}
+	if lines := strings.Count(got, "\n"); lines != 2 {
+		t.Fatalf("the caret art lost its lines: %q", got)
+	}
+	if !strings.HasSuffix(got, "| ............^") {
+		t.Fatalf("the caret should still end the message: %q", got)
+	}
+}
+
 func TestPreviewPaneStacksOnNarrowTerminals(t *testing.T) {
 	m := newTestWizard(t, nil)
 	send(m, key("enter"), key("enter"))

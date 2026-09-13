@@ -279,11 +279,11 @@ func (m *wizardModel) evaluationLines(w int) string {
 		if d.Field != "" {
 			line = fmt.Sprintf("✗ line %d: %s: %s", d.Position.StartLine, d.Field, d.Message)
 		}
-		out = append(out, lipgloss.NewStyle().Foreground(style.Red).Render(clamp(style.SanitizeTerminal(line), w)))
+		out = append(out, lipgloss.NewStyle().Foreground(style.Red).Render(clamp(sanitizeKeepingLines(line), w)))
 	}
 	if m.preview.EvalErr != nil {
 		out = append(out, lipgloss.NewStyle().Foreground(style.Red).Render(
-			clamp(style.SanitizeTerminal("✗ "+m.preview.EvalErr.Error()), w)))
+			clamp(sanitizeKeepingLines("✗ "+m.preview.EvalErr.Error()), w)))
 	}
 	for _, t := range m.preview.Tuples {
 		action := string(t.Action)
@@ -343,6 +343,19 @@ func clampLines(s string, w, n int) string {
 	}
 	for i, l := range lines {
 		lines[i] = clamp(l, w)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// sanitizeKeepingLines strips terminal control sequences the way
+// style.SanitizeTerminal does, but per line, so a message laid out across
+// several lines keeps its shape. mapper's compile and evaluation errors use
+// that layout to point a caret at the offending column, which collapses into
+// nonsense if the newlines are dropped along with the escapes.
+func sanitizeKeepingLines(s string) string {
+	lines := strings.Split(s, "\n")
+	for i := range lines {
+		lines[i] = style.SanitizeTerminal(lines[i])
 	}
 	return strings.Join(lines, "\n")
 }
