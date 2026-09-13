@@ -17,8 +17,10 @@ type Preview struct {
 	Filters     []mapper.TupleFilterOperation
 	Rules       []mapper.RuleTrace
 
-	// EvalErr holds an evaluation failure that produced no diagnostics — a
-	// context deadline, say. Compile failures come back as Diagnostics instead.
+	// EvalErr holds a failure that produced no diagnostics to show instead — a
+	// Marshal rendering failure, say, where there is no mapper error to derive
+	// diagnostics from. An evaluation error from mapper itself is total over
+	// DiagnosticsFrom, so it lands in Diagnostics, not here.
 	EvalErr error
 }
 
@@ -50,7 +52,13 @@ func Compile(d *Document) ([]byte, *mapper.Mapping, mapper.Diagnostics, error) {
 func Evaluate(ctx context.Context, d *Document, event map[string]any) Preview {
 	src, m, diags, err := Compile(d)
 	p := Preview{YAML: src, Diagnostics: diags}
-	if err != nil || m == nil || event == nil {
+	if err != nil {
+		if len(diags) == 0 {
+			p.EvalErr = err
+		}
+		return p
+	}
+	if m == nil || event == nil {
 		return p
 	}
 

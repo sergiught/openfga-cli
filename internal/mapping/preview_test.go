@@ -129,3 +129,21 @@ func TestCompileEmptyDocument(t *testing.T) {
 		t.Fatal("expected diagnostics for a zero-rule document")
 	}
 }
+
+func TestEvaluateSurfacesRenderFailureAsEvalErr(t *testing.T) {
+	d := memberAddedDoc()
+	// Invalid UTF-8 makes Marshal itself fail (yaml: cannot marshal invalid
+	// UTF-8 data as !!str) before mapper ever sees any YAML, so this exercises
+	// the render-failure branch of Evaluate rather than a compile diagnostic.
+	d.Rules[0].Name = "bad\xffname"
+	p := mapping.Evaluate(context.Background(), d, memberAddedEvent())
+	if p.OK() {
+		t.Fatal("expected a document that fails to render to not be OK")
+	}
+	if p.EvalErr == nil {
+		t.Fatalf("expected the render failure to surface as EvalErr, got diagnostics=%v", p.Diagnostics)
+	}
+	if len(p.Diagnostics) != 0 {
+		t.Fatalf("a render failure carries no mapper diagnostics, got %v", p.Diagnostics)
+	}
+}
