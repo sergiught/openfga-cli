@@ -283,6 +283,8 @@ func (m *wizardModel) key(k tea.KeyPressMsg) tea.Cmd {
 		return m.keyFilter(k)
 	case screenPathPick:
 		return m.keyPathPick(k)
+	case screenConfirmSave:
+		return m.keyConfirmSave(k)
 	case screenConfirmDelete:
 		return m.keyConfirmDelete(k)
 	}

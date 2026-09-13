@@ -135,6 +135,8 @@ func (m *wizardModel) editor() string {
 		b.WriteString(m.filterForm.View())
 	case screenPathPick:
 		b.WriteString(m.paths.View())
+	case screenConfirmSave:
+		b.WriteString(m.saveSummary())
 	case screenConfirmDelete:
 		b.WriteString(m.confirmMsg + "\n\n" + "y delete · n cancel")
 	default:
@@ -181,6 +183,7 @@ func (m *wizardModel) header() string {
 		screenFilters:       "Tuple filters",
 		screenFilter:        "Tuple filter",
 		screenPathPick:      "Insert a path",
+		screenConfirmSave:   "Save the mapping",
 		screenConfirmDelete: "Delete rule",
 	}
 	t := titles[m.top()]

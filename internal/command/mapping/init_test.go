@@ -207,3 +207,14 @@ func TestWizardEligibleRejectsNonFileStdin(t *testing.T) {
 		t.Fatal("a buffer stdin should not be eligible")
 	}
 }
+
+func TestSuccessOutputNamesTheFileAndCounts(t *testing.T) {
+	r := &wizardResult{rules: 2, tuples: 3, tests: 2}
+	if got := r.summary(); got != "2 rules, 3 tuples, 2 embedded tests" {
+		t.Fatalf("summary = %q", got)
+	}
+	one := &wizardResult{rules: 1, tuples: 1, tests: 1}
+	if got := one.summary(); got != "1 rule, 1 tuple, 1 embedded test" {
+		t.Fatalf("summary = %q", got)
+	}
+}
