@@ -19,6 +19,7 @@ type Event struct {
 	Group   string
 	Summary string
 	Sample  map[string]any
+	Recipe  Recipe
 }
 
 // catalog is ordered as the picker renders it: grouped, alphabetical within a
@@ -61,7 +62,7 @@ func Catalog() []Event {
 			// missing or malformed one fails catalog_test.go first.
 			panic(fmt.Sprintf("auth0: %v", err))
 		}
-		out = append(out, Event{Type: e.typ, Group: e.group, Summary: e.summary, Sample: sample})
+		out = append(out, Event{Type: e.typ, Group: e.group, Summary: e.summary, Sample: sample, Recipe: recipeFor(e.typ)})
 	}
 	return out
 }
