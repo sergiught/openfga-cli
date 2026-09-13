@@ -42,12 +42,18 @@ func IndexModel(m *openfga.AuthorizationModel) *ModelIndex {
 			continue
 		}
 		for rel, meta := range td.Metadata.Relations {
-			refs := make([]string, 0, len(meta.DirectlyRelatedUserTypes))
+			seen := map[string]bool{}
+			var users []string
 			for _, ref := range meta.DirectlyRelatedUserTypes {
-				refs = append(refs, renderUserRef(ref))
+				u := renderUserRef(ref)
+				if u == "" || seen[u] {
+					continue
+				}
+				seen[u] = true
+				users = append(users, u)
 			}
-			sort.Strings(refs)
-			ix.UserTypes[td.Type+"#"+rel] = refs
+			sort.Strings(users)
+			ix.UserTypes[td.Type+"#"+rel] = users
 		}
 	}
 
@@ -69,6 +75,8 @@ func IndexModel(m *openfga.AuthorizationModel) *ModelIndex {
 // folding it in here would offer "user (in_business_hours)" as a user type.
 func renderUserRef(ref openfga.RelationReference) string {
 	switch {
+	case ref.Type == "":
+		return ""
 	case ref.Wildcard != nil:
 		return ref.Type + ":*"
 	case ref.Relation != "":

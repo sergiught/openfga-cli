@@ -105,6 +105,28 @@ func TestIndexModelConditions(t *testing.T) {
 	}
 }
 
+func TestIndexModelUserTypesDeduplicatesAcrossConditions(t *testing.T) {
+	m := &openfga.AuthorizationModel{
+		TypeDefinitions: []openfga.TypeDefinition{
+			{
+				Type:      "document",
+				Relations: map[string]openfga.Userset{"viewer": {}},
+				Metadata: &openfga.Metadata{Relations: map[string]openfga.RelationMetadata{
+					"viewer": {DirectlyRelatedUserTypes: []openfga.RelationReference{
+						{Type: "user"},
+						{Type: "user", Condition: "in_business_hours"},
+					}},
+				}},
+			},
+		},
+	}
+	ix := mapping.IndexModel(m)
+	want := []string{"user"}
+	if got := ix.UserTypesFor("document", "viewer"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("viewer user types = %v, want %v", got, want)
+	}
+}
+
 // TestNilIndexIsUsable is the contract that lets the wizard hold a nil index
 // for the whole session when the user skips the model step.
 func TestNilIndexIsUsable(t *testing.T) {
