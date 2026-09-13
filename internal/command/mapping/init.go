@@ -1,14 +1,17 @@
 package mapping
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
 
+	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/atomicfile"
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
@@ -151,8 +154,37 @@ func plural(n int, noun string) string {
 	return fmt.Sprintf("%d %ss", n, noun)
 }
 
-// runWizard launches the interactive editor. It returns nil when the user
-// cancels. Replaced with the bubbletea program in the next task.
-func (c *Command) runWizard(_ *cobra.Command, _ string) (*wizardResult, error) {
-	return nil, nil
+// runWizard launches the interactive editor, returning nil when the user
+// cancels.
+func (c *Command) runWizard(cmd *cobra.Command, path string) (*wizardResult, error) {
+	profile := ""
+	if r, err := c.cli.Resolve(); err == nil {
+		profile = r.Profile
+	}
+	m := newWizard(cmd.Context(), path, profile, c.loadModel)
+	final, err := tea.NewProgram(m, tea.WithContext(cmd.Context())).Run()
+	if err != nil {
+		return nil, err
+	}
+	fm, ok := final.(*wizardModel)
+	if !ok || fm.cancelled || !fm.done {
+		return nil, nil
+	}
+	return fm.result, nil
+}
+
+// loadModel reads the store's latest authorization model. The API returns
+// models newest-first, so the first one is the latest.
+func (c *Command) loadModel(ctx context.Context) (*openfga.AuthorizationModel, error) {
+	cl, r, err := c.cli.ClientWithStore()
+	if err != nil {
+		return nil, err
+	}
+	for mod, err := range cl.AuthorizationModels.All(ctx, nil, openfga.WithStore(r.StoreID)) {
+		if err != nil {
+			return nil, err
+		}
+		return &mod, nil
+	}
+	return nil, errors.New("the store has no authorization model")
 }
