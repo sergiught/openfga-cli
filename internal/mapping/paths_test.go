@@ -1,6 +1,7 @@
 package mapping_test
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -249,7 +250,7 @@ func TestPathsAndLookupRoundTripNonASCIIKeys(t *testing.T) {
 	}
 }
 
-func TestPathsUsesJSONPathForNonIdentifierKeys(t *testing.T) {
+func TestPathsIndexesNonIdentifierKeys(t *testing.T) {
 	event := map[string]any{
 		"data": map[string]any{
 			"x-request-id": "abc-123",
@@ -259,7 +260,7 @@ func TestPathsUsesJSONPathForNonIdentifierKeys(t *testing.T) {
 
 	ps := mapping.Paths("input", event)
 
-	dash, ok := pathByExpr(ps, `json_path(input.data, "x-request-id")`)
+	dash, ok := pathByExpr(ps, `input.data["x-request-id"]`)
 	if !ok {
 		t.Fatalf("missing dashed-key path, got %+v", ps)
 	}
@@ -267,13 +268,80 @@ func TestPathsUsesJSONPathForNonIdentifierKeys(t *testing.T) {
 		t.Fatalf("dashed-key path = %+v", dash)
 	}
 
-	nested, ok := pathByExpr(ps, `json_path(input.data, "a b").c`)
+	nested, ok := pathByExpr(ps, `input.data["a b"].c`)
 	if !ok {
 		t.Fatalf("missing nested child under a spaced key, got %+v", ps)
 	}
 	if nested.Example != "nested" {
 		t.Fatalf("nested path = %+v", nested)
 	}
+}
+
+// TestPathsAgreeWithMapperOnKeysContainingDots pins the one thing a picker row
+// promises: that the expression next to the example really produces it. A key
+// with a dot in it — an Auth0 namespaced claim is the everyday case — cannot be
+// addressed with json_path, whose path argument mapper splits on ".", so the
+// example and the evaluated value would come from two different traversals.
+func TestPathsAgreeWithMapperOnKeysContainingDots(t *testing.T) {
+	event := map[string]any{
+		"data": map[string]any{
+			"https://myapp.example.com/roles": "admin",
+			"a.b":                             "literal-key",
+			"a":                               map[string]any{"b": "traversed"},
+		},
+	}
+
+	ps := mapping.Paths("input", event)
+
+	for _, want := range []string{"admin", "literal-key", "traversed"} {
+		p, ok := pathByExample(ps, want)
+		if !ok {
+			t.Fatalf("no path shows example %q, got %+v", want, ps)
+		}
+
+		got, ok := mapping.Lookup(event, p.Expr)
+		if !ok || got != want {
+			t.Fatalf("Lookup(%q) = %v, %v; want %q, true", p.Expr, got, ok, want)
+		}
+
+		if got := evalUserTemplate(t, event, p.Expr); got != "user:"+want {
+			t.Fatalf("the picker shows %q for %s, but mapper evaluates it to %q",
+				want, p.Expr, got)
+		}
+	}
+}
+
+func pathByExample(ps []mapping.Path, example string) (mapping.Path, bool) {
+	for _, p := range ps {
+		if p.Example == example {
+			return p, true
+		}
+	}
+
+	return mapping.Path{}, false
+}
+
+// evalUserTemplate runs expr through mapper as a tuple user template and
+// returns the user it produced, or "" when mapper produced no tuple.
+func evalUserTemplate(t *testing.T, event map[string]any, expr string) string {
+	t.Helper()
+
+	doc := &mapping.Document{Rules: []mapping.Rule{{
+		Name: "r",
+		When: "true",
+		Tuples: []mapping.Tuple{{
+			User:     "user:{{ " + expr + " }}",
+			Relation: "member",
+			Object:   "organization:acme",
+		}},
+	}}}
+
+	p := mapping.Evaluate(context.Background(), doc, event)
+	if len(p.Tuples) == 0 {
+		return ""
+	}
+
+	return p.Tuples[0].User
 }
 
 func TestPathsTruncatesByRunesNotBytes(t *testing.T) {

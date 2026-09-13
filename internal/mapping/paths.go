@@ -71,13 +71,18 @@ func walkPaths(prefix string, v any, depth int, out *[]Path) {
 // identifier — one with a dash, a space, or anything else outside
 // letters/digits/underscore — would silently change the meaning of the
 // expression if joined with a dot (a-b reads as subtraction), so it is
-// addressed with json_path instead.
+// indexed instead.
+//
+// Indexing, not json_path: mapper's json_path splits its path argument on "."
+// with no way to escape one, so a key that legitimately contains a dot — an
+// Auth0 namespaced claim, say — would address a different value than the
+// example shown beside it.
 func childExpr(parent, key string) string {
 	if isValidIdent(key) {
 		return parent + "." + key
 	}
 
-	return fmt.Sprintf("json_path(%s, %q)", parent, key)
+	return fmt.Sprintf("%s[%q]", parent, key)
 }
 
 func isValidIdent(s string) bool {
@@ -182,7 +187,7 @@ func (n identNode) eval(event map[string]any) (any, bool) {
 }
 
 // fieldNode looks up a key on whatever base evaluates to, whether that key
-// came from dot notation or from a json_path call.
+// came from dot notation, a `["key"]` index or a json_path call.
 type fieldNode struct {
 	base exprNode
 	key  string
@@ -224,9 +229,10 @@ func (n indexNode) eval(event map[string]any) (any, bool) {
 	return arr[n.idx], true
 }
 
-// exprParser is a small recursive-descent parser for the subset of expr
-// syntax Paths emits: dotted identifiers, `[n]` indexing, and json_path calls,
-// which can themselves nest as the base of another json_path call.
+// exprParser is a small recursive-descent parser for the subset of expr syntax
+// Paths emits: dotted identifiers and `[n]` / `["key"]` indexing. It also
+// accepts json_path calls, which Paths no longer emits but a user can still
+// type into an iterator source, and which can nest as the base of another.
 type exprParser struct {
 	s string
 	i int
@@ -269,6 +275,18 @@ func (p *exprParser) parseExpr(depth int) (exprNode, bool) {
 			base = fieldNode{base: base, key: name}
 		case '[':
 			p.i++
+
+			if p.peek() == '"' {
+				key, ok := p.parseQuotedString()
+				if !ok || p.peek() != ']' {
+					return nil, false
+				}
+
+				p.i++
+				base = fieldNode{base: base, key: key}
+
+				continue
+			}
 
 			n, ok := p.parseInt()
 			if !ok || p.peek() != ']' {
