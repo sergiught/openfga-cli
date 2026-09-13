@@ -279,11 +279,11 @@ func (m *wizardModel) evaluationLines(w int) string {
 		if d.Field != "" {
 			line = fmt.Sprintf("✗ line %d: %s: %s", d.Position.StartLine, d.Field, d.Message)
 		}
-		out = append(out, lipgloss.NewStyle().Foreground(style.Red).Render(clamp(line, w)))
+		out = append(out, lipgloss.NewStyle().Foreground(style.Red).Render(clamp(style.SanitizeTerminal(line), w)))
 	}
 	if m.preview.EvalErr != nil {
 		out = append(out, lipgloss.NewStyle().Foreground(style.Red).Render(
-			clamp("✗ "+m.preview.EvalErr.Error(), w)))
+			clamp(style.SanitizeTerminal("✗ "+m.preview.EvalErr.Error()), w)))
 	}
 	for _, t := range m.preview.Tuples {
 		action := string(t.Action)
@@ -298,13 +298,13 @@ func (m *wizardModel) evaluationLines(w int) string {
 	for _, op := range m.preview.Filters {
 		for _, f := range op.Filters {
 			out = append(out, lipgloss.NewStyle().Foreground(style.Primary).Render(
-				clamp(fmt.Sprintf("⟳ %-6s %s", f.Action, filterSummary(f)), w)))
+				clamp(style.SanitizeTerminal(fmt.Sprintf("⟳ %-6s %s", f.Action, filterSummary(f))), w)))
 		}
 	}
 	for _, r := range m.preview.Rules {
 		if r.Status == "skipped" {
 			out = append(out, lipgloss.NewStyle().Foreground(style.Faintc).Render(
-				clamp(fmt.Sprintf("– %s: skipped", r.Name), w)))
+				clamp(style.SanitizeTerminal(fmt.Sprintf("– %s: skipped", r.Name)), w)))
 		}
 	}
 	if len(out) == 0 {
