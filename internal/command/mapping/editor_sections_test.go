@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/sergiught/openfga-cli/internal/mapping"
+	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
 )
 
 // atRuleHub returns a wizard with a model and one rule, on the rule hub.
@@ -103,7 +104,7 @@ func TestIteratorFormAndNestedTuples(t *testing.T) {
 	openSection(t, m, 3, screenIterator)
 
 	m.iterForm.SetValues([]string{"input.data.object.identities", "identity"})
-	send(m, key("t")) // t opens the iterator's tuples
+	send(m, key("ctrl+t")) // ctrl+t opens the iterator's tuples
 
 	if m.top() != screenTuples {
 		t.Fatalf("top = %v", m.top())
@@ -134,11 +135,29 @@ func TestIteratorFormAndNestedTuples(t *testing.T) {
 	}
 }
 
+// TestTypingIntoIteratorSourceStaysOnTheForm guards against binding "edit
+// tuples" to a bare "t": the iterator screen is a text-entry form, and a path
+// like "input.data.object.accounts" contains the letter t several times. Every
+// one of those keystrokes must land in the Source field, not open the tuple
+// list.
+func TestTypingIntoIteratorSourceStaysOnTheForm(t *testing.T) {
+	m := atRuleHub(t)
+	openSection(t, m, 3, screenIterator)
+
+	typeText(m, "input.data.object.accounts")
+	if got := m.iterForm.Values()[0]; got != "input.data.object.accounts" {
+		t.Fatalf("source = %q", got)
+	}
+	if m.top() != screenIterator {
+		t.Fatalf("top = %v, want screenIterator", m.top())
+	}
+}
+
 func TestLeavingTheIteratorRebindsTheTupleEditor(t *testing.T) {
 	m := atRuleHub(t)
 	openSection(t, m, 3, screenIterator)
 	m.iterForm.SetValues([]string{"input.data.object.identities", "identity"})
-	send(m, key("t"), key("esc"), key("esc")) // tuples -> iterator -> rule hub
+	send(m, key("ctrl+t"), key("esc"), key("esc")) // tuples -> iterator -> rule hub
 
 	if m.inIter {
 		t.Fatal("inIter must be cleared on the way out")
@@ -208,8 +227,12 @@ func TestFilterRoundTripsThroughTheDocument(t *testing.T) {
 	if f.User == "" || f.Action != "delete" {
 		t.Fatalf("filter = %+v", f)
 	}
-	if !strings.Contains(m.viewString(), "delete") {
-		t.Fatalf("the list should show the filter:\n%s", m.viewString())
+	items := m.filterList.Model.Items()
+	if len(items) != 1 {
+		t.Fatalf("filter list items = %d, want 1", len(items))
+	}
+	if title := items[0].(uilist.Item).TitleText; !strings.Contains(title, "fga_escape") {
+		t.Fatalf("the list should show the filter:\n%s", title)
 	}
 }
 

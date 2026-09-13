@@ -181,7 +181,7 @@ func (m *wizardModel) keyIterator(k tea.KeyPressMsg) tea.Cmd {
 		m.commitIterator()
 		m.pop()
 		return nil
-	case "t":
+	case "ctrl+t":
 		// Editing the iterator's tuples needs the iterator to exist first.
 		m.commitIterator()
 		if m.rule().Iterator == nil {

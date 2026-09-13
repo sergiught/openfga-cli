@@ -206,7 +206,7 @@ func (m *wizardModel) footer() string {
 		screenAction:        "↑/↓ move · enter select · esc back",
 		screenVariables:     "a add · enter edit · d delete · esc back",
 		screenVariable:      "tab next · ctrl+p insert path · esc back",
-		screenIterator:      "tab next · t edit tuples · ctrl+p insert path · esc back",
+		screenIterator:      "tab next · ctrl+t edit tuples · ctrl+p insert path · esc back",
 		screenFilters:       "a add · enter edit · d delete · esc back",
 		screenFilter:        "tab next · ctrl+p insert path · esc back",
 		screenPathPick:      "/ filter · enter insert · esc cancel",
