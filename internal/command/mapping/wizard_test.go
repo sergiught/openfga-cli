@@ -10,6 +10,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/sergiught/go-openfga/openfga"
+
+	"github.com/sergiught/openfga-cli/internal/mapping"
 )
 
 func key(s string) tea.KeyPressMsg {
@@ -251,6 +253,62 @@ func TestPushPopStack(t *testing.T) {
 	}
 	if m.top() != screenWelcome {
 		t.Fatalf("top = %v, want welcome", m.top())
+	}
+}
+
+// hasTerminalControls reports whether s carries a sequence that does something
+// to the terminal rather than just colouring it. Lipgloss paints with SGR
+// (`ESC [ … m`), which is why a blanket search for ESC would be useless here.
+func hasTerminalControls(s string) bool {
+	return strings.Contains(s, "\x1b[2J") || strings.Contains(s, "\x1b]") || strings.Contains(s, "\a")
+}
+
+// Sample events are pasted in or read off disk — a payload captured from a
+// webhook or a log — so every value the wizard echoes back is attacker-shaped
+// text. Screen-clearing CSI and OSC window-title sequences have to be stripped
+// at each render boundary, the same way the rest of the CLI does it.
+func TestEventContentCannotDriveTheTerminal(t *testing.T) {
+	const attack = "\x1b[2J\x1b[1;1H\x1b]0;pwned\a"
+
+	m := atRulesHub(t)
+	m.doc.Rules = []mapping.Rule{{
+		Name: attack + "rule",
+		When: "true",
+		Sample: &mapping.Sample{Label: attack + "event", Event: map[string]any{
+			"type": attack + "event",
+			"data": map[string]any{"evil": attack + "id"},
+		}},
+		Tuples: []mapping.Tuple{{
+			User:     "user:1",
+			Relation: "member",
+			Object:   "organization:{{ input.data.evil }}",
+		}},
+	}}
+	m.syncRules()
+
+	// The path picker shows example values straight out of the event.
+	items := m.pathItems()
+	if len(items) == 0 {
+		t.Fatal("expected the sample to yield paths")
+	}
+	for _, it := range items {
+		if hasTerminalControls(it.DescText) {
+			t.Fatalf("path row %q carries terminal controls: %q", it.TitleText, it.DescText)
+		}
+	}
+
+	// The rules hub shows the rule name and the sample's label, both auto-filled
+	// from the event's own `type`.
+	if v := m.rules.View(); hasTerminalControls(v) {
+		t.Fatalf("the rules hub carries terminal controls:\n%q", v)
+	}
+
+	// The preview pane shows the tuples the event evaluated to.
+	if len(m.preview.Tuples) == 0 {
+		t.Fatalf("expected an evaluated tuple, diagnostics = %+v", m.preview.Diagnostics)
+	}
+	if v := m.evaluationLines(m.contentWidth()); hasTerminalControls(v) {
+		t.Fatalf("the preview pane carries terminal controls:\n%q", v)
 	}
 }
 

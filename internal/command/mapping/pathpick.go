@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/sergiught/openfga-cli/internal/mapping"
+	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/field"
 	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
 )
@@ -51,7 +52,8 @@ func (m *wizardModel) pathItems() []uilist.Item {
 	for i, p := range ps {
 		desc := p.Kind
 		if p.Example != "" {
-			desc = fmt.Sprintf("%s · %s", p.Kind, p.Example)
+			// The example is a value out of the user's own event payload.
+			desc = fmt.Sprintf("%s · %s", p.Kind, style.SanitizeTerminal(p.Example))
 		}
 		if p.IsArray {
 			desc = "array · " + desc

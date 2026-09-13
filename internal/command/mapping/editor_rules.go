@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/sergiught/openfga-cli/internal/mapping"
+	"github.com/sergiught/openfga-cli/internal/style"
 	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
 	"github.com/sergiught/openfga-cli/internal/ui/picker"
 )
@@ -80,7 +81,9 @@ func (m *wizardModel) deleteRule(i int) {
 func (m *wizardModel) syncRules() {
 	items := make([]uilist.Item, 0, len(m.doc.Rules))
 	for i, r := range m.doc.Rules {
-		name := r.Name
+		// Both halves of a row can be auto-filled from the user's own event
+		// payload, so both are sanitized before they reach the screen.
+		name := style.SanitizeTerminal(r.Name)
 		if name == "" {
 			name = "(unnamed)"
 		}
@@ -94,7 +97,7 @@ func (m *wizardModel) syncRules() {
 		}
 		event := "no event"
 		if r.Sample != nil && r.Sample.Label != "" {
-			event = r.Sample.Label
+			event = style.SanitizeTerminal(r.Sample.Label)
 		}
 		items = append(items, uilist.Item{
 			TitleText: fmt.Sprintf("%s %s", mark, name),

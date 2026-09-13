@@ -290,8 +290,10 @@ func (m *wizardModel) evaluationLines(w int) string {
 		if action == "" {
 			action = "write"
 		}
+		// An evaluated tuple is built from the user's own event payload.
+		line := fmt.Sprintf("✓ %-6s %s  %s  %s", action, t.User, t.Relation, t.Object)
 		out = append(out, lipgloss.NewStyle().Foreground(style.Green).Render(
-			clamp(fmt.Sprintf("✓ %-6s %s  %s  %s", action, t.User, t.Relation, t.Object), w)))
+			clamp(style.SanitizeTerminal(line), w)))
 	}
 	for _, op := range m.preview.Filters {
 		for _, f := range op.Filters {
