@@ -119,7 +119,7 @@ func vFilterObject(s string) error {
 	if strings.Trim(stripped, "T") == "" {
 		return nil
 	}
-	return errors.New("must start with a type prefix, e.g. organization")
+	return errors.New("needs a type prefix like organization: before the id")
 }
 
 // vTupleAction and vFilterAction cover the two action vocabularies: a tuple is
