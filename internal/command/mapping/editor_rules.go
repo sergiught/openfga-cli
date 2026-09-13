@@ -235,7 +235,6 @@ func (m *wizardModel) openAction()    { m.push(screenAction) }
 func (m *wizardModel) openVariables() { m.push(screenVariables) }
 func (m *wizardModel) openIterator()  { m.push(screenIterator) }
 func (m *wizardModel) openFilters()   { m.push(screenFilters) }
-func (m *wizardModel) openTuples()    { m.push(screenTuples) }
 
 // openPathPick is implemented in Task 15.
 func (m *wizardModel) openPathPick(_ *field.Form, _ int, _ bool) {}

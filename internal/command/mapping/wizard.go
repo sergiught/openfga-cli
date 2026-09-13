@@ -73,7 +73,7 @@ type wizardModel struct {
 	// filterIdx address the open rule's slices. inIter selects which tuple slice
 	// the tuple editor is bound to.
 	ruleIdx   int
-	tupleIdx  int //nolint:unused // wired up by the rule/tuple editor screens in task 12+
+	tupleIdx  int
 	varIdx    int //nolint:unused // wired up by the variable editor screen in task 12+
 	filterIdx int //nolint:unused // wired up by the filter editor screen in task 12+
 	inIter    bool
@@ -91,6 +91,11 @@ type wizardModel struct {
 	events     *uilist.List
 	paste      textarea.Model
 	eventPath  *field.Form
+	tupleList  *uilist.List
+	tupleForm  *field.Form
+	fieldPick  *picker.Picker
+	pickField  tupleField
+	ctxKeys    []string
 	confirmMsg string
 
 	// loadCmd is the pending model fetch, kept on the model so tests can drive
@@ -134,6 +139,8 @@ func newWizard(ctx context.Context, path, profile string, load modelLoader) *wiz
 	m.paste = textarea.New()
 	m.paste.Placeholder = `{"type": "...", "data": {"object": {}}}`
 	m.eventPath = field.NewForm(field.New("Event file", "event.json"))
+	m.tupleList = uilist.New()
+	m.tupleForm = newTupleForm()
 	m.refresh()
 	return m
 }
@@ -225,6 +232,10 @@ func (m *wizardModel) key(k tea.KeyPressMsg) tea.Cmd {
 		return m.keyEventPaste(k)
 	case screenEventFile:
 		return m.keyEventFile(k)
+	case screenTuples:
+		return m.keyTuples(k)
+	case screenTuple:
+		return m.keyTuple(k)
 	case screenConfirmDelete:
 		return m.keyConfirmDelete(k)
 	}
@@ -318,8 +329,6 @@ func (m *wizardModel) rule() *mapping.Rule {
 
 // tuples returns the slice the tuple editor is bound to: a rule's own tuples,
 // or its iterator's. Returns nil when there is no rule to edit.
-//
-//nolint:unused // called by the tuple editor screen added in task 12+
 func (m *wizardModel) tuples() *[]mapping.Tuple {
 	r := m.rule()
 	if r == nil {
@@ -332,6 +341,14 @@ func (m *wizardModel) tuples() *[]mapping.Tuple {
 		return &r.Iterator.Tuples
 	}
 	return &r.Tuples
+}
+
+// tuplesOrEmpty wraps tuples() for the render path, which must never nil-deref.
+func (m *wizardModel) tuplesOrEmpty() *[]mapping.Tuple {
+	if ts := m.tuples(); ts != nil {
+		return ts
+	}
+	return &[]mapping.Tuple{}
 }
 
 // refresh recomputes the preview and the lint problems. Called after every

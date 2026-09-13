@@ -37,7 +37,6 @@ func send(m *wizardModel, msgs ...tea.Msg) {
 	}
 }
 
-//nolint:unused // used by editor-screen tests added in task 12+
 func typeText(m *wizardModel, s string) {
 	for _, r := range s {
 		m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})

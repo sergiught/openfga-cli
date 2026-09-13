@@ -173,6 +173,13 @@ func (f *Field) setWidth(w int) {
 	}
 }
 
+// setCursor moves the caret within the field's text. No-op on non-text fields.
+func (f *Field) setCursor(pos int) {
+	if f.kind == kindText {
+		f.in.SetCursor(pos)
+	}
+}
+
 // inputView renders the field's input line (no label), honoring focus and the
 // optional highlight background.
 func (f *Field) inputView(focused bool, hl color.Color) string {
@@ -218,6 +225,7 @@ type Form struct {
 	width     int         // content width, for the focused row's full-width highlight
 	height    int         // maximum rendered rows; 0 means unconstrained
 	highlight color.Color // focused-row background; nil disables highlighting
+	visible   []bool      // per-field visibility; nil means every field is visible
 }
 
 // NewForm builds a form; the first field takes focus on Init.
@@ -304,7 +312,14 @@ func (f *Form) Update(msg tea.Msg) tea.Cmd {
 
 func (f *Form) moveFocus(d int) tea.Cmd {
 	f.fields[f.focus].blur()
-	f.focus = (f.focus + d + len(f.fields)) % len(f.fields)
+	next := f.focus
+	for i := 0; i < len(f.fields); i++ {
+		next = (next + d + len(f.fields)) % len(f.fields)
+		if f.Visible(next) {
+			break
+		}
+	}
+	f.focus = next
 	return f.fields[f.focus].focus()
 }
 
@@ -328,6 +343,41 @@ func (f *Form) FocusIndex(i int) tea.Cmd {
 // FocusedIndex returns the index of the currently focused field. Used to
 // capture focus before a form rebuild so it can be restored via FocusIndex.
 func (f *Form) FocusedIndex() int { return f.focus }
+
+// SetVisible shows or hides a field. Hidden fields are skipped by focus
+// movement and omitted from View, but keep their value so unhiding restores it.
+func (f *Form) SetVisible(i int, visible bool) {
+	if i < 0 || i >= len(f.fields) {
+		return
+	}
+	f.ensureVisible()
+	f.visible[i] = visible
+}
+
+// Visible reports whether a field is shown.
+func (f *Form) Visible(i int) bool {
+	if i < 0 || i >= len(f.fields) || f.visible == nil {
+		return i >= 0 && i < len(f.fields)
+	}
+	return f.visible[i]
+}
+
+// SetCursor moves the caret within a field's text.
+func (f *Form) SetCursor(i, pos int) {
+	if i < 0 || i >= len(f.fields) {
+		return
+	}
+	f.fields[i].setCursor(pos)
+}
+
+func (f *Form) ensureVisible() {
+	if f.visible == nil {
+		f.visible = make([]bool, len(f.fields))
+		for i := range f.visible {
+			f.visible[i] = true
+		}
+	}
+}
 
 func (f *Form) submit() {
 	ok := true
@@ -409,6 +459,10 @@ func (f *Form) View() string {
 	starts := make([]int, len(f.fields))
 	var lines []string
 	for i, fl := range f.fields {
+		if !f.Visible(i) {
+			starts[i] = len(lines)
+			continue
+		}
 		focused := i == f.focus && !f.completed
 		var b strings.Builder
 		if focused && f.highlight != nil {
@@ -425,13 +479,13 @@ func (f *Form) View() string {
 		block := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
 		blocks[i] = block
 		starts[i] = len(lines)
-		if i > 0 {
+		if len(lines) > 0 {
 			lines = append(lines, "")
 			starts[i]++
 		}
 		lines = append(lines, block...)
 	}
-	if f.height > 0 && len(lines) > f.height {
+	if f.height > 0 && len(lines) > f.height && blocks[f.focus] != nil {
 		focusBlock := blocks[f.focus]
 		if f.fields[f.focus].err != "" && len(focusBlock) > f.height {
 			if f.height == 1 {

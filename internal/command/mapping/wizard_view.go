@@ -40,6 +40,9 @@ func (m *wizardModel) applySize() {
 	m.paste.SetWidth(cw)
 	m.paste.SetHeight(m.listHeight())
 	m.eventPath.SetWidth(cw)
+	m.tupleList.SetSize(cw, m.listHeight())
+	m.tupleForm.SetWidth(cw)
+	m.tupleForm.SetHeight(m.listHeight())
 }
 
 func (m *wizardModel) listHeight() int {
@@ -92,6 +95,25 @@ func (m *wizardModel) editor() string {
 		b.WriteString(m.paste.View())
 	case screenEventFile:
 		b.WriteString(m.eventPath.View())
+	case screenTuples:
+		if len(*m.tuplesOrEmpty()) == 0 {
+			b.WriteString(lipgloss.NewStyle().Foreground(style.Muted).Render(
+				"No tuples yet.\n\nPress " +
+					lipgloss.NewStyle().Bold(true).Foreground(style.Fg).Render("a") +
+					" to add one."))
+		} else {
+			b.WriteString(m.tupleList.View())
+		}
+	case screenTuple:
+		if m.fieldPick != nil {
+			b.WriteString(m.fieldPick.View(m.contentWidth()))
+			break
+		}
+		b.WriteString(m.tupleForm.View())
+		if len(m.ctxKeys) > 0 {
+			b.WriteString("\n" + lipgloss.NewStyle().Foreground(style.Muted).Render(
+				"condition parameters: "+strings.Join(m.ctxKeys, ", ")))
+		}
 	case screenConfirmDelete:
 		b.WriteString(m.confirmMsg + "\n\n" + "y delete · n cancel")
 	default:
@@ -119,6 +141,8 @@ func (m *wizardModel) header() string {
 		screenEventPick:     "Pick an event",
 		screenEventPaste:    "Paste an event",
 		screenEventFile:     "Load an event",
+		screenTuples:        "Tuples",
+		screenTuple:         "Tuple",
 		screenConfirmDelete: "Delete rule",
 	}
 	t := titles[m.top()]
@@ -139,6 +163,8 @@ func (m *wizardModel) footer() string {
 		screenEventPick:     "/ filter · enter select · esc back",
 		screenEventPaste:    "ctrl+d accept · esc cancel",
 		screenEventFile:     "enter load · esc back",
+		screenTuples:        "a add · enter edit · d delete · esc back",
+		screenTuple:         "tab next · ctrl+o pick from model · ctrl+p insert path · esc back",
 		screenConfirmDelete: "y delete · n cancel",
 	}
 	return lipgloss.NewStyle().Foreground(style.Faintc).Render(keys[m.top()])
