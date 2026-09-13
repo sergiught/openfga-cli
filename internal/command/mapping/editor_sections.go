@@ -146,6 +146,7 @@ func (m *wizardModel) keyVariable(k tea.KeyPressMsg) tea.Cmd {
 		m.pop()
 		return nil
 	}
+	m.commitVariable()
 	return cmd
 }
 
@@ -212,6 +213,13 @@ func (m *wizardModel) keyIterator(k tea.KeyPressMsg) tea.Cmd {
 		m.commitIterator()
 		m.pop()
 		return nil
+	}
+	// Live-commit, but never the blank-source drop: that deletes the iterator
+	// along with the tuples hanging off it, and a source is momentarily blank
+	// whenever the user selects it and retypes. Deciding the iterator is gone
+	// stays an exit-time decision.
+	if strings.TrimSpace(m.iterForm.Values()[0]) != "" {
+		m.commitIterator()
 	}
 	return cmd
 }
@@ -332,5 +340,6 @@ func (m *wizardModel) keyFilter(k tea.KeyPressMsg) tea.Cmd {
 		m.pop()
 		return nil
 	}
+	m.commitFilter()
 	return cmd
 }

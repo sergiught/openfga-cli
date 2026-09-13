@@ -35,13 +35,13 @@ const otherLabel = "Other…"
 // show the template shape even before a model is loaded.
 func newTupleForm() *field.Form {
 	return field.NewForm(
-		field.New("Object", "organization:{{ input.data.object.organization.id }}"),
-		field.New("Relation", "member"),
-		field.New("User", "user:{{ fga_escape(input.data.object.user.user_id) }}"),
+		field.New("Object", "organization:{{ input.data.object.organization.id }}").WithValidate(vObjectRef),
+		field.New("Relation", "member").WithValidate(vTemplate),
+		field.New("User", "user:{{ fga_escape(input.data.object.user.user_id) }}").WithValidate(vUserRef),
 		field.New("When (optional)", `input.data.object.user.user_id != ""`),
-		field.New("Action (optional)", "write | delete"),
-		field.New("Condition (optional)", "in_region"),
-		field.New("Context (key=template, comma separated)", "region={{ input.data.object.region }}"),
+		field.New("Action (optional)", "write | delete").WithValidate(vTupleAction),
+		field.New("Condition (optional)", "in_region").WithValidate(vIdent),
+		field.New("Context (key=template, comma separated)", "region={{ input.data.object.region }}").WithValidate(vContextPairs),
 	)
 }
 
@@ -187,6 +187,12 @@ func (m *wizardModel) keyTuple(k tea.KeyPressMsg) tea.Cmd {
 	// Action and condition changes make other fields' visibility change, so
 	// re-evaluate every keystroke rather than only on blur.
 	m.syncTupleVisibility()
+	// Commit as the user types, not only on the way out. The preview pane beside
+	// the form evaluates the document, so leaving the edit uncommitted freezes
+	// the one thing the hub-and-spoke layout exists to show — and freezes the
+	// problems Lint reports with it, which is the earliest anything can tell the
+	// user the relation they just typed is not on that type.
+	m.commitTuple()
 	return cmd
 }
 

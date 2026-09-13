@@ -66,6 +66,9 @@ func (m *wizardModel) keyTrigger(k tea.KeyPressMsg) tea.Cmd {
 		m.pop()
 		return nil
 	}
+	// Commit as the user types so the preview and the problem list keep up. Same
+	// shape in keyTuple, keyVariable, keyIterator and keyFilter.
+	m.commitTrigger()
 	return cmd
 }
 

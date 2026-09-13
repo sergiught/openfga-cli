@@ -177,19 +177,19 @@ func newWizard(ctx context.Context, path, profile string, load modelLoader) *wiz
 	})
 	m.varList = uilist.New()
 	m.varForm = field.NewForm(
-		field.New("Name", "org"),
+		field.New("Name", "org").WithValidate(vIdent),
 		field.New("Expression", "input.data.object.organization.id"),
 	)
 	m.iterForm = field.NewForm(
 		field.New("Source (expression)", "input.data.object.identities"),
-		field.New("As", "identity"),
+		field.New("As", "identity").WithValidate(vIdent),
 	)
 	m.filterList = uilist.New()
 	m.filterForm = field.NewForm(
-		field.New("User (optional)", "user:{{ fga_escape(input.data.object.user.user_id) }}"),
-		field.New("Relation (optional)", "member"),
-		field.New("Object (optional)", "organization:{{ input.data.object.organization.id }}"),
-		field.New("Action", "delete"),
+		field.New("User (optional)", "user:{{ fga_escape(input.data.object.user.user_id) }}").WithValidate(vUserRef),
+		field.New("Relation (optional)", "member").WithValidate(vTemplate),
+		field.New("Object (optional)", "organization:{{ input.data.object.organization.id }}").WithValidate(vObjectRef),
+		field.New("Action", "delete").WithValidate(vFilterAction),
 	)
 	m.refresh()
 	return m
