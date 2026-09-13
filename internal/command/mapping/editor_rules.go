@@ -227,10 +227,3 @@ func (m *wizardModel) keyConfirmDelete(k tea.KeyPressMsg) tea.Cmd {
 	}
 	return nil
 }
-
-// Section openers filled in by later tasks. Each pushes its screen so the hub's
-// routing is complete and testable now.
-func (m *wizardModel) openAction()    { m.push(screenAction) }
-func (m *wizardModel) openVariables() { m.push(screenVariables) }
-func (m *wizardModel) openIterator()  { m.push(screenIterator) }
-func (m *wizardModel) openFilters()   { m.push(screenFilters) }

@@ -100,6 +100,7 @@ func (m *wizardModel) keyTuples(k tea.KeyPressMsg) tea.Cmd {
 		}
 		return nil
 	case "esc":
+		m.inIter = false
 		m.pop()
 		m.syncRules()
 		return nil

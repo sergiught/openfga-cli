@@ -10,6 +10,7 @@ import (
 	"github.com/openfga/mapper/language"
 
 	"github.com/sergiught/openfga-cli/internal/style"
+	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
 )
 
 // sideBySide reports whether the preview pane sits beside the editor.
@@ -44,6 +45,11 @@ func (m *wizardModel) applySize() {
 	m.tupleForm.SetWidth(cw)
 	m.tupleForm.SetHeight(m.listHeight())
 	m.paths.SetSize(cw, m.listHeight())
+	m.varList.SetSize(cw, m.listHeight())
+	m.varForm.SetWidth(cw)
+	m.iterForm.SetWidth(cw)
+	m.filterList.SetSize(cw, m.listHeight())
+	m.filterForm.SetWidth(cw)
 }
 
 func (m *wizardModel) listHeight() int {
@@ -115,6 +121,18 @@ func (m *wizardModel) editor() string {
 			b.WriteString("\n" + lipgloss.NewStyle().Foreground(style.Muted).Render(
 				"condition parameters: "+strings.Join(m.ctxKeys, ", ")))
 		}
+	case screenAction:
+		b.WriteString(m.actionPick.View(m.contentWidth()))
+	case screenVariables:
+		b.WriteString(listOrEmpty(m.varList, "No variables yet.\n\nPress a to add one."))
+	case screenVariable:
+		b.WriteString(m.varForm.View())
+	case screenIterator:
+		b.WriteString(m.iterForm.View())
+	case screenFilters:
+		b.WriteString(listOrEmpty(m.filterList, "No tuple filters yet.\n\nPress a to add one."))
+	case screenFilter:
+		b.WriteString(m.filterForm.View())
 	case screenPathPick:
 		b.WriteString(m.paths.View())
 	case screenConfirmDelete:
@@ -133,6 +151,16 @@ func (m *wizardModel) editor() string {
 	return b.String()
 }
 
+// listOrEmpty renders a list, or its empty state when it has no items. Every
+// list screen in the wizard needs this, so it lives here rather than in six
+// copies.
+func listOrEmpty(l *uilist.List, empty string) string {
+	if len(l.Model.Items()) == 0 {
+		return lipgloss.NewStyle().Foreground(style.Muted).Render(empty)
+	}
+	return l.View()
+}
+
 func (m *wizardModel) header() string {
 	titles := map[screen]string{
 		screenWelcome:       "Create a mapping",
@@ -146,6 +174,12 @@ func (m *wizardModel) header() string {
 		screenEventFile:     "Load an event",
 		screenTuples:        "Tuples",
 		screenTuple:         "Tuple",
+		screenAction:        "Rule action",
+		screenVariables:     "Variables",
+		screenVariable:      "Variable",
+		screenIterator:      "Iterator",
+		screenFilters:       "Tuple filters",
+		screenFilter:        "Tuple filter",
 		screenPathPick:      "Insert a path",
 		screenConfirmDelete: "Delete rule",
 	}
@@ -169,6 +203,12 @@ func (m *wizardModel) footer() string {
 		screenEventFile:     "enter load · esc back",
 		screenTuples:        "a add · enter edit · d delete · esc back",
 		screenTuple:         "tab next · ctrl+o pick from model · ctrl+p insert path · esc back",
+		screenAction:        "↑/↓ move · enter select · esc back",
+		screenVariables:     "a add · enter edit · d delete · esc back",
+		screenVariable:      "tab next · ctrl+p insert path · esc back",
+		screenIterator:      "tab next · t edit tuples · ctrl+p insert path · esc back",
+		screenFilters:       "a add · enter edit · d delete · esc back",
+		screenFilter:        "tab next · ctrl+p insert path · esc back",
 		screenPathPick:      "/ filter · enter insert · esc cancel",
 		screenConfirmDelete: "y delete · n cancel",
 	}

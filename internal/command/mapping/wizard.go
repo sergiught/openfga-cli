@@ -74,8 +74,8 @@ type wizardModel struct {
 	// the tuple editor is bound to.
 	ruleIdx   int
 	tupleIdx  int
-	varIdx    int //nolint:unused // wired up by the variable editor screen in task 12+
-	filterIdx int //nolint:unused // wired up by the filter editor screen in task 12+
+	varIdx    int
+	filterIdx int
 	inIter    bool
 
 	// Live state recomputed by refresh.
@@ -101,6 +101,12 @@ type wizardModel struct {
 	pathTarget *field.Form
 	pathIdx    int
 	pathTmpl   bool
+	actionPick *picker.Picker
+	varList    *uilist.List
+	varForm    *field.Form
+	iterForm   *field.Form
+	filterList *uilist.List
+	filterForm *field.Form
 
 	// loadCmd is the pending model fetch, kept on the model so tests can drive
 	// it without a bubbletea runtime.
@@ -147,6 +153,27 @@ func newWizard(ctx context.Context, path, profile string, load modelLoader) *wiz
 	m.tupleForm = newTupleForm()
 	m.paths = uilist.New()
 	m.paths.SetFilterPlaceholder("filter paths")
+	m.actionPick = picker.New([]picker.Item{
+		{Title: "Per tuple", Desc: "each tuple names its own action", Value: ""},
+		{Title: "write", Desc: "every tuple in this rule is written", Value: "write"},
+		{Title: "delete", Desc: "every tuple in this rule is deleted", Value: "delete"},
+	})
+	m.varList = uilist.New()
+	m.varForm = field.NewForm(
+		field.New("Name", "org"),
+		field.New("Expression", "input.data.object.organization.id"),
+	)
+	m.iterForm = field.NewForm(
+		field.New("Source (expression)", "input.data.object.identities"),
+		field.New("As", "identity"),
+	)
+	m.filterList = uilist.New()
+	m.filterForm = field.NewForm(
+		field.New("User (optional)", "user:{{ fga_escape(input.data.object.user.user_id) }}"),
+		field.New("Relation (optional)", "member"),
+		field.New("Object (optional)", "organization:{{ input.data.object.organization.id }}"),
+		field.New("Action", "delete"),
+	)
 	m.refresh()
 	return m
 }
@@ -242,6 +269,18 @@ func (m *wizardModel) key(k tea.KeyPressMsg) tea.Cmd {
 		return m.keyTuples(k)
 	case screenTuple:
 		return m.keyTuple(k)
+	case screenAction:
+		return m.keyAction(k)
+	case screenVariables:
+		return m.keyVariables(k)
+	case screenVariable:
+		return m.keyVariable(k)
+	case screenIterator:
+		return m.keyIterator(k)
+	case screenFilters:
+		return m.keyFilters(k)
+	case screenFilter:
+		return m.keyFilter(k)
 	case screenPathPick:
 		return m.keyPathPick(k)
 	case screenConfirmDelete:
