@@ -179,16 +179,18 @@ func TestLintUserTypeNotDirectlyRelatedWarns(t *testing.T) {
 			{User: "user:1", Relation: "member", Object: "organization:1"},
 			{User: "group:eng", Relation: "member", Object: "organization:1"},
 			{User: "{{ input.kind }}:1", Relation: "member", Object: "organization:1"},
+			// A templated relation half is only known at evaluation time, same as
+			// a templated type half — it must not be flagged either.
+			{User: "group:eng#{{ input.rel }}", Relation: "member", Object: "organization:1"},
 		},
 	}}}
 	ps := mapping.Lint(d, ix)
 
-	if got := problemsMatching(ps, `does not accept user type "user"`); len(got) != 0 {
-		t.Fatalf("an accepted user type should not warn: %+v", ps)
+	if len(ps) != 1 {
+		t.Fatalf("expected exactly one problem: %+v", ps)
 	}
-	got := problemsMatching(ps, `does not accept user type "group"`)
-	if len(got) != 1 || !got[0].Warning {
-		t.Fatalf("expected one unrelated-user-type warning: %+v", ps)
+	if !strings.Contains(ps[0].Message, `does not accept user type "group"`) || !ps[0].Warning {
+		t.Fatalf("expected the unrelated-user-type warning for the plain group reference: %+v", ps[0])
 	}
 }
 

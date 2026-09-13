@@ -178,7 +178,11 @@ func literalUserType(user string) (string, bool) {
 	}
 	rest := user[colon+1:]
 	if hash := strings.IndexByte(rest, '#'); hash >= 0 {
-		return typ + "#" + rest[hash+1:], true
+		relation := rest[hash+1:]
+		if strings.Contains(relation, "{{") {
+			return "", false
+		}
+		return typ + "#" + relation, true
 	}
 	return typ, true
 }
