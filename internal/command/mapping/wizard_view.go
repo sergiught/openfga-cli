@@ -260,16 +260,7 @@ func (m *wizardModel) cardView() string {
 	b.WriteString("\n")
 	b.WriteString(m.cardBody(cw))
 
-	// lipgloss counts the border and padding inside Width, so the card has to be
-	// cw + 4 columns of padding + 2 of border for the content area to be exactly
-	// cw. Anything narrower re-wraps text that was already wrapped to cw, which
-	// strands the last word of a line on its own row.
-	card := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(style.Subtle).
-		Padding(1, 2).
-		Width(cw + 6).
-		Render(b.String())
+	card := style.Frame(b.String(), cw)
 
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
 		card+"\n"+" "+renderHints(c.keys))

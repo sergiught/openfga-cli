@@ -87,14 +87,9 @@ func (m *wizardModel) viewString() string {
 	b.WriteString("\n\n")
 	b.WriteString(m.stepBody(cw))
 
-	// Width = content (cw) + 2 cols of horizontal padding each side, so the
-	// border stays a fixed size across steps regardless of their content.
-	card := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(style.Subtle).
-		Padding(1, 2).
-		Width(cw + 4).
-		Render(b.String())
+	// style.Frame adds 6 columns of chrome (cw + 6) but this card has always
+	// rendered at cw + 4, so cw - 2 keeps the rendered size byte-identical.
+	card := style.Frame(b.String(), cw-2)
 
 	footer := m.footer(info)
 
