@@ -101,6 +101,20 @@ func TestPathsMarksArraysAndDescendsFirstElement(t *testing.T) {
 	}
 }
 
+func TestPathsSummarizesArrayExamples(t *testing.T) {
+	// A container's example must stay display text for the picker, not a
+	// truncated Go literal of its contents.
+	ps := mapping.Paths("input", sampleEvent(t))
+
+	arr, ok := pathByExpr(ps, "input.data.object.identities")
+	if !ok {
+		t.Fatalf("missing array path, got %+v", ps)
+	}
+	if arr.Example != "1 item(s)" {
+		t.Fatalf("array example = %q, want %q", arr.Example, "1 item(s)")
+	}
+}
+
 func TestPathsUsesTheGivenRoot(t *testing.T) {
 	element := map[string]any{"user_id": "auth0|507f"}
 
@@ -151,28 +165,37 @@ func TestPathsTruncatesLongExamples(t *testing.T) {
 }
 
 func TestPathsOnNonObjectRoot(t *testing.T) {
-	ps := mapping.Paths("input", "just a string")
-
-	if len(ps) != 1 {
-		t.Fatalf("expected exactly one path, got %+v", ps)
+	// The picker exists to choose a field; an entry whose expression is the
+	// entire event is noise, so a non-map root yields nothing.
+	if ps := mapping.Paths("input", nil); len(ps) != 0 {
+		t.Fatalf("nil root produced %d paths, got %+v", len(ps), ps)
 	}
-	if ps[0].Expr != "input" || ps[0].Kind != "string" || ps[0].Example != "just a string" {
-		t.Fatalf("path = %+v", ps[0])
+	if ps := mapping.Paths("input", "scalar"); len(ps) != 0 {
+		t.Fatalf("scalar root produced %d paths, got %+v", len(ps), ps)
 	}
 }
 
 func TestPathsCapsRecursionDepth(t *testing.T) {
-	// A pathologically nested chain, well past the 32-level cap, sitting
-	// alongside a shallow sibling. The walk must stop before the leaf at the
-	// bottom of the chain, but must not lose the shallow sibling on the way.
-	deep := map[string]any{"leaf": "bottom"}
-	for i := 0; i < 100; i++ {
-		deep = map[string]any{"child": deep}
+	// Two nested chains straddling the 32-level cap, alongside a shallow
+	// sibling. A leaf one level inside the cap must survive; the same shape
+	// one level past it must not, so the boundary is pinned in both
+	// directions rather than merely asserted vacuously.
+	const maxDepth = 32
+
+	nearCap := map[string]any{"leaf": "just inside"}
+	for i := 0; i < maxDepth-2; i++ {
+		nearCap = map[string]any{"child": nearCap}
+	}
+
+	pastCap := map[string]any{"leaf": "just outside"}
+	for i := 0; i < maxDepth; i++ {
+		pastCap = map[string]any{"child": pastCap}
 	}
 
 	root := map[string]any{
 		"shallow": "ok",
-		"deep":    deep,
+		"near":    nearCap,
+		"past":    pastCap,
 	}
 
 	ps := mapping.Paths("input", root)
@@ -181,11 +204,47 @@ func TestPathsCapsRecursionDepth(t *testing.T) {
 		t.Fatalf("expected the shallow sibling to survive the cap, got %+v", ps)
 	}
 
-	const maxDepth = 32
+	nearExpr := "input.near" + strings.Repeat(".child", maxDepth-2) + ".leaf"
+	if p, ok := pathByExpr(ps, nearExpr); !ok || p.Example != "just inside" {
+		t.Fatalf("expected the near-cap leaf %q to survive, got %+v", nearExpr, ps)
+	}
+
+	pastExpr := "input.past" + strings.Repeat(".child", maxDepth) + ".leaf"
+	if _, ok := pathByExpr(ps, pastExpr); ok {
+		t.Fatalf("expected the past-cap leaf %q to be cut off, got %+v", pastExpr, ps)
+	}
 
 	for _, p := range ps {
 		if n := strings.Count(p.Expr, "."); n > maxDepth {
 			t.Fatalf("path %q exceeds the depth cap (%d dots): %+v", p.Expr, n, p)
+		}
+	}
+}
+
+func TestPathsAndLookupRoundTripNonASCIIKeys(t *testing.T) {
+	// isValidIdent decodes runes properly and accepts any Unicode letter, so
+	// Paths renders these in dot notation; the parser must decode the same
+	// way or the round trip silently breaks on non-ASCII keys.
+	event := map[string]any{"héllo": "value1", "日本語": "value2"}
+	want := map[string]any{
+		"input.héllo": "value1",
+		"input.日本語":   "value2",
+	}
+
+	ps := mapping.Paths("input", event)
+	if len(ps) != len(want) {
+		t.Fatalf("got %d paths, want %d: %+v", len(ps), len(want), ps)
+	}
+
+	for _, p := range ps {
+		wantVal, ok := want[p.Expr]
+		if !ok {
+			t.Fatalf("unexpected path %q", p.Expr)
+		}
+
+		got, ok := mapping.Lookup(event, p.Expr)
+		if !ok || got != wantVal {
+			t.Fatalf("Lookup(%q) = %v, %v; want %v, true", p.Expr, got, ok, wantVal)
 		}
 	}
 }
@@ -265,6 +324,20 @@ func TestLookupResolvesDottedAndIndexedPaths(t *testing.T) {
 	}
 }
 
+func TestLookupResolvesBareRoot(t *testing.T) {
+	// Resolving a bare "input" to the whole event is harmless, and a user may
+	// legitimately type it even though Paths never emits it as an entry.
+	event := sampleEvent(t)
+
+	got, ok := mapping.Lookup(event, "input")
+	if !ok {
+		t.Fatal("expected \"input\" to resolve")
+	}
+	if m, ok := got.(map[string]any); !ok || m["type"] != "user.created" {
+		t.Fatalf("input = %v, want the event root", got)
+	}
+}
+
 func TestLookupResolvesJSONPathExpressions(t *testing.T) {
 	event := map[string]any{
 		"data": map[string]any{
@@ -286,6 +359,30 @@ func TestLookupResolvesJSONPathExpressions(t *testing.T) {
 		if !ok || got != c.want {
 			t.Fatalf("%s = %v, %v; want %v, true", c.expr, got, ok, c.want)
 		}
+	}
+}
+
+func TestLookupCapsParserDepth(t *testing.T) {
+	// json_path calls can nest as the base of another json_path call, and
+	// parseExpr/parseAtom mutually recurse once per level with no bound of
+	// their own. A few hundred levels is enough to prove the cap holds
+	// without allocating an input large enough to actually blow the stack.
+	//
+	// The event is built so the lookup would actually succeed if the parser
+	// had no cap — every level unwraps a real "k" key down to a leaf — so a
+	// miss here is proof the cap fired, not an unrelated key miss.
+	const levels = 300
+
+	var value any = "leaf-value"
+	for i := 0; i < levels; i++ {
+		value = map[string]any{"k": value}
+	}
+	event := value.(map[string]any)
+
+	expr := strings.Repeat("json_path(", levels) + "input" + strings.Repeat(`, "k")`, levels)
+
+	if _, ok := mapping.Lookup(event, expr); ok {
+		t.Fatal("expected a deeply nested json_path expression to miss cleanly")
 	}
 }
 

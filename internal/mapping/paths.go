@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // maxExample bounds what the path picker shows per row so one long blob cannot
@@ -32,13 +33,13 @@ type Path struct {
 // elements — and descended through element 0, so a field the user can see in
 // the sample is always pickable.
 func Paths(root string, v any) []Path {
-	var out []Path
-
-	if obj, ok := v.(map[string]any); ok {
-		walkPaths(root, obj, 0, &out)
-	} else {
-		out = append(out, describePath(root, v))
+	obj, ok := v.(map[string]any)
+	if !ok {
+		return nil
 	}
+
+	var out []Path
+	walkPaths(root, obj, 0, &out)
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Expr < out[j].Expr })
 
@@ -133,6 +134,10 @@ func exampleOf(v any) string {
 		s = t
 	case bool:
 		s = strconv.FormatBool(t)
+	case []any:
+		s = fmt.Sprintf("%d item(s)", len(t))
+	case map[string]any:
+		s = fmt.Sprintf("%d field(s)", len(t))
 	default:
 		s = fmt.Sprintf("%v", t)
 	}
@@ -151,7 +156,7 @@ func exampleOf(v any) string {
 func Lookup(event map[string]any, expr string) (any, bool) {
 	p := &exprParser{s: expr}
 
-	node, ok := p.parseExpr()
+	node, ok := p.parseExpr(0)
 	if !ok || p.i != len(p.s) {
 		return nil, false
 	}
@@ -241,8 +246,12 @@ func (p *exprParser) skipSpaces() {
 	}
 }
 
-func (p *exprParser) parseExpr() (exprNode, bool) {
-	base, ok := p.parseAtom()
+func (p *exprParser) parseExpr(depth int) (exprNode, bool) {
+	if depth > maxDepth {
+		return nil, false
+	}
+
+	base, ok := p.parseAtom(depth)
 	if !ok {
 		return nil, false
 	}
@@ -274,11 +283,11 @@ func (p *exprParser) parseExpr() (exprNode, bool) {
 	}
 }
 
-func (p *exprParser) parseAtom() (exprNode, bool) {
+func (p *exprParser) parseAtom(depth int) (exprNode, bool) {
 	if strings.HasPrefix(p.s[p.i:], "json_path(") {
 		p.i += len("json_path(")
 
-		inner, ok := p.parseExpr()
+		inner, ok := p.parseExpr(depth + 1)
 		if !ok {
 			return nil, false
 		}
@@ -320,9 +329,12 @@ func (p *exprParser) parseIdent() (string, bool) {
 	start := p.i
 
 	for p.i < len(p.s) {
-		r := rune(p.s[p.i])
+		r, size := utf8.DecodeRuneInString(p.s[p.i:])
+		if r == utf8.RuneError && size <= 1 {
+			break
+		}
 		if r == '_' || unicode.IsLetter(r) || (p.i > start && unicode.IsDigit(r)) {
-			p.i++
+			p.i += size
 			continue
 		}
 
