@@ -1,0 +1,22 @@
+version: "1"
+rules:
+  - name: member-added
+    when: input.type == "organization.member.added"
+    tuples:
+      - user: "user:{{ fga_escape(input.data.object.user.user_id) }}"
+        relation: "member"
+        object: "organization:{{ input.data.object.organization.id }}"
+tests:
+  - name: member-added
+    input:
+      data:
+        object:
+          organization:
+            id: org_1234
+          user:
+            user_id: auth0|507f
+      type: organization.member.added
+    expect_tuples:
+      - user: "user:auth0|507f"
+        relation: "member"
+        object: "organization:org_1234"

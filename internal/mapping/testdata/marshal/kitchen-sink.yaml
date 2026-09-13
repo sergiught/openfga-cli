@@ -1,0 +1,24 @@
+version: "1"
+rules:
+  - name: identities
+    when: input.type == "user.created"
+    action: write
+    variables:
+      uid: fga_escape(input.data.object.user_id)
+      tenant: input.data.context.tenant.id
+    iterator:
+      source: input.data.object.identities
+      as: identity
+      tuples:
+        - user: "user:{{ uid }}"
+          relation: "identity"
+          object: "connection:{{ identity.connection }}"
+          when: identity.isSocial
+    tuples:
+      - user: "user:{{ uid }}"
+        relation: "member"
+        object: "tenant:{{ tenant }}"
+        condition: in_business_hours
+        context:
+          timezone: "{{ tenant }}"
+          created_at: "{{ input.data.object.created_at }}"
