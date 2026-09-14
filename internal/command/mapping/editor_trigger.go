@@ -124,10 +124,44 @@ func (m *wizardModel) openEventPick() {
 	)
 	m.events.SetItems(items)
 	m.events.ResetFilter()
-	if r := m.rule(); r != nil && r.Sample != nil {
-		m.events.SelectID(r.Sample.Label)
+	// Reached straight from the fork there is no rule behind this pick yet, so
+	// m.rule() would be a stale pointer left over from whatever was open before.
+	if m.top() != screenPayloadKind {
+		if r := m.rule(); r != nil && r.Sample != nil {
+			m.events.SelectID(r.Sample.Label)
+		}
 	}
 	m.push(screenEventPick)
+}
+
+// acceptPick creates the rule when the pick was reached straight from the
+// add-rule fork, then attaches the sample and navigates on: to the new rule's
+// hub for the fork, or back to the trigger form when a rule was already
+// there. Both keyEventPick and keyEventPaste call this so neither can diverge
+// from the other on when the rule gets created.
+func (m *wizardModel) acceptPick(label string, event map[string]any) {
+	fork := m.stack[len(m.stack)-2] == screenPayloadKind
+	if fork {
+		// Reached straight from the fork, with no rule behind it yet. The rule
+		// is created here, on accept, rather than when the fork was entered —
+		// otherwise esc on an abandoned pick would strand an empty rule on the
+		// hub.
+		m.doc.Rules = append(m.doc.Rules, mapping.Rule{})
+		m.ruleIdx = len(m.doc.Rules) - 1
+		m.syncRules()
+	}
+	m.setSample(label, event)
+	if fork {
+		for m.top() != screenPayloadKind {
+			m.pop()
+		}
+		m.pop() // payload kind -> rules hub
+		m.push(screenRule)
+		return
+	}
+	for m.top() != screenTrigger {
+		m.pop()
+	}
 }
 
 func (m *wizardModel) keyEventPick(k tea.KeyPressMsg) tea.Cmd {
@@ -155,8 +189,7 @@ func (m *wizardModel) keyEventPick(k tea.KeyPressMsg) tea.Cmd {
 				m.errMsg = fmt.Sprintf("unknown event %q", it.ID)
 				return nil
 			}
-			m.setSample(e.Type, e.Sample)
-			m.pop()
+			m.acceptPick(e.Type, e.Sample)
 		}
 		return nil
 	}
@@ -175,23 +208,7 @@ func (m *wizardModel) keyEventPaste(k tea.KeyPressMsg) tea.Cmd {
 			m.errMsg = err.Error()
 			return nil
 		}
-		if m.stack[len(m.stack)-2] == screenPayloadKind {
-			// Reached straight from the fork, with no rule behind it yet. The
-			// rule is created here, on accept, rather than when the fork was
-			// entered — otherwise esc on an abandoned pick would strand an
-			// empty rule on the hub.
-			m.doc.Rules = append(m.doc.Rules, mapping.Rule{})
-			m.ruleIdx = len(m.doc.Rules) - 1
-			m.syncRules()
-			m.setSample(eventLabel(event), event)
-			m.pop() // paste -> payload kind
-			m.pop() // payload kind -> rules hub
-			m.push(screenRule)
-			return nil
-		}
-		m.setSample(eventLabel(event), event)
-		m.pop() // paste -> event pick
-		m.pop() // event pick -> trigger
+		m.acceptPick(eventLabel(event), event)
 		return nil
 	}
 	var cmd tea.Cmd

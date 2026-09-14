@@ -239,9 +239,11 @@ func TestTheWholeFlowWritesAMappingFile(t *testing.T) {
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	send(m, key("enter"), key("enter")) // welcome -> model source -> skip
 
-	send(m, key("a"), key("down"), key("enter")) // add rule: kind screen -> own payload -> paste
-	m.paste.SetValue(`{"type": "organization.member.added", "data": {"object": {"organization": {"id": "org_1234567890abcdef"}, "user": {"user_id": "auth0|507f1f77bcf86cd799439020"}}}}`)
-	send(m, key("ctrl+d")) // accept the pasted event, lands on the rule hub
+	send(m, key("a"), key("enter")) // add rule: kind screen -> Auth0 catalog
+	if !m.events.SelectID("organization.member.added") {
+		t.Fatal("could not select the event")
+	}
+	send(m, key("enter")) // accept the picked event, lands on the rule hub
 
 	send(m, key("down"), key("down"), key("down"), key("down"), key("down")) // Trigger -> Tuples
 	send(m, key("enter"))                                                    // open Tuples

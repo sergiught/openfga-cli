@@ -71,6 +71,99 @@ func TestPickingACatalogEventSetsTheSampleAndAutoFills(t *testing.T) {
 	}
 }
 
+// TestForkCatalogPickAppendsARuleOnAFreshDocument guards the fix for the
+// catalog branch of the add-rule fork: "a" -> kind screen -> Auth0 -> pick
+// must create the rule on accept, exactly like the paste branch already did.
+// Before the fix, m.rule() returned nil on a fresh document and the sample
+// was silently dropped.
+func TestForkCatalogPickAppendsARuleOnAFreshDocument(t *testing.T) {
+	m := atRulesHub(t)
+	send(m, key("a"), key("enter")) // add rule: kind screen -> Auth0 -> catalog
+	if m.top() != screenEventPick {
+		t.Fatalf("top = %v", m.top())
+	}
+	if !m.events.SelectID("organization.member.added") {
+		t.Fatal("could not select the event")
+	}
+	send(m, key("enter"))
+
+	if len(m.doc.Rules) != 1 {
+		t.Fatalf("rules = %d, want 1", len(m.doc.Rules))
+	}
+	if m.ruleIdx != 0 {
+		t.Fatalf("ruleIdx = %d, want it to address the new rule", m.ruleIdx)
+	}
+	r := m.rule()
+	if r == nil || r.Sample == nil || r.Sample.Label != "organization.member.added" {
+		t.Fatalf("rule = %+v, want the picked sample attached", r)
+	}
+	if m.top() != screenRule {
+		t.Fatalf("top = %v, want the new rule's hub", m.top())
+	}
+}
+
+// TestForkCatalogPickLeavesAnExistingRuleAlone guards the other half of the
+// same fix: reached from the fork with a rule already in the document, before
+// the fix m.ruleIdx was a stale pointer and the pick clobbered that rule's
+// Sample, AutoName and AutoWhen instead of appending a new one.
+func TestForkCatalogPickLeavesAnExistingRuleAlone(t *testing.T) {
+	m := atRulesHub(t)
+	m.doc.Rules = mappingRule("existing", "user.created", 0)
+	m.syncRules()
+	existing := m.doc.Rules[0]
+
+	send(m, key("a"), key("enter")) // add rule: kind screen -> Auth0 -> catalog
+	if !m.events.SelectID("organization.member.added") {
+		t.Fatal("could not select the event")
+	}
+	send(m, key("enter"))
+
+	if len(m.doc.Rules) != 2 {
+		t.Fatalf("rules = %d, want 2", len(m.doc.Rules))
+	}
+	if m.doc.Rules[0].Name != existing.Name || m.doc.Rules[0].Sample != existing.Sample || m.doc.Rules[0].AutoName != existing.AutoName {
+		t.Fatalf("the existing rule was touched: %+v", m.doc.Rules[0])
+	}
+}
+
+// TestForkCatalogEscAppendsNothing checks that abandoning a fork pick strands
+// no rule behind it.
+func TestForkCatalogEscAppendsNothing(t *testing.T) {
+	m := atRulesHub(t)
+	send(m, key("a"), key("enter")) // add rule: kind screen -> Auth0 -> catalog
+	if m.top() != screenEventPick {
+		t.Fatalf("top = %v", m.top())
+	}
+	send(m, key("esc"))
+
+	if len(m.doc.Rules) != 0 {
+		t.Fatalf("rules = %d, want 0", len(m.doc.Rules))
+	}
+}
+
+// TestCtrlEFromTriggerPicksWithoutAppendingARule is the pre-existing
+// ctrl+e-from-trigger path: it must keep landing back on the trigger form
+// with the sample on the rule that was already there, and never append.
+func TestCtrlEFromTriggerPicksWithoutAppendingARule(t *testing.T) {
+	m := atTrigger(t)
+	send(m, key("ctrl+e"))
+	if !m.events.SelectID("organization.member.added") {
+		t.Fatal("could not select the event")
+	}
+	send(m, key("enter"))
+
+	if len(m.doc.Rules) != 1 {
+		t.Fatalf("rules = %d, want 1 (ctrl+e must not append)", len(m.doc.Rules))
+	}
+	if m.top() != screenTrigger {
+		t.Fatalf("top = %v, want the trigger form", m.top())
+	}
+	r := m.rule()
+	if r == nil || r.Sample == nil || r.Sample.Label != "organization.member.added" {
+		t.Fatalf("rule = %+v, want the picked sample attached", r)
+	}
+}
+
 func TestPastedJSONBecomesTheSample(t *testing.T) {
 	m := atTrigger(t)
 	send(m, key("ctrl+e"))
