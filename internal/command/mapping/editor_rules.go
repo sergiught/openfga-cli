@@ -231,11 +231,17 @@ func (m *wizardModel) keyRule(k tea.KeyPressMsg) tea.Cmd {
 // keyConfirmDelete handles the delete confirmation dialog.
 func (m *wizardModel) keyConfirmDelete(k tea.KeyPressMsg) tea.Cmd {
 	switch k.String() {
-	case "y", "enter":
+	case "y":
 		m.deleteRule(m.ruleIdx)
 		m.pop()
 	case "n", "esc":
 		m.pop()
 	}
+	// enter is deliberately not a confirmation. Every other screen trains it as
+	// "proceed" — ↵ begin, ↵ choose, ↵ use this, ↵ save — so a user who taps `d`
+	// to find out what delete does and then taps enter out of habit would
+	// destroy a rule with no undo, having been offered only "y delete  n cancel".
+	// keyConfirmSave already refuses enter when the answer carries consequences;
+	// an irreversible delete carries more, so here it never answers at all.
 	return nil
 }

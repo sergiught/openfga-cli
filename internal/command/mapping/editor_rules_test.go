@@ -349,3 +349,31 @@ func TestMovingTheRulesCursorMovesThePreview(t *testing.T) {
 		t.Fatalf("the preview is not composed into the rendered view:\n%s", m.viewString())
 	}
 }
+
+// The delete modal offers "y delete  n cancel" and nothing else, so enter must
+// not be a third, unadvertised way to destroy a rule. Every other screen trains
+// enter as "proceed", which is exactly why it is dangerous here: the reflex is
+// the wizard's own doing and the delete has no undo.
+func TestEnterDoesNotConfirmADelete(t *testing.T) {
+	m := atRulesHub(t)
+	addRuleAtTrigger(m)
+	send(m, key("esc"), key("esc"))
+	send(m, key("d"))
+	if m.top() != screenConfirmDelete {
+		t.Fatalf("top = %v, want the confirm dialog", m.top())
+	}
+
+	send(m, key("enter"))
+	if len(m.doc.Rules) != 1 {
+		t.Fatalf("enter deleted the rule: %d rules left", len(m.doc.Rules))
+	}
+	if m.top() != screenConfirmDelete {
+		t.Fatalf("top = %v, want to still be on the dialog — enter must not answer it", m.top())
+	}
+
+	// The advertised keys still work, so refusing enter did not strand anyone.
+	send(m, key("y"))
+	if len(m.doc.Rules) != 0 {
+		t.Fatalf("y did not delete: %d rules left", len(m.doc.Rules))
+	}
+}
