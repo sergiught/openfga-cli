@@ -708,7 +708,10 @@ func TestNoScreenOverflowsTheTerminal(t *testing.T) {
 				m.Update(tea.WindowSizeMsg{Width: sz.w, Height: sz.h})
 				out := m.viewString()
 				if why := doesNotFit(out, sz.w, sz.h); why != "" {
-					t.Fatalf("%q at %dx%d (loaded=%v): %s:\n%s", c.title, sz.w, sz.h, loaded, why, out)
+					// Errorf, not Fatalf: this sweep is how a layout regression's
+					// shape gets read, and the shape is which sizes broke, not the
+					// first one. Fatalf reports a single combo out of hundreds.
+					t.Errorf("%q at %dx%d (loaded=%v): %s:\n%s", c.title, sz.w, sz.h, loaded, why, out)
 				}
 			}
 		}
@@ -731,7 +734,7 @@ func TestNoScreenOverflowsTheTerminal(t *testing.T) {
 			m.Update(tea.WindowSizeMsg{Width: sz.w, Height: sz.h})
 			out := m.viewString()
 			if why := doesNotFit(out, sz.w, sz.h); why != "" {
-				t.Fatalf("%s at %dx%d: %s:\n%s", e.Type, sz.w, sz.h, why, out)
+				t.Errorf("%s at %dx%d: %s:\n%s", e.Type, sz.w, sz.h, why, out)
 			}
 		}
 	}

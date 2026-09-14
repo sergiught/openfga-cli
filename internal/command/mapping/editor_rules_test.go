@@ -339,4 +339,13 @@ func TestMovingTheRulesCursorMovesThePreview(t *testing.T) {
 	if pane := m.previewPane(m.contentWidth()); !strings.Contains(pane, "first: skipped") {
 		t.Fatalf("the preview did not follow the cursor to the second rule:\n%s", pane)
 	}
+	// ...and this is the half no other test still covers: that the pane is
+	// composed into the rendered view at all. Every other preview assertion now
+	// calls previewPane directly, to avoid matching chrome, which between them
+	// left "paneView never joins the preview in" invisible to the whole suite.
+	// "skipped" is safe to grep for here because only the evaluation half
+	// writes it.
+	if !strings.Contains(m.viewString(), "first: skipped") {
+		t.Fatalf("the preview is not composed into the rendered view:\n%s", m.viewString())
+	}
 }

@@ -201,8 +201,11 @@ func (m *wizardModel) chromeFor() chrome {
 	case m.top() == screenRecipe:
 		c.title = m.recipeEvent.Type
 		// There is nothing to use on an explain-only recipe, so the footer stops
-		// offering the key that would now do nothing.
+		// offering the key that would now do nothing — and the subtitle stops
+		// promising a ready-made mapping directly above the paragraph explaining
+		// why there isn't one.
 		if !m.recipe.Maps() {
+			c.subtitle = "Why this event has no ready-made mapping."
 			c.keys = []keyHint{{"m", "change model"}, {"esc", "back"}}
 		}
 	case m.top() == screenHelp:

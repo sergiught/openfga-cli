@@ -212,6 +212,21 @@ func TestAnEventWithNoMappingOffersNoUseKey(t *testing.T) {
 	}
 }
 
+// The footer is only half of what the screen promises. The subtitle sits
+// directly above the paragraph explaining why there is no mapping, so leaving
+// it on the mapping copy has the screen contradict itself in two lines.
+func TestAnEventWithNoMappingSaysSoInTheSubtitle(t *testing.T) {
+	e := firstUnmappedEvent(t)
+
+	m := atRulesHub(t)
+	send(m, key("a"), key("enter"))
+	selectEvent(t, m, e.Type)
+
+	if sub := m.chromeFor().subtitle; strings.Contains(sub, "ready-made mapping for this event") {
+		t.Fatalf("%s maps to nothing but the subtitle still promises a mapping: %q", e.Type, sub)
+	}
+}
+
 // The mapping recipes keep offering it, so the guard above is a branch rather
 // than a blanket removal.
 func TestAMappingEventStillOffersTheUseKey(t *testing.T) {
