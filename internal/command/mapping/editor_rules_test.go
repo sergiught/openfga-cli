@@ -20,8 +20,8 @@ func atRulesHub(t *testing.T) *wizardModel {
 
 // addRuleAtTrigger creates a fresh rule and opens it on the trigger screen,
 // exactly what "a" used to do before it started routing through the
-// payload-kind fork (see TestAddRuleOpensTheRuleHubOnTrigger). Tests below
-// that only exercise the rule hub or trigger machinery wire the rule in
+// payload-kind fork (see TestForkOwnPayloadPasteAppendsARuleOnAccept). Tests
+// below that only exercise the rule hub or trigger machinery wire the rule in
 // directly rather than walking the fork.
 func addRuleAtTrigger(m *wizardModel) {
 	m.doc.Rules = append(m.doc.Rules, mapping.Rule{})
@@ -40,13 +40,13 @@ func mappingRule(name, event string, n int) []mapping.Rule {
 	return []mapping.Rule{r}
 }
 
-// TestAddRuleOpensTheRuleHubOnTrigger proves the fix for the data-loss bug
-// task 6 could otherwise have introduced: "a" alone must append nothing (an
-// abandoned pick must not strand an empty rule on the hub), and walking the
-// full path — kind screen, own payload, paste, accept — must create exactly
-// one rule with the pasted sample attached, addressed by a fresh ruleIdx
-// rather than a stale one.
-func TestAddRuleOpensTheRuleHubOnTrigger(t *testing.T) {
+// TestForkOwnPayloadPasteAppendsARuleOnAccept proves the fix for the
+// data-loss bug task 6 could otherwise have introduced: "a" alone must
+// append nothing (an abandoned pick must not strand an empty rule on the
+// hub), and walking the full path — kind screen, own payload, paste, accept
+// — must create exactly one rule with the pasted sample attached, addressed
+// by a fresh ruleIdx rather than a stale one, and land on the new rule's hub.
+func TestForkOwnPayloadPasteAppendsARuleOnAccept(t *testing.T) {
 	m := atRulesHub(t)
 	send(m, key("a"))
 	if len(m.doc.Rules) != 0 {
@@ -73,6 +73,9 @@ func TestAddRuleOpensTheRuleHubOnTrigger(t *testing.T) {
 	r := m.rule()
 	if r == nil || r.Sample == nil || r.Sample.Label != "user.created" {
 		t.Fatalf("rule = %+v, want the pasted sample attached", r)
+	}
+	if m.top() != screenRule {
+		t.Fatalf("top = %v, want the new rule's hub", m.top())
 	}
 }
 

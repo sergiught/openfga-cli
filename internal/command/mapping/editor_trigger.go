@@ -130,6 +130,8 @@ func (m *wizardModel) openEventPick() {
 		if r := m.rule(); r != nil && r.Sample != nil {
 			m.events.SelectID(r.Sample.Label)
 		}
+	} else {
+		m.events.SelectIndex(0)
 	}
 	m.push(screenEventPick)
 }
@@ -151,8 +153,8 @@ func (m *wizardModel) acceptPick(label string, event map[string]any) {
 		}
 	}
 	if fork {
-		// Reached straight from the fork, with no rule behind it yet. The rule
-		// is created here, on accept, rather than when the fork was entered —
+		// Reached from the fork, with no rule behind it yet. The rule is
+		// created here, on accept, rather than when the fork was entered —
 		// otherwise esc on an abandoned pick would strand an empty rule on the
 		// hub.
 		m.doc.Rules = append(m.doc.Rules, mapping.Rule{})

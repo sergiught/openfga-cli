@@ -11,17 +11,13 @@ import (
 
 // atTrigger returns a wizard with one fresh rule, sitting on the trigger
 // screen. "a" now opens the payload-kind fork rather than a blank rule (see
-// TestAddRuleOpensTheRuleHubOnTrigger), so this wires the rule directly —
-// exactly what addRule used to do — to keep testing the trigger screen itself
-// independent of that fork.
+// TestForkOwnPayloadPasteAppendsARuleOnAccept), so this wires the rule
+// directly — exactly what addRule used to do — to keep testing the trigger
+// screen itself independent of that fork.
 func atTrigger(t *testing.T) *wizardModel {
 	t.Helper()
 	m := atRulesHub(t)
-	m.doc.Rules = append(m.doc.Rules, mapping.Rule{})
-	m.ruleIdx = len(m.doc.Rules) - 1
-	m.syncRules()
-	m.push(screenRule)
-	m.openTrigger()
+	addRuleAtTrigger(m)
 	if m.top() != screenTrigger {
 		t.Fatalf("top = %v", m.top())
 	}
@@ -127,17 +123,22 @@ func TestForkCatalogPickLeavesAnExistingRuleAlone(t *testing.T) {
 }
 
 // TestForkCatalogEscAppendsNothing checks that abandoning a fork pick strands
-// no rule behind it.
+// no rule behind it. The document starts with a rule already in it so "rules
+// unchanged" is a real claim, not the zero value a fresh document would give
+// for free.
 func TestForkCatalogEscAppendsNothing(t *testing.T) {
 	m := atRulesHub(t)
+	m.doc.Rules = mappingRule("existing", "user.created", 0)
+	m.syncRules()
+
 	send(m, key("a"), key("enter")) // add rule: kind screen -> Auth0 -> catalog
 	if m.top() != screenEventPick {
 		t.Fatalf("top = %v", m.top())
 	}
 	send(m, key("esc"))
 
-	if len(m.doc.Rules) != 0 {
-		t.Fatalf("rules = %d, want 0", len(m.doc.Rules))
+	if len(m.doc.Rules) != 1 {
+		t.Fatalf("rules = %d, want 1", len(m.doc.Rules))
 	}
 }
 

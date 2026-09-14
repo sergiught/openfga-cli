@@ -57,9 +57,8 @@ func (m *wizardModel) keyRules(k tea.KeyPressMsg) tea.Cmd {
 }
 
 // addRule asks what the user is mapping before creating anything. The rule
-// itself is only appended once a pick is accepted (see keyPayloadKind and
-// keyEventPaste) — an abandoned pick must not leave an empty rule behind on
-// the hub.
+// itself is only appended once a pick is accepted (see acceptPick) — an
+// abandoned pick must not leave an empty rule behind on the hub.
 func (m *wizardModel) addRule() {
 	m.openPayloadKind()
 }
