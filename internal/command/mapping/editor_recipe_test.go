@@ -334,6 +334,43 @@ func TestSourcePathNamesWhereAValueCameFrom(t *testing.T) {
 	}
 }
 
+// The add-rule fork asks about a rule that does not exist yet, so neither of its
+// screens gets a preview beside it. The payload-kind screen was fixed on its own
+// once and the recipe screen left behind, which put a red "must contain at least
+// one rule" next to the very mapping the user was being offered: the pane was
+// answering a question about the file while the screen asked one about the rule.
+//
+// Both variants are covered, because they reach the screen by different routes
+// and only one of them has a mapping to show.
+func TestTheAddRuleForkShowsNoPreview(t *testing.T) {
+	for _, event := range []string{
+		"organization.member.added", // ships a mapping
+		"user.created",              // explain-only
+	} {
+		t.Run(event, func(t *testing.T) {
+			m := atRulesHub(t)
+			send(m, key("a"))
+			kind := m.viewString()
+			send(m, key("enter"))
+			selectEvent(t, m, event)
+			if m.top() != screenRecipe {
+				t.Fatalf("top = %v, want the recipe screen", m.top())
+			}
+
+			for name, out := range map[string]string{"payload kind": kind, "recipe": m.viewString()} {
+				// The preview's own heading and the lint line it carries. An empty
+				// document fails both, and the recipe is the screen where a red cross
+				// is least likely to be read as being about the document.
+				for _, unwanted := range []string{"preview", "at least one rule"} {
+					if strings.Contains(out, unwanted) {
+						t.Fatalf("the %s screen still shows the preview (%q):\n%s", name, unwanted, out)
+					}
+				}
+			}
+		})
+	}
+}
+
 // The payload-kind screen and the event-pick help both quote how many catalog
 // events ship a mapping. They were written by hand and drifted — one promised
 // all twenty-one mapped, the other said twelve — and the optimistic one taught

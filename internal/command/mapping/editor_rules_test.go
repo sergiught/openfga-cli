@@ -128,6 +128,23 @@ func TestRuleHubListsSixSections(t *testing.T) {
 	}
 }
 
+// The empty hub invites the user to add their first rule. The preview beside it
+// used to answer that invitation with the compiler's "rules: must contain at
+// least one rule" in red — the wizard reporting, as a fault, that the user had
+// not yet done what it was in the middle of asking them to do. It stays quiet
+// until there is a rule the message could actually be about — TestRuleHubShows-
+// SectionProblems, directly below, is what holds that second half down.
+func TestTheEmptyHubDoesNotReportTheEmptyDocumentAsAFault(t *testing.T) {
+	m := atRulesHub(t)
+	if len(m.doc.Rules) != 0 {
+		t.Fatalf("rules = %d, want an empty document", len(m.doc.Rules))
+	}
+	v := m.viewString()
+	if strings.Contains(v, "at least one rule") {
+		t.Fatalf("the empty hub scolds the user for being empty:\n%s", v)
+	}
+}
+
 func TestRuleHubShowsSectionProblems(t *testing.T) {
 	m := atRulesHub(t)
 	addRuleAtTrigger(m)

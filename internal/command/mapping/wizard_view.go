@@ -246,13 +246,14 @@ func (m *wizardModel) viewString() string {
 	}
 	// The welcome screen is the tour's front door and matches the connection
 	// wizard exactly; the confirmations are modals, which is the one surface the
-	// rest of the CLI also boxes. The payload-kind fork joins them because it asks
-	// a question about a rule that does not exist yet: there is nothing of it to
-	// preview, so a pane beside the question would show the user the file they
-	// have already got while asking what to add to it. Every other screen is the
-	// two-pane editor.
+	// rest of the CLI also boxes. The add-rule fork joins them — both the
+	// payload-kind question and the recipe it leads to concern a rule that does
+	// not exist yet, so a pane beside them can only show the file as it already
+	// is: `rules: []` next to a mapping the user is in the middle of acquiring,
+	// which reads as a verdict on the answer they are being asked for. Every
+	// other screen is the two-pane editor.
 	switch m.top() {
-	case screenWelcome, screenPayloadKind, screenConfirmSave, screenConfirmDelete:
+	case screenWelcome, screenPayloadKind, screenRecipe, screenConfirmSave, screenConfirmDelete:
 		return m.cardView()
 	}
 	return m.paneView()
@@ -279,6 +280,11 @@ const frameRows = 4
 // trimLines cuts body down to n rows. Both views bound their output to the
 // terminal after framing it, and that bound cuts from the bottom, so an
 // over-tall body would take the frame's closing border down with it.
+//
+// The cut says so. A recipe on an 80x24 terminal loses the tail of the model it
+// is teaching, and cut silently it does not read as a cut: the type definition
+// simply ends early, which is indistinguishable from the wizard claiming that is
+// all the model needs.
 func trimLines(body string, n int) string {
 	if n < 1 {
 		n = 1
@@ -287,7 +293,13 @@ func trimLines(body string, n int) string {
 	if len(lines) <= n {
 		return body
 	}
-	return strings.Join(lines[:n], "\n")
+	// The marker replaces the last row rather than being appended to it, and is
+	// kept terse: it is not re-wrapped, so a sentence long enough to wrap inside
+	// the frame would cost the very row it was accounting for.
+	hidden := len(lines) - n + 1
+	lines = lines[:n]
+	lines[n-1] = style.Faint.Render(fmt.Sprintf("… %d more (resize)", hidden))
+	return strings.Join(lines, "\n")
 }
 
 func (m *wizardModel) cardView() string {
@@ -337,6 +349,8 @@ func (m *wizardModel) cardBody(cw int) string {
 		return m.welcomeBody(cw)
 	case screenPayloadKind:
 		return m.kindPick.View(cw)
+	case screenRecipe:
+		return m.recipeBody(cw)
 	case screenConfirmSave:
 		return m.saveSummary()
 	case screenConfirmDelete:
@@ -424,8 +438,6 @@ func (m *wizardModel) screenBody(cw int) string {
 		return m.trigger.View()
 	case screenEventPick:
 		return m.events.View()
-	case screenRecipe:
-		return m.recipeBody(cw)
 	case screenEventPaste:
 		return m.paste.View()
 	case screenEventFile:
@@ -770,6 +782,16 @@ func (m *wizardModel) yamlLines() int {
 }
 
 func (m *wizardModel) evaluationLines(w int) string {
+	// An empty document fails the compiler's "rules: must contain at least one
+	// rule", and reporting it is the wizard telling the user off for not yet
+	// having done the thing the screen beside it is inviting them to do. Every
+	// other diagnostic describes something the user wrote; this one describes
+	// them not having started. It becomes true the moment it is actionable — when
+	// there is a rule to fix — so until then the pane says what it is for.
+	if len(m.doc.Rules) == 0 {
+		return lipgloss.NewStyle().Foreground(style.Faintc).Render(
+			clamp("tuples appear here as you add rules", w))
+	}
 	var out []string
 	for _, d := range m.preview.Diagnostics {
 		line := fmt.Sprintf("%s line %d: %s", style.IconCross, d.Position.StartLine, d.Message)
