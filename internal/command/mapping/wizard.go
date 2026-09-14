@@ -201,7 +201,10 @@ func newWizard(ctx context.Context, path, profile string, load modelLoader) *wiz
 	m.filterForm = field.NewForm(
 		field.New("User (optional)", "user:{{ fga_escape(input.data.object.user.user_id) }}").WithValidate(vUserRef),
 		field.New("Relation (optional)", "member").WithValidate(vTemplate),
-		field.New("Object (optional)", "organization:{{ input.data.object.organization.id }}").WithValidate(vFilterObject),
+		// Not optional, unlike the two above it: mapper rejects a filter with no
+		// object and Lint blocks the save on one. The label said otherwise while
+		// the screen's own subtitle said "object needs a type".
+		field.New("Object", "organization:{{ input.data.object.organization.id }}").WithValidate(vFilterObject),
 		field.New("Action", "delete").WithValidate(vFilterAction),
 	)
 	m.refresh()

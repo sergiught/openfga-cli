@@ -40,6 +40,18 @@ func helpFor(s screen) (title, body string, ok bool) {
 	case screenAction:
 		return "Action", "write adds the tuples, delete removes them. " +
 			"Set it here for the whole rule, or per tuple — never both.", true
+	case screenRule:
+		return "Rule", "A rule reads: when this event arrives, write or delete these relationships.\n\n" +
+			"Trigger names the rule and the events it matches. Tuples are the relationships it " +
+			"writes — or Tuple filters, which remove existing ones the event says are gone; a rule " +
+			"needs at least one of the two. Action sets write or delete for the whole rule. " +
+			"Variables name an expression you use more than once, and Iterator repeats its own set " +
+			"of tuples over a list in the event.", true
+	case screenModelSource:
+		return "Authorization model", "Loading your model lets the wizard check that every type and " +
+			"relation a tuple names exists, and offer them with ^o while you type.\n\n" +
+			"It is optional. The mapping is just as valid without one, and a mismatch is reported " +
+			"but never blocks a save — your model may simply be older than the mapping.", true
 	case screenEventPick:
 		return "Events", fmt.Sprintf("Pick the event you want to map — %d of the %d come with a "+
 			"ready-made mapping, and the rest explain why they need none. Either way you "+
@@ -53,8 +65,10 @@ func helpFor(s screen) (title, body string, ok bool) {
 // rather than to the help overlay — the same reason a form screen gets no
 // helpFor entry at all.
 //
-// Kept in sync with helpFor above: every case here mirrors a screen answered
-// there, so the two cannot drift without both being visibly incomplete.
+// Every screen helpFor answers that hosts a filterable list needs a case here.
+// The rule hub and the model source are answered there and absent here on
+// purpose: both are pickers with no filter box, so nothing on them can be
+// taking ? as text.
 func (m *wizardModel) filtering() bool {
 	switch m.top() {
 	case screenRules:

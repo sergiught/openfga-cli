@@ -43,11 +43,12 @@ func (p Preview) Problems() []Problem {
 		if d.Field != "" {
 			msg = d.Field + ": " + msg
 		}
-		ps = append(ps, Problem{
-			Rule:    -1,
-			Section: "document",
-			Message: fmt.Sprintf("line %d: %s", d.Position.StartLine, msg),
-		})
+		// A diagnostic mapper could not place carries StartLine 0, and "line 0" is
+		// a place no file has. The field path already in msg locates it anyway.
+		if d.Position.StartLine > 0 {
+			msg = fmt.Sprintf("line %d: %s", d.Position.StartLine, msg)
+		}
+		ps = append(ps, Problem{Rule: -1, Section: "document", Message: msg})
 	}
 	return ps
 }

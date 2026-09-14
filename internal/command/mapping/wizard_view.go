@@ -8,6 +8,7 @@ import (
 	lipgloss "charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/openfga/mapper"
 	"github.com/openfga/mapper/language"
 
 	"github.com/sergiught/openfga-cli/internal/mapping"
@@ -90,12 +91,17 @@ type chrome struct {
 
 var screenChrome = map[screen]chrome{
 	screenWelcome: {
-		"Create a mapping", "Turn identity-provider events into OpenFGA tuples.",
+		// The definition lives in the subtitle because that is where the word
+		// first appears, and because at this width it wraps to the same two rows
+		// with or without it — the card's remaining rows are spoken for by the
+		// file and model lines at the 44x16 floor. "OpenFGA" is what the binding
+		// gives up for it, and the logo two rows above already says that much.
+		"Create a mapping", "Turn identity-provider events into tuples: who, what, which thing.",
 		[]keyHint{{"↵", "begin"}, {"esc", "cancel"}},
 	},
 	screenModelSource: {
 		"Authorization model", "Check your model has what this mapping needs.",
-		[]keyHint{{"↑↓", "move"}, {"↵", "select"}, {"esc", "back"}},
+		[]keyHint{{"↑↓", "move"}, {"↵", "select"}, {"esc", "back"}, {"?", "help"}},
 	},
 	screenModelFile: {
 		"Load a model file", "Point at a .fga or .json authorization model.",
@@ -107,7 +113,7 @@ var screenChrome = map[screen]chrome{
 	},
 	screenRule: {
 		"Rule", "Pick a part of this rule to edit.",
-		[]keyHint{{"↑↓", "move"}, {"↵", "open"}, {"^s", "save"}, {"esc", "back"}},
+		[]keyHint{{"↑↓", "move"}, {"↵", "open"}, {"^s", "save"}, {"esc", "back"}, {"?", "help"}},
 	},
 	screenPayloadKind: {
 		"What are you mapping?", "Start from a ready-made example, or bring your own payload.",
@@ -153,7 +159,11 @@ var screenChrome = map[screen]chrome{
 		[]keyHint{{"tab", "next"}, {"^p", "insert path"}, {"esc", "done"}},
 	},
 	screenIterator: {
-		"Iterator", "Repeat this rule's tuples for each item in a list.",
+		// Not "repeat this rule's tuples": an iterator carries its own tuple list
+		// (Iterator.Tuples, reached with ^t) and the rule's own tuples are written
+		// once regardless. Filling in Source and As and expecting the tuple
+		// already on the rule to fan out produces nothing at all.
+		"Iterator", "Write a separate set of tuples for each item in a list.",
 		[]keyHint{{"tab", "next"}, {"^t", "edit tuples"}, {"^p", "insert path"}, {"esc", "done"}},
 	},
 	screenFilters: {
@@ -217,7 +227,10 @@ func (m *wizardModel) chromeFor() chrome {
 		// mapping. The model is reachable from the hub and from the rule.
 		if !m.recipe.Maps() {
 			c.subtitle = "Why this event maps to no tuples."
-			c.keys = []keyHint{{"↵", "start a rule anyway"}, {"esc", "back"}}
+			// Not "start a rule anyway": the user picked this event on purpose,
+			// and "anyway" casts an explanation of the common case as advice they
+			// are choosing to ignore. Their model may well want a tuple here.
+			c.keys = []keyHint{{"↵", "write your own rule"}, {"esc", "back"}}
 		}
 	case m.top() == screenHelp:
 		// screenHelp is a leaf pushed only on top of a screen helpFor answered
@@ -599,13 +612,20 @@ func (m *wizardModel) rulesBody() string {
 }
 
 func (m *wizardModel) welcomeBody(cw int) string {
-	model := "no authorization model yet"
+	// "none yet (optional)" rather than "no authorization model yet": the
+	// open-ended version reads as a prerequisite the user has failed to meet,
+	// with no way to tell whether it must be met before pressing enter. It need
+	// not be. Naming the key that loads one would be better still, but there is
+	// no such key on this screen — m is offered on the two screens that follow.
+	model := "none yet (optional)"
 	if !m.index.Empty() {
 		model = fmt.Sprintf("%d types loaded", len(m.index.TypeNames()))
 	}
+	// "as you type" is the row the subtitle's definition costs at the 44-column
+	// floor, and "watch the file compile" already carries the liveness.
 	prose := lipgloss.NewStyle().Foreground(style.Muted).Width(cw).Render(
 		"Pick an event, describe the tuples it should produce, and watch " +
-			"the file compile as you type.")
+			"the file compile.")
 	key := lipgloss.NewStyle().Foreground(style.Muted).Width(7)
 	return strings.Join([]string{
 		prose,
@@ -644,6 +664,7 @@ func (m *wizardModel) recipeMappingBlock(cw int) string {
 
 	label := lipgloss.NewStyle().Foreground(style.Muted).Width(9)
 	source := lipgloss.NewStyle().Foreground(style.Faintc)
+	heading := lipgloss.NewStyle().Foreground(style.Muted)
 
 	// Value and source path each get their own line rather than sharing one: the
 	// value already spends the whole cw-9 budget the row has left after the
@@ -657,7 +678,16 @@ func (m *wizardModel) recipeMappingBlock(cw int) string {
 		}
 	}
 
+	// Both groups are headed, for the same two reasons. Unheaded, the rows are
+	// six lines of user/relation/object with no word for what they collectively
+	// are — the screen teaches the tuple without ever naming it. And a recipe
+	// built entirely of filters removes tuples; every word on this screen up to
+	// here says a rule produces them, so the one that takes things away has to
+	// say so before the user accepts it.
 	var lines []string
+	if n := len(m.recipe.Rule.Tuples); n > 0 {
+		lines = append(lines, heading.Render(recipeTupleHeading(m.recipe.Rule, n)))
+	}
 	for i, t := range m.recipe.Rule.Tuples {
 		user, relation, object := t.User, t.Relation, t.Object
 		if preview.OK() && i < len(preview.Tuples) {
@@ -677,6 +707,13 @@ func (m *wizardModel) recipeMappingBlock(cw int) string {
 	var resolved []language.TupleFilter
 	for _, op := range preview.Filters {
 		resolved = append(resolved, op.Filters...)
+	}
+	if len(m.recipe.Rule.Filters) > 0 {
+		if len(lines) > 0 {
+			lines = append(lines, "")
+		}
+		lines = append(lines, heading.Render(
+			"deletes every existing tuple matching"))
 	}
 	for i, f := range m.recipe.Rule.Filters {
 		user, relation, object := f.User, f.Relation, f.Object
@@ -703,6 +740,23 @@ func (m *wizardModel) recipeMappingBlock(cw int) string {
 			style.IconCross+" the sample could not be evaluated"))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// recipeTupleHeading names the tuple block and says what the rule does with it.
+// mapper treats an unset action as a write, so an unset one is reported as one
+// rather than left unsaid.
+func recipeTupleHeading(r mapping.Rule, n int) string {
+	verb := "writes"
+	for _, t := range r.Tuples {
+		if t.Action == "delete" || (t.Action == "" && r.Action == "delete") {
+			verb = "deletes"
+			break
+		}
+	}
+	if n == 1 {
+		return verb + " this tuple"
+	}
+	return fmt.Sprintf("%s these %d tuples", verb, n)
 }
 
 // recipeModelBlock renders what the recipe's requirements need from the
@@ -787,6 +841,18 @@ func (m *wizardModel) yamlLines() int {
 	return m.height - 20
 }
 
+// diagLocation prefixes a diagnostic with its line, or with nothing when mapper
+// could not place it. A document-level complaint such as `rules["x"].tuples:
+// must contain at least one tuple` comes back with StartLine 0, and "line 0" is
+// a place no file has — it reads as the wizard having lost track of its own
+// document. The field path in the message locates it better regardless.
+func diagLocation(d mapper.Diagnostic) string {
+	if d.Position.StartLine < 1 {
+		return ""
+	}
+	return fmt.Sprintf("line %d: ", d.Position.StartLine)
+}
+
 func (m *wizardModel) evaluationLines(w int) string {
 	// An empty document fails the compiler's "rules: must contain at least one
 	// rule", and reporting it is the wizard telling the user off for not yet
@@ -800,10 +866,9 @@ func (m *wizardModel) evaluationLines(w int) string {
 	}
 	var out []string
 	for _, d := range m.preview.Diagnostics {
-		line := fmt.Sprintf("%s line %d: %s", style.IconCross, d.Position.StartLine, d.Message)
+		line := style.IconCross + " " + diagLocation(d) + d.Message
 		if d.Field != "" {
-			line = fmt.Sprintf("%s line %d: %s: %s",
-				style.IconCross, d.Position.StartLine, d.Field, d.Message)
+			line = style.IconCross + " " + diagLocation(d) + d.Field + ": " + d.Message
 		}
 		out = append(out, lipgloss.NewStyle().Foreground(style.Red).Render(clamp(sanitizeKeepingLines(line), w)))
 	}

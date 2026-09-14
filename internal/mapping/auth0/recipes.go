@@ -182,7 +182,13 @@ func recipeFor(typ string) Recipe {
 		return Recipe{Explain: "Nothing to write yet. FGA stores relationships, not objects — a new object needs a tuple only once it is related to something. That happens in the membership events, not this one."}
 
 	// --- no mapping: the four remaining update events ---
+	//
+	// Not a flat "attributes are not relationships": organization.connection.updated
+	// above is an update event whose is_enabled attribute this same catalog says is
+	// worth a delete rule. Stating the rule as a law contradicts the exception
+	// sitting two cases up, so it is stated as the usual case with its exception
+	// named.
 	default:
-		return Recipe{Explain: "No relationship changed. This event carries a previous_object so you can compare attributes, but attributes are not relationships."}
+		return Recipe{Explain: "Usually nothing to write: this event changes attributes, and an attribute is not a relationship. It carries a previous_object so you can compare the two versions — worth a rule only if one of the changed attributes is something your model treats as a relationship, the way organization.connection.updated treats is_enabled."}
 	}
 }
