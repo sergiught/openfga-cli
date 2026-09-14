@@ -105,13 +105,6 @@ const (
 	fileID  = "__file__"
 )
 
-// openEventPick shows the catalog plus the two escapes.
-// recipeNote says what an event maps to, for the row the user reads before
-// picking it. Nine of the twenty-one events map to nothing, and finding that
-// out only after choosing one reads as a fault in the wizard — or in the
-// user's own setup — rather than a fact about the event. The vocabulary is the
-// rule editor's own ("tuple", "tuple filter"), so the row teaches the word the
-// next screen will use.
 // mappedCount reports how many catalog events ship a ready-made mapping.
 // Derived rather than written down: the two places that quoted it by hand had
 // drifted apart — the payload-kind screen promised all twenty-one mapped while
@@ -128,6 +121,12 @@ func mappedCount() int {
 	return n
 }
 
+// recipeNote says what an event maps to, for the row the user reads before
+// picking it. Nine of the twenty-one events map to nothing, and finding that
+// out only after choosing one reads as a fault in the wizard — or in the
+// user's own setup — rather than a fact about the event. The vocabulary is the
+// rule editor's own ("tuple", "tuple filter"), so the row teaches the word the
+// next screen will use.
 func recipeNote(r auth0.Recipe) string {
 	if n := len(r.Rule.Tuples); n > 0 {
 		return plural(n, "tuple")
@@ -135,9 +134,10 @@ func recipeNote(r auth0.Recipe) string {
 	if n := len(r.Rule.Filters); n > 0 {
 		return plural(n, "tuple filter")
 	}
-	return "no tuples"
+	return r.Note
 }
 
+// openEventPick shows the catalog plus the two escapes.
 func (m *wizardModel) openEventPick() {
 	cat := auth0.Catalog()
 	items := make([]uilist.Item, 0, len(cat)+2)
@@ -190,11 +190,6 @@ func (m *wizardModel) fromFork() bool {
 	return false
 }
 
-// acceptPick creates the rule when the pick was reached from the add-rule
-// fork, then attaches the sample and navigates on: to the new rule's hub for
-// the fork, or back to the trigger form when a rule was already there.
-// keyEventPick, keyEventPaste and keyEventFile all call this so none of them
-// can diverge from the others on when the rule gets created.
 // landOnNewRule unwinds the add-rule fork and opens the rule just appended.
 // Both exits from the fork share it — the recipe the user accepted and the rule
 // they start from an explain-only event — so the two cannot drift onto
@@ -212,6 +207,11 @@ func (m *wizardModel) landOnNewRule() {
 	m.push(screenRule)
 }
 
+// acceptPick creates the rule when the pick was reached from the add-rule
+// fork, then attaches the sample and navigates on: to the new rule's hub for
+// the fork, or back to the trigger form when a rule was already there.
+// keyEventPick, keyEventPaste and keyEventFile all call this so none of them
+// can diverge from the others on when the rule gets created.
 func (m *wizardModel) acceptPick(label string, event map[string]any) {
 	fork := m.fromFork()
 	if fork {

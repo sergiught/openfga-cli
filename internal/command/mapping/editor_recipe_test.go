@@ -232,7 +232,7 @@ func TestTheEventListSaysWhatEachEventMaps(t *testing.T) {
 	// two halves a user has to tell apart: one that maps nothing, one that maps
 	// by deleting rather than writing.
 	v := m.events.View()
-	for _, want := range []string{"user.created · no tuples", "user.deleted · 2 tuple filters"} {
+	for _, want := range []string{"user.created · nothing related yet", "user.deleted · 2 tuple filters"} {
 		if !strings.Contains(v, want) {
 			t.Fatalf("the list does not say what the event maps: want %q in:\n%s", want, v)
 		}

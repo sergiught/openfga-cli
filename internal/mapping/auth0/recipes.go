@@ -11,7 +11,23 @@ import "github.com/sergiught/openfga-cli/internal/mapping"
 // one whose Rule is empty and whose Explain says why: "no mapping" is a lesson,
 // not a missing entry.
 type Recipe struct {
-	Explain  string
+	Explain string
+	// Note is the short reason a recipe maps nothing, for the event picker's
+	// row. Mapped recipes leave it empty: their row counts what the rule
+	// produces, which is the more useful thing to know about them.
+	//
+	// Short is a hard constraint, not a preference: the row is the event type
+	// plus this, and the longest type is organization.connection.updated, which
+	// leaves a third of a narrow picker. A note that has to be truncated to fit
+	// cannot do the explaining it is here for.
+	//
+	// It exists because the count alone cannot say whose fault an empty one is.
+	// A row reading "user.created · no tuples" beside a status bar reading "4
+	// types" was read as the loaded model coming up short, which sent the user
+	// looking for the missing type. Nothing is missing — the event carries no
+	// relationship — and the row now says so before it is picked rather than on
+	// the screen after.
+	Note     string
 	Rule     mapping.Rule
 	Requires []mapping.Requirement
 }
@@ -175,11 +191,11 @@ func recipeFor(typ string) Recipe {
 
 	// --- no mapping: the connection settings event, which is a near miss ---
 	case "organization.connection.updated":
-		return Recipe{Explain: "Most of this event is attributes, not relationships. One field is different: is_enabled. If a tenant disables a connection rather than removing it, this is the event that fires, and you may want a rule that deletes the organization→connection tuple when is_enabled turns false."}
+		return Recipe{Note: "attributes", Explain: "Most of this event is attributes, not relationships. One field is different: is_enabled. If a tenant disables a connection rather than removing it, this is the event that fires, and you may want a rule that deletes the organization→connection tuple when is_enabled turns false."}
 
 	// --- no mapping: the four creation events ---
 	case "user.created", "organization.created", "group.created", "connection.created":
-		return Recipe{Explain: "Nothing to write yet. FGA stores relationships, not objects — a new object needs a tuple only once it is related to something. That happens in the membership events, not this one."}
+		return Recipe{Note: "nothing related yet", Explain: "Nothing to write yet. FGA stores relationships, not objects — a new object needs a tuple only once it is related to something. That happens in the membership events, not this one."}
 
 	// --- no mapping: the four remaining update events ---
 	//
@@ -189,6 +205,6 @@ func recipeFor(typ string) Recipe {
 	// sitting two cases up, so it is stated as the usual case with its exception
 	// named.
 	default:
-		return Recipe{Explain: "Usually nothing to write: this event changes attributes, and an attribute is not a relationship. It carries a previous_object so you can compare the two versions — worth a rule only if one of the changed attributes is something your model treats as a relationship, the way organization.connection.updated treats is_enabled."}
+		return Recipe{Note: "attributes", Explain: "Usually nothing to write: this event changes attributes, and an attribute is not a relationship. It carries a previous_object so you can compare the two versions — worth a rule only if one of the changed attributes is something your model treats as a relationship, the way organization.connection.updated treats is_enabled."}
 	}
 }

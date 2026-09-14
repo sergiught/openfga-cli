@@ -161,6 +161,12 @@ func TestEveryEventIsClassified(t *testing.T) {
 			if !noMapping[e.Type] {
 				t.Errorf("%s has no rule and is not listed as no-mapping", e.Type)
 			}
+			// The picker prints this beside the event type. Without it the row
+			// says only that nothing is there, which reads as the user's model
+			// falling short rather than the event carrying no relationship.
+			if e.Recipe.Note == "" {
+				t.Errorf("%s maps nothing and does not say why", e.Type)
+			}
 		}
 	}
 	if mapped != 12 {
