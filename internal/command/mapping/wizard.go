@@ -15,7 +15,6 @@ import (
 
 	"github.com/sergiught/openfga-cli/internal/mapping"
 	"github.com/sergiught/openfga-cli/internal/mapping/auth0"
-	"github.com/sergiught/openfga-cli/internal/modeltest"
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/field"
 	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
@@ -29,6 +28,7 @@ type screen int
 const (
 	screenWelcome screen = iota
 	screenModelSource
+	screenModelBrowse
 	screenModelFile
 	screenRules
 	screenRule
@@ -101,6 +101,11 @@ type wizardModel struct {
 	// Widgets. Later tasks add theirs; these three exist from the start.
 	sourcePick *picker.Picker
 	modelPath  *field.Form
+	// modelFiles lists modelDir for the model browser. The directory is held
+	// here because the listing shows only names: it is what says which of the
+	// model.fga files on this machine the rows are offering.
+	modelDir   string
+	modelFiles *uilist.List
 	rules      *uilist.List
 	kindPick   *picker.Picker
 	sections   *picker.Picker
@@ -183,6 +188,11 @@ func newWizard(ctx context.Context, path, profile string, load modelLoader) *wiz
 	m.tupleForm = newTupleForm()
 	m.paths = uilist.New()
 	m.paths.SetFilterPlaceholder("filter paths")
+	m.modelFiles = uilist.New()
+	m.modelFiles.SetFilterPlaceholder("filter this folder")
+	// Compact: the rows are bare names with nothing to describe, and a directory
+	// worth browsing is one with more entries than a half-height list can show.
+	m.modelFiles.SetCompact(true)
 	m.actionPick = picker.New([]picker.Item{
 		{Title: "Per tuple", Desc: "each tuple names its own action", Value: ""},
 		{Title: "write", Desc: "every tuple in this rule is written", Value: "write"},
@@ -387,6 +397,8 @@ func (m *wizardModel) key(k tea.KeyPressMsg) tea.Cmd {
 		}
 	case screenModelSource:
 		return m.keyModelSource(k)
+	case screenModelBrowse:
+		return m.keyModelBrowse(k)
 	case screenModelFile:
 		return m.keyModelFile(k)
 	case screenRules:
@@ -459,8 +471,7 @@ func (m *wizardModel) keyModelSource(k tea.KeyPressMsg) tea.Cmd {
 		case "server":
 			return m.startLoad()
 		case "file":
-			m.push(screenModelFile)
-			m.modelPath.Resume()
+			m.openModelBrowse()
 			return nil
 		default:
 			m.pop()
@@ -515,23 +526,7 @@ func (m *wizardModel) keyModelFile(k tea.KeyPressMsg) tea.Cmd {
 			m.errMsg = "enter a path, or go back and skip the model"
 			return nil
 		}
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			m.errMsg = fmt.Sprintf("could not read %s: %v", path, err)
-			return nil
-		}
-		loaded, err := modeltest.LoadModelBytes(raw)
-		if err != nil {
-			m.errMsg = fmt.Sprintf("could not parse %s: %v", path, err)
-			return nil
-		}
-		m.index = mapping.IndexModel(loaded.SDK)
-		// Twice: this screen is pushed from the source picker and nowhere else,
-		// so the screen that asked for a model sits two below it. One pop would
-		// only return to the picker the user has already answered.
-		m.pop()
-		m.pop()
-		return nil
+		return m.loadModelFile(path)
 	}
 	return m.modelPath.Update(k)
 }

@@ -50,6 +50,9 @@ func (m *wizardModel) contentWidth() int {
 func (m *wizardModel) applySize() {
 	cw := m.contentWidth()
 	m.modelPath.SetWidth(cw)
+	// One row shorter than the other lists: the browser draws the directory it
+	// is listing above the rows, and that header comes out of the same budget.
+	m.modelFiles.SetSize(cw, m.listHeight()-1)
 	m.rules.SetSize(cw, m.listHeight())
 	m.events.SetSize(cw, m.listHeight())
 	m.paste.SetWidth(cw)
@@ -102,6 +105,10 @@ var screenChrome = map[screen]chrome{
 	screenModelSource: {
 		"Authorization model", "Check your model has what this mapping needs.",
 		[]keyHint{{"↑↓", "move"}, {"↵", "select"}, {"esc", "back"}, {"?", "help"}},
+	},
+	screenModelBrowse: {
+		"Choose a model file", "Walk to a .fga or .json authorization model.",
+		[]keyHint{{"↑↓", "move"}, {"/", "filter"}, {"↵", "open"}, {"^p", "type a path"}, {"esc", "back"}},
 	},
 	screenModelFile: {
 		"Load a model file", "Point at a .fga or .json authorization model.",
@@ -477,6 +484,8 @@ func (m *wizardModel) screenBody(cw int) string {
 			return m.loadingBody()
 		}
 		return m.sourcePick.View(cw)
+	case screenModelBrowse:
+		return m.modelBrowseBody(cw)
 	case screenModelFile:
 		return m.modelPath.View()
 	case screenRules:
@@ -562,7 +571,7 @@ func (m *wizardModel) breadcrumb() string {
 	var parts []string
 	for _, s := range m.stack {
 		switch s {
-		case screenWelcome, screenModelSource, screenModelFile:
+		case screenWelcome, screenModelSource, screenModelBrowse, screenModelFile:
 			continue
 		}
 		if t := screenChrome[s].title; t != "" {

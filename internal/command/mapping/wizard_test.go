@@ -176,6 +176,21 @@ func selectSource(t *testing.T, m *wizardModel, value string) {
 	t.Fatalf("the %q source is not offered", value)
 }
 
+// atModelFile reaches the typed path field, which sits one key behind the
+// browser the file source now opens.
+func atModelFile(t *testing.T, m *wizardModel) {
+	t.Helper()
+	selectSource(t, m, "file")
+	send(m, key("enter"))
+	if m.top() != screenModelBrowse {
+		t.Fatalf("choosing the file source should open the browser: top = %v", m.top())
+	}
+	send(m, key("ctrl+p"))
+	if m.top() != screenModelFile {
+		t.Fatalf("^p should open the path field: top = %v", m.top())
+	}
+}
+
 // Finding #5: once past the model source there was no key back to it, and Skip
 // was pre-selected, so two enters left the user in a modelless wizard for good.
 func TestTheHubCanReturnToTheModelSource(t *testing.T) {
@@ -462,11 +477,7 @@ func TestModelFileLoadsAndBadFileStaysOnTheField(t *testing.T) {
 	}
 
 	m := atModelSource(t, nil)
-	selectSource(t, m, "file")
-	send(m, key("enter"))
-	if m.top() != screenModelFile {
-		t.Fatalf("top = %v", m.top())
-	}
+	atModelFile(t, m)
 
 	m.modelPath.SetValues([]string{bad})
 	send(m, key("enter"))
@@ -494,25 +505,18 @@ func TestModelFileLoadsAndBadFileStaysOnTheField(t *testing.T) {
 // session even after re-entry; Resume() clears it.
 func TestCtrlSOnModelFileDoesNotPermanentlyDeadenTheField(t *testing.T) {
 	m := atModelSource(t, nil)
-	selectSource(t, m, "file")
-	send(m, key("enter"))
-	if m.top() != screenModelFile {
-		t.Fatalf("top = %v", m.top())
-	}
+	atModelFile(t, m)
 
 	typeText(m, "/tmp/a.json")
 	send(m, key("ctrl+s"))
+	send(m, key("esc"))
 	send(m, key("esc"))
 	if m.top() != screenModelSource {
 		t.Fatalf("top = %v, want back on the source picker", m.top())
 	}
 
 	// Re-enter the screen the way a user fixing a typo would.
-	selectSource(t, m, "file")
-	send(m, key("enter"))
-	if m.top() != screenModelFile {
-		t.Fatalf("top = %v", m.top())
-	}
+	atModelFile(t, m)
 	before := m.modelPath.Values()[0]
 	typeText(m, "X")
 	if after := m.modelPath.Values()[0]; after == before {
@@ -919,8 +923,7 @@ func textWidgetCases() []textWidgetCase {
 			name: "model file",
 			reach: func(t *testing.T) *wizardModel {
 				m := atModelSource(t, nil)
-				selectSource(t, m, "file")
-				send(m, key("enter"))
+				atModelFile(t, m)
 				return m
 			},
 			want:  screenModelFile,
