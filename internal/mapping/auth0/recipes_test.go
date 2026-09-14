@@ -28,7 +28,7 @@ func modelFor(t *testing.T, r Recipe) *mapping.ModelIndex {
 
 // Every recipe must lint clean against the model it claims to need, and must
 // actually produce something when evaluated against the very payload it was
-// written for. This is what makes twelve hand-authored recipes maintainable:
+// written for. This is what makes fifteen hand-authored recipes maintainable:
 // a recipe that contradicts itself cannot be committed.
 func TestEveryRecipeLintsAndEvaluatesAgainstItsOwnEvent(t *testing.T) {
 	for _, e := range Catalog() {
@@ -137,12 +137,10 @@ func TestEveryEventIsClassified(t *testing.T) {
 	// Events that deliberately map to nothing, with the reason they do.
 	noMapping := map[string]bool{
 		// An object needs no tuple to exist in FGA, only to be related.
-		"user.created": true, "organization.created": true,
-		"group.created": true, "connection.created": true,
+		"organization.created": true, "connection.created": true,
 		// Attribute changes are not relationship changes.
 		"user.updated": true, "organization.updated": true,
 		"group.updated": true, "connection.updated": true,
-		"organization.connection.updated": true,
 	}
 
 	var mapped, empty int
@@ -169,10 +167,10 @@ func TestEveryEventIsClassified(t *testing.T) {
 			}
 		}
 	}
-	if mapped != 12 {
-		t.Errorf("got %d recipes, want 12", mapped)
+	if mapped != 15 {
+		t.Errorf("got %d recipes, want 15", mapped)
 	}
-	if empty != 9 {
-		t.Errorf("got %d explained-empties, want 9", empty)
+	if empty != 6 {
+		t.Errorf("got %d explained-empties, want 6", empty)
 	}
 }

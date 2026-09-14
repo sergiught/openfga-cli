@@ -122,14 +122,23 @@ func mappedCount() int {
 }
 
 // recipeNote says what an event maps to, for the row the user reads before
-// picking it. Nine of the twenty-one events map to nothing, and finding that
+// picking it. Six of the twenty-one events map to nothing, and finding that
 // out only after choosing one reads as a fault in the wizard — or in the
 // user's own setup — rather than a fact about the event. The vocabulary is the
 // rule editor's own ("tuple", "tuple filter"), so the row teaches the word the
 // next screen will use.
+//
+// An iterator's tuples count as tuples. They are written per array element, so
+// the number is a floor rather than a total — but a row reading "1 tuple" and
+// producing two beats one reading nothing at all and producing two.
 func recipeNote(r auth0.Recipe) string {
 	if n := len(r.Rule.Tuples); n > 0 {
 		return plural(n, "tuple")
+	}
+	if r.Rule.Iterator != nil {
+		if n := len(r.Rule.Iterator.Tuples); n > 0 {
+			return plural(n, "tuple")
+		}
 	}
 	if n := len(r.Rule.Filters); n > 0 {
 		return plural(n, "tuple filter")

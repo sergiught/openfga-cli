@@ -12,7 +12,7 @@
       "identities": [
         {
           "connection": "Username-Password-Authentication",
-          "user_id": "user_id",
+          "user_id": "507f1f77bcf86cd799439020",
           "provider": "custom",
           "isSocial": false,
           "profileData": {

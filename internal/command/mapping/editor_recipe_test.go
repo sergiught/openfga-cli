@@ -158,7 +158,7 @@ func TestSwitchingTheEventOnARecipeRuleMovesItsTrigger(t *testing.T) {
 	}
 }
 
-// The nine events that map to nothing explain themselves rather than dead-ending.
+// The six events that map to nothing explain themselves rather than dead-ending.
 func TestAnEventWithNoMappingExplainsWhy(t *testing.T) {
 	m := atRulesHub(t)
 	send(m, key("a"), key("enter"))
@@ -221,18 +221,18 @@ func TestAnEventWithNoMappingStillStartsARule(t *testing.T) {
 	}
 }
 
-// Nine of the twenty-one events map to nothing. Learning that only after
+// Six of the twenty-one events map to nothing. Learning that only after
 // picking one reads as a fault — in the wizard, or in a setup the user has not
 // finished — so the row says it up front, in the words the rule editor uses.
 func TestTheEventListSaysWhatEachEventMaps(t *testing.T) {
 	m := atRulesHub(t)
 	send(m, key("a"), key("enter"))
 
-	// The first two rows are always on screen, and between them they cover the
-	// two halves a user has to tell apart: one that maps nothing, one that maps
-	// by deleting rather than writing.
+	// The top rows are always on screen, and between them they cover the three
+	// kinds a user has to tell apart: one that maps by iterating an array, one
+	// that maps by deleting rather than writing, and one that maps nothing.
 	v := m.events.View()
-	for _, want := range []string{"user.created · nothing related yet", "user.deleted · 2 tuple filters"} {
+	for _, want := range []string{"user.created · 1 tuple", "user.deleted · 2 tuple filters", "user.updated · attributes"} {
 		if !strings.Contains(v, want) {
 			t.Fatalf("the list does not say what the event maps: want %q in:\n%s", want, v)
 		}
