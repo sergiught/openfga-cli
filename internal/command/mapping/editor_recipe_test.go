@@ -212,6 +212,33 @@ func TestAnEventWithNoMappingStillStartsARule(t *testing.T) {
 	}
 }
 
+// Nine of the twenty-one events map to nothing. Learning that only after
+// picking one reads as a fault — in the wizard, or in a setup the user has not
+// finished — so the row says it up front, in the words the rule editor uses.
+func TestTheEventListSaysWhatEachEventMaps(t *testing.T) {
+	m := atRulesHub(t)
+	send(m, key("a"), key("enter"))
+
+	// The first two rows are always on screen, and between them they cover the
+	// two halves a user has to tell apart: one that maps nothing, one that maps
+	// by deleting rather than writing.
+	v := m.events.View()
+	for _, want := range []string{"user.created · no tuples", "user.deleted · 2 tuple filters"} {
+		if !strings.Contains(v, want) {
+			t.Fatalf("the list does not say what the event maps: want %q in:\n%s", want, v)
+		}
+	}
+
+	// And the writing half, far enough down the catalog to need scrolling into
+	// view. Selected rather than filtered: filtering styles each matched rune
+	// individually, which puts escape sequences between the letters of the very
+	// title this asserts on.
+	m.events.SelectID("organization.member.added")
+	if v := m.events.View(); !strings.Contains(v, "organization.member.added · 1 tuple") {
+		t.Fatalf("a mapping event does not say how many tuples:\n%s", v)
+	}
+}
+
 // The complaint this answers: "it doesn't let me continue". A screen whose only
 // exits are backwards is a dead end however good its explanation.
 func TestAnEventWithNoMappingOffersAWayForward(t *testing.T) {
@@ -221,12 +248,21 @@ func TestAnEventWithNoMappingOffersAWayForward(t *testing.T) {
 	send(m, key("a"), key("enter"))
 	selectEvent(t, m, e.Type)
 
+	var forward bool
 	for _, k := range m.chromeFor().keys {
 		if k.key == "↵" {
-			return
+			forward = true
+		}
+		// These recipes require nothing of the model, so offering to change it
+		// here invites the reading that the missing model is why the event was
+		// given no mapping. It is reachable from the hub and from the rule.
+		if k.key == "m" {
+			t.Errorf("%s requires no model but the footer offers %q %q", e.Type, k.key, k.label)
 		}
 	}
-	t.Fatalf("%s is a dead end: the footer offers no ↵, only %+v", e.Type, m.chromeFor().keys)
+	if !forward {
+		t.Fatalf("%s is a dead end: the footer offers no ↵, only %+v", e.Type, m.chromeFor().keys)
+	}
 }
 
 // The footer is only half of what the screen promises. The subtitle sits

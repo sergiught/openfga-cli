@@ -106,12 +106,31 @@ const (
 )
 
 // openEventPick shows the catalog plus the two escapes.
+// recipeNote says what an event maps to, for the row the user reads before
+// picking it. Nine of the twenty-one events map to nothing, and finding that
+// out only after choosing one reads as a fault in the wizard — or in the
+// user's own setup — rather than a fact about the event. The vocabulary is the
+// rule editor's own ("tuple", "tuple filter"), so the row teaches the word the
+// next screen will use.
+func recipeNote(r auth0.Recipe) string {
+	if n := len(r.Rule.Tuples); n > 0 {
+		return plural(n, "tuple")
+	}
+	if n := len(r.Rule.Filters); n > 0 {
+		return plural(n, "tuple filter")
+	}
+	return "no tuples"
+}
+
 func (m *wizardModel) openEventPick() {
 	cat := auth0.Catalog()
 	items := make([]uilist.Item, 0, len(cat)+2)
 	for i, e := range cat {
 		items = append(items, uilist.Item{
-			TitleText: e.Type,
+			// The note rides on the title because this list is compact: the
+			// description is never drawn (see SetCompact in newWizard), so a row's
+			// title is the only thing the user reads before choosing.
+			TitleText: fmt.Sprintf("%s · %s", e.Type, recipeNote(e.Recipe)),
 			DescText:  fmt.Sprintf("%s · %s", e.Group, e.Summary),
 			Filter:    e.Type + " " + e.Group + " " + e.Summary,
 			ID:        e.Type,

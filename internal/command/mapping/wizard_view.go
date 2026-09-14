@@ -203,9 +203,15 @@ func (m *wizardModel) chromeFor() chrome {
 		// An explain-only recipe has no mapping to promise in the subtitle and
 		// nothing to "use" in the footer. What it does still have is the payload,
 		// so ↵ stays — pointed at a rule the user writes themselves.
+		//
+		// "m change model" goes. Every explain-only recipe has zero requirements,
+		// so the model has no bearing on this screen; offered directly under a
+		// sentence about something being absent, it reads as the cause, and a user
+		// who has loaded no model concludes that is why they were given no
+		// mapping. The model is reachable from the hub and from the rule.
 		if !m.recipe.Maps() {
-			c.subtitle = "Why this event has no ready-made mapping."
-			c.keys = []keyHint{{"↵", "start a rule anyway"}, {"m", "change model"}, {"esc", "back"}}
+			c.subtitle = "Why this event maps to no tuples."
+			c.keys = []keyHint{{"↵", "start a rule anyway"}, {"esc", "back"}}
 		}
 	case m.top() == screenHelp:
 		// screenHelp is a leaf pushed only on top of a screen helpFor answered
