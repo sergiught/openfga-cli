@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sergiught/go-openfga/openfga"
 
@@ -427,4 +428,28 @@ func offersKey(m *wizardModel, k string) bool {
 		}
 	}
 	return false
+}
+
+// A pre-filled field wider than the form used to open scrolled to its tail,
+// with no ellipsis at either end: "organization:{{ input.data.object.id }}"
+// was drawn as "ization:{{ input.data.object.id }}", which does not read as a
+// long value but as a broken one — and the type it appears to name, "ization",
+// is not one the user would find in their model either.
+func TestAPreFilledFieldOpensAtTheStartOfItsValue(t *testing.T) {
+	m := atTupleForm(t)
+	const long = "organization:{{ input.data.object.organization.id }}"
+	m.tupleForm.SetValues(tupleValues(map[tupleField]string{fieldObject: long}))
+
+	if got := m.tupleForm.Cursor(int(fieldObject)); got != 0 {
+		t.Fatalf("caret at %d, want the start of the value", got)
+	}
+
+	// The head is what a reader needs: it carries the object type, which is the
+	// part that has to match the model.
+	// The caret sits on the first cell and styles it, so the rendered value
+	// carries escape codes between its first rune and the rest.
+	v := ansi.Strip(m.viewString())
+	if !strings.Contains(v, "organization:{{ input") {
+		t.Fatalf("the field does not show the start of its value:\n%s", v)
+	}
 }

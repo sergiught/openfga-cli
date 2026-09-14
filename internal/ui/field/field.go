@@ -165,6 +165,13 @@ func (f *Field) setValue(s string) {
 		return
 	}
 	f.in.SetValue(style.SanitizeTerminal(s))
+	// SetValue leaves the caret at the end, which scrolls a value wider than the
+	// field so only its tail is on screen — and the input marks no ellipsis, so
+	// "organization:{{ input.data.object.organization.id }}" is drawn as
+	// "ization:{{ input.data.object.organization.id }}" and reads as a corrupted
+	// value rather than a scrolled one. Every caller sets a value to show the
+	// user what is already there, so start where reading starts.
+	f.in.SetCursor(0)
 }
 
 func (f *Field) setWidth(w int) {
