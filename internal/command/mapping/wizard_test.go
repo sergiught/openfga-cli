@@ -13,6 +13,7 @@ import (
 	"github.com/sergiught/go-openfga/openfga"
 
 	"github.com/sergiught/openfga-cli/internal/mapping"
+	"github.com/sergiught/openfga-cli/internal/mapping/auth0"
 )
 
 func key(s string) tea.KeyPressMsg {
@@ -449,6 +450,31 @@ func TestNoScreenOverflowsTheTerminal(t *testing.T) {
 				if w := lipgloss.Width(line); w > sz.w {
 					t.Fatalf("%q at %dx%d: a line is %d cells wide, wider than the terminal:\n%s",
 						c.title, sz.w, sz.h, w, out)
+				}
+			}
+		}
+	}
+
+	// The generic pass above never exercises screenRecipe's own content: driven
+	// by stack alone it sees the zero auth0.Recipe{}, whose Maps() is false and
+	// Requires is empty, so recipeMappingBlock and recipeModelBlock both render
+	// nothing. Run the same invariant again per catalog entry, with the state
+	// openRecipe actually sets, so the screen that motivated this test is the
+	// one it checks. The model is deliberately left unloaded: with none loaded,
+	// recipeModelBlock takes the !statuses[0].Checked branch and renders the DSL
+	// for every requirement, the widest output the screen can produce.
+	for _, e := range auth0.Catalog() {
+		for _, sz := range sizes {
+			m := newTestWizard(t, nil)
+			m.stack = []screen{screenRecipe}
+			m.recipeEvent = e
+			m.recipe = e.Recipe
+			m.Update(tea.WindowSizeMsg{Width: sz.w, Height: sz.h})
+			out := m.viewString()
+			for _, line := range strings.Split(out, "\n") {
+				if w := lipgloss.Width(line); w > sz.w {
+					t.Fatalf("%s at %dx%d: a line is %d cells wide, wider than the terminal:\n%s",
+						e.Type, sz.w, sz.h, w, out)
 				}
 			}
 		}

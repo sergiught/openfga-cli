@@ -176,8 +176,10 @@ var screenChrome = map[screen]chrome{
 		"Delete rule", "",
 		[]keyHint{{"y", "delete"}, {"n", "cancel"}},
 	},
-	screenRecipe: {"", "A ready-made mapping for this event.",
-		[]keyHint{{"↵", "use this"}, {"m", "change model"}, {"esc", "back"}}},
+	screenRecipe: {
+		"", "A ready-made mapping for this event.",
+		[]keyHint{{"↵", "use this"}, {"m", "change model"}, {"esc", "back"}},
+	},
 }
 
 // chromeFor returns the current screen's chrome, specialising the save dialog:
@@ -537,15 +539,16 @@ func (m *wizardModel) recipeBody(cw int) string {
 	}
 	if len(m.recipe.Requires) > 0 {
 		b.WriteString("\n\n")
-		b.WriteString(m.recipeModelBlock())
+		b.WriteString(m.recipeModelBlock(cw))
 	}
 	return b.String()
 }
 
 // recipeMappingBlock evaluates the recipe's rule against the event's own
-// sample and lines each tuple field up with the payload path it came from.
-// An event with no tuples (the cleanup recipes, which only carry filters)
-// simply contributes no rows here.
+// sample and lines each tuple and filter field up with the payload path it
+// came from. The four cleanup recipes carry no tuples at all — their mapping
+// is entirely their filters — so filters get the same treatment, not a
+// fallback.
 func (m *wizardModel) recipeMappingBlock(cw int) string {
 	doc := &mapping.Document{Rules: []mapping.Rule{m.recipe.Rule}}
 	preview := mapping.Evaluate(m.ctx, doc, m.recipeEvent.Sample)
@@ -577,6 +580,35 @@ func (m *wizardModel) recipeMappingBlock(cw int) string {
 		lines = append(lines, row("relation", relation, t.Relation)...)
 		lines = append(lines, row("object", object, t.Object)...)
 	}
+
+	// mapper groups a rule's rendered filters into one TupleFilterOperation per
+	// rule; there is exactly one rule here, so flattening its Filters gives the
+	// resolved values in the same order as m.recipe.Rule.Filters, the same way
+	// preview.Tuples lines up with the tuple loop above.
+	var resolved []language.TupleFilter
+	for _, op := range preview.Filters {
+		resolved = append(resolved, op.Filters...)
+	}
+	for i, f := range m.recipe.Rule.Filters {
+		user, relation, object := f.User, f.Relation, f.Object
+		if preview.OK() && i < len(resolved) {
+			user, relation, object = resolved[i].User, resolved[i].Relation, resolved[i].Object
+		}
+		// A filter's user, relation and object are each optional — a filter that
+		// names an object with no user leaves user blank on purpose, matching
+		// any user, and vice versa — so a template that was never set is skipped
+		// rather than shown as an empty row.
+		if f.User != "" {
+			lines = append(lines, row("user", user, f.User)...)
+		}
+		if f.Relation != "" {
+			lines = append(lines, row("relation", relation, f.Relation)...)
+		}
+		if f.Object != "" {
+			lines = append(lines, row("object", object, f.Object)...)
+		}
+	}
+
 	if !preview.OK() {
 		lines = append(lines, "", lipgloss.NewStyle().Foreground(style.Red).Render(
 			style.IconCross+" the sample could not be evaluated"))
@@ -588,17 +620,18 @@ func (m *wizardModel) recipeMappingBlock(cw int) string {
 // loaded model. With no model loaded there is nothing to check against, so
 // requirements are stated as plain expectations rather than marked missing —
 // the user who skipped loading a model has not told us anything is wrong.
-func (m *wizardModel) recipeModelBlock() string {
+func (m *wizardModel) recipeModelBlock(cw int) string {
 	statuses := mapping.CheckRequirements(m.index, m.recipe.Requires)
-	if len(statuses) == 0 {
-		return ""
-	}
 	muted := lipgloss.NewStyle().Foreground(style.Muted)
 
+	// Checked comes solely from whether a model is loaded (ix.Empty()), not from
+	// anything about the individual requirement, so it is the same on every
+	// element — sampling statuses[0] here is reading a document-wide fact, not
+	// guessing at the rest of the slice.
 	if !statuses[0].Checked {
 		lines := []string{muted.Render("this mapping expects")}
 		for _, s := range statuses {
-			lines = append(lines, "  "+requirementName(s.Requirement), indentDSL(s.Requirement.DSL))
+			lines = append(lines, "  "+requirementName(s.Requirement), indentDSL(s.Requirement.DSL, cw))
 		}
 		return strings.Join(lines, "\n")
 	}
@@ -612,7 +645,7 @@ func (m *wizardModel) recipeModelBlock() string {
 		}
 		lines = append(lines, lipgloss.NewStyle().Foreground(style.Red).Render(
 			"! "+requirementName(s.Requirement)+" not in your model"))
-		lines = append(lines, indentDSL(s.Requirement.DSL))
+		lines = append(lines, indentDSL(s.Requirement.DSL, cw))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -626,10 +659,10 @@ func requirementName(r mapping.Requirement) string {
 	return r.Type + "#" + r.Relation
 }
 
-func indentDSL(dsl string) string {
+func indentDSL(dsl string, cw int) string {
 	lines := strings.Split(dsl, "\n")
 	for i, l := range lines {
-		lines[i] = "    " + l
+		lines[i] = "    " + clamp(l, cw-4)
 	}
 	return lipgloss.NewStyle().Foreground(style.Faintc).Render(strings.Join(lines, "\n"))
 }

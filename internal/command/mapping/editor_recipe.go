@@ -84,11 +84,11 @@ func sourcePath(template string) string {
 	if strings.Count(template, "{{") > 1 {
 		return template
 	}
-	close := strings.Index(template, "}}")
-	if close < open {
+	end := strings.Index(template, "}}")
+	if end < open {
 		return template
 	}
-	expr := strings.TrimSpace(template[open+2 : close])
+	expr := strings.TrimSpace(template[open+2 : end])
 	if i := strings.Index(expr, "("); i >= 0 && strings.HasSuffix(expr, ")") {
 		expr = strings.TrimSpace(expr[i+1 : len(expr)-1])
 	}

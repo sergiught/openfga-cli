@@ -126,7 +126,9 @@ func (m *wizardModel) openEventPick() {
 	m.events.ResetFilter()
 	// Reached straight from the fork there is no rule behind this pick yet, so
 	// m.rule() would be a stale pointer left over from whatever was open before.
-	if m.top() != screenPayloadKind {
+	// Answered through fromFork() rather than a second position test, so this
+	// and acceptPick can never drift onto different answers to the same question.
+	if !m.fromFork() {
 		if r := m.rule(); r != nil && r.Sample != nil {
 			m.events.SelectID(r.Sample.Label)
 		}
@@ -185,9 +187,12 @@ func (m *wizardModel) acceptPick(label string, event map[string]any) {
 
 func (m *wizardModel) keyEventPick(k tea.KeyPressMsg) tea.Cmd {
 	if m.events.SettingFilter() {
-		// Resync the same way keyPathPick does: bubbles' own filtering recomputes
-		// matches through a command, which a keystroke-at-a-time test harness never
-		// runs, so "enter" would see stale (or no) matches and reset the filter
+		// Resync the same way keyPathPick does: wizardModel.Update only ever
+		// routes tea.KeyPressMsg (plus window size, spinner tick and
+		// model-loaded) back into the screen, so the tea.Cmd bubbles' filtering
+		// returns to recompute matches never comes back — list.FilterMatchesMsg
+		// is dropped for real users too, not only in a keystroke-at-a-time test.
+		// Without this, "enter" sees stale (or no) matches and resets the filter
 		// instead of accepting it.
 		cmd := m.events.Update(k)
 		m.events.ResyncFilter()
