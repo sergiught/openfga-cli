@@ -330,7 +330,7 @@ func TestTheWholeFlowWritesAHandAuthoredMapping(t *testing.T) {
 		t.Fatalf("top = %v, want the tuple form", m.top())
 	}
 
-	typeText(m, "organization:1")
+	typeText(m, "organization:{{ input.data.object.id }}")
 	send(m, key("tab"))
 	typeText(m, "member")
 	send(m, key("tab"))
@@ -366,8 +366,11 @@ func TestTheWholeFlowWritesAHandAuthoredMapping(t *testing.T) {
 	if !strings.Contains(data, `version: "1"`) {
 		t.Fatalf("missing version: %s", data)
 	}
-	if !strings.Contains(data, "organization:1") {
-		t.Fatalf("hand-authored tuple's object missing from the file:\n%s", data)
+	if !strings.Contains(data, "organization:{{ input.data.object.id }}") {
+		t.Fatalf("the template must survive YAML quoting verbatim:\n%s", data)
+	}
+	if !strings.Contains(data, "organization:abc") {
+		t.Fatalf("the template must resolve against the pasted payload:\n%s", data)
 	}
 	if !strings.Contains(data, "member") {
 		t.Fatalf("hand-authored tuple's relation missing from the file:\n%s", data)
@@ -380,6 +383,9 @@ func TestTheWholeFlowWritesAHandAuthoredMapping(t *testing.T) {
 	}
 	if m.result.tuples != 1 {
 		t.Fatalf("tuples = %d, want 1", m.result.tuples)
+	}
+	if m.result.tests != 1 {
+		t.Fatalf("tests = %d, want 1", m.result.tests)
 	}
 	if strings.Contains(data, "sample:") {
 		t.Fatalf("wizard-only sample leaked into the file:\n%s", data)

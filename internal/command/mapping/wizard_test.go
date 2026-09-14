@@ -645,18 +645,19 @@ func TestEnterOnTheLastFieldCommitsAndLeavesTheForm(t *testing.T) {
 	}
 }
 
-// TestTypingReachesEveryTextWidget guards the focus bug found in task 8b: a
-// screen whose widget is built but never focused discards every keystroke, and
-// a test that injects the value with SetValue/SetValues instead of typing it
-// never notices. Every screen listed here hosts a text-entry widget, so every
-// row must type and see the value change — no shortcuts.
-func TestTypingReachesEveryTextWidget(t *testing.T) {
-	for _, c := range []struct {
-		name  string
-		reach func(t *testing.T) *wizardModel
-		want  screen
-		value func(m *wizardModel) string
-	}{
+// textWidgetCase names one screen with a text-entry widget: how to reach it,
+// the screen it must land on, and how to read the value back. Shared by
+// TestTypingReachesEveryTextWidget and TestPasteReachesEveryTextWidget so both
+// drive the same eight screens rather than keeping two tables in sync by hand.
+type textWidgetCase struct {
+	name  string
+	reach func(t *testing.T) *wizardModel
+	want  screen
+	value func(m *wizardModel) string
+}
+
+func textWidgetCases() []textWidgetCase {
+	return []textWidgetCase{
 		{
 			name:  "trigger",
 			reach: atTrigger,
@@ -745,7 +746,16 @@ func TestTypingReachesEveryTextWidget(t *testing.T) {
 			want:  screenFilter,
 			value: func(m *wizardModel) string { return m.filterForm.Values()[0] },
 		},
-	} {
+	}
+}
+
+// TestTypingReachesEveryTextWidget guards the focus bug found in task 8b: a
+// screen whose widget is built but never focused discards every keystroke, and
+// a test that injects the value with SetValue/SetValues instead of typing it
+// never notices. Every screen listed here hosts a text-entry widget, so every
+// row must type and see the value change — no shortcuts.
+func TestTypingReachesEveryTextWidget(t *testing.T) {
+	for _, c := range textWidgetCases() {
 		t.Run(c.name, func(t *testing.T) {
 			m := c.reach(t)
 			if m.top() != c.want {
@@ -758,5 +768,39 @@ func TestTypingReachesEveryTextWidget(t *testing.T) {
 				t.Fatalf("typing did not reach the widget: value stayed %q", before)
 			}
 		})
+	}
+}
+
+// TestPasteReachesEveryTextWidget guards task 8b's second finding: a real
+// terminal paste (tea.PasteMsg) must reach the same eight widgets typing does.
+// For the tuple screen — one of the five multi-field rule forms — it also
+// asserts the paste reached the document, not only the widget: that is what
+// each form's live-commit tail (mirrored in routePaste) buys.
+func TestPasteReachesEveryTextWidget(t *testing.T) {
+	for _, c := range textWidgetCases() {
+		t.Run(c.name, func(t *testing.T) {
+			m := c.reach(t)
+			if m.top() != c.want {
+				t.Fatalf("top = %v, want %v", m.top(), c.want)
+			}
+			before := c.value(m)
+			m.Update(tea.PasteMsg{Content: "pasted"})
+			after := c.value(m)
+			if after == before {
+				t.Fatalf("paste did not reach the widget: value stayed %q", before)
+			}
+		})
+	}
+
+	for _, c := range textWidgetCases() {
+		if c.name != "tuple" {
+			continue
+		}
+		m := c.reach(t)
+		m.Update(tea.PasteMsg{Content: "organization:1"})
+		ts := m.tuples()
+		if ts == nil || len(*ts) == 0 || (*ts)[0].Object != "organization:1" {
+			t.Fatalf("paste reached the widget but not the document: tuples = %+v", ts)
+		}
 	}
 }

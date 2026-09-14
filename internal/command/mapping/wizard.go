@@ -286,13 +286,14 @@ func (m *wizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// routePaste forwards a terminal paste to the one focused text widget on a
-// screen whose whole job is that single field — Model file, Event file, and
-// Paste JSON. Every other screen ignores it, the same as an unhandled key.
-// The multi-field rule forms (trigger, tuple, variable, iterator, filter) are
-// out of scope: forwarding into them would also need each screen's live-commit
-// call (see keyTrigger et al.), which is more than the small case this routing
-// is meant to be.
+// routePaste forwards a terminal paste to the focused text widget on a screen
+// that hosts one. Model file, Event file, and Paste JSON have only that one
+// field, so forwarding is the whole job. The five multi-field rule forms
+// (trigger, tuple, variable, iterator, filter) also live-commit on every
+// keystroke — see keyTrigger et al. — so a forwarded paste mirrors that
+// screen's own commit tail; otherwise the preview and problem list would
+// freeze until the next keypress. Every other screen ignores the paste, the
+// same as an unhandled key.
 func (m *wizardModel) routePaste(msg tea.PasteMsg) tea.Cmd {
 	switch m.top() {
 	case screenModelFile:
@@ -302,6 +303,29 @@ func (m *wizardModel) routePaste(msg tea.PasteMsg) tea.Cmd {
 	case screenEventPaste:
 		var cmd tea.Cmd
 		m.paste, cmd = m.paste.Update(msg)
+		return cmd
+	case screenTrigger:
+		cmd := m.trigger.Update(msg)
+		m.commitTrigger()
+		return cmd
+	case screenTuple:
+		cmd := m.tupleForm.Update(msg)
+		m.syncTupleVisibility()
+		m.commitTuple()
+		return cmd
+	case screenVariable:
+		cmd := m.varForm.Update(msg)
+		m.commitVariable()
+		return cmd
+	case screenIterator:
+		cmd := m.iterForm.Update(msg)
+		if strings.TrimSpace(m.iterForm.Values()[0]) != "" {
+			m.commitIterator()
+		}
+		return cmd
+	case screenFilter:
+		cmd := m.filterForm.Update(msg)
+		m.commitFilter()
 		return cmd
 	}
 	return nil
