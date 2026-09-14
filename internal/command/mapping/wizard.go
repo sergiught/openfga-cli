@@ -14,6 +14,7 @@ import (
 	"github.com/sergiught/go-openfga/openfga"
 
 	"github.com/sergiught/openfga-cli/internal/mapping"
+	"github.com/sergiught/openfga-cli/internal/mapping/auth0"
 	"github.com/sergiught/openfga-cli/internal/modeltest"
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/field"
@@ -47,6 +48,7 @@ const (
 	screenConfirmSave
 	screenConfirmDelete
 	screenPayloadKind
+	screenRecipe
 )
 
 // sideBySideMin is the width at which the preview pane moves beside the editor
@@ -84,6 +86,11 @@ type wizardModel struct {
 	varIdx    int
 	filterIdx int
 	inIter    bool
+
+	// recipeEvent and recipe are the catalog entry shown on the recipe screen,
+	// set by openRecipe. Nothing is committed to doc until useRecipe runs.
+	recipeEvent auth0.Event
+	recipe      auth0.Recipe
 
 	// Live state recomputed by refresh.
 	preview  mapping.Preview
@@ -310,6 +317,8 @@ func (m *wizardModel) key(k tea.KeyPressMsg) tea.Cmd {
 		return m.keyTrigger(k)
 	case screenEventPick:
 		return m.keyEventPick(k)
+	case screenRecipe:
+		return m.keyRecipe(k)
 	case screenEventPaste:
 		return m.keyEventPaste(k)
 	case screenEventFile:

@@ -36,3 +36,107 @@ func TestChoosingOwnPayloadOpensThePasteScreen(t *testing.T) {
 		t.Fatalf("top = %v, want the paste screen", m.top())
 	}
 }
+
+// The screen earns its place by showing the resolved value next to the path it
+// came from. Templates only click when you see both.
+func TestTheRecipeScreenShowsResolvedValuesAndTheirPaths(t *testing.T) {
+	m := atRulesHub(t)
+	send(m, key("a"), key("enter")) // payload kind -> Auth0 catalog
+	selectEvent(t, m, "organization.member.added")
+
+	out := m.viewString()
+	for _, want := range []string{
+		"user:auth0|",                 // the resolved user, escaped
+		"data.object.user.user_id",    // where it came from
+		"member",                      // the fixed relation
+		"data.object.organization.id", // the object's path
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("%q missing from the recipe screen:\n%s", want, out)
+		}
+	}
+}
+
+// With no model loaded there is nothing to check against, so requirements are
+// stated as expectations rather than marked as failures.
+func TestTheRecipeScreenStatesExpectationsWithoutAModel(t *testing.T) {
+	m := atRulesHub(t)
+	send(m, key("a"), key("enter"))
+	selectEvent(t, m, "organization.member.added")
+
+	out := m.viewString()
+	if !strings.Contains(out, "expects") {
+		t.Fatalf("no expectation wording with no model loaded:\n%s", out)
+	}
+	if strings.Contains(out, "not in your model") {
+		t.Fatalf("a missing model must not be reported as a missing type:\n%s", out)
+	}
+}
+
+// Accepting the recipe leaves the user on the hub with a real rule, not on a
+// stack five screens deep.
+func TestUsingARecipeLandsOnTheHubWithTheRule(t *testing.T) {
+	m := atRulesHub(t)
+	send(m, key("a"), key("enter"))
+	selectEvent(t, m, "organization.member.added")
+	send(m, key("enter"))
+
+	if m.top() != screenRules {
+		t.Fatalf("top = %v, want the hub", m.top())
+	}
+	if len(m.stack) != 1 {
+		t.Fatalf("stack is %d deep, want 1", len(m.stack))
+	}
+	if len(m.doc.Rules) != 1 {
+		t.Fatalf("got %d rules, want 1", len(m.doc.Rules))
+	}
+	r := m.doc.Rules[0]
+	if r.Name != "organization.member.added" {
+		t.Fatalf("rule name = %q", r.Name)
+	}
+	if len(r.Tuples) != 1 {
+		t.Fatalf("got %d tuples, want 1", len(r.Tuples))
+	}
+	if r.Sample == nil {
+		t.Fatal("the rule kept no sample, so the preview has nothing to evaluate")
+	}
+}
+
+// The nine events that map to nothing explain themselves rather than dead-ending.
+func TestAnEventWithNoMappingExplainsWhy(t *testing.T) {
+	m := atRulesHub(t)
+	send(m, key("a"), key("enter"))
+	selectEvent(t, m, "organization.created")
+
+	out := m.viewString()
+	if !strings.Contains(out, "relationships") {
+		t.Fatalf("no explanation for an event that maps to nothing:\n%s", out)
+	}
+}
+
+// selectEvent filters the catalog to one event and opens it.
+func selectEvent(t *testing.T, m *wizardModel, typ string) {
+	t.Helper()
+	send(m, key("/"))
+	typeText(m, typ)
+	send(m, key("enter")) // accept the filter
+	send(m, key("enter")) // open the highlighted event
+	if m.top() != screenRecipe {
+		t.Fatalf("top = %v, want the recipe screen", m.top())
+	}
+}
+
+func TestSourcePathNamesWhereAValueCameFrom(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"user:{{ fga_escape(input.data.object.user.user_id) }}", "data.object.user.user_id"},
+		{"organization:{{ input.data.object.organization.id }}", "data.object.organization.id"},
+		{"member", "(fixed)"},
+		{"{{ input.data.object.role.name }}", "data.object.role.name"},
+		{"{{ a }}-{{ b }}", "{{ a }}-{{ b }}"},
+	}
+	for _, tc := range tests {
+		if got := sourcePath(tc.in); got != tc.want {
+			t.Errorf("sourcePath(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

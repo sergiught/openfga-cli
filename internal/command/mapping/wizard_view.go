@@ -10,6 +10,7 @@ import (
 
 	"github.com/openfga/mapper/language"
 
+	"github.com/sergiught/openfga-cli/internal/mapping"
 	"github.com/sergiught/openfga-cli/internal/style"
 	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
 	"github.com/sergiught/openfga-cli/internal/ui/logo"
@@ -175,6 +176,8 @@ var screenChrome = map[screen]chrome{
 		"Delete rule", "",
 		[]keyHint{{"y", "delete"}, {"n", "cancel"}},
 	},
+	screenRecipe: {"", "A ready-made mapping for this event.",
+		[]keyHint{{"↵", "use this"}, {"m", "change model"}, {"esc", "back"}}},
 }
 
 // chromeFor returns the current screen's chrome, specialising the save dialog:
@@ -192,6 +195,8 @@ func (m *wizardModel) chromeFor() chrome {
 		// anyway sends the user to a dialog whose only content is that there was
 		// nothing to save.
 		c.keys = []keyHint{{"a", "add"}, {"esc", "quit"}}
+	case m.top() == screenRecipe:
+		c.title = m.recipeEvent.Type
 	case m.top() != screenConfirmSave:
 	case len(m.doc.Rules) == 0:
 		c.keys = []keyHint{{"esc", "back"}}
@@ -353,6 +358,8 @@ func (m *wizardModel) screenBody(cw int) string {
 		return m.trigger.View()
 	case screenEventPick:
 		return m.events.View()
+	case screenRecipe:
+		return m.recipeBody(cw)
 	case screenEventPaste:
 		return m.paste.View()
 	case screenEventFile:
@@ -515,6 +522,116 @@ func (m *wizardModel) welcomeBody(cw int) string {
 		key.Render("file") + style.Value.Render(m.path),
 		key.Render("model") + style.Value.Render(model),
 	}, "\n")
+}
+
+// recipeBody renders the teaching moment for a recipe: what it does, the
+// resolved values beside the payload paths they came from, and what the
+// loaded model has and lacks.
+func (m *wizardModel) recipeBody(cw int) string {
+	var b strings.Builder
+	b.WriteString(lipgloss.NewStyle().Foreground(style.Muted).Width(cw).Render(m.recipe.Explain))
+
+	if m.recipe.Maps() {
+		b.WriteString("\n\n")
+		b.WriteString(m.recipeMappingBlock(cw))
+	}
+	if len(m.recipe.Requires) > 0 {
+		b.WriteString("\n\n")
+		b.WriteString(m.recipeModelBlock())
+	}
+	return b.String()
+}
+
+// recipeMappingBlock evaluates the recipe's rule against the event's own
+// sample and lines each tuple field up with the payload path it came from.
+// An event with no tuples (the cleanup recipes, which only carry filters)
+// simply contributes no rows here.
+func (m *wizardModel) recipeMappingBlock(cw int) string {
+	doc := &mapping.Document{Rules: []mapping.Rule{m.recipe.Rule}}
+	preview := mapping.Evaluate(m.ctx, doc, m.recipeEvent.Sample)
+
+	label := lipgloss.NewStyle().Foreground(style.Muted).Width(9)
+	source := lipgloss.NewStyle().Foreground(style.Faintc)
+
+	// Value and source path each get their own line rather than sharing one: the
+	// value already spends the whole cw-9 budget the row has left after the
+	// label, so a source path tacked onto the same line has nothing left to fit
+	// in and would run past cw. A path indented on the line below has the full
+	// cw to itself instead.
+	row := func(name, value, template string) []string {
+		return []string{
+			label.Render(name) + style.Value.Render(clamp(value, cw-9)),
+			source.Render("  " + clamp(sourcePath(template), cw-2)),
+		}
+	}
+
+	var lines []string
+	for i, t := range m.recipe.Rule.Tuples {
+		user, relation, object := t.User, t.Relation, t.Object
+		if preview.OK() && i < len(preview.Tuples) {
+			user = preview.Tuples[i].User
+			relation = preview.Tuples[i].Relation
+			object = preview.Tuples[i].Object
+		}
+		lines = append(lines, row("user", user, t.User)...)
+		lines = append(lines, row("relation", relation, t.Relation)...)
+		lines = append(lines, row("object", object, t.Object)...)
+	}
+	if !preview.OK() {
+		lines = append(lines, "", lipgloss.NewStyle().Foreground(style.Red).Render(
+			style.IconCross+" the sample could not be evaluated"))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// recipeModelBlock renders what the recipe's requirements need from the
+// loaded model. With no model loaded there is nothing to check against, so
+// requirements are stated as plain expectations rather than marked missing —
+// the user who skipped loading a model has not told us anything is wrong.
+func (m *wizardModel) recipeModelBlock() string {
+	statuses := mapping.CheckRequirements(m.index, m.recipe.Requires)
+	if len(statuses) == 0 {
+		return ""
+	}
+	muted := lipgloss.NewStyle().Foreground(style.Muted)
+
+	if !statuses[0].Checked {
+		lines := []string{muted.Render("this mapping expects")}
+		for _, s := range statuses {
+			lines = append(lines, "  "+requirementName(s.Requirement), indentDSL(s.Requirement.DSL))
+		}
+		return strings.Join(lines, "\n")
+	}
+
+	lines := []string{muted.Render("your model")}
+	for _, s := range statuses {
+		if s.Satisfied() {
+			lines = append(lines, lipgloss.NewStyle().Foreground(style.Green).Render(
+				style.IconCheck+" "+requirementName(s.Requirement)))
+			continue
+		}
+		lines = append(lines, lipgloss.NewStyle().Foreground(style.Red).Render(
+			"! "+requirementName(s.Requirement)+" not in your model"))
+		lines = append(lines, indentDSL(s.Requirement.DSL))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// requirementName is the short type#relation label a requirement checks —
+// the DSL fragment itself is shown separately, indented, when it is missing.
+func requirementName(r mapping.Requirement) string {
+	if r.Relation == "" {
+		return r.Type
+	}
+	return r.Type + "#" + r.Relation
+}
+
+func indentDSL(dsl string) string {
+	lines := strings.Split(dsl, "\n")
+	for i, l := range lines {
+		lines[i] = "    " + l
+	}
+	return lipgloss.NewStyle().Foreground(style.Faintc).Render(strings.Join(lines, "\n"))
 }
 
 // previewPane renders the file being built and what the current sample turns

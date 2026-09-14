@@ -136,22 +136,30 @@ func (m *wizardModel) openEventPick() {
 	m.push(screenEventPick)
 }
 
+// fromFork reports whether the screen on top of the stack was reached from
+// the add-rule fork ("a" -> Auth0/JSON), as opposed to ctrl+e on a rule that
+// already exists. screenPayloadKind is on the stack only during a fork,
+// however many screens deep the current screen sits above it (straight to a
+// pick, or via paste/file, or now via the recipe screen) — that presence, not
+// its position, is the question being asked here. Every place that needs this
+// decision calls it, rather than scanning the stack a second way: two
+// screens making that call independently is how Task 6 shipped a hang.
+func (m *wizardModel) fromFork() bool {
+	for _, s := range m.stack {
+		if s == screenPayloadKind {
+			return true
+		}
+	}
+	return false
+}
+
 // acceptPick creates the rule when the pick was reached from the add-rule
 // fork, then attaches the sample and navigates on: to the new rule's hub for
 // the fork, or back to the trigger form when a rule was already there.
 // keyEventPick, keyEventPaste and keyEventFile all call this so none of them
 // can diverge from the others on when the rule gets created.
 func (m *wizardModel) acceptPick(label string, event map[string]any) {
-	// screenPayloadKind is on the stack only during an add-rule fork, however
-	// many screens deep the pick went (straight to a pick, or via paste/file) —
-	// that presence, not its position, is the question being asked here.
-	fork := false
-	for _, s := range m.stack {
-		if s == screenPayloadKind {
-			fork = true
-			break
-		}
-	}
+	fork := m.fromFork()
 	if fork {
 		// Reached from the fork, with no rule behind it yet. The rule is
 		// created here, on accept, rather than when the fork was entered —
@@ -177,7 +185,13 @@ func (m *wizardModel) acceptPick(label string, event map[string]any) {
 
 func (m *wizardModel) keyEventPick(k tea.KeyPressMsg) tea.Cmd {
 	if m.events.SettingFilter() {
-		return m.events.Update(k)
+		// Resync the same way keyPathPick does: bubbles' own filtering recomputes
+		// matches through a command, which a keystroke-at-a-time test harness never
+		// runs, so "enter" would see stale (or no) matches and reset the filter
+		// instead of accepting it.
+		cmd := m.events.Update(k)
+		m.events.ResyncFilter()
+		return cmd
 	}
 	switch k.String() {
 	case "esc":
@@ -200,7 +214,15 @@ func (m *wizardModel) keyEventPick(k tea.KeyPressMsg) tea.Cmd {
 				m.errMsg = fmt.Sprintf("unknown event %q", it.ID)
 				return nil
 			}
-			m.acceptPick(e.Type, e.Sample)
+			// From the fork the user is creating a rule out of a recipe, so the
+			// worked mapping shows first. From ctrl+e they already have a rule and
+			// are changing its event, so the pick attaches directly — a one-key
+			// "use this" would otherwise mean "overwrite what I wrote".
+			if m.fromFork() {
+				m.openRecipe(e)
+			} else {
+				m.acceptPick(e.Type, e.Sample)
+			}
 		}
 		return nil
 	}

@@ -68,10 +68,13 @@ func TestPickingACatalogEventSetsTheSampleAndAutoFills(t *testing.T) {
 }
 
 // TestForkCatalogPickAppendsARuleOnAFreshDocument guards the fix for the
-// catalog branch of the add-rule fork: "a" -> kind screen -> Auth0 -> pick
-// must create the rule on accept, exactly like the paste branch already did.
-// Before the fix, m.rule() returned nil on a fresh document and the sample
-// was silently dropped.
+// catalog branch of the add-rule fork: "a" -> kind screen -> Auth0 -> pick ->
+// recipe -> use it must create the rule on accept, exactly like the paste
+// branch already did. Before the fix, m.rule() returned nil on a fresh
+// document and the sample was silently dropped. The recipe screen now sits
+// between the pick and the append (see the editor_recipe_test.go tests for
+// that screen), so this guards that the rule still lands correctly once it
+// does.
 func TestForkCatalogPickAppendsARuleOnAFreshDocument(t *testing.T) {
 	m := atRulesHub(t)
 	send(m, key("a"), key("enter")) // add rule: kind screen -> Auth0 -> catalog
@@ -81,7 +84,8 @@ func TestForkCatalogPickAppendsARuleOnAFreshDocument(t *testing.T) {
 	if !m.events.SelectID("organization.member.added") {
 		t.Fatal("could not select the event")
 	}
-	send(m, key("enter"))
+	send(m, key("enter")) // open the recipe
+	send(m, key("enter")) // use it
 
 	if len(m.doc.Rules) != 1 {
 		t.Fatalf("rules = %d, want 1", len(m.doc.Rules))
@@ -93,8 +97,8 @@ func TestForkCatalogPickAppendsARuleOnAFreshDocument(t *testing.T) {
 	if r == nil || r.Sample == nil || r.Sample.Label != "organization.member.added" {
 		t.Fatalf("rule = %+v, want the picked sample attached", r)
 	}
-	if m.top() != screenRule {
-		t.Fatalf("top = %v, want the new rule's hub", m.top())
+	if m.top() != screenRules {
+		t.Fatalf("top = %v, want the hub", m.top())
 	}
 }
 
@@ -112,7 +116,8 @@ func TestForkCatalogPickLeavesAnExistingRuleAlone(t *testing.T) {
 	if !m.events.SelectID("organization.member.added") {
 		t.Fatal("could not select the event")
 	}
-	send(m, key("enter"))
+	send(m, key("enter")) // open the recipe
+	send(m, key("enter")) // use it
 
 	if len(m.doc.Rules) != 2 {
 		t.Fatalf("rules = %d, want 2", len(m.doc.Rules))
