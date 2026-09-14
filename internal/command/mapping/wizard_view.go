@@ -200,13 +200,12 @@ func (m *wizardModel) chromeFor() chrome {
 		c.keys = []keyHint{{"a", "add"}, {"m", "model"}, {"esc", "quit"}, {"?", "help"}}
 	case m.top() == screenRecipe:
 		c.title = m.recipeEvent.Type
-		// There is nothing to use on an explain-only recipe, so the footer stops
-		// offering the key that would now do nothing — and the subtitle stops
-		// promising a ready-made mapping directly above the paragraph explaining
-		// why there isn't one.
+		// An explain-only recipe has no mapping to promise in the subtitle and
+		// nothing to "use" in the footer. What it does still have is the payload,
+		// so ↵ stays — pointed at a rule the user writes themselves.
 		if !m.recipe.Maps() {
 			c.subtitle = "Why this event has no ready-made mapping."
-			c.keys = []keyHint{{"m", "change model"}, {"esc", "back"}}
+			c.keys = []keyHint{{"↵", "start a rule anyway"}, {"m", "change model"}, {"esc", "back"}}
 		}
 	case m.top() == screenHelp:
 		// screenHelp is a leaf pushed only on top of a screen helpFor answered
@@ -241,9 +240,13 @@ func (m *wizardModel) viewString() string {
 	}
 	// The welcome screen is the tour's front door and matches the connection
 	// wizard exactly; the confirmations are modals, which is the one surface the
-	// rest of the CLI also boxes. Every other screen is the two-pane editor.
+	// rest of the CLI also boxes. The payload-kind fork joins them because it asks
+	// a question about a rule that does not exist yet: there is nothing of it to
+	// preview, so a pane beside the question would show the user the file they
+	// have already got while asking what to add to it. Every other screen is the
+	// two-pane editor.
 	switch m.top() {
-	case screenWelcome, screenConfirmSave, screenConfirmDelete:
+	case screenWelcome, screenPayloadKind, screenConfirmSave, screenConfirmDelete:
 		return m.cardView()
 	}
 	return m.paneView()
@@ -326,6 +329,8 @@ func (m *wizardModel) cardBody(cw int) string {
 	switch m.top() {
 	case screenWelcome:
 		return m.welcomeBody(cw)
+	case screenPayloadKind:
+		return m.kindPick.View(cw)
 	case screenConfirmSave:
 		return m.saveSummary()
 	case screenConfirmDelete:
@@ -409,8 +414,6 @@ func (m *wizardModel) screenBody(cw int) string {
 		return m.rulesBody()
 	case screenRule:
 		return m.sections.View(cw)
-	case screenPayloadKind:
-		return m.kindPick.View(cw)
 	case screenTrigger:
 		return m.trigger.View()
 	case screenEventPick:

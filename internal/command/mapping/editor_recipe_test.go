@@ -179,7 +179,11 @@ func firstUnmappedEvent(t *testing.T) auth0.Event {
 // An explain-only recipe has nothing to append. Before this, enter took the
 // same path as a real recipe and dropped a zero-valued Rule on the hub: no
 // name, no trigger, no tuples, and a blocking problem the user never asked for.
-func TestAnEventWithNoMappingAppendsNothing(t *testing.T) {
+// What it appends instead is the rule a pasted payload would have produced:
+// named and triggered off the event, carrying its sample, and empty of tuples
+// for the user to fill. Reading why an event maps to nothing is an argument for
+// writing a different rule, not for being sent back the way you came.
+func TestAnEventWithNoMappingStillStartsARule(t *testing.T) {
 	e := firstUnmappedEvent(t)
 
 	m := atRulesHub(t)
@@ -188,17 +192,29 @@ func TestAnEventWithNoMappingAppendsNothing(t *testing.T) {
 
 	send(m, key("enter"))
 
-	if len(m.doc.Rules) != 0 {
-		t.Fatalf("rules = %d, want 0 — %s maps to nothing:\n%+v", len(m.doc.Rules), e.Type, m.doc.Rules)
+	if len(m.doc.Rules) != 1 {
+		t.Fatalf("rules = %d, want 1:\n%+v", len(m.doc.Rules), m.doc.Rules)
 	}
-	if m.top() != screenRecipe {
-		t.Fatalf("top = %v, want to stay on the recipe screen", m.top())
+	r := m.doc.Rules[0]
+	if r.Sample == nil || r.Sample.Label != e.Type {
+		t.Fatalf("the event's payload did not come with it: sample = %+v", r.Sample)
+	}
+	if r.Name == "" || r.When == "" {
+		t.Fatalf("the trigger was left blank: name = %q, when = %q", r.Name, r.When)
+	}
+	// The zero Rule this screen must never append is the one with no tuples AND
+	// nothing identifying it; tuples are the half the user is here to write.
+	if len(r.Tuples) != 0 {
+		t.Fatalf("%s maps to nothing but %d tuples appeared:\n%+v", e.Type, len(r.Tuples), r.Tuples)
+	}
+	if m.top() != screenRule {
+		t.Fatalf("top = %v, want the new rule's editor", m.top())
 	}
 }
 
-// The footer must stop offering the key that now does nothing: an affordance
-// that answers a keypress with no change on screen reads as a broken wizard.
-func TestAnEventWithNoMappingOffersNoUseKey(t *testing.T) {
+// The complaint this answers: "it doesn't let me continue". A screen whose only
+// exits are backwards is a dead end however good its explanation.
+func TestAnEventWithNoMappingOffersAWayForward(t *testing.T) {
 	e := firstUnmappedEvent(t)
 
 	m := atRulesHub(t)
@@ -207,9 +223,10 @@ func TestAnEventWithNoMappingOffersNoUseKey(t *testing.T) {
 
 	for _, k := range m.chromeFor().keys {
 		if k.key == "↵" {
-			t.Fatalf("%s maps to nothing but the footer still offers %q %q", e.Type, k.key, k.label)
+			return
 		}
 	}
+	t.Fatalf("%s is a dead end: the footer offers no ↵, only %+v", e.Type, m.chromeFor().keys)
 }
 
 // The footer is only half of what the screen promises. The subtitle sits

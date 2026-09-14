@@ -54,13 +54,20 @@ func (m *wizardModel) keyRecipe(k tea.KeyPressMsg) tea.Cmd {
 	case "m":
 		m.push(screenModelSource)
 	case "enter":
-		// An explain-only recipe explains why there is nothing to map instead of
-		// offering one. Appending its zero Rule would drop an unnamed, already
-		// blocking rule on the hub. Maps() is the single test the recipe screen
-		// branches on.
+		// Maps() is the single test the recipe screen branches on.
 		if m.recipe.Maps() {
 			m.useRecipe()
+			return nil
 		}
+		// An explain-only recipe has no rule to hand over — appending its zero
+		// Rule would drop an unnamed, already blocking rule on the hub. But the
+		// user picked this event for a reason, and the explanation is a reason to
+		// write something different, not to go away: connection.updated says
+		// outright which tuple its is_enabled field should delete. So take the
+		// same path a pasted payload takes — a rule carrying this sample, its
+		// trigger filled in, and no tuples yet — and leave the user in the editor
+		// rather than on a screen whose only exits are backwards.
+		m.acceptPick(m.recipeEvent.Type, m.recipeEvent.Sample)
 	}
 	return nil
 }
