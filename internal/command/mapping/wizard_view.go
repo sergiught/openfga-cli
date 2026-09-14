@@ -103,7 +103,7 @@ var screenChrome = map[screen]chrome{
 	},
 	screenRules: {
 		"Rules", "Each rule turns one kind of event into tuples.",
-		[]keyHint{{"a", "add"}, {"↵", "open"}, {"d", "delete"}, {"m", "model"}, {"^s", "save"}, {"esc", "quit"}},
+		[]keyHint{{"a", "add"}, {"↵", "open"}, {"d", "delete"}, {"m", "model"}, {"^s", "save"}, {"esc", "quit"}, {"?", "help"}},
 	},
 	screenRule: {
 		"Rule", "Pick a part of this rule to edit.",
@@ -122,7 +122,7 @@ var screenChrome = map[screen]chrome{
 	},
 	screenEventPick: {
 		"Pick an event", "Choose a sample payload to build the rule against.",
-		[]keyHint{{"/", "filter"}, {"↵", "select"}, {"esc", "back"}},
+		[]keyHint{{"/", "filter"}, {"↵", "select"}, {"esc", "back"}, {"?", "help"}},
 	},
 	screenEventPaste: {
 		"Paste an event", "Paste one event payload as JSON.",
@@ -134,7 +134,7 @@ var screenChrome = map[screen]chrome{
 	},
 	screenTuples: {
 		"Tuples", "The relationships this rule writes or deletes.",
-		[]keyHint{{"a", "add"}, {"↵", "edit"}, {"d", "delete"}, {"esc", "back"}},
+		[]keyHint{{"a", "add"}, {"↵", "edit"}, {"d", "delete"}, {"esc", "back"}, {"?", "help"}},
 	},
 	screenTuple: {
 		"Tuple", "Wrap an expression in {{ }} to read from the event.",
@@ -142,11 +142,11 @@ var screenChrome = map[screen]chrome{
 	},
 	screenAction: {
 		"Rule action", "Write or delete every tuple in this rule?",
-		[]keyHint{{"↑↓", "move"}, {"↵", "select"}, {"esc", "back"}},
+		[]keyHint{{"↑↓", "move"}, {"↵", "select"}, {"esc", "back"}, {"?", "help"}},
 	},
 	screenVariables: {
 		"Variables", "Name an expression once, then reuse it in tuples.",
-		[]keyHint{{"a", "add"}, {"↵", "edit"}, {"d", "delete"}, {"esc", "back"}},
+		[]keyHint{{"a", "add"}, {"↵", "edit"}, {"d", "delete"}, {"esc", "back"}, {"?", "help"}},
 	},
 	screenVariable: {
 		"Variable", "A name, and the expression it stands for.",
@@ -158,7 +158,7 @@ var screenChrome = map[screen]chrome{
 	},
 	screenFilters: {
 		"Tuple filters", "Delete every existing tuple matching a pattern.",
-		[]keyHint{{"a", "add"}, {"↵", "edit"}, {"d", "delete"}, {"esc", "back"}},
+		[]keyHint{{"a", "add"}, {"↵", "edit"}, {"d", "delete"}, {"esc", "back"}, {"?", "help"}},
 	},
 	screenFilter: {
 		"Tuple filter", "Blank user or relation matches anything; object needs a type.",
@@ -200,6 +200,11 @@ func (m *wizardModel) chromeFor() chrome {
 		c.keys = []keyHint{{"a", "add"}, {"m", "model"}, {"esc", "quit"}}
 	case m.top() == screenRecipe:
 		c.title = m.recipeEvent.Type
+	case m.top() == screenHelp:
+		// screenHelp is a leaf pushed only on top of a screen helpFor answered
+		// for (see help.go), so the entry underneath always exists.
+		c.title, _, _ = helpFor(m.stack[len(m.stack)-2])
+		c.keys = []keyHint{{"any key", "close"}}
 	case m.top() != screenConfirmSave:
 	case len(m.doc.Rules) == 0:
 		c.keys = []keyHint{{"esc", "back"}}
@@ -396,6 +401,12 @@ func (m *wizardModel) screenBody(cw int) string {
 		return m.filterForm.View()
 	case screenPathPick:
 		return m.paths.View()
+	case screenHelp:
+		// No Width here: helpFor's bodies are already hand-wrapped, and
+		// re-flowing them at cw would break a line — including its wording —
+		// wherever cw happens to fall short of the author's own line length.
+		_, body, _ := helpFor(m.stack[len(m.stack)-2])
+		return lipgloss.NewStyle().Foreground(style.Muted).Render(body)
 	}
 	return ""
 }

@@ -49,6 +49,8 @@ const (
 	screenConfirmDelete
 	screenPayloadKind
 	screenRecipe
+	screenHelp
+	screenCount
 )
 
 // sideBySideMin is the width at which the preview pane moves beside the editor
@@ -350,6 +352,16 @@ func (m *wizardModel) key(k tea.KeyPressMsg) tea.Cmd {
 		return tea.Quit
 	}
 
+	// ? opens the help overlay for screens whose concept helpFor explains — but
+	// not while a list on the current screen is taking filter input, where ? is
+	// a character the user is typing rather than a request for help.
+	if k.String() == "?" && !m.filtering() {
+		if _, _, ok := helpFor(m.top()); ok {
+			m.push(screenHelp)
+			return nil
+		}
+	}
+
 	switch m.top() {
 	case screenWelcome:
 		switch k.String() {
@@ -406,6 +418,8 @@ func (m *wizardModel) key(k tea.KeyPressMsg) tea.Cmd {
 		return m.keyConfirmSave(k)
 	case screenConfirmDelete:
 		return m.keyConfirmDelete(k)
+	case screenHelp:
+		return m.keyHelp(k)
 	}
 	return nil
 }
