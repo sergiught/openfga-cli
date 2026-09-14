@@ -512,7 +512,10 @@ func TestCtrlSOnEventFileDoesNotPermanentlyDeadenTheField(t *testing.T) {
 func TestRulesHubEmptyStateAndQuit(t *testing.T) {
 	m := atRulesHub(t)
 
-	if !strings.Contains(strings.ToLower(m.viewString()), "add") {
+	// The sentence the empty state alone writes. "add" on its own is in the
+	// footer's key hints on this screen too, so it would pass with no empty
+	// state rendered at all.
+	if !strings.Contains(m.viewString(), "No rules yet.") {
 		t.Fatalf("empty state should explain `a`:\n%s", m.viewString())
 	}
 	// With no rules there is nothing to lose, so esc quits without confirming.
@@ -635,8 +638,11 @@ func TestAFramedEditorStillShowsItsPreview(t *testing.T) {
 	if !strings.Contains(out, "╭") {
 		t.Fatalf("the tuple form is not framed:\n%s", out)
 	}
-	if !strings.Contains(out, "organization:acme") {
-		t.Fatalf("the preview vanished from the framed editor:\n%s", out)
+	// Assert against the preview pane rather than the whole view: the form field
+	// the user just typed into echoes the same text, so a whole-view grep cannot
+	// tell "the preview shows it" from "the input shows it".
+	if pane := m.previewPane(m.contentWidth()); !strings.Contains(pane, "organization:acme") {
+		t.Fatalf("the preview vanished from the framed editor:\n%s", pane)
 	}
 }
 

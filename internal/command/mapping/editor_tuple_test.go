@@ -10,6 +10,7 @@ import (
 	"github.com/sergiught/go-openfga/openfga"
 
 	"github.com/sergiught/openfga-cli/internal/mapping"
+	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
 	"github.com/sergiught/openfga-cli/internal/ui/picker"
 )
 
@@ -34,7 +35,10 @@ func atTuples(t *testing.T) *wizardModel {
 
 func TestTuplesListEmptyStateAndAdd(t *testing.T) {
 	m := atTuples(t)
-	if !strings.Contains(strings.ToLower(m.viewString()), "add") {
+	// The sentence the empty state alone writes: "add" on its own is in the
+	// footer's key hints on this screen too, so it would pass with no empty
+	// state rendered at all.
+	if !strings.Contains(m.viewString(), "No tuples yet.") {
 		t.Fatalf("empty state should explain `a`:\n%s", m.viewString())
 	}
 	send(m, key("a"))
@@ -257,8 +261,15 @@ func TestCommitWritesTheTupleBack(t *testing.T) {
 	if m.top() != screenTuples {
 		t.Fatalf("top = %v", m.top())
 	}
-	if !strings.Contains(m.viewString(), "member") {
-		t.Fatalf("the list should show the tuple:\n%s", m.viewString())
+	// Assert against the list's own items rather than the rendered view: the
+	// YAML preview underneath carries "member" too, so a whole-view grep proves
+	// nothing about the list this test is named for.
+	items := m.tupleList.Model.Items()
+	if len(items) != 1 {
+		t.Fatalf("tuple list items = %d, want 1", len(items))
+	}
+	if title := items[0].(uilist.Item).TitleText; !strings.Contains(title, "member") {
+		t.Fatalf("the list should show the tuple:\n%s", title)
 	}
 }
 

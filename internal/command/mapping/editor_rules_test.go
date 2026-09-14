@@ -253,11 +253,54 @@ func TestRuleHubEnterOpensSectionWithoutRenderingFirst(t *testing.T) {
 	}
 }
 
+// Deleting the last rule leaves ruleIdx pointing one past the end, and every
+// screen that reads m.rule() from then on — the hub's preview included — would
+// be reading off the end of the slice. deleteRule clamps it; nothing covered
+// that, so the clamp could be deleted without turning the suite red.
+func TestDeletingTheLastRuleLandsOnTheNewLastOne(t *testing.T) {
+	m := atRulesHub(t)
+	m.doc.Rules = []mapping.Rule{
+		{Name: "first", When: `input.type == "a"`},
+		{Name: "second", When: `input.type == "b"`},
+		{Name: "third", When: `input.type == "c"`},
+	}
+	m.syncRules()
+
+	// Delete the last one, the way the hub does: select it, then confirm.
+	m.rules.SelectID("rule-2")
+	send(m, key("d"))
+	if m.top() != screenConfirmDelete {
+		t.Fatalf("top = %v, want the delete confirmation", m.top())
+	}
+	send(m, key("y"))
+
+	if len(m.doc.Rules) != 2 {
+		t.Fatalf("rules = %d, want 2", len(m.doc.Rules))
+	}
+	if m.ruleIdx != 1 {
+		t.Fatalf("ruleIdx = %d, want 1 — it must land on the new last rule", m.ruleIdx)
+	}
+	r := m.rule()
+	if r == nil {
+		t.Fatal("rule() = nil after deleting the last rule")
+	}
+	if r.Name != "second" {
+		t.Fatalf("rule = %q, want the new last rule", r.Name)
+	}
+}
+
 // The wizard's premise is that the preview tracks what you are looking at, so
 // the evaluation pane has to follow the highlight around the hub rather than
 // staying on whichever rule was opened last.
 func TestMovingTheRulesCursorMovesThePreview(t *testing.T) {
 	m := atRulesHub(t)
+	// The two rules match different events on purpose. refresh() evaluates the
+	// whole document against the selected rule's sample, so two rules sharing a
+	// `when` and a sample both fire whatever the cursor is on and the pane comes
+	// out byte-identical at either position — there would be nothing for an
+	// assertion to catch.
+	deleted := memberAddedEvent()
+	deleted["type"] = "organization.member.deleted"
 	m.doc.Rules = []mapping.Rule{
 		{
 			Name:   "first",
@@ -267,14 +310,22 @@ func TestMovingTheRulesCursorMovesThePreview(t *testing.T) {
 		},
 		{
 			Name:   "second",
-			When:   `input.type == "organization.member.added"`,
-			Sample: &mapping.Sample{Label: "member added", Event: memberAddedEvent()},
+			When:   `input.type == "organization.member.deleted"`,
+			Sample: &mapping.Sample{Label: "member deleted", Event: deleted},
 			Tuples: []mapping.Tuple{{User: "user:b", Relation: "admin", Object: "organization:2"}},
 		},
 	}
 	m.syncRules()
 	m.ruleIdx = 0
 	m.refresh()
+
+	// What moves with the cursor is which rule fires and which is skipped.
+	// "skipped" is vocabulary only the evaluation half has: the YAML half above
+	// it lists both rules whatever the cursor is on, so neither rule's own
+	// tuples, users or relations can tell the two positions apart.
+	if pane := m.previewPane(m.contentWidth()); !strings.Contains(pane, "second: skipped") {
+		t.Fatalf("the first rule's sample should leave the second rule skipped:\n%s", pane)
+	}
 
 	send(m, key("down"))
 
@@ -283,5 +334,9 @@ func TestMovingTheRulesCursorMovesThePreview(t *testing.T) {
 	}
 	if r := m.rule(); r == nil || r.Name != "second" {
 		t.Fatalf("current rule = %+v", r)
+	}
+	// The cursor half of the move is covered above; this is the preview half.
+	if pane := m.previewPane(m.contentWidth()); !strings.Contains(pane, "first: skipped") {
+		t.Fatalf("the preview did not follow the cursor to the second rule:\n%s", pane)
 	}
 }
