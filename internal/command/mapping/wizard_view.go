@@ -208,6 +208,11 @@ func (m *wizardModel) chromeFor() chrome {
 		// nothing to save. Loading a model is still worth offering: it is what
 		// makes the pickers on the way in suggest anything.
 		c.keys = []keyHint{{"a", "add"}, {"m", "model"}, {"esc", "quit"}, {"?", "help"}}
+	case m.top() == screenModelSource && len(m.stack) > 1 && m.stack[len(m.stack)-2] == screenPayloadKind:
+		// Opening the wizard stacks this screen on the event fork, so leaving it
+		// goes on to the event pick rather than back to anything. Everywhere else
+		// the model is reached with m from a screen esc really does return to.
+		c.keys = []keyHint{{"↑↓", "move"}, {"↵", "select"}, {"esc", "skip"}, {"?", "help"}}
 	case m.top() == screenTuple && m.index.Empty():
 		// ^o picks a type or relation out of the loaded model. With no model there
 		// is nothing to pick from, and the key does nothing at all — advertised

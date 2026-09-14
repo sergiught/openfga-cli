@@ -89,18 +89,51 @@ func TestWelcomeShowsTargetFileAndAdvancesOnEnter(t *testing.T) {
 		t.Fatalf("welcome does not name the file:\n%s", m.viewString())
 	}
 	send(m, key("enter"))
-	if m.top() != screenPayloadKind {
-		t.Fatalf("top = %v, want the payload-kind screen", m.top())
+	if m.top() != screenModelSource {
+		t.Fatalf("top = %v, want the model source", m.top())
 	}
 }
 
-// The welcome screen now leads into the payload question, not into a model
-// question the user has no context for yet.
-func TestWelcomeLeadsToThePayloadKind(t *testing.T) {
+// The model question comes first and the event pick is underneath it, so that
+// the types and relations a tuple may name are known before the user is asked
+// to name any. An earlier cut asked the payload question first, on the reasoning
+// that a model has no context yet — but the pickers it feeds are the context.
+//
+// Skipping is one key, and what it reveals is the event pick, not the welcome
+// screen: the model is optional, and declining it must not cost the user the
+// step they came to do.
+func TestTheModelIsAskedBeforeTheEvent(t *testing.T) {
 	m := newTestWizard(t, nil)
 	send(m, key("enter"))
+	if m.top() != screenModelSource {
+		t.Fatalf("top = %v, want the model source first", m.top())
+	}
+	send(m, key("esc"))
 	if m.top() != screenPayloadKind {
-		t.Fatalf("top = %v, want the payload-kind screen", m.top())
+		t.Fatalf("skipping the model left the user on %v, not the payload kind", m.top())
+	}
+}
+
+// The other two ways of answering have to arrive at the same screen, or the
+// user who actually loads a model is worse off than the one who skipped. A
+// fetch returns through modelLoadedMsg, which is the path Skip does not take.
+func TestALoadedModelLandsOnTheEventFork(t *testing.T) {
+	m := newTestWizard(t, func(context.Context) (*openfga.AuthorizationModel, error) {
+		return testModel(), nil
+	})
+	send(m, key("enter"))
+	selectSource(t, m, "server")
+	send(m, key("enter"))
+	if !m.loading {
+		t.Fatal("selecting the connected store did not start a fetch")
+	}
+	m.Update(modelLoadedMsg{model: testModel(), gen: m.loadGen})
+
+	if m.top() != screenPayloadKind {
+		t.Fatalf("a loaded model left the user on %v, not the payload kind", m.top())
+	}
+	if m.index.Empty() {
+		t.Fatal("the model was not indexed")
 	}
 }
 

@@ -240,7 +240,8 @@ func TestTheWholeFlowWritesAMappingFile(t *testing.T) {
 	m := newWizard(context.Background(), path, "", nil)
 	m.Init()
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	send(m, key("enter")) // welcome -> the hub, with the payload fork open
+	send(m, key("enter")) // welcome -> the model question, over the payload fork
+	send(m, key("esc"))   // skip it: this test is about the document, not the model
 	if m.top() != screenPayloadKind {
 		t.Fatalf("top = %v, want the payload-kind screen", m.top())
 	}
@@ -303,7 +304,8 @@ func TestTheWholeFlowWritesAHandAuthoredMapping(t *testing.T) {
 	m.Init()
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 
-	send(m, key("enter")) // welcome -> the hub, with the payload fork open
+	send(m, key("enter")) // welcome -> the model question, over the payload fork
+	send(m, key("esc"))   // skip it: this test is about the document, not the model
 	if m.top() != screenPayloadKind {
 		t.Fatalf("top = %v, want the payload-kind screen", m.top())
 	}

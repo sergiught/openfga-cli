@@ -375,6 +375,12 @@ func (m *wizardModel) key(k tea.KeyPressMsg) tea.Cmd {
 			// stays one definition of what "add a rule" means.
 			m.push(screenRules)
 			m.addRule()
+			// The model question goes on top of the fork rather than in front of
+			// it, so that every way of answering it — Skip, a file that parses, a
+			// fetch that returns — lands on the event pick through the pop each
+			// one already does. Asked first and answered forwards, it would need
+			// three new "and then continue" branches to reach the same screen.
+			m.push(screenModelSource)
 		case "esc":
 			m.cancelled = true
 			return tea.Quit

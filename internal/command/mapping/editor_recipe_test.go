@@ -390,6 +390,10 @@ func TestTheAdvertisedMappingCountMatchesTheCatalog(t *testing.T) {
 
 	m := newTestWizard(t, nil)
 	send(m, key("enter"))
+	// The wizard opens on the model question, stacked over the fork. esc skips
+	// it and reveals the payload-kind screen underneath, which is the one this
+	// test is about.
+	send(m, key("esc"))
 	kind := m.viewString()
 	if !strings.Contains(kind, fmt.Sprintf("%d event types, %d with a ready-made mapping", len(auth0.Catalog()), want)) {
 		t.Fatalf("the payload-kind screen misstates the catalog:\n%s", kind)
