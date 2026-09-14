@@ -134,13 +134,22 @@ func (m *wizardModel) openEventPick() {
 	m.push(screenEventPick)
 }
 
-// acceptPick creates the rule when the pick was reached straight from the
-// add-rule fork, then attaches the sample and navigates on: to the new rule's
-// hub for the fork, or back to the trigger form when a rule was already
-// there. Both keyEventPick and keyEventPaste call this so neither can diverge
-// from the other on when the rule gets created.
+// acceptPick creates the rule when the pick was reached from the add-rule
+// fork, then attaches the sample and navigates on: to the new rule's hub for
+// the fork, or back to the trigger form when a rule was already there.
+// keyEventPick, keyEventPaste and keyEventFile all call this so none of them
+// can diverge from the others on when the rule gets created.
 func (m *wizardModel) acceptPick(label string, event map[string]any) {
-	fork := m.stack[len(m.stack)-2] == screenPayloadKind
+	// screenPayloadKind is on the stack only during an add-rule fork, however
+	// many screens deep the pick went (straight to a pick, or via paste/file) —
+	// that presence, not its position, is the question being asked here.
+	fork := false
+	for _, s := range m.stack {
+		if s == screenPayloadKind {
+			fork = true
+			break
+		}
+	}
 	if fork {
 		// Reached straight from the fork, with no rule behind it yet. The rule
 		// is created here, on accept, rather than when the fork was entered —
@@ -233,9 +242,7 @@ func (m *wizardModel) keyEventFile(k tea.KeyPressMsg) tea.Cmd {
 			m.errMsg = err.Error()
 			return nil
 		}
-		m.setSample(eventLabel(event), event)
-		m.pop()
-		m.pop()
+		m.acceptPick(eventLabel(event), event)
 		return nil
 	}
 	return m.eventPath.Update(k)

@@ -164,6 +164,160 @@ func TestCtrlEFromTriggerPicksWithoutAppendingARule(t *testing.T) {
 	}
 }
 
+// TestForkPasteJSONAppendsARuleAndDoesNotHang guards the round-2 fix: fork
+// detection by stack position (rather than presence) misclassified this path
+// — event pick sits between payloadKind and paste — as non-fork, sending
+// acceptPick's pop loop hunting for a screenTrigger that was never pushed. A
+// hang here means the test itself times out rather than failing an assertion.
+func TestForkPasteJSONAppendsARuleAndDoesNotHang(t *testing.T) {
+	m := atRulesHub(t)
+	send(m, key("a"), key("enter")) // add rule: kind screen -> Auth0 -> catalog
+	if !m.events.SelectID(pasteID) {
+		t.Fatal("could not select paste")
+	}
+	send(m, key("enter"))
+	if m.top() != screenEventPaste {
+		t.Fatalf("top = %v", m.top())
+	}
+
+	m.paste.SetValue(`{"type": "user.created"}`)
+	send(m, key("ctrl+d"))
+
+	if len(m.doc.Rules) != 1 {
+		t.Fatalf("rules = %d, want 1", len(m.doc.Rules))
+	}
+	r := m.rule()
+	if r == nil || r.Sample == nil || r.Sample.Label != "user.created" {
+		t.Fatalf("rule = %+v, want the pasted sample attached", r)
+	}
+	if m.top() != screenRule {
+		t.Fatalf("top = %v, want the new rule's hub", m.top())
+	}
+}
+
+// TestForkLoadFromFileAppendsARuleOnAFreshDocument covers the third
+// accept-handler, keyEventFile, now routed through acceptPick like its
+// siblings. Before this fix it always assumed a rule already existed.
+func TestForkLoadFromFileAppendsARuleOnAFreshDocument(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "event.json")
+	if err := os.WriteFile(path, []byte(`{"type":"from.file","data":{"object":{}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	m := atRulesHub(t)
+	send(m, key("a"), key("enter")) // add rule: kind screen -> Auth0 -> catalog
+	if !m.events.SelectID(fileID) {
+		t.Fatal("could not select load from file")
+	}
+	send(m, key("enter"))
+	if m.top() != screenEventFile {
+		t.Fatalf("top = %v", m.top())
+	}
+
+	m.eventPath.SetValues([]string{path})
+	send(m, key("enter"))
+
+	if len(m.doc.Rules) != 1 {
+		t.Fatalf("rules = %d, want 1", len(m.doc.Rules))
+	}
+	r := m.rule()
+	if r == nil || r.Sample == nil || r.Sample.Label != "from.file" {
+		t.Fatalf("rule = %+v, want the loaded sample attached", r)
+	}
+	if m.top() != screenRule {
+		t.Fatalf("top = %v, want the new rule's hub", m.top())
+	}
+}
+
+// TestForkLoadFromFileLeavesAnExistingRuleAlone is keyEventFile's half of the
+// round-1 clobbering defect: reached from the fork with a rule already in the
+// document, it must append a new rule rather than overwriting that one.
+func TestForkLoadFromFileLeavesAnExistingRuleAlone(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "event.json")
+	if err := os.WriteFile(path, []byte(`{"type":"from.file","data":{"object":{}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	m := atRulesHub(t)
+	m.doc.Rules = mappingRule("existing", "user.created", 0)
+	m.syncRules()
+	existing := m.doc.Rules[0]
+
+	send(m, key("a"), key("enter")) // add rule: kind screen -> Auth0 -> catalog
+	if !m.events.SelectID(fileID) {
+		t.Fatal("could not select load from file")
+	}
+	send(m, key("enter"))
+
+	m.eventPath.SetValues([]string{path})
+	send(m, key("enter"))
+
+	if len(m.doc.Rules) != 2 {
+		t.Fatalf("rules = %d, want 2", len(m.doc.Rules))
+	}
+	if m.doc.Rules[0].Name != existing.Name || m.doc.Rules[0].Sample != existing.Sample || m.doc.Rules[0].AutoName != existing.AutoName {
+		t.Fatalf("the existing rule was touched: %+v", m.doc.Rules[0])
+	}
+}
+
+// TestCtrlEPasteJSONAppendsNothing is the pre-existing ctrl+e -> catalog ->
+// "Paste JSON" path: it must keep landing back on the trigger form and never
+// append.
+func TestCtrlEPasteJSONAppendsNothing(t *testing.T) {
+	m := atTrigger(t)
+	send(m, key("ctrl+e"))
+	if !m.events.SelectID(pasteID) {
+		t.Fatal("could not select paste")
+	}
+	send(m, key("enter"))
+	if m.top() != screenEventPaste {
+		t.Fatalf("top = %v", m.top())
+	}
+
+	m.paste.SetValue(`{"type": "user.created"}`)
+	send(m, key("ctrl+d"))
+
+	if len(m.doc.Rules) != 1 {
+		t.Fatalf("rules = %d, want 1 (ctrl+e must not append)", len(m.doc.Rules))
+	}
+	if m.top() != screenTrigger {
+		t.Fatalf("top = %v, want the trigger form", m.top())
+	}
+}
+
+// TestCtrlELoadFromFileAppendsNothing is the pre-existing ctrl+e -> catalog ->
+// "Load from file" path: it must keep landing back on the trigger form and
+// never append.
+func TestCtrlELoadFromFileAppendsNothing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "event.json")
+	if err := os.WriteFile(path, []byte(`{"type":"from.file","data":{"object":{}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	m := atTrigger(t)
+	send(m, key("ctrl+e"))
+	if !m.events.SelectID(fileID) {
+		t.Fatal("could not select load from file")
+	}
+	send(m, key("enter"))
+	if m.top() != screenEventFile {
+		t.Fatalf("top = %v", m.top())
+	}
+
+	m.eventPath.SetValues([]string{path})
+	send(m, key("enter"))
+
+	if len(m.doc.Rules) != 1 {
+		t.Fatalf("rules = %d, want 1 (ctrl+e must not append)", len(m.doc.Rules))
+	}
+	if m.top() != screenTrigger {
+		t.Fatalf("top = %v, want the trigger form", m.top())
+	}
+}
+
 func TestPastedJSONBecomesTheSample(t *testing.T) {
 	m := atTrigger(t)
 	send(m, key("ctrl+e"))
