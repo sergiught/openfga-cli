@@ -198,6 +198,12 @@ func (m *wizardModel) chromeFor() chrome {
 		// nothing to save. Loading a model is still worth offering: it is what
 		// makes the pickers on the way in suggest anything.
 		c.keys = []keyHint{{"a", "add"}, {"m", "model"}, {"esc", "quit"}, {"?", "help"}}
+	case m.top() == screenTuple && m.index.Empty():
+		// ^o picks a type or relation out of the loaded model. With no model there
+		// is nothing to pick from, and the key does nothing at all — advertised
+		// anyway it reads as the one affordance that is broken, on the screen with
+		// the most typing to do.
+		c.keys = []keyHint{{"tab", "next"}, {"^p", "insert path"}, {"esc", "done"}}
 	case m.top() == screenRecipe:
 		c.title = m.recipeEvent.Type
 		// An explain-only recipe has no mapping to promise in the subtitle and

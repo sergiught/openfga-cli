@@ -79,6 +79,7 @@ func (c *Command) runInit(cmd *cobra.Command, args []string, force bool) error {
 	}
 
 	if err := saveMapping(path, result.data); err != nil {
+		rescue(cmd, result.data)
 		return err
 	}
 
@@ -87,6 +88,18 @@ func (c *Command) runInit(cmd *cobra.Command, args []string, force bool) error {
 	output.Infof(out, "next: edit by hand or re-run `ofga mapping init --force`")
 	output.Infof(out, "spec: %s", languageSpecURL)
 	return nil
+}
+
+// rescue prints a mapping the wizard produced but could not save. By the time
+// the write is attempted the TUI has been torn down and result.data is the only
+// copy of it that exists: returning the error alone throws away however long the
+// user spent authoring it, for a failure — a read-only directory, a full disk,
+// a path they cannot write — that they could recover from in seconds if they
+// still had the YAML. It goes to stdout so `> mapping.yaml` catches it, with the
+// explanation on stderr beside the error cobra is about to print.
+func rescue(cmd *cobra.Command, data []byte) {
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), string(data))
+	output.Infof(cmd.ErrOrStderr(), "the mapping could not be written, so it was printed above; save it by hand to keep it")
 }
 
 // wizardEligible reports whether an interactive wizard can run: structured

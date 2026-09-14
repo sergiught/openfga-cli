@@ -461,3 +461,27 @@ func mappingTuple() []mapping.Tuple {
 		Object:   "organization:{{ input.data.object.organization.id }}",
 	}}
 }
+
+// ^d on the paste screen reads "accept", so pressing it on an empty box is a
+// normal way to find out what it does. The answer used to be the encoding/json
+// package's own words.
+func TestAcceptingAnEmptyPasteSaysSoInEnglish(t *testing.T) {
+	for _, raw := range []string{"", "   \n\t "} {
+		_, err := decodeEvent([]byte(raw))
+		if err == nil {
+			t.Fatalf("decodeEvent(%q) accepted nothing at all", raw)
+		}
+		if strings.Contains(err.Error(), "unexpected end of JSON input") {
+			t.Fatalf("decodeEvent(%q) leaks the parser's wording: %v", raw, err)
+		}
+		if !strings.Contains(err.Error(), "nothing pasted") {
+			t.Fatalf("decodeEvent(%q) does not say the box was empty: %v", raw, err)
+		}
+	}
+
+	// Genuinely malformed JSON is a different thing and still says so.
+	if _, err := decodeEvent([]byte("{oops")); err == nil ||
+		!strings.Contains(err.Error(), "not valid JSON") {
+		t.Fatalf("malformed JSON should still be reported as malformed: %v", err)
+	}
+}

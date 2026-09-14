@@ -218,3 +218,30 @@ func TestSuccessOutputNamesTheFileAndCounts(t *testing.T) {
 		t.Fatalf("summary = %q", got)
 	}
 }
+
+// The wizard's output lives only in memory until saveMapping writes it, and by
+// then the TUI is gone. A failing write used to return the error and drop the
+// mapping with it — the one moment in the flow where the user can lose work they
+// cannot get back by pressing esc.
+func TestAFailedWriteHandsTheMappingBack(t *testing.T) {
+	data := []byte("version: \"1\"\nrules:\n  - name: joined\n")
+
+	cmd := &cobra.Command{}
+	var out, errb bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errb)
+
+	rescue(cmd, data)
+
+	// stdout, so `ofga mapping init > mapping.yaml` catches it verbatim.
+	if !strings.Contains(out.String(), string(data)) {
+		t.Fatalf("the mapping was not printed to stdout:\n%s", out.String())
+	}
+	if strings.Contains(errb.String(), string(data)) {
+		t.Fatalf("the mapping went to stderr, where a redirect would not catch it:\n%s", errb.String())
+	}
+	// and an explanation beside the error, or the YAML reads as success.
+	if !strings.Contains(errb.String(), "could not be written") {
+		t.Fatalf("stderr does not say why the mapping was printed:\n%s", errb.String())
+	}
+}

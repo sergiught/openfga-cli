@@ -232,8 +232,16 @@ func (m *wizardModel) contextKeys() []string {
 func (m *wizardModel) openFieldPick(f tupleField) {
 	items := m.tupleFieldItems(f)
 	if len(items) == 0 {
+		// Nothing opening is indistinguishable from a broken key. The two reasons
+		// it can happen want different things from the user — load a model, or
+		// carry on typing — so they are not collapsed into one message.
+		m.noteMsg = "This model has nothing to suggest for that field — type it yourself."
+		if m.index.Empty() {
+			m.noteMsg = "No model loaded, so there is nothing to pick from. Press m on the rules screen to load one."
+		}
 		return
 	}
+	m.noteMsg = ""
 	m.pickField = f
 	m.fieldPick = picker.New(items)
 }
