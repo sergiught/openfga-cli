@@ -157,8 +157,6 @@ func newWizard(ctx context.Context, path, profile string, load modelLoader) *wiz
 		),
 	}
 	m.sourcePick = picker.New(m.sourceItems())
-	// "Skip" is the recommended default and the last row, so start there.
-	m.sourcePick.SetCursor(m.sourcePick.Len() - 1)
 	m.modelPath = field.NewForm(field.New("Model file", defaultModelFile()))
 	m.trigger = field.NewForm(
 		field.New("Rule name", "organization.member.added"),
@@ -210,7 +208,9 @@ func newWizard(ctx context.Context, path, profile string, load modelLoader) *wiz
 
 // sourceItems builds the model-source choices. "Connected store" only appears
 // when a profile is active — offering a server fetch with nothing configured
-// would fail in a way the user cannot act on.
+// would fail in a way the user cannot act on. The order is the default: the
+// question is asked when the user wants a model, so the row that gets them one
+// leads, and "Skip" comes last.
 func (m *wizardModel) sourceItems() []picker.Item {
 	var items []picker.Item
 	if m.profile != "" && m.load != nil {
@@ -271,7 +271,10 @@ func (m *wizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.index = mapping.IndexModel(msg.model)
 		}
-		m.push(screenRules)
+		// Back to whatever asked for the model (see keyModelSource). A fetch the
+		// user cancelled returned above, so this cannot pull the screen out from
+		// under them.
+		m.pop()
 		return m, nil
 
 	case tea.KeyPressMsg:
@@ -298,7 +301,12 @@ func (m *wizardModel) key(k tea.KeyPressMsg) tea.Cmd {
 	case screenWelcome:
 		switch k.String() {
 		case "enter":
-			m.push(screenModelSource)
+			// The hub is the base of navigation: everything else is pushed on top
+			// of it, and acceptPick pops back to it when a new rule is accepted.
+			// The fork is opened through addRule rather than pushed here, so there
+			// stays one definition of what "add a rule" means.
+			m.push(screenRules)
+			m.addRule()
 		case "esc":
 			m.cancelled = true
 			return tea.Quit
@@ -349,6 +357,10 @@ func (m *wizardModel) key(k tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
+// keyModelSource handles the source picker. Every outcome — a fetch that
+// returns, a file that parses, or Skip — leaves by popping back to whatever
+// asked: the hub, or the recipe screen the user pressed `m` on. Pushing on
+// instead would strand the screens underneath, and fromFork reads that stack.
 func (m *wizardModel) keyModelSource(k tea.KeyPressMsg) tea.Cmd {
 	// A fetch in flight owns the screen. Moving the cursor or selecting again
 	// would either dispatch a second fetch over the top of the first or land the
@@ -373,7 +385,7 @@ func (m *wizardModel) keyModelSource(k tea.KeyPressMsg) tea.Cmd {
 		case "file":
 			m.push(screenModelFile)
 		default:
-			m.push(screenRules)
+			m.pop()
 		}
 	}
 	return nil
@@ -436,7 +448,11 @@ func (m *wizardModel) keyModelFile(k tea.KeyPressMsg) tea.Cmd {
 			return nil
 		}
 		m.index = mapping.IndexModel(loaded.SDK)
-		m.push(screenRules)
+		// Twice: this screen is pushed from the source picker and nowhere else,
+		// so the screen that asked for a model sits two below it. One pop would
+		// only return to the picker the user has already answered.
+		m.pop()
+		m.pop()
 		return nil
 	}
 	return m.modelPath.Update(k)

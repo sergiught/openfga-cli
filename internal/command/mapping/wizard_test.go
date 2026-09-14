@@ -88,8 +88,18 @@ func TestWelcomeShowsTargetFileAndAdvancesOnEnter(t *testing.T) {
 		t.Fatalf("welcome does not name the file:\n%s", m.viewString())
 	}
 	send(m, key("enter"))
-	if m.top() != screenModelSource {
-		t.Fatalf("top = %v, want model source", m.top())
+	if m.top() != screenPayloadKind {
+		t.Fatalf("top = %v, want the payload-kind screen", m.top())
+	}
+}
+
+// The welcome screen now leads into the payload question, not into a model
+// question the user has no context for yet.
+func TestWelcomeLeadsToThePayloadKind(t *testing.T) {
+	m := newTestWizard(t, nil)
+	send(m, key("enter"))
+	if m.top() != screenPayloadKind {
+		t.Fatalf("top = %v, want the payload-kind screen", m.top())
 	}
 }
 
@@ -101,9 +111,83 @@ func TestEscOnWelcomeCancels(t *testing.T) {
 	}
 }
 
-func TestModelSourceOffersConnectedStoreWhenAProfileIsActive(t *testing.T) {
-	m := newTestWizard(t, nil)
+// atModelSource returns a wizard sitting on the source picker, the way a user
+// reaches it with `m` from the hub. Set the stack rather than typing: this
+// helper means "a wizard sitting on the source picker", not "whatever the
+// welcome screen happens to lead to this month".
+func atModelSource(t *testing.T, load modelLoader) *wizardModel {
+	t.Helper()
+	m := newTestWizard(t, load)
+	m.stack = []screen{screenRules, screenModelSource}
+	return m
+}
+
+// selectSource moves the source picker to the row with this value, so a test
+// says which source it means instead of counting rows from a default.
+func selectSource(t *testing.T, m *wizardModel, value string) {
+	t.Helper()
+	for i := 0; i < m.sourcePick.Len(); i++ {
+		m.sourcePick.SetCursor(i)
+		if m.sourcePick.Selected().Value == value {
+			return
+		}
+	}
+	t.Fatalf("the %q source is not offered", value)
+}
+
+// Finding #5: once past the model source there was no key back to it, and Skip
+// was pre-selected, so two enters left the user in a modelless wizard for good.
+func TestTheHubCanReturnToTheModelSource(t *testing.T) {
+	m := atRulesHub(t)
+	send(m, key("m"))
+	if m.top() != screenModelSource {
+		t.Fatalf("top = %v, want the model source", m.top())
+	}
+}
+
+func TestTheRecipeScreenCanReturnToTheModelSource(t *testing.T) {
+	m := atRulesHub(t)
+	send(m, key("a"), key("enter"))
+	selectEvent(t, m, "organization.member.added")
+	send(m, key("m"))
+	if m.top() != screenModelSource {
+		t.Fatalf("top = %v, want the model source", m.top())
+	}
+}
+
+// A model chosen mid-flow used to push the hub on top of the fork instead of
+// popping back to it, stranding screenPayloadKind on the stack. fromFork then
+// read every later ctrl+e as an add-rule fork and appended a duplicate rule
+// instead of editing the one the user had open.
+func TestChoosingAModelMidFlowUnwindsTheFork(t *testing.T) {
+	m := atRulesHub(t)
+	send(m, key("a"), key("enter"))
+	if !m.events.SelectID("organization.member.added") {
+		t.Fatal("could not select the event")
+	}
+	send(m, key("enter")) // -> recipe
+	send(m, key("m"))     // -> model source
+	selectSource(t, m, "skip")
+	send(m, key("enter")) // choose a source; must come back, not push
+	send(m, key("enter")) // use the recipe, which is what it must have come back to
+
+	addRuleAtTrigger(m)
+	before := len(m.doc.Rules)
+	send(m, key("ctrl+e"))
+	if !m.events.SelectID("organization.created") {
+		t.Fatal("could not select the event")
+	}
 	send(m, key("enter"))
+	if m.top() == screenRecipe {
+		t.Fatal("ctrl+e was misread as an add-rule fork")
+	}
+	if len(m.doc.Rules) != before {
+		t.Fatalf("ctrl+e appended a rule: rules = %d, want %d", len(m.doc.Rules), before)
+	}
+}
+
+func TestModelSourceOffersConnectedStoreWhenAProfileIsActive(t *testing.T) {
+	m := atModelSource(t, nil)
 	v := m.viewString()
 	for _, want := range []string{"Connected store", "Model file", "Skip"} {
 		if !strings.Contains(v, want) {
@@ -116,16 +200,17 @@ func TestModelSourceHidesConnectedStoreWithoutAProfile(t *testing.T) {
 	m := newWizard(context.Background(), "mapping.yaml", "", nil)
 	m.Init()
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	send(m, key("enter"))
+	// Built by hand rather than through atModelSource, which is the only way to
+	// get a wizard with no profile, so the stack is set the same way it does.
+	m.stack = []screen{screenRules, screenModelSource}
 	if strings.Contains(m.viewString(), "Connected store") {
 		t.Fatalf("connected store offered without a profile:\n%s", m.viewString())
 	}
 }
 
 func TestSkipModelGoesStraightToTheRulesHub(t *testing.T) {
-	m := newTestWizard(t, nil)
-	send(m, key("enter")) // welcome -> model source
-	// Skip is the last row and the recommended default: the cursor starts there.
+	m := atModelSource(t, nil)
+	selectSource(t, m, "skip")
 	send(m, key("enter"))
 	if m.top() != screenRules {
 		t.Fatalf("top = %v, want rules", m.top())
@@ -137,13 +222,12 @@ func TestSkipModelGoesStraightToTheRulesHub(t *testing.T) {
 
 func TestLoadFromServerIndexesTheModel(t *testing.T) {
 	loaded := false
-	m := newTestWizard(t, func(context.Context) (*openfga.AuthorizationModel, error) {
+	m := atModelSource(t, func(context.Context) (*openfga.AuthorizationModel, error) {
 		loaded = true
 		return testModel(), nil
 	})
-	send(m, key("enter"))         // welcome -> model source
-	send(m, key("up"), key("up")) // move to "Connected store"
-	send(m, key("enter"))         // choose it: dispatches the load
+	selectSource(t, m, "server")
+	send(m, key("enter")) // choose it: dispatches the load
 
 	// The load runs as a command; drive it directly, the way bubbletea would.
 	cmd := m.loadCmd
@@ -167,10 +251,11 @@ func TestLoadFromServerIndexesTheModel(t *testing.T) {
 }
 
 func TestServerLoadFailureContinuesWithoutAModel(t *testing.T) {
-	m := newTestWizard(t, func(context.Context) (*openfga.AuthorizationModel, error) {
+	m := atModelSource(t, func(context.Context) (*openfga.AuthorizationModel, error) {
 		return nil, errors.New("connection refused")
 	})
-	send(m, key("enter"), key("up"), key("up"), key("enter"))
+	selectSource(t, m, "server")
+	send(m, key("enter"))
 	m.Update(m.loadCmd())
 
 	if m.top() != screenRules {
@@ -188,13 +273,14 @@ func TestServerLoadFailureContinuesWithoutAModel(t *testing.T) {
 	}
 }
 
-// atInFlightLoad walks to the model source, picks the connected store and
-// stops with the fetch dispatched but not yet delivered — the state a user is
-// in while an unreachable server is being retried.
+// atInFlightLoad picks the connected store and stops with the fetch dispatched
+// but not yet delivered — the state a user is in while an unreachable server is
+// being retried.
 func atInFlightLoad(t *testing.T, load modelLoader) *wizardModel {
 	t.Helper()
-	m := newTestWizard(t, load)
-	send(m, key("enter"), key("up"), key("up"), key("enter"))
+	m := atModelSource(t, load)
+	selectSource(t, m, "server")
+	send(m, key("enter"))
 	if !m.loading {
 		t.Fatal("choosing the connected store must put the wizard in its loading state")
 	}
@@ -274,8 +360,9 @@ func TestModelFileLoadsAndBadFileStaysOnTheField(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m := newTestWizard(t, nil)
-	send(m, key("enter"), key("up"), key("enter")) // model source -> "Model file"
+	m := atModelSource(t, nil)
+	selectSource(t, m, "file")
+	send(m, key("enter"))
 	if m.top() != screenModelFile {
 		t.Fatalf("top = %v", m.top())
 	}
@@ -300,8 +387,7 @@ func TestModelFileLoadsAndBadFileStaysOnTheField(t *testing.T) {
 }
 
 func TestRulesHubEmptyStateAndQuit(t *testing.T) {
-	m := newTestWizard(t, nil)
-	send(m, key("enter"), key("enter")) // skip the model
+	m := atRulesHub(t)
 
 	if !strings.Contains(strings.ToLower(m.viewString()), "add") {
 		t.Fatalf("empty state should explain `a`:\n%s", m.viewString())
@@ -482,8 +568,7 @@ func TestNoScreenOverflowsTheTerminal(t *testing.T) {
 }
 
 func TestPreviewPaneStacksOnNarrowTerminals(t *testing.T) {
-	m := newTestWizard(t, nil)
-	send(m, key("enter"), key("enter"))
+	m := atRulesHub(t)
 
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	if !m.sideBySide() {
@@ -510,8 +595,11 @@ func TestCtrlCQuitsFromAnyScreen(t *testing.T) {
 	}{
 		{"welcome", func(t *testing.T) *wizardModel { return newTestWizard(t, nil) }},
 		{"model source", func(t *testing.T) *wizardModel {
-			m := newTestWizard(t, nil)
-			send(m, key("enter"))
+			return atModelSource(t, nil)
+		}},
+		{"payload kind", func(t *testing.T) *wizardModel {
+			m := atRulesHub(t)
+			send(m, key("a"))
 			return m
 		}},
 		{"rules hub", atRulesHub},

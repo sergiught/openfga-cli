@@ -94,7 +94,7 @@ var screenChrome = map[screen]chrome{
 		[]keyHint{{"↵", "begin"}, {"esc", "cancel"}},
 	},
 	screenModelSource: {
-		"Authorization model", "Where should type and relation suggestions come from?",
+		"Authorization model", "Check your model has what this mapping needs.",
 		[]keyHint{{"↑↓", "move"}, {"↵", "select"}, {"esc", "back"}},
 	},
 	screenModelFile: {
@@ -103,7 +103,7 @@ var screenChrome = map[screen]chrome{
 	},
 	screenRules: {
 		"Rules", "Each rule turns one kind of event into tuples.",
-		[]keyHint{{"a", "add"}, {"↵", "open"}, {"d", "delete"}, {"^s", "save"}, {"esc", "quit"}},
+		[]keyHint{{"a", "add"}, {"↵", "open"}, {"d", "delete"}, {"m", "model"}, {"^s", "save"}, {"esc", "quit"}},
 	},
 	screenRule: {
 		"Rule", "Pick a part of this rule to edit.",
@@ -195,8 +195,9 @@ func (m *wizardModel) chromeFor() chrome {
 	case m.top() == screenRules && len(m.doc.Rules) == 0:
 		// An empty hub has nothing to open, delete or save, and offering the keys
 		// anyway sends the user to a dialog whose only content is that there was
-		// nothing to save.
-		c.keys = []keyHint{{"a", "add"}, {"esc", "quit"}}
+		// nothing to save. Loading a model is still worth offering: it is what
+		// makes the pickers on the way in suggest anything.
+		c.keys = []keyHint{{"a", "add"}, {"m", "model"}, {"esc", "quit"}}
 	case m.top() == screenRecipe:
 		c.title = m.recipeEvent.Type
 	case m.top() != screenConfirmSave:
@@ -422,8 +423,8 @@ func (m *wizardModel) statusBar() string {
 }
 
 // breadcrumb answers "where am I" for a hub-and-spoke wizard, the way the
-// connection wizard's progress dots answer it for a linear one. The opening
-// screens are skipped: picking a model is a step you pass through on the way in,
+// connection wizard's progress dots answer it for a linear one. The welcome and
+// model screens are skipped: loading a model is something you step aside to do,
 // not a level of the document you are inside, so listing it would imply the
 // rules hub hangs off it.
 func (m *wizardModel) breadcrumb() string {

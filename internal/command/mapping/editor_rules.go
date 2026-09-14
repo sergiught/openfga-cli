@@ -20,6 +20,10 @@ func (m *wizardModel) keyRules(k tea.KeyPressMsg) tea.Cmd {
 	case "a":
 		m.addRule()
 		return nil
+	case "m":
+		// Finding #5: the model source used to be unreachable once passed.
+		m.push(screenModelSource)
+		return nil
 	case "enter":
 		if it, ok := m.rules.Selected(); ok {
 			m.openRule(it.Index)

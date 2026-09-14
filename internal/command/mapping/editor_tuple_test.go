@@ -14,10 +14,11 @@ import (
 // atTuples returns a wizard with a model, one rule, sitting on the tuples list.
 func atTuples(t *testing.T) *wizardModel {
 	t.Helper()
-	m := newTestWizard(t, func(ctx context.Context) (*openfga.AuthorizationModel, error) {
+	m := atModelSource(t, func(ctx context.Context) (*openfga.AuthorizationModel, error) {
 		return testModel(), nil
 	})
-	send(m, key("enter"), key("up"), key("up"), key("enter"))
+	selectSource(t, m, "server")
+	send(m, key("enter"))
 	m.Update(m.loadCmd())
 	addRuleAtTrigger(m) // add a rule; lands on trigger
 	send(m, key("esc")) // -> rule hub
@@ -137,8 +138,7 @@ func TestOtherLeavesTheFieldAlone(t *testing.T) {
 }
 
 func TestWithoutAModelEveryFieldIsFreeText(t *testing.T) {
-	m := newTestWizard(t, nil)
-	send(m, key("enter"), key("enter"))
+	m := atRulesHub(t)
 	addRuleAtTrigger(m)
 	send(m, key("esc"))
 	m.sections.SetCursor(5)

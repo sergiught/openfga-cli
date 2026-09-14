@@ -11,10 +11,9 @@ import (
 func atRulesHub(t *testing.T) *wizardModel {
 	t.Helper()
 	m := newTestWizard(t, nil)
-	send(m, key("enter"), key("enter"))
-	if m.top() != screenRules {
-		t.Fatalf("top = %v", m.top())
-	}
+	// Set the stack rather than navigating: this helper means "a wizard sitting
+	// on the hub", not "whatever two enters happen to reach this month".
+	m.stack = []screen{screenRules}
 	return m
 }
 

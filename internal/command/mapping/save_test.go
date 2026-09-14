@@ -226,37 +226,38 @@ func TestEmptyDocumentCannotBeSaved(t *testing.T) {
 }
 
 // TestTheWholeFlowWritesAMappingFile drives the wizard end to end the way a
-// user would — welcome, skip the model, add a rule, pick its sample event,
-// fill in one tuple, save — and reads the file back off disk. This stands in
-// for the brief's Step 6 manual walkthrough, which cannot run here: runInit's
-// wizardEligible check requires a real terminal on both ends of the pipe, so
-// this test drives the model directly and writes to a t.TempDir() path
-// instead of `/tmp`.
+// user would — welcome, pick the event you are mapping, read its recipe, use
+// it, save — and reads the file back off disk. This stands in for the brief's
+// Step 6 manual walkthrough, which cannot run here: runInit's wizardEligible
+// check requires a real terminal on both ends of the pipe, so this test drives
+// the model directly and writes to a t.TempDir() path instead of `/tmp`.
+//
+// It must keep reaching every screen by keystroke from the welcome screen, the
+// way a user does: routing it through a test helper would leave the flow it
+// exists to cover untested.
 func TestTheWholeFlowWritesAMappingFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mapping.yaml")
 	m := newWizard(context.Background(), path, "", nil)
 	m.Init()
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	send(m, key("enter"), key("enter")) // welcome -> model source -> skip
+	send(m, key("enter")) // welcome -> the hub, with the payload fork open
+	if m.top() != screenPayloadKind {
+		t.Fatalf("top = %v, want the payload-kind screen", m.top())
+	}
 
-	send(m, key("a"), key("enter")) // add rule: kind screen -> Auth0 catalog
+	send(m, key("enter")) // "Auth0 events" -> the catalog
 	if !m.events.SelectID("organization.member.added") {
 		t.Fatal("could not select the event")
 	}
-	send(m, key("enter")) // accept the picked event, lands on the rule hub
+	send(m, key("enter")) // open the event's recipe
+	if m.top() != screenRecipe {
+		t.Fatalf("top = %v, want the recipe screen", m.top())
+	}
+	send(m, key("enter")) // use it: appends the rule and lands on the hub
+	if m.top() != screenRules {
+		t.Fatalf("top = %v, want the hub", m.top())
+	}
 
-	send(m, key("down"), key("down"), key("down"), key("down"), key("down")) // Trigger -> Tuples
-	send(m, key("enter"))                                                    // open Tuples
-	send(m, key("a"))                                                        // add a tuple, opens the form on Object
-	typeText(m, "organization:{{ input.data.object.organization.id }}")
-	send(m, key("tab"))
-	typeText(m, "member")
-	send(m, key("tab"))
-	typeText(m, "user:{{ fga_escape(input.data.object.user.user_id) }}")
-	send(m, key("esc")) // commit the tuple, back to the tuple list
-	send(m, key("esc")) // back to the rule hub
-
-	send(m, key("esc")) // rule hub -> rules hub
 	send(m, key("ctrl+s"), key("enter"))
 
 	if !m.done || m.result == nil {
