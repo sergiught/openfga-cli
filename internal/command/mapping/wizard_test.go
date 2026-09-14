@@ -3,6 +3,7 @@ package mapping
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -646,25 +647,68 @@ func TestAFramedEditorStillShowsItsPreview(t *testing.T) {
 	}
 }
 
-// No screen may render a line wider than the terminal it was given: the
-// frame's border and padding are new cells competing for the same width, and
-// nothing else in the suite checks for this class of overflow.
-func TestNoScreenOverflowsTheTerminal(t *testing.T) {
-	sizes := []struct{ w, h int }{
-		{minCols, minRows},  // the floor
-		{72, 24},            // stacked, mid width
-		{sideBySideMin, 30}, // side by side
+// layoutSizes spreads over the shapes the wizard changes behaviour at: the
+// declared floor, either side of the side-by-side threshold, and short
+// terminals at each width, because height is the dimension a centred card and
+// a padded pane overrun in different ways.
+var layoutSizes = []struct{ w, h int }{
+	{minCols, minRows},         // the floor
+	{minCols, 30},              // narrowest, with room to spare
+	{minCols, 40},              // narrow and tall, so a form shows every field at once
+	{minCols + 2, minRows + 1}, // just off the floor in both dimensions
+	{72, minRows},              // stacked, short
+	{72, 24},                   // stacked, mid width
+	{sideBySideMin - 1, 20},    // the last stacked width
+	{sideBySideMin, minRows},   // side by side at the height floor
+	{sideBySideMin, 30},        // side by side
+	{120, 18},                  // wide and short
+	{200, 60},                  // large
+}
+
+// doesNotFit names the first way a rendered screen fails to fit a w×h
+// terminal, or returns "" when it fits. All three checks are the same bug seen
+// from different sides: content the layout never bounded. A missing closing
+// border is its own check because a body trimmed to the terminal's height
+// after being framed loses the frame's last row rather than the content's.
+func doesNotFit(out string, w, h int) string {
+	lines := strings.Split(out, "\n")
+	for _, line := range lines {
+		if lw := lipgloss.Width(line); lw > w {
+			return fmt.Sprintf("a line is %d cells wide, wider than the %d the terminal has", lw, w)
+		}
 	}
+	if len(lines) > h {
+		return fmt.Sprintf("the screen is %d rows tall, taller than the %d the terminal has", len(lines), h)
+	}
+	if !strings.Contains(out, "╰") {
+		return "the frame has no closing border"
+	}
+	return ""
+}
+
+// No screen may render past the terminal it was given, in either dimension:
+// the frame's border and padding are new cells competing for the same space,
+// and nothing else in the suite checks for this class of overflow.
+func TestNoScreenOverflowsTheTerminal(t *testing.T) {
 	for scr, c := range screenChrome {
-		for _, sz := range sizes {
-			m := newTestWizard(t, nil)
-			m.stack = []screen{scr}
-			m.Update(tea.WindowSizeMsg{Width: sz.w, Height: sz.h})
-			out := m.viewString()
-			for _, line := range strings.Split(out, "\n") {
-				if w := lipgloss.Width(line); w > sz.w {
-					t.Fatalf("%q at %dx%d: a line is %d cells wide, wider than the terminal:\n%s",
-						c.title, sz.w, sz.h, w, out)
+		for _, sz := range layoutSizes {
+			for _, loaded := range []bool{false, true} {
+				m := newTestWizard(t, nil)
+				m.stack = []screen{scr}
+				if loaded {
+					// The three bodies whose length the wizard does not choose: an
+					// OS error carrying a path, a note it writes itself, and the
+					// condition parameters a model happens to declare. Every screen
+					// gets them, because errMsg and noteMsg outlive the screen that
+					// set them.
+					m.errMsg = "could not read /home/j/projects/acme/testdata/events/organization.member.added.json: no such file or directory"
+					m.noteMsg = "That's OK — pickers will accept free text."
+					m.ctxKeys = []string{"region", "tenant_id", "requested_at", "correlation_id"}
+				}
+				m.Update(tea.WindowSizeMsg{Width: sz.w, Height: sz.h})
+				out := m.viewString()
+				if why := doesNotFit(out, sz.w, sz.h); why != "" {
+					t.Fatalf("%q at %dx%d (loaded=%v): %s:\n%s", c.title, sz.w, sz.h, loaded, why, out)
 				}
 			}
 		}
@@ -679,19 +723,39 @@ func TestNoScreenOverflowsTheTerminal(t *testing.T) {
 	// recipeModelBlock takes the !statuses[0].Checked branch and renders the DSL
 	// for every requirement, the widest output the screen can produce.
 	for _, e := range auth0.Catalog() {
-		for _, sz := range sizes {
+		for _, sz := range layoutSizes {
 			m := newTestWizard(t, nil)
 			m.stack = []screen{screenRecipe}
 			m.recipeEvent = e
 			m.recipe = e.Recipe
 			m.Update(tea.WindowSizeMsg{Width: sz.w, Height: sz.h})
 			out := m.viewString()
-			for _, line := range strings.Split(out, "\n") {
-				if w := lipgloss.Width(line); w > sz.w {
-					t.Fatalf("%s at %dx%d: a line is %d cells wide, wider than the terminal:\n%s",
-						e.Type, sz.w, sz.h, w, out)
-				}
+			if why := doesNotFit(out, sz.w, sz.h); why != "" {
+				t.Fatalf("%s at %dx%d: %s:\n%s", e.Type, sz.w, sz.h, why, out)
 			}
+		}
+	}
+}
+
+// The wordmark is the one piece of the welcome card that carries no
+// information, so it is what a short terminal loses — but only a short one.
+func TestTheWelcomeWordmarkYieldsToAShortTerminal(t *testing.T) {
+	for _, tc := range []struct {
+		w, h int
+		want bool
+	}{
+		{120, 40, true},
+		{minCols, minRows, false},
+	} {
+		m := newTestWizard(t, nil)
+		m.Update(tea.WindowSizeMsg{Width: tc.w, Height: tc.h})
+		if m.top() != screenWelcome {
+			t.Fatalf("top = %v, want the welcome screen", m.top())
+		}
+		// The block art is the only place in the wizard that draws a full block.
+		if got := strings.Contains(m.viewString(), "█"); got != tc.want {
+			t.Fatalf("at %dx%d the wordmark is shown = %v, want %v:\n%s",
+				tc.w, tc.h, got, tc.want, m.viewString())
 		}
 	}
 }

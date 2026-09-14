@@ -260,15 +260,29 @@ func (m *wizardModel) cardWidth() int {
 	return w
 }
 
+// frameRows is what style.Frame costs vertically: a border row and a padding
+// row at each end of the body it wraps.
+const frameRows = 4
+
+// trimLines cuts body down to n rows. Both views bound their output to the
+// terminal after framing it, and that bound cuts from the bottom, so an
+// over-tall body would take the frame's closing border down with it.
+func trimLines(body string, n int) string {
+	if n < 1 {
+		n = 1
+	}
+	lines := strings.Split(body, "\n")
+	if len(lines) <= n {
+		return body
+	}
+	return strings.Join(lines[:n], "\n")
+}
+
 func (m *wizardModel) cardView() string {
 	c := m.chromeFor()
 	cw := m.cardWidth()
 
 	var b strings.Builder
-	if m.top() == screenWelcome {
-		b.WriteString(logo.Wordmark(-1))
-		b.WriteString("\n\n")
-	}
 	b.WriteString(style.Title.Render(c.title))
 	b.WriteString("\n")
 	if c.subtitle != "" {
@@ -278,7 +292,28 @@ func (m *wizardModel) cardView() string {
 	b.WriteString("\n")
 	b.WriteString(m.cardBody(cw))
 
-	card := style.Frame(b.String(), cw)
+	// Wrap the body the way the frame will before counting its rows: a line
+	// wider than the card wraps inside the frame, so a row counted here as one
+	// would arrive as two and the trim below would let the card overrun anyway.
+	wrap := lipgloss.NewStyle().Width(cw)
+	body := wrap.Render(b.String())
+
+	// What the body has left once the frame around it and the hint row under it
+	// have taken their rows.
+	inner := m.height - frameRows - 1
+
+	// The wordmark heads the welcome card but says nothing the card does not, so
+	// on a terminal too narrow or too short for both it is the art that goes,
+	// not the card. The shell gates its own copy on the same two questions.
+	if m.top() == screenWelcome {
+		mw, _ := logo.WordmarkSize()
+		art := wrap.Render(logo.Wordmark(-1) + "\n\n" + b.String())
+		if mw <= cw && lipgloss.Height(art) <= inner {
+			body = art
+		}
+	}
+
+	card := style.Frame(trimLines(body, inner), cw)
 
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
 		card+"\n"+" "+renderHints(c.keys))
@@ -313,18 +348,21 @@ func (m *wizardModel) paneView() string {
 		// editor's by however much contentWidth clamped.
 		body += "\n\n" + m.previewPane(cw)
 	}
-	// One column of breathing room so nothing sits flush against the edge; the
-	// status bar's rule spans the full width and indents its own text to match.
-	// The frame is measured off the assembled body rather than cw: side by
-	// side, cw is only the editor column's width, not the joined pair's.
-	body = lipgloss.NewStyle().PaddingLeft(1).Render(style.Frame(body, lipgloss.Width(body)))
-
 	// Height pads the body out so the status bar lands on the bottom rows
 	// instead of floating directly under short content.
 	h := m.height - statusRows
 	if h < 1 {
 		h = 1
 	}
+	// Trim the body to what the frame can hold before drawing it, or the
+	// MaxHeight below cuts the frame's closing border off instead.
+	body = trimLines(body, h-frameRows)
+	// One column of breathing room so nothing sits flush against the edge; the
+	// status bar's rule spans the full width and indents its own text to match.
+	// The frame is measured off the assembled body rather than cw: side by
+	// side, cw is only the editor column's width, not the joined pair's.
+	body = lipgloss.NewStyle().PaddingLeft(1).Render(style.Frame(body, lipgloss.Width(body)))
+
 	return lipgloss.NewStyle().Height(h).MaxHeight(h).Render(body) + "\n" + m.statusBar()
 }
 
@@ -341,12 +379,15 @@ func (m *wizardModel) editorPane(cw int) string {
 	b.WriteString("\n")
 	b.WriteString(m.screenBody(cw))
 
+	// Both of these are free text — an OS error carrying a path, or a note the
+	// wizard writes — so both wrap at cw like every other body above. Left
+	// unbounded they stretch the frame drawn around them past the terminal.
 	if m.errMsg != "" {
-		b.WriteString("\n\n" + lipgloss.NewStyle().Foreground(style.Red).Render(
+		b.WriteString("\n\n" + lipgloss.NewStyle().Foreground(style.Red).Width(cw).Render(
 			style.IconCross+" "+m.errMsg))
 	}
 	if m.noteMsg != "" {
-		b.WriteString("\n" + lipgloss.NewStyle().Foreground(style.Muted).Render(m.noteMsg))
+		b.WriteString("\n" + lipgloss.NewStyle().Foreground(style.Muted).Width(cw).Render(m.noteMsg))
 	}
 	return b.String()
 }
@@ -388,7 +429,9 @@ func (m *wizardModel) screenBody(cw int) string {
 		}
 		body := m.tupleForm.View()
 		if len(m.ctxKeys) > 0 {
-			body += "\n" + lipgloss.NewStyle().Foreground(style.Muted).Render(
+			// A condition's parameters come from the model, so the list is as long
+			// as the model makes it: wrap at cw rather than stretching the frame.
+			body += "\n" + lipgloss.NewStyle().Foreground(style.Muted).Width(cw).Render(
 				"condition parameters: "+strings.Join(m.ctxKeys, ", "))
 		}
 		return body
