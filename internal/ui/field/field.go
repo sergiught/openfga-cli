@@ -510,7 +510,11 @@ func (f *Form) View() string {
 			label := hl.Bold(true).Foreground(style.Primary).Width(f.width).Render(fl.label)
 			b.WriteString(label + "\n" + hl.Width(f.width).Render(fl.inputView(true, f.highlight)))
 		} else {
-			label := lipgloss.NewStyle().Foreground(style.Muted).Render(fl.label)
+			// Width, like the focused branch above: a label longer than the form's
+			// width otherwise renders at its natural size and pushes whatever the
+			// caller draws around the form — a frame, a neighbouring pane — wider
+			// than the space the form was given.
+			label := lipgloss.NewStyle().Foreground(style.Muted).Width(f.width).Render(fl.label)
 			b.WriteString(label + "\n" + fl.inputView(false, nil))
 		}
 		if fl.err != "" {
