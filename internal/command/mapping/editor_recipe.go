@@ -32,6 +32,7 @@ func (m *wizardModel) keyPayloadKind(k tea.KeyPressMsg) tea.Cmd {
 		}
 		m.paste.SetValue("")
 		m.push(screenEventPaste)
+		return m.paste.Focus()
 	}
 	return nil
 }

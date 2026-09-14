@@ -644,3 +644,119 @@ func TestEnterOnTheLastFieldCommitsAndLeavesTheForm(t *testing.T) {
 		t.Fatalf("rule = %+v", got)
 	}
 }
+
+// TestTypingReachesEveryTextWidget guards the focus bug found in task 8b: a
+// screen whose widget is built but never focused discards every keystroke, and
+// a test that injects the value with SetValue/SetValues instead of typing it
+// never notices. Every screen listed here hosts a text-entry widget, so every
+// row must type and see the value change — no shortcuts.
+func TestTypingReachesEveryTextWidget(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		reach func(t *testing.T) *wizardModel
+		want  screen
+		value func(m *wizardModel) string
+	}{
+		{
+			name:  "trigger",
+			reach: atTrigger,
+			want:  screenTrigger,
+			value: func(m *wizardModel) string { return m.trigger.Values()[0] },
+		},
+		{
+			name: "model file",
+			reach: func(t *testing.T) *wizardModel {
+				m := atModelSource(t, nil)
+				selectSource(t, m, "file")
+				send(m, key("enter"))
+				return m
+			},
+			want:  screenModelFile,
+			value: func(m *wizardModel) string { return m.modelPath.Values()[0] },
+		},
+		{
+			name: "event file",
+			reach: func(t *testing.T) *wizardModel {
+				m := atTrigger(t)
+				send(m, key("ctrl+e"))
+				m.events.SelectID(fileID)
+				send(m, key("enter"))
+				return m
+			},
+			want:  screenEventFile,
+			value: func(m *wizardModel) string { return m.eventPath.Values()[0] },
+		},
+		{
+			name: "event paste",
+			reach: func(t *testing.T) *wizardModel {
+				m := atTrigger(t)
+				send(m, key("ctrl+e"))
+				m.events.SelectID(pasteID)
+				send(m, key("enter"))
+				return m
+			},
+			want:  screenEventPaste,
+			value: func(m *wizardModel) string { return m.paste.Value() },
+		},
+		{
+			name: "tuple",
+			reach: func(t *testing.T) *wizardModel {
+				m := atTrigger(t)
+				send(m, key("esc"))                                                                    // trigger -> the rule hub
+				send(m, key("down"), key("down"), key("down"), key("down"), key("down"), key("enter")) // Tuples
+				send(m, key("a"))
+				return m
+			},
+			want:  screenTuple,
+			value: func(m *wizardModel) string { return m.tupleForm.Values()[0] },
+		},
+		{
+			name: "variable",
+			reach: func(t *testing.T) *wizardModel {
+				m := atTrigger(t)
+				send(m, key("esc"))                             // trigger -> the rule hub
+				send(m, key("down"), key("down"), key("enter")) // Variables
+				send(m, key("a"))
+				return m
+			},
+			want:  screenVariable,
+			value: func(m *wizardModel) string { return m.varForm.Values()[0] },
+		},
+		{
+			name: "iterator",
+			reach: func(t *testing.T) *wizardModel {
+				m := atTrigger(t)
+				send(m, key("esc"))                                          // trigger -> the rule hub
+				send(m, key("down"), key("down"), key("down"), key("enter")) // Iterator
+				return m
+			},
+			want:  screenIterator,
+			value: func(m *wizardModel) string { return m.iterForm.Values()[0] },
+		},
+		{
+			name: "tuple filter",
+			reach: func(t *testing.T) *wizardModel {
+				m := atTrigger(t)
+				send(m, key("esc"))                                                       // trigger -> the rule hub
+				send(m, key("down"), key("down"), key("down"), key("down"), key("enter")) // Tuple filters
+				send(m, key("a"))
+				return m
+			},
+			want:  screenFilter,
+			value: func(m *wizardModel) string { return m.filterForm.Values()[0] },
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m := c.reach(t)
+			if m.top() != c.want {
+				t.Fatalf("top = %v, want %v", m.top(), c.want)
+			}
+			before := c.value(m)
+			typeText(m, "Z")
+			after := c.value(m)
+			if after == before {
+				t.Fatalf("typing did not reach the widget: value stayed %q", before)
+			}
+		})
+	}
+}

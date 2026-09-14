@@ -289,3 +289,99 @@ func TestTheWholeFlowWritesAMappingFile(t *testing.T) {
 		t.Fatalf("wizard-only sample leaked into the file:\n%s", data)
 	}
 }
+
+// TestTheWholeFlowWritesAHandAuthoredMapping drives the bring-your-own-payload
+// branch of the add-rule fork end to end: welcome, the payload fork, paste a
+// small hand-made event, author one tuple by typing (never SetValue/
+// SetValues), save, and read the file back off disk. Every screen is reached
+// by keystroke from the welcome screen, the same way TestTheWholeFlowWritesA
+// MappingFile reaches the Auth0 path — this is the path that never worked
+// before Task 8b, because the paste screen took no input.
+func TestTheWholeFlowWritesAHandAuthoredMapping(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mapping.yaml")
+	m := newWizard(context.Background(), path, "", nil)
+	m.Init()
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	send(m, key("enter")) // welcome -> the hub, with the payload fork open
+	if m.top() != screenPayloadKind {
+		t.Fatalf("top = %v, want the payload-kind screen", m.top())
+	}
+
+	send(m, key("down"), key("enter")) // "Another JSON payload" -> paste
+	if m.top() != screenEventPaste {
+		t.Fatalf("top = %v, want the paste screen", m.top())
+	}
+
+	typeText(m, `{"type":"custom.thing","data":{"object":{"id":"abc"}}}`)
+	send(m, key("ctrl+d")) // accept the pasted event
+	if m.top() != screenRule {
+		t.Fatalf("top = %v, want the rule hub", m.top())
+	}
+
+	// ruleSections: Trigger, Action, Variables, Iterator, Tuple filters, Tuples.
+	send(m, key("down"), key("down"), key("down"), key("down"), key("down"), key("enter"))
+	if m.top() != screenTuples {
+		t.Fatalf("top = %v, want the tuple list", m.top())
+	}
+
+	send(m, key("a")) // add a tuple
+	if m.top() != screenTuple {
+		t.Fatalf("top = %v, want the tuple form", m.top())
+	}
+
+	typeText(m, "organization:1")
+	send(m, key("tab"))
+	typeText(m, "member")
+	send(m, key("tab"))
+	typeText(m, "user:1")
+	send(m, key("ctrl+s")) // submit the form directly; the rest is optional
+	if m.top() != screenTuples {
+		t.Fatalf("top = %v, want the tuple list", m.top())
+	}
+
+	send(m, key("esc")) // tuples -> rule hub
+	if m.top() != screenRule {
+		t.Fatalf("top = %v, want the rule hub", m.top())
+	}
+	send(m, key("esc")) // rule hub -> rules hub
+	if m.top() != screenRules {
+		t.Fatalf("top = %v, want the rules hub", m.top())
+	}
+
+	send(m, key("ctrl+s"), key("enter"))
+	if !m.done || m.result == nil {
+		t.Fatalf("done = %v result = %+v", m.done, m.result)
+	}
+	if err := saveMapping(m.path, m.result.data); err != nil {
+		t.Fatalf("saveMapping: %v", err)
+	}
+
+	written, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("could not read back %s: %v", path, err)
+	}
+	data := string(written)
+
+	if !strings.Contains(data, `version: "1"`) {
+		t.Fatalf("missing version: %s", data)
+	}
+	if !strings.Contains(data, "organization:1") {
+		t.Fatalf("hand-authored tuple's object missing from the file:\n%s", data)
+	}
+	if !strings.Contains(data, "member") {
+		t.Fatalf("hand-authored tuple's relation missing from the file:\n%s", data)
+	}
+	if !strings.Contains(data, "user:1") {
+		t.Fatalf("hand-authored tuple's user missing from the file:\n%s", data)
+	}
+	if m.result.rules != 1 {
+		t.Fatalf("rules = %d, want 1", m.result.rules)
+	}
+	if m.result.tuples != 1 {
+		t.Fatalf("tuples = %d, want 1", m.result.tuples)
+	}
+	if strings.Contains(data, "sample:") {
+		t.Fatalf("wizard-only sample leaked into the file:\n%s", data)
+	}
+}

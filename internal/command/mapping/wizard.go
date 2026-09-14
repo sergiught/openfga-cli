@@ -277,10 +277,34 @@ func (m *wizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pop()
 		return m, nil
 
+	case tea.PasteMsg:
+		return m, m.routePaste(msg)
+
 	case tea.KeyPressMsg:
 		return m, m.key(msg)
 	}
 	return m, nil
+}
+
+// routePaste forwards a terminal paste to the one focused text widget on a
+// screen whose whole job is that single field — Model file, Event file, and
+// Paste JSON. Every other screen ignores it, the same as an unhandled key.
+// The multi-field rule forms (trigger, tuple, variable, iterator, filter) are
+// out of scope: forwarding into them would also need each screen's live-commit
+// call (see keyTrigger et al.), which is more than the small case this routing
+// is meant to be.
+func (m *wizardModel) routePaste(msg tea.PasteMsg) tea.Cmd {
+	switch m.top() {
+	case screenModelFile:
+		return m.modelPath.Update(msg)
+	case screenEventFile:
+		return m.eventPath.Update(msg)
+	case screenEventPaste:
+		var cmd tea.Cmd
+		m.paste, cmd = m.paste.Update(msg)
+		return cmd
+	}
+	return nil
 }
 
 func (m *wizardModel) key(k tea.KeyPressMsg) tea.Cmd {
@@ -384,6 +408,7 @@ func (m *wizardModel) keyModelSource(k tea.KeyPressMsg) tea.Cmd {
 			return m.startLoad()
 		case "file":
 			m.push(screenModelFile)
+			return m.modelPath.Init()
 		default:
 			m.pop()
 		}
