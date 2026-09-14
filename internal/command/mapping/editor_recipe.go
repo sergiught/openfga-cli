@@ -54,7 +54,13 @@ func (m *wizardModel) keyRecipe(k tea.KeyPressMsg) tea.Cmd {
 	case "m":
 		m.push(screenModelSource)
 	case "enter":
-		m.useRecipe()
+		// An explain-only recipe explains why there is nothing to map instead of
+		// offering one. Appending its zero Rule would drop an unnamed, already
+		// blocking rule on the hub. Maps() is the single test the recipe screen
+		// branches on.
+		if m.recipe.Maps() {
+			m.useRecipe()
+		}
 	}
 	return nil
 }

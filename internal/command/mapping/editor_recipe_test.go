@@ -3,6 +3,8 @@ package mapping
 import (
 	"strings"
 	"testing"
+
+	"github.com/sergiught/openfga-cli/internal/mapping/auth0"
 )
 
 // Adding a rule offers the catalog, every time — not only on first run, and not
@@ -156,6 +158,75 @@ func TestAnEventWithNoMappingExplainsWhy(t *testing.T) {
 	out := m.viewString()
 	if !strings.Contains(out, "relationships") {
 		t.Fatalf("no explanation for an event that maps to nothing:\n%s", out)
+	}
+}
+
+// firstUnmappedEvent returns a catalog entry whose recipe maps to nothing. It
+// is found by asking Maps() rather than by naming an event, so the tests below
+// keep testing the right thing when the catalog gains another explain-only
+// entry — or when one of today's grows a mapping.
+func firstUnmappedEvent(t *testing.T) auth0.Event {
+	t.Helper()
+	for _, e := range auth0.Catalog() {
+		if !e.Recipe.Maps() {
+			return e
+		}
+	}
+	t.Fatal("no explain-only event in the catalog")
+	return auth0.Event{}
+}
+
+// An explain-only recipe has nothing to append. Before this, enter took the
+// same path as a real recipe and dropped a zero-valued Rule on the hub: no
+// name, no trigger, no tuples, and a blocking problem the user never asked for.
+func TestAnEventWithNoMappingAppendsNothing(t *testing.T) {
+	e := firstUnmappedEvent(t)
+
+	m := atRulesHub(t)
+	send(m, key("a"), key("enter"))
+	selectEvent(t, m, e.Type)
+
+	send(m, key("enter"))
+
+	if len(m.doc.Rules) != 0 {
+		t.Fatalf("rules = %d, want 0 — %s maps to nothing:\n%+v", len(m.doc.Rules), e.Type, m.doc.Rules)
+	}
+	if m.top() != screenRecipe {
+		t.Fatalf("top = %v, want to stay on the recipe screen", m.top())
+	}
+}
+
+// The footer must stop offering the key that now does nothing: an affordance
+// that answers a keypress with no change on screen reads as a broken wizard.
+func TestAnEventWithNoMappingOffersNoUseKey(t *testing.T) {
+	e := firstUnmappedEvent(t)
+
+	m := atRulesHub(t)
+	send(m, key("a"), key("enter"))
+	selectEvent(t, m, e.Type)
+
+	for _, k := range m.chromeFor().keys {
+		if k.key == "↵" {
+			t.Fatalf("%s maps to nothing but the footer still offers %q %q", e.Type, k.key, k.label)
+		}
+	}
+}
+
+// The mapping recipes keep offering it, so the guard above is a branch rather
+// than a blanket removal.
+func TestAMappingEventStillOffersTheUseKey(t *testing.T) {
+	m := atRulesHub(t)
+	send(m, key("a"), key("enter"))
+	selectEvent(t, m, "organization.member.added")
+
+	var found bool
+	for _, k := range m.chromeFor().keys {
+		if k.key == "↵" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("a mapping recipe stopped offering ↵: %+v", m.chromeFor().keys)
 	}
 }
 

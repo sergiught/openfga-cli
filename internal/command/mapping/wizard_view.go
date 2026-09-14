@@ -200,6 +200,11 @@ func (m *wizardModel) chromeFor() chrome {
 		c.keys = []keyHint{{"a", "add"}, {"m", "model"}, {"esc", "quit"}, {"?", "help"}}
 	case m.top() == screenRecipe:
 		c.title = m.recipeEvent.Type
+		// There is nothing to use on an explain-only recipe, so the footer stops
+		// offering the key that would now do nothing.
+		if !m.recipe.Maps() {
+			c.keys = []keyHint{{"m", "change model"}, {"esc", "back"}}
+		}
 	case m.top() == screenHelp:
 		// screenHelp is a leaf pushed only on top of a screen helpFor answered
 		// for (see help.go), so the entry underneath always exists.
