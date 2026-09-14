@@ -145,6 +145,23 @@ func TestTheHubCanReturnToTheModelSource(t *testing.T) {
 	}
 }
 
+// The `m` binding above is only discoverable if the hub's footer advertises
+// it — this guards the hint half of that pair. A model is indexed so the
+// status chip reads "N types" rather than "no model", leaving the footer's
+// own "model" label as the only match for the substring below.
+func TestTheHubAdvertisesTheModelSourceKey(t *testing.T) {
+	m := atRulesHub(t)
+	m.index = mapping.IndexModel(testModel())
+	addRuleAtTrigger(m)
+	send(m, key("esc"), key("esc")) // trigger -> the rule -> the rules hub, non-empty
+	if m.top() != screenRules {
+		t.Fatalf("top = %v, want the rules hub", m.top())
+	}
+	if v := m.viewString(); !strings.Contains(v, "model") {
+		t.Fatalf("the hub should hint at `m` for the model source:\n%s", v)
+	}
+}
+
 func TestTheRecipeScreenCanReturnToTheModelSource(t *testing.T) {
 	m := atRulesHub(t)
 	send(m, key("a"), key("enter"))
@@ -169,6 +186,49 @@ func TestChoosingAModelMidFlowUnwindsTheFork(t *testing.T) {
 	send(m, key("m"))     // -> model source
 	selectSource(t, m, "skip")
 	send(m, key("enter")) // choose a source; must come back, not push
+	send(m, key("enter")) // use the recipe, which is what it must have come back to
+
+	addRuleAtTrigger(m)
+	before := len(m.doc.Rules)
+	send(m, key("ctrl+e"))
+	if !m.events.SelectID("organization.created") {
+		t.Fatal("could not select the event")
+	}
+	send(m, key("enter"))
+	if m.top() == screenRecipe {
+		t.Fatal("ctrl+e was misread as an add-rule fork")
+	}
+	if len(m.doc.Rules) != before {
+		t.Fatalf("ctrl+e appended a rule: rules = %d, want %d", len(m.doc.Rules), before)
+	}
+}
+
+// The store-path twin of TestChoosingAModelMidFlowUnwindsTheFork: the same
+// stranding bug lived in the modelLoadedMsg handler, reached only once a
+// dispatched fetch actually resolves, which the "skip" path above never
+// exercises.
+func TestChoosingAModelViaTheStoreMidFlowUnwindsTheFork(t *testing.T) {
+	m := newTestWizard(t, func(context.Context) (*openfga.AuthorizationModel, error) {
+		return testModel(), nil
+	})
+	m.stack = []screen{screenRules}
+	send(m, key("a"), key("enter"))
+	if !m.events.SelectID("organization.member.added") {
+		t.Fatal("could not select the event")
+	}
+	send(m, key("enter")) // -> recipe
+	send(m, key("m"))     // -> model source
+	selectSource(t, m, "server")
+	send(m, key("enter")) // choose it: dispatches the load
+
+	cmd := m.loadCmd
+	if cmd == nil {
+		t.Fatal("expected a load command")
+	}
+	m.Update(cmd()) // deliver the result; must pop back, not push
+	if m.top() != screenRecipe {
+		t.Fatalf("top = %v, want back on the recipe screen", m.top())
+	}
 	send(m, key("enter")) // use the recipe, which is what it must have come back to
 
 	addRuleAtTrigger(m)
@@ -386,6 +446,69 @@ func TestModelFileLoadsAndBadFileStaysOnTheField(t *testing.T) {
 	}
 }
 
+// ctrl+s submits the single-field form without leaving the screen (neither
+// keyModelFile nor keyEventFile watch for Completed()), so re-entering the
+// screen is the only way back in. Init() used to leave the form's completed
+// flag set forever, permanently deadening the field for the rest of the
+// session even after re-entry; Resume() clears it.
+func TestCtrlSOnModelFileDoesNotPermanentlyDeadenTheField(t *testing.T) {
+	m := atModelSource(t, nil)
+	selectSource(t, m, "file")
+	send(m, key("enter"))
+	if m.top() != screenModelFile {
+		t.Fatalf("top = %v", m.top())
+	}
+
+	typeText(m, "/tmp/a.json")
+	send(m, key("ctrl+s"))
+	send(m, key("esc"))
+	if m.top() != screenModelSource {
+		t.Fatalf("top = %v, want back on the source picker", m.top())
+	}
+
+	// Re-enter the screen the way a user fixing a typo would.
+	selectSource(t, m, "file")
+	send(m, key("enter"))
+	if m.top() != screenModelFile {
+		t.Fatalf("top = %v", m.top())
+	}
+	before := m.modelPath.Values()[0]
+	typeText(m, "X")
+	if after := m.modelPath.Values()[0]; after == before {
+		t.Fatalf("typing after re-entry did not reach the field: value stayed %q", before)
+	}
+}
+
+// The Event file screen's twin of TestCtrlSOnModelFileDoesNotPermanentlyDeadenTheField.
+func TestCtrlSOnEventFileDoesNotPermanentlyDeadenTheField(t *testing.T) {
+	m := atTrigger(t)
+	send(m, key("ctrl+e"))
+	m.events.SelectID(fileID)
+	send(m, key("enter"))
+	if m.top() != screenEventFile {
+		t.Fatalf("top = %v", m.top())
+	}
+
+	typeText(m, "/tmp/a.json")
+	send(m, key("ctrl+s"))
+	send(m, key("esc"))
+	if m.top() != screenEventPick {
+		t.Fatalf("top = %v, want back on the event pick", m.top())
+	}
+
+	// Re-enter the screen the way a user fixing a typo would.
+	m.events.SelectID(fileID)
+	send(m, key("enter"))
+	if m.top() != screenEventFile {
+		t.Fatalf("top = %v", m.top())
+	}
+	before := m.eventPath.Values()[0]
+	typeText(m, "X")
+	if after := m.eventPath.Values()[0]; after == before {
+		t.Fatalf("typing after re-entry did not reach the field: value stayed %q", before)
+	}
+}
+
 func TestRulesHubEmptyStateAndQuit(t *testing.T) {
 	m := atRulesHub(t)
 
@@ -600,6 +723,9 @@ func TestCtrlCQuitsFromAnyScreen(t *testing.T) {
 		{"payload kind", func(t *testing.T) *wizardModel {
 			m := atRulesHub(t)
 			send(m, key("a"))
+			if m.top() != screenPayloadKind {
+				t.Fatalf("top = %v, want the payload-kind screen", m.top())
+			}
 			return m
 		}},
 		{"rules hub", atRulesHub},
@@ -654,6 +780,12 @@ type textWidgetCase struct {
 	reach func(t *testing.T) *wizardModel
 	want  screen
 	value func(m *wizardModel) string
+	// assertDocument, when set, checks that a paste into this screen's widget
+	// also reached the document through the screen's live-commit tail (see
+	// routePaste). Filled in for the five multi-field rule forms (trigger,
+	// tuple, variable, iterator, filter); nil for the three single-field
+	// screens, which have nothing else to commit to.
+	assertDocument func(t *testing.T, m *wizardModel)
 }
 
 func textWidgetCases() []textWidgetCase {
@@ -663,6 +795,12 @@ func textWidgetCases() []textWidgetCase {
 			reach: atTrigger,
 			want:  screenTrigger,
 			value: func(m *wizardModel) string { return m.trigger.Values()[0] },
+			assertDocument: func(t *testing.T, m *wizardModel) {
+				t.Helper()
+				if got := m.rule().Name; got != "pasted" {
+					t.Fatalf("paste reached the widget but not the document: rule name = %q", got)
+				}
+			},
 		},
 		{
 			name: "model file",
@@ -710,6 +848,13 @@ func textWidgetCases() []textWidgetCase {
 			},
 			want:  screenTuple,
 			value: func(m *wizardModel) string { return m.tupleForm.Values()[0] },
+			assertDocument: func(t *testing.T, m *wizardModel) {
+				t.Helper()
+				ts := m.tuples()
+				if ts == nil || len(*ts) == 0 || (*ts)[0].Object != "pasted" {
+					t.Fatalf("paste reached the widget but not the document: tuples = %+v", ts)
+				}
+			},
 		},
 		{
 			name: "variable",
@@ -722,6 +867,12 @@ func textWidgetCases() []textWidgetCase {
 			},
 			want:  screenVariable,
 			value: func(m *wizardModel) string { return m.varForm.Values()[0] },
+			assertDocument: func(t *testing.T, m *wizardModel) {
+				t.Helper()
+				if got := m.rule().Variables[m.varIdx].Name; got != "pasted" {
+					t.Fatalf("paste reached the widget but not the document: variable name = %q", got)
+				}
+			},
 		},
 		{
 			name: "iterator",
@@ -733,6 +884,25 @@ func textWidgetCases() []textWidgetCase {
 			},
 			want:  screenIterator,
 			value: func(m *wizardModel) string { return m.iterForm.Values()[0] },
+			// This is the blank-source guard's own test, not the shared "before
+			// != after" check above: that paste (into a blank field) already makes
+			// the source non-blank, which the guard would have let through anyway.
+			// Detecting the guard's removal needs a paste that finds the field
+			// blank while the rule already carries an iterator worth protecting.
+			assertDocument: func(t *testing.T, m *wizardModel) {
+				t.Helper()
+				r := m.rule()
+				r.Iterator = &mapping.Iterator{
+					Source: "input.data.object.identities",
+					As:     "identity",
+					Tuples: []mapping.Tuple{{Object: "connection:1", Relation: "member", User: "user:1"}},
+				}
+				m.iterForm.SetValues([]string{"", "identity"}) // as if mid-retype
+				m.Update(tea.PasteMsg{Content: ""})
+				if m.rule().Iterator == nil {
+					t.Fatal("a transient blank source dropped the iterator: the blank-source guard was not applied")
+				}
+			},
 		},
 		{
 			name: "tuple filter",
@@ -745,6 +915,12 @@ func textWidgetCases() []textWidgetCase {
 			},
 			want:  screenFilter,
 			value: func(m *wizardModel) string { return m.filterForm.Values()[0] },
+			assertDocument: func(t *testing.T, m *wizardModel) {
+				t.Helper()
+				if got := m.rule().Filters[m.filterIdx].User; got != "pasted" {
+					t.Fatalf("paste reached the widget but not the document: filter user = %q", got)
+				}
+			},
 		},
 	}
 }
@@ -773,9 +949,9 @@ func TestTypingReachesEveryTextWidget(t *testing.T) {
 
 // TestPasteReachesEveryTextWidget guards task 8b's second finding: a real
 // terminal paste (tea.PasteMsg) must reach the same eight widgets typing does.
-// For the tuple screen — one of the five multi-field rule forms — it also
-// asserts the paste reached the document, not only the widget: that is what
-// each form's live-commit tail (mirrored in routePaste) buys.
+// For the five multi-field rule forms it also asserts the paste reached the
+// document, not only the widget: that is what each form's live-commit tail
+// (mirrored in routePaste) buys.
 func TestPasteReachesEveryTextWidget(t *testing.T) {
 	for _, c := range textWidgetCases() {
 		t.Run(c.name, func(t *testing.T) {
@@ -789,18 +965,9 @@ func TestPasteReachesEveryTextWidget(t *testing.T) {
 			if after == before {
 				t.Fatalf("paste did not reach the widget: value stayed %q", before)
 			}
+			if c.assertDocument != nil {
+				c.assertDocument(t, m)
+			}
 		})
-	}
-
-	for _, c := range textWidgetCases() {
-		if c.name != "tuple" {
-			continue
-		}
-		m := c.reach(t)
-		m.Update(tea.PasteMsg{Content: "organization:1"})
-		ts := m.tuples()
-		if ts == nil || len(*ts) == 0 || (*ts)[0].Object != "organization:1" {
-			t.Fatalf("paste reached the widget but not the document: tuples = %+v", ts)
-		}
 	}
 }

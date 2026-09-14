@@ -214,7 +214,8 @@ func (m *wizardModel) keyEventPick(k tea.KeyPressMsg) tea.Cmd {
 			return m.paste.Focus()
 		case fileID:
 			m.push(screenEventFile)
-			return m.eventPath.Init()
+			m.eventPath.Resume()
+			return nil
 		default:
 			e, ok := auth0.Lookup(it.ID)
 			if !ok {

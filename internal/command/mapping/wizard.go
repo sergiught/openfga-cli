@@ -309,6 +309,11 @@ func (m *wizardModel) routePaste(msg tea.PasteMsg) tea.Cmd {
 		m.commitTrigger()
 		return cmd
 	case screenTuple:
+		// Mirrors keyTuple's overlay guard: the picker owns the keyboard while
+		// it is open, so a paste here must not edit the form hidden behind it.
+		if m.fieldPick != nil {
+			return nil
+		}
 		cmd := m.tupleForm.Update(msg)
 		m.syncTupleVisibility()
 		m.commitTuple()
@@ -432,7 +437,8 @@ func (m *wizardModel) keyModelSource(k tea.KeyPressMsg) tea.Cmd {
 			return m.startLoad()
 		case "file":
 			m.push(screenModelFile)
-			return m.modelPath.Init()
+			m.modelPath.Resume()
+			return nil
 		default:
 			m.pop()
 		}

@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/sergiught/go-openfga/openfga"
 
 	"github.com/sergiught/openfga-cli/internal/mapping"
@@ -64,6 +66,25 @@ func TestObjectPickerPrefillsTypeAndTemplate(t *testing.T) {
 	}
 	if m.fieldPick != nil {
 		t.Fatal("the picker should close after a choice")
+	}
+}
+
+// keyTuple gives the field-picker overlay the keyboard while it is open;
+// routePaste must do the same instead of editing the form hidden behind it.
+func TestPasteWhileTheFieldPickerIsOpenDoesNotEditTheHiddenForm(t *testing.T) {
+	m := atTuples(t)
+	send(m, key("a"))
+
+	m.tupleForm.FocusIndex(int(fieldObject))
+	send(m, key("ctrl+o")) // open the picker for the focused field
+	if m.fieldPick == nil {
+		t.Fatal("expected a picker with a model loaded")
+	}
+
+	before := m.tupleForm.Values()[fieldObject]
+	m.Update(tea.PasteMsg{Content: "pasted"})
+	if got := m.tupleForm.Values()[fieldObject]; got != before {
+		t.Fatalf("paste reached the form behind the open overlay: %q", got)
 	}
 }
 
