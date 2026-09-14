@@ -102,6 +102,51 @@ func TestUsingARecipeLandsOnTheHubWithTheRule(t *testing.T) {
 	}
 }
 
+// A recipe arrives with Name and When already filled in, so the rule has to
+// record them as auto-filled: applyEventType only replaces a field that is
+// empty or still holds exactly what the last pick wrote, and a recipe rule that
+// forgot to say so answers "the user typed this" to both guards. The user then
+// switches the event with ctrl+e and gets the new sample beside the old
+// trigger, whose `when` never fires — the preview says "skipped" with no reason.
+func TestSwitchingTheEventOnARecipeRuleMovesItsTrigger(t *testing.T) {
+	m := atRulesHub(t)
+	send(m, key("a"), key("enter")) // add rule: kind screen -> Auth0 -> catalog
+	if !m.events.SelectID("organization.member.added") {
+		t.Fatal("could not select the event")
+	}
+	send(m, key("enter")) // open the recipe
+	send(m, key("enter")) // use it -> the hub, with the recipe's rule
+
+	// Open the rule the recipe wrote, and its trigger form.
+	send(m, key("enter"))
+	if m.top() != screenRule {
+		t.Fatalf("top = %v, want the rule hub", m.top())
+	}
+	send(m, key("enter"))
+	if m.top() != screenTrigger {
+		t.Fatalf("top = %v, want the trigger form", m.top())
+	}
+
+	// Change the event. Both events carry a mapping recipe, so the switch is a
+	// real one rather than a move onto an explain-only entry.
+	send(m, key("ctrl+e"))
+	if !m.events.SelectID("organization.connection.added") {
+		t.Fatal("could not select the second event")
+	}
+	send(m, key("enter"))
+
+	r := m.rule()
+	if r == nil {
+		t.Fatal("no rule")
+	}
+	if r.Name != "organization.connection.added" {
+		t.Fatalf("name = %q, want the new event — the old trigger survived the switch", r.Name)
+	}
+	if want := `input.type == "organization.connection.added"`; r.When != want {
+		t.Fatalf("when = %q, want %q — the new sample landed beside the old condition", r.When, want)
+	}
+}
+
 // The nine events that map to nothing explain themselves rather than dead-ending.
 func TestAnEventWithNoMappingExplainsWhy(t *testing.T) {
 	m := atRulesHub(t)

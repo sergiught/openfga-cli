@@ -67,6 +67,10 @@ func (m *wizardModel) keyRecipe(k tea.KeyPressMsg) tea.Cmd {
 func (m *wizardModel) useRecipe() {
 	r := m.recipe.Rule
 	r.Sample = &mapping.Sample{Label: m.recipeEvent.Type, Event: m.recipeEvent.Sample}
+	// The recipe filled Name and When, so record that as auto-fill: otherwise
+	// applyEventType cannot tell "the recipe wrote this" from "the user typed
+	// this", and a later ctrl+e leaves the old trigger beside the new sample.
+	r.AutoName, r.AutoWhen = r.Name, r.When
 	m.doc.Rules = append(m.doc.Rules, r)
 	m.ruleIdx = len(m.doc.Rules) - 1
 	m.stack = []screen{screenRules}
