@@ -165,7 +165,7 @@ func newWizard(ctx context.Context, path, profile string, load modelLoader) *wiz
 		field.New("When (expression)", `input.type == "organization.member.added"`),
 	)
 	m.kindPick = picker.New([]picker.Item{
-		{Title: "Auth0 events", Desc: "21 event types, each with a worked mapping", Value: "auth0"},
+		{Title: "Auth0 events", Desc: fmt.Sprintf("%d event types, %d with a ready-made mapping", len(auth0.Catalog()), mappedCount()), Value: "auth0"},
 		{Title: "Another JSON payload", Desc: "paste or load your own event", Value: "other"},
 	})
 	m.sections = picker.New(nil)

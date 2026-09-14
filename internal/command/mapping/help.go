@@ -1,6 +1,12 @@
 package mapping
 
-import tea "charm.land/bubbletea/v2"
+import (
+	"fmt"
+
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/sergiught/openfga-cli/internal/mapping/auth0"
+)
 
 // helpFor returns the concept behind a screen. Only screens whose focused
 // widget does not take typed input get an entry: a form must not steal a
@@ -35,8 +41,9 @@ func helpFor(s screen) (title, body string, ok bool) {
 		return "Action", "write adds the tuples, delete removes them. " +
 			"Set it here for the whole rule, or per tuple — never both.", true
 	case screenEventPick:
-		return "Events", "Pick the event you want to map. Twelve of them come with a " +
-			"worked mapping; the rest explain why they need none.", true
+		return "Events", fmt.Sprintf("Pick the event you want to map — %d of the %d come with a "+
+			"ready-made mapping, and the rest explain why they need none. Either way you "+
+			"end up with a rule you can edit.", mappedCount(), len(auth0.Catalog())), true
 	}
 	return "", "", false
 }

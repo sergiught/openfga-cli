@@ -253,9 +253,9 @@ func TestTheWholeFlowWritesAMappingFile(t *testing.T) {
 	if m.top() != screenRecipe {
 		t.Fatalf("top = %v, want the recipe screen", m.top())
 	}
-	send(m, key("enter")) // use it: appends the rule and lands on the hub
-	if m.top() != screenRules {
-		t.Fatalf("top = %v, want the hub", m.top())
+	send(m, key("enter")) // use it: appends the rule and opens it
+	if m.top() != screenRule {
+		t.Fatalf("top = %v, want the new rule open", m.top())
 	}
 
 	send(m, key("ctrl+s"), key("enter"))

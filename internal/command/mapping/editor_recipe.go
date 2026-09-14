@@ -72,11 +72,13 @@ func (m *wizardModel) keyRecipe(k tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
-// useRecipe appends the recipe's rule and drops the user on the hub. The
-// stack is reset rather than popped: the hub is the base of navigation, and
-// unwinding the setup screens with esc is not what the user means by "go
-// back" once they have a rule in hand. The setup screens stay reachable by
-// key — m for the model, a for another rule.
+// useRecipe appends the recipe's rule and opens it, unwinding the add-rule fork
+// on the way out — the same landing as the explain-only path, so accepting a
+// mapping and writing one from scratch leave the user in the same place.
+//
+// It opens the rule rather than the hub because the rule is what the user just
+// acquired and has not yet seen in their own file: the recipe screen showed a
+// promise, and this is the thing itself.
 func (m *wizardModel) useRecipe() {
 	r := m.recipe.Rule
 	r.Sample = &mapping.Sample{Label: m.recipeEvent.Type, Event: m.recipeEvent.Sample}
@@ -86,7 +88,7 @@ func (m *wizardModel) useRecipe() {
 	r.AutoName, r.AutoWhen = r.Name, r.When
 	m.doc.Rules = append(m.doc.Rules, r)
 	m.ruleIdx = len(m.doc.Rules) - 1
-	m.stack = []screen{screenRules}
+	m.landOnNewRule()
 	m.syncRules()
 }
 

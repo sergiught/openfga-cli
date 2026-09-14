@@ -112,6 +112,22 @@ const (
 // user's own setup — rather than a fact about the event. The vocabulary is the
 // rule editor's own ("tuple", "tuple filter"), so the row teaches the word the
 // next screen will use.
+// mappedCount reports how many catalog events ship a ready-made mapping.
+// Derived rather than written down: the two places that quoted it by hand had
+// drifted apart — the payload-kind screen promised all twenty-one mapped while
+// the help one screen later said twelve — and the wrong number taught the user
+// that an event mapping to nothing meant something was missing from their own
+// setup, rather than being a fact about the event.
+func mappedCount() int {
+	n := 0
+	for _, e := range auth0.Catalog() {
+		if e.Recipe.Maps() {
+			n++
+		}
+	}
+	return n
+}
+
 func recipeNote(r auth0.Recipe) string {
 	if n := len(r.Rule.Tuples); n > 0 {
 		return plural(n, "tuple")
@@ -179,6 +195,23 @@ func (m *wizardModel) fromFork() bool {
 // the fork, or back to the trigger form when a rule was already there.
 // keyEventPick, keyEventPaste and keyEventFile all call this so none of them
 // can diverge from the others on when the rule gets created.
+// landOnNewRule unwinds the add-rule fork and opens the rule just appended.
+// Both exits from the fork share it — the recipe the user accepted and the rule
+// they start from an explain-only event — so the two cannot drift onto
+// different answers to "where am I, and what does esc mean now".
+//
+// The fork's screens are popped rather than the stack being replaced. Replacing
+// it leaves screenRules alone on the stack, and esc on the hub opens the save
+// dialog: the user reaching for "back" half a second after accepting a mapping
+// was instead asked whether to write the file.
+func (m *wizardModel) landOnNewRule() {
+	for m.top() != screenPayloadKind {
+		m.pop()
+	}
+	m.pop() // payload kind -> rules hub
+	m.push(screenRule)
+}
+
 func (m *wizardModel) acceptPick(label string, event map[string]any) {
 	fork := m.fromFork()
 	if fork {
@@ -192,11 +225,7 @@ func (m *wizardModel) acceptPick(label string, event map[string]any) {
 	}
 	m.setSample(label, event)
 	if fork {
-		for m.top() != screenPayloadKind {
-			m.pop()
-		}
-		m.pop() // payload kind -> rules hub
-		m.push(screenRule)
+		m.landOnNewRule()
 		return
 	}
 	for m.top() != screenTrigger {

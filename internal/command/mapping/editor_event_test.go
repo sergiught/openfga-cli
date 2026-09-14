@@ -97,8 +97,8 @@ func TestForkCatalogPickAppendsARuleOnAFreshDocument(t *testing.T) {
 	if r == nil || r.Sample == nil || r.Sample.Label != "organization.member.added" {
 		t.Fatalf("rule = %+v, want the picked sample attached", r)
 	}
-	if m.top() != screenRules {
-		t.Fatalf("top = %v, want the hub", m.top())
+	if m.top() != screenRule {
+		t.Fatalf("top = %v, want the new rule open", m.top())
 	}
 }
 

@@ -1,6 +1,7 @@
 package mapping
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -75,19 +76,28 @@ func TestTheRecipeScreenStatesExpectationsWithoutAModel(t *testing.T) {
 	}
 }
 
-// Accepting the recipe leaves the user on the hub with a real rule, not on a
-// stack five screens deep.
-func TestUsingARecipeLandsOnTheHubWithTheRule(t *testing.T) {
+// Accepting the recipe opens the rule it wrote, with the add-rule fork unwound
+// behind it — not a stack five screens deep, and not a bare hub either.
+//
+// The stack depth is the point. Replacing the stack with just the hub made the
+// next esc open the save dialog, so a user reaching for "back" a moment after
+// accepting a mapping was asked whether to write the file instead.
+func TestUsingARecipeOpensTheRuleAndKeepsEscMeaningBack(t *testing.T) {
 	m := atRulesHub(t)
 	send(m, key("a"), key("enter"))
 	selectEvent(t, m, "organization.member.added")
 	send(m, key("enter"))
 
-	if m.top() != screenRules {
-		t.Fatalf("top = %v, want the hub", m.top())
+	if m.top() != screenRule {
+		t.Fatalf("top = %v, want the new rule open", m.top())
 	}
-	if len(m.stack) != 1 {
-		t.Fatalf("stack is %d deep, want 1", len(m.stack))
+	if len(m.stack) != 2 {
+		t.Fatalf("stack is %d deep, want 2 (hub, rule) — the fork must be unwound", len(m.stack))
+	}
+	// The half that actually bit the user: esc is "back", not "save".
+	send(m, key("esc"))
+	if m.top() != screenRules {
+		t.Fatalf("esc after accepting a recipe went to %v, want the hub", m.top())
 	}
 	if len(m.doc.Rules) != 1 {
 		t.Fatalf("got %d rules, want 1", len(m.doc.Rules))
@@ -117,10 +127,9 @@ func TestSwitchingTheEventOnARecipeRuleMovesItsTrigger(t *testing.T) {
 		t.Fatal("could not select the event")
 	}
 	send(m, key("enter")) // open the recipe
-	send(m, key("enter")) // use it -> the hub, with the recipe's rule
+	send(m, key("enter")) // use it -> the recipe's rule, open
 
-	// Open the rule the recipe wrote, and its trigger form.
-	send(m, key("enter"))
+	// The rule the recipe wrote is already open; take its trigger form.
 	if m.top() != screenRule {
 		t.Fatalf("top = %v, want the rule hub", m.top())
 	}
@@ -322,5 +331,38 @@ func TestSourcePathNamesWhereAValueCameFrom(t *testing.T) {
 		if got := sourcePath(tc.in); got != tc.want {
 			t.Errorf("sourcePath(%q) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+// The payload-kind screen and the event-pick help both quote how many catalog
+// events ship a mapping. They were written by hand and drifted — one promised
+// all twenty-one mapped, the other said twelve — and the optimistic one taught
+// users that an event mapping to nothing meant their own setup was incomplete.
+// Both now derive the number, so this pins them to the catalog and to each
+// other rather than to a literal that can rot again.
+func TestTheAdvertisedMappingCountMatchesTheCatalog(t *testing.T) {
+	want := 0
+	for _, e := range auth0.Catalog() {
+		if e.Recipe.Maps() {
+			want++
+		}
+	}
+	if got := mappedCount(); got != want {
+		t.Fatalf("mappedCount() = %d, want %d", got, want)
+	}
+
+	m := newTestWizard(t, nil)
+	send(m, key("enter"))
+	kind := m.viewString()
+	if !strings.Contains(kind, fmt.Sprintf("%d event types, %d with a ready-made mapping", len(auth0.Catalog()), want)) {
+		t.Fatalf("the payload-kind screen misstates the catalog:\n%s", kind)
+	}
+
+	_, body, ok := helpFor(screenEventPick)
+	if !ok {
+		t.Fatal("the event list lost its help entry")
+	}
+	if !strings.Contains(body, fmt.Sprintf("%d of the %d", want, len(auth0.Catalog()))) {
+		t.Fatalf("the event help misstates the catalog: %q", body)
 	}
 }
