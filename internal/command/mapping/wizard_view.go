@@ -301,6 +301,27 @@ func (m *wizardModel) cardWidth() int {
 // row at each end of the body it wraps.
 const frameRows = 4
 
+// frameCols is the same cost horizontally — two border columns and two pairs
+// of padding — plus the one column paneView indents the whole frame by.
+const frameCols = 7
+
+// paneGutter separates the editor column from the preview beside it.
+const paneGutter = 4
+
+// previewWidth is the preview column's width when the panes sit side by side:
+// whatever the frame leaves after the editor column and the gutter.
+//
+// It is deliberately not contentWidth. That clamps at 72 so a paragraph of
+// prose never runs the width of a wide terminal, which is right for the column
+// the user is reading and wrong for the column they are checking: past about
+// 164 columns the clamp stops the preview growing at all and strands the rest
+// of the screen empty. What a clamp takes away is the end of each line, and the
+// end of a tuple's line is its object — the part that says which thing the rule
+// touched, and the part hardest to guess from the half still shown.
+func (m *wizardModel) previewWidth() int {
+	return m.width - m.contentWidth() - paneGutter - frameCols
+}
+
 // trimLines cuts body down to n rows. Both views bound their output to the
 // terminal after framing it, and that bound cuts from the bottom, so an
 // over-tall body would take the frame's closing border down with it.
@@ -390,15 +411,19 @@ func (m *wizardModel) paneView() string {
 	cw := m.contentWidth()
 
 	body := m.editorPane(cw)
+	// The rows the frame can hold. Side by side the preview has all of them;
+	// stacked it has what the editor above it leaves, less the blank row
+	// between the two.
+	rows := m.height - statusRows - frameRows
 	if m.sideBySide() {
 		body = lipgloss.JoinHorizontal(lipgloss.Top,
-			lipgloss.NewStyle().Width(m.width/2-6).Render(body),
-			m.previewPane(cw))
+			lipgloss.NewStyle().Width(cw+paneGutter).Render(body),
+			m.previewPane(m.previewWidth(), rows))
 	} else {
 		// Stacked, the two panes sit one above the other, so they share cw: a
 		// preview measured off the terminal instead would hang its rule past the
 		// editor's by however much contentWidth clamped.
-		body += "\n\n" + m.previewPane(cw)
+		body += "\n\n" + m.previewPane(cw, rows-lipgloss.Height(body)-1)
 	}
 	// Height pads the body out so the status bar lands on the bottom rows
 	// instead of floating directly under short content.
@@ -818,14 +843,15 @@ func indentDSL(dsl string, cw int) string {
 // previewPane renders the file being built and what the current sample turns
 // into. It is the whole point of the hub-and-spoke design: every edit is
 // visible immediately.
-func (m *wizardModel) previewPane(w int) string {
+func (m *wizardModel) previewPane(w, rows int) string {
 	if w < 20 {
 		return ""
 	}
+	eval := m.evaluationLines(w)
 	var b strings.Builder
 	// On a short terminal the YAML half yields all its rows to the evaluation
 	// half; drop its header too, rather than leaving a heading over nothing.
-	if n := m.yamlLines(); n > 0 {
+	if n := yamlLines(rows, lipgloss.Height(eval)); n > 0 {
 		b.WriteString(style.SectionHeader(m.path, w))
 		b.WriteString("\n")
 		b.WriteString(clampLines(string(m.preview.YAML), w, n))
@@ -833,17 +859,28 @@ func (m *wizardModel) previewPane(w int) string {
 	}
 	b.WriteString(style.SectionHeader("preview", w))
 	b.WriteString("\n")
-	b.WriteString(m.evaluationLines(w))
+	b.WriteString(eval)
 	return b.String()
 }
 
-// yamlLines gives the YAML half whatever is left after the evaluation half; on
-// a short terminal the evaluation wins, since it is what the user is reacting to.
-func (m *wizardModel) yamlLines() int {
-	if m.height < 40 {
-		return 0
+// yamlLines gives the YAML half whatever rows the pane has left after the
+// evaluation half, which is measured first because it is what the user is
+// reacting to. The three rows held back are this half's header, the blank row
+// under it, and the evaluation half's header.
+//
+// The budget comes from the rows the caller actually has rather than from a
+// height threshold. A threshold had the file disappear from a 30-row terminal
+// while five rows sat empty below the frame — on the screen whose whole promise
+// is watching that file being written.
+//
+// Under three rows the half is dropped rather than shrunk: a file shown two
+// lines at a time says nothing the header has not already said, and the rows
+// are worth more to the evaluation.
+func yamlLines(rows, evalRows int) int {
+	if n := rows - evalRows - 3; n >= 3 {
+		return n
 	}
-	return m.height - 20
+	return 0
 }
 
 // diagLocation prefixes a diagnostic with its line, or with nothing when mapper

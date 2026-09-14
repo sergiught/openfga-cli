@@ -36,6 +36,13 @@ func key(s string) tea.KeyPressMsg {
 	}
 }
 
+// previewOf renders the preview pane at the size paneView would give it, so a
+// test asserting on the pane alone sees the same rows and columns the composed
+// view does.
+func previewOf(m *wizardModel) string {
+	return m.previewPane(m.previewWidth(), m.height-statusRows-frameRows)
+}
+
 func send(m *wizardModel, msgs ...tea.Msg) {
 	for _, msg := range msgs {
 		m.Update(msg)
@@ -675,7 +682,7 @@ func TestAFramedEditorStillShowsItsPreview(t *testing.T) {
 	// Assert against the preview pane rather than the whole view: the form field
 	// the user just typed into echoes the same text, so a whole-view grep cannot
 	// tell "the preview shows it" from "the input shows it".
-	if pane := m.previewPane(m.contentWidth()); !strings.Contains(pane, "organization:acme") {
+	if pane := previewOf(m); !strings.Contains(pane, "organization:acme") {
 		t.Fatalf("the preview vanished from the framed editor:\n%s", pane)
 	}
 }

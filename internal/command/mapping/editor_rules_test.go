@@ -340,7 +340,7 @@ func TestMovingTheRulesCursorMovesThePreview(t *testing.T) {
 	// "skipped" is vocabulary only the evaluation half has: the YAML half above
 	// it lists both rules whatever the cursor is on, so neither rule's own
 	// tuples, users or relations can tell the two positions apart.
-	if pane := m.previewPane(m.contentWidth()); !strings.Contains(pane, "second: skipped") {
+	if pane := previewOf(m); !strings.Contains(pane, "second: skipped") {
 		t.Fatalf("the first rule's sample should leave the second rule skipped:\n%s", pane)
 	}
 
@@ -353,7 +353,7 @@ func TestMovingTheRulesCursorMovesThePreview(t *testing.T) {
 		t.Fatalf("current rule = %+v", r)
 	}
 	// The cursor half of the move is covered above; this is the preview half.
-	if pane := m.previewPane(m.contentWidth()); !strings.Contains(pane, "first: skipped") {
+	if pane := previewOf(m); !strings.Contains(pane, "first: skipped") {
 		t.Fatalf("the preview did not follow the cursor to the second rule:\n%s", pane)
 	}
 	// ...and this is the half no other test still covers: that the pane is
