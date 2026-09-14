@@ -27,6 +27,18 @@ func Blocking(ps []Problem) []Problem {
 	return out
 }
 
+// Warnings filters ps down to the advisory ones — every check that compared the
+// document against a model. They are the complement of Blocking.
+func Warnings(ps []Problem) []Problem {
+	var out []Problem
+	for _, p := range ps {
+		if p.Warning {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // Lint checks d for the mistakes mapper cannot catch: structurally incomplete
 // rules the wizard allows mid-edit, and identifiers that compile but do not
 // exist in ix. A nil ix disables the model checks entirely.

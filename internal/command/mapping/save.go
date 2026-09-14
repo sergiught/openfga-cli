@@ -93,16 +93,35 @@ func (m *wizardModel) saveSummary() string {
 	fmt.Fprintf(&b, "%s, %s.\n",
 		plural(countTuples(m.doc.Rules), "tuple"), plural(m.sampledRules(), "sampled rule"))
 
-	blocking := m.saveProblems()
-	if len(blocking) == 0 {
-		b.WriteString("\nThe mapping compiles.")
+	if blocking := m.saveProblems(); len(blocking) > 0 {
+		fmt.Fprintf(&b, "\nMapping has %s. Save anyway to fix by hand?\n\n", plural(len(blocking), "error"))
+		b.WriteString(m.problemLines(blocking))
 		return b.String()
 	}
 
-	fmt.Fprintf(&b, "\nMapping has %s. Save anyway to fix by hand?\n\n", plural(len(blocking), "error"))
-	for i, p := range blocking {
+	// Compiling is all mapper can vouch for. A tuple naming a type or relation
+	// the loaded model does not have compiles perfectly and is still refused by
+	// the store, and this dialog is the last screen before the file is written —
+	// so the sentence that ends it cannot be an unqualified all-clear while the
+	// rule screen behind it flags exactly that.
+	warnings := mapping.Warnings(m.problems)
+	if len(warnings) == 0 {
+		b.WriteString("\nThe mapping compiles.")
+		return b.String()
+	}
+	b.WriteString("\nThe mapping compiles, but the authorization model does not have\neverything it names:\n\n")
+	b.WriteString(m.problemLines(warnings))
+	b.WriteString("\nThe store will reject those writes until the model catches up.\nSave anyway if the model is the thing due to change.")
+	return b.String()
+}
+
+// problemLines renders up to five problems, each against the rule it belongs to
+// and marked with its own severity.
+func (m *wizardModel) problemLines(ps []mapping.Problem) string {
+	var b strings.Builder
+	for i, p := range ps {
 		if i == 5 {
-			fmt.Fprintf(&b, "  … and %d more\n", len(blocking)-5)
+			fmt.Fprintf(&b, "  … and %d more\n", len(ps)-5)
 			break
 		}
 		name := "document"
@@ -112,7 +131,7 @@ func (m *wizardModel) saveSummary() string {
 				name = fmt.Sprintf("rule %d", p.Rule+1)
 			}
 		}
-		fmt.Fprintf(&b, "  ✗ %s: %s\n", name, p.Message)
+		fmt.Fprintf(&b, "  %s %s: %s\n", problemMark(p), name, p.Message)
 	}
 	return b.String()
 }

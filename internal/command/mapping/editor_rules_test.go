@@ -394,3 +394,45 @@ func TestEnterDoesNotConfirmADelete(t *testing.T) {
 		t.Fatalf("y did not delete: %d rules left", len(m.doc.Rules))
 	}
 }
+
+// Three surfaces report the same model warning and used to disagree about it:
+// the rules list marked the rule ✓, the rule hub marked the section ✗ — the mark
+// it uses for problems that stop a save — and the gate said the mapping
+// compiles. A warning is its own severity; reading it off one screen has to
+// predict the next.
+func TestAModelWarningIsNeitherAPassNorAnError(t *testing.T) {
+	m := atRulesHub(t)
+	m.doc.Rules = mappingRule("organization.member.added", "organization.member.added", 1)
+	m.doc.Rules[0].Tuples[0].Relation = "owner"
+	m.index = mapping.IndexModel(testModel())
+	m.syncRules()
+
+	if len(mapping.Blocking(m.problems)) != 0 {
+		t.Fatalf("this rule is supposed to be savable; problems = %+v", m.problems)
+	}
+
+	it, ok := m.rules.Selected()
+	if !ok {
+		t.Fatal("the hub has no rows")
+	}
+	row := it.TitleText
+	if strings.HasPrefix(row, "✓") {
+		t.Fatalf("the rules list passes a rule the model rejects: %q", row)
+	}
+	if strings.HasPrefix(row, "✗") {
+		t.Fatalf("the rules list marks an advisory warning as blocking: %q", row)
+	}
+
+	var tuples string
+	for _, it := range m.ruleSections() {
+		if it.Value == "tuples" {
+			tuples = it.Desc
+		}
+	}
+	if strings.HasPrefix(tuples, "✗") {
+		t.Fatalf("the rule hub marks an advisory warning as blocking: %q", tuples)
+	}
+	if !strings.Contains(tuples, "owner") {
+		t.Fatalf("the rule hub does not report the warning at all: %q", tuples)
+	}
+}

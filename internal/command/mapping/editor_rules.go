@@ -88,6 +88,12 @@ func (m *wizardModel) deleteRule(i int) {
 // syncRules rebuilds the hub list from the document and recomputes the preview.
 // Called after every change that could alter a row.
 func (m *wizardModel) syncRules() {
+	// Lint first. The marks below read m.problems, so building the rows before
+	// refreshing them stamped each rule with the verdict on the document as it
+	// was before the edit that triggered this sync — a rule stayed ✓ for one
+	// more keystroke after it stopped being one.
+	m.refresh()
+
 	items := make([]uilist.Item, 0, len(m.doc.Rules))
 	for i, r := range m.doc.Rules {
 		// Both halves of a row can be auto-filled from the user's own event
@@ -97,8 +103,8 @@ func (m *wizardModel) syncRules() {
 			name = "(unnamed)"
 		}
 		mark := "✓"
-		if m.ruleHasBlockingProblem(i) {
-			mark = "✗"
+		if p, ok := m.worstProblem(i); ok {
+			mark = problemMark(p)
 		}
 		n := len(r.Tuples)
 		if r.Iterator != nil {
@@ -117,16 +123,39 @@ func (m *wizardModel) syncRules() {
 		})
 	}
 	m.rules.SetItems(items)
-	m.refresh()
 }
 
-func (m *wizardModel) ruleHasBlockingProblem(i int) bool {
-	for _, p := range mapping.Blocking(m.problems) {
-		if p.Rule == i {
-			return true
+// worstProblem returns the problem that should speak for rule i: a blocking one
+// if there is any, otherwise the first warning.
+func (m *wizardModel) worstProblem(i int) (mapping.Problem, bool) {
+	var warning *mapping.Problem
+	for _, p := range m.problems {
+		if p.Rule != i {
+			continue
+		}
+		if !p.Warning {
+			return p, true
+		}
+		if warning == nil {
+			warning = &p
 		}
 	}
-	return false
+	if warning == nil {
+		return mapping.Problem{}, false
+	}
+	return *warning, true
+}
+
+// problemMark is the one place severity becomes a character. A model warning is
+// not a failure — the mapping saves, and a model older than the mapping it
+// serves is the ordinary case — but it is not a clean bill of health either. It
+// borrowed ✗ on the rule screen and ✓ on the list beside it, so the same finding
+// read as fatal or as fine depending on which screen the user was looking at.
+func problemMark(p mapping.Problem) string {
+	if p.Warning {
+		return "!"
+	}
+	return "✗"
 }
 
 // --- rule hub ---
@@ -150,7 +179,7 @@ func (m *wizardModel) ruleSections() []picker.Item {
 	for _, row := range rows {
 		desc := row.desc
 		if p, ok := m.firstProblem(row.section); ok {
-			desc = "✗ " + p.Message
+			desc = problemMark(p) + " " + p.Message
 		}
 		items = append(items, picker.Item{Title: row.title, Desc: desc, Value: row.section})
 	}

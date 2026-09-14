@@ -391,3 +391,38 @@ func TestTheWholeFlowWritesAHandAuthoredMapping(t *testing.T) {
 		t.Fatalf("wizard-only sample leaked into the file:\n%s", data)
 	}
 }
+
+// A model warning is the only thing the wizard knows that mapper does not: the
+// document compiles, and the store will still refuse the write. The rule screen
+// says so. The gate used to answer "The mapping compiles." and stop there, which
+// reads as the last screen overruling the one before it — and it is the last
+// screen before the file is written.
+func TestTheSaveGateRepeatsWhatTheModelSaid(t *testing.T) {
+	m := atRulesHub(t)
+	completeRule(m)
+	// testModel's organization has member and admin, and no owner.
+	m.doc.Rules[0].Tuples[0].Relation = "owner"
+	m.index = mapping.IndexModel(testModel())
+	m.syncRules()
+
+	if len(mapping.Warnings(m.problems)) == 0 {
+		t.Fatalf("the model check is supposed to fire here; problems = %+v", m.problems)
+	}
+	if got := m.saveProblems(); len(got) != 0 {
+		t.Fatalf("a model warning must stay non-blocking, got %+v", got)
+	}
+
+	summary := m.saveSummary()
+	if !strings.Contains(summary, "owner") {
+		t.Fatalf("the gate does not name the offending relation:\n%s", summary)
+	}
+	if !strings.Contains(summary, "model") {
+		t.Fatalf("the gate does not say the model is what disagrees:\n%s", summary)
+	}
+	// Saving stays one keypress away: the model may simply be older than the
+	// mapping, which is the case this whole path exists to allow.
+	send(m, key("ctrl+s"), key("enter"))
+	if !m.done || m.result == nil {
+		t.Fatalf("a warning must not block the save: done=%v result=%+v", m.done, m.result)
+	}
+}
