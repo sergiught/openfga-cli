@@ -3,9 +3,11 @@ package mapping
 import tea "charm.land/bubbletea/v2"
 
 // helpFor returns the concept behind a screen. Only screens whose focused
-// widget is not a text field get an entry: a form must not steal a literal ?
-// from someone typing a template, so their concepts are reachable from the
-// section list one level up instead.
+// widget does not take typed input get an entry: a form must not steal a
+// literal ? from someone typing a template, so its concept is reachable from
+// the section list one level up instead. A filterable list also takes typed
+// input, but only once its filter is open — that entry is conditional, and
+// filtering() below is what guards it.
 //
 // Kept in sync with filtering() below: every screen that answers here and
 // backs onto a filterable list must also be listed there, or a filter box on
@@ -13,27 +15,27 @@ import tea "charm.land/bubbletea/v2"
 func helpFor(s screen) (title, body string, ok bool) {
 	switch s {
 	case screenRules:
-		return "Rules", "A rule is one kind of event and the tuples it produces.\n" +
+		return "Rules", "A rule is one kind of event and the tuples it produces. " +
 			"Rules are tried in order; every rule whose `when` matches runs.\n\n" +
 			"  when: input.type == \"organization.member.added\"", true
 	case screenTuples:
-		return "Tuples", "A tuple is one relationship: who, what, which thing.\n" +
+		return "Tuples", "A tuple is one relationship: who, what, which thing. " +
 			"Wrap an expression in {{ }} to read from the event.\n\n" +
 			"  user:alice  member  organization:acme", true
 	case screenVariables:
-		return "Variables", "Name an expression once, then reuse it in tuples.\n" +
+		return "Variables", "Name an expression once, then reuse it in tuples. " +
 			"Order matters: a variable sees only the ones declared before it.\n\n" +
 			"  org: input.data.object.organization.id", true
 	case screenFilters:
-		return "Tuple filters", "A filter describes existing tuples this rule owns, so\n" +
-			"mapper can remove the ones the event says are gone.\n" +
+		return "Tuple filters", "A filter describes existing tuples this rule owns, so " +
+			"mapper can remove the ones the event says are gone. " +
 			"The object always names a type; user and relation may be blank.\n\n" +
 			"  object: organization:  user: user:alice  action: delete", true
 	case screenAction:
-		return "Action", "write adds the tuples, delete removes them.\n" +
+		return "Action", "write adds the tuples, delete removes them. " +
 			"Set it here for the whole rule, or per tuple — never both.", true
 	case screenEventPick:
-		return "Events", "Pick the event you want to map. Twelve of them come with a\n" +
+		return "Events", "Pick the event you want to map. Twelve of them come with a " +
 			"worked mapping; the rest explain why they need none.", true
 	}
 	return "", "", false

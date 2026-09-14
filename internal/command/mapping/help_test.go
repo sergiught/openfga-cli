@@ -3,21 +3,33 @@ package mapping
 import (
 	"strings"
 	"testing"
+
+	tea "charm.land/bubbletea/v2"
+	lipgloss "charm.land/lipgloss/v2"
 )
 
-// TestQuestionMarkExplainsTheCurrentScreen asserts a distinctive phrase from
+// TestQuestionMarkExplainsTheCurrentScreen asserts a distinctive token from
 // the tuples help body itself, not a word ("tuple") that also appears in the
 // chrome or a YAML key — paneView still renders the breadcrumb, context chips
 // and the live YAML preview underneath the overlay body, and the breadcrumb's
 // title "Tuples" would make a bare-word check pass even with an empty body.
+//
+// A token, not a phrase: once the body wraps to cw, any multi-word phrase is
+// width-dependent ("who, what, which" is present at 120 but absent at 100 and
+// at the 44-col floor). user:alice is 10 cells and cw never goes below 32, so
+// it survives every supported width — and it is part of the body, so blanking
+// the body still fails this test. Asserting at both extremes pins that down.
 func TestQuestionMarkExplainsTheCurrentScreen(t *testing.T) {
 	m := atTuples(t)
 	send(m, key("?"))
 	if m.top() != screenHelp {
 		t.Fatalf("top = %v, want the help overlay", m.top())
 	}
-	if !strings.Contains(m.viewString(), "who, what, which thing") {
-		t.Fatalf("the overlay does not explain tuples:\n%s", m.viewString())
+	for _, w := range []int{120, minCols} {
+		m.Update(tea.WindowSizeMsg{Width: w, Height: 40})
+		if !strings.Contains(m.viewString(), "user:alice") {
+			t.Fatalf("the overlay does not explain tuples at width %d:\n%s", w, m.viewString())
+		}
 	}
 }
 
@@ -110,24 +122,35 @@ func atEventPick(t *testing.T) *wizardModel {
 // / puts the list in filter mode, where ? is a character the user is typing.
 // Covered per screen, not just once, because the whole point of filtering()
 // is that these five screens differ — a single case would not catch the next
-// one added to helpFor without a matching case in filtering().
+// one added to helpFor without a matching case in filtering(). Asserting only
+// top() would still pass if ? were swallowed instead of reaching the filter
+// box, so each row also checks the filter actually received the character.
 func TestQuestionMarkTypesIntoAListFilter(t *testing.T) {
 	for _, c := range []struct {
-		name string
-		open func(t *testing.T) *wizardModel
-		want screen
+		name        string
+		open        func(t *testing.T) *wizardModel
+		want        screen
+		filterValue func(*wizardModel) string
 	}{
-		{"rules hub", atRulesHubWithRule, screenRules},
-		{"tuples", atTuplesWithOne, screenTuples},
-		{"variables", atVariables, screenVariables},
-		{"filters", atFilters, screenFilters},
-		{"event pick", atEventPick, screenEventPick},
+		{"rules hub", atRulesHubWithRule, screenRules,
+			func(m *wizardModel) string { return m.rules.Model.FilterValue() }},
+		{"tuples", atTuplesWithOne, screenTuples,
+			func(m *wizardModel) string { return m.tupleList.Model.FilterValue() }},
+		{"variables", atVariables, screenVariables,
+			func(m *wizardModel) string { return m.varList.Model.FilterValue() }},
+		{"filters", atFilters, screenFilters,
+			func(m *wizardModel) string { return m.filterList.Model.FilterValue() }},
+		{"event pick", atEventPick, screenEventPick,
+			func(m *wizardModel) string { return m.events.Model.FilterValue() }},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			m := c.open(t)
 			send(m, key("/"), key("?"))
 			if m.top() != c.want {
 				t.Fatalf("? opened help from inside a filter: top = %v", m.top())
+			}
+			if got := c.filterValue(m); !strings.Contains(got, "?") {
+				t.Fatalf("the ? never reached the filter box: filter value = %q", got)
 			}
 		})
 	}
@@ -159,4 +182,45 @@ func TestHelpAdvertisingMatchesHelpFor(t *testing.T) {
 			t.Errorf("screen %v advertises ? but has no helpFor entry", s)
 		}
 	}
+}
+
+// TestHelpNeverOverflowsTheTerminal sweeps screenChrome, and screenHelp has no
+// entry there — so the overlay's body, the one piece of screen content the
+// wizard renders from its own string rather than a widget, escapes it. This is
+// the test that catches it.
+func TestHelpNeverOverflowsTheTerminal(t *testing.T) {
+	for _, under := range []screen{
+		screenRules, screenTuples, screenVariables,
+		screenFilters, screenAction, screenEventPick,
+	} {
+		for _, sz := range []struct{ w, h int }{{minCols, minRows}, {72, 24}, {120, 40}} {
+			m := newTestWizard(t, nil)
+			// Set the stack rather than navigating, the same convention
+			// atRulesHub documents: this means "help open over that screen".
+			m.stack = []screen{under, screenHelp}
+			m.Update(tea.WindowSizeMsg{Width: sz.w, Height: sz.h})
+			for i, line := range strings.Split(m.viewString(), "\n") {
+				if w := lipgloss.Width(line); w > sz.w {
+					t.Errorf("help over %v at %dx%d: line %d is %d cells wide",
+						under, sz.w, sz.h, i, w)
+				}
+			}
+		}
+	}
+}
+
+// The empty hub replaces its hints wholesale, so it can silently drop ? while
+// the binding still works — a gap TestHelpAdvertisingMatchesHelpFor cannot see,
+// because that one reads the static screenChrome map rather than chromeFor().
+func TestEmptyHubAdvertisesHelp(t *testing.T) {
+	m := atRulesHub(t)
+	if len(m.doc.Rules) != 0 {
+		t.Fatalf("want an empty hub, got %d rules", len(m.doc.Rules))
+	}
+	for _, h := range m.chromeFor().keys {
+		if h.key == "?" {
+			return
+		}
+	}
+	t.Fatal("the empty rules hub does not advertise ?, but ? opens help there")
 }

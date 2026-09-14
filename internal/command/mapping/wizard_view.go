@@ -197,7 +197,7 @@ func (m *wizardModel) chromeFor() chrome {
 		// anyway sends the user to a dialog whose only content is that there was
 		// nothing to save. Loading a model is still worth offering: it is what
 		// makes the pickers on the way in suggest anything.
-		c.keys = []keyHint{{"a", "add"}, {"m", "model"}, {"esc", "quit"}}
+		c.keys = []keyHint{{"a", "add"}, {"m", "model"}, {"esc", "quit"}, {"?", "help"}}
 	case m.top() == screenRecipe:
 		c.title = m.recipeEvent.Type
 	case m.top() == screenHelp:
@@ -402,11 +402,10 @@ func (m *wizardModel) screenBody(cw int) string {
 	case screenPathPick:
 		return m.paths.View()
 	case screenHelp:
-		// No Width here: helpFor's bodies are already hand-wrapped, and
-		// re-flowing them at cw would break a line — including its wording —
-		// wherever cw happens to fall short of the author's own line length.
+		// The body is prose the wizard authors rather than a widget, so this is
+		// the only thing holding it inside the frame at narrow widths.
 		_, body, _ := helpFor(m.stack[len(m.stack)-2])
-		return lipgloss.NewStyle().Foreground(style.Muted).Render(body)
+		return lipgloss.NewStyle().Foreground(style.Muted).Width(cw).Render(body)
 	}
 	return ""
 }
