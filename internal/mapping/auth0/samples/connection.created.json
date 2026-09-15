@@ -14,7 +14,8 @@
       },
       "display_name": "My Enterprise Connection",
       "enabled_clients": [
-        "QG4F6eABIgDzPvcKCMKUjo8c9iet2Skc"
+        "QG4F6eABIgDzPvcKCMKUjo8c9iet2Skc",
+        "Zt7mKpR3sVnQx9LdYcHb2EwAj6UfG4Ns"
       ],
       "is_domain_connection": false,
       "metadata": {},
