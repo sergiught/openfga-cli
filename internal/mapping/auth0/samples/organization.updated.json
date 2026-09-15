@@ -21,7 +21,7 @@
     "previous_object": {
       "id": "org_1234567890abcdef",
       "name": "my-organization",
-      "display_name": "My Organization",
+      "display_name": "My Org",
       "metadata": {},
       "branding": {
         "logo_url": "logo_url",

@@ -1,0 +1,56 @@
+model
+  schema 1.1
+
+# One model covering every event in this catalog. Each relation below is
+# written by a recipe and swept by a deletion recipe, so nothing here is
+# decoration: recipes_test.go lints all of them against this file, and a
+# relation no recipe uses would be as much of a failure as a missing one.
+#
+# It is a starting point, not a finished design. The names are Auth0's, so the
+# mapping reads plainly against the payloads; your own resources — documents,
+# projects, repositories — hang off organization and group once these are in
+# place.
+
+type user
+
+# The applications a connection is enabled for. Auth0 calls them clients and
+# identifies them by client id, which is what connection.created iterates.
+type client
+
+# The Auth0 tenant, carried in every payload at data.context.tenant.id. It is
+# the root every other object hangs from, and the reason the creation events
+# have anything to write at all: a new organization relates to nothing else at
+# the moment it is created.
+type tenant
+
+type connection
+  relations
+    # connection.created
+    define tenant: [tenant]
+    # user.created / user.updated, one per entry in the user's identities
+    define identity: [user]
+    # connection.created / connection.updated, one per enabled client
+    define enabled_client: [client]
+
+type organization
+  relations
+    # organization.created
+    define tenant: [tenant]
+    # organization.member.added / .deleted
+    define member: [user]
+    # organization.member.role.assigned / .deleted write the relation named by
+    # the event's role.name, so you need one relation per role you actually
+    # use. admin is the usual first one; role-name is the placeholder the
+    # shipped sample payload carries, kept so the recipe previews cleanly.
+    define admin: [user]
+    define role-name: [user]
+    # organization.connection.added / .removed / .updated, and connection.deleted
+    define connection: [connection]
+
+type group
+  relations
+    # group.created and group.updated, which re-parents the group when Auth0
+    # moves it to a different connection
+    define connection: [connection]
+    # group.member.added / .deleted
+    define member: [user]

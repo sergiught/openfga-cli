@@ -9,28 +9,29 @@ import (
 	"github.com/sergiught/openfga-cli/internal/modeltest"
 )
 
-// modelFor builds an index from the DSL a recipe declares it needs, so the
-// recipe is linted against its own stated assumptions.
-func modelFor(t *testing.T, r Recipe) *mapping.ModelIndex {
+// canonicalModel indexes the model this package ships. Recipes are linted
+// against it rather than against their own Requires fragments: the fragments
+// are per-requirement snippets for the screen, each valid on its own but not
+// concatenable — two of them naming the same type would declare it twice.
+//
+// Linting against the shipped model is also the stronger claim. One file has
+// to satisfy every recipe at once, which is what makes it usable as a starting
+// point rather than twenty-one fragments a user has to reconcile themselves.
+func canonicalModel(t *testing.T) *mapping.ModelIndex {
 	t.Helper()
-	var b strings.Builder
-	b.WriteString("model\n  schema 1.1\n\n")
-	for _, req := range r.Requires {
-		b.WriteString(req.DSL)
-		b.WriteString("\n\n")
-	}
-	loaded, err := modeltest.LoadModelBytes([]byte(b.String()))
+	loaded, err := modeltest.LoadModelBytes([]byte(Model()))
 	if err != nil {
-		t.Fatalf("recipe DSL does not parse: %v\n%s", err, b.String())
+		t.Fatalf("the shipped model does not parse: %v", err)
 	}
 	return mapping.IndexModel(loaded.SDK)
 }
 
-// Every recipe must lint clean against the model it claims to need, and must
-// actually produce something when evaluated against the very payload it was
-// written for. This is what makes fifteen hand-authored recipes maintainable:
-// a recipe that contradicts itself cannot be committed.
+// Every recipe must lint clean against the shipped model, and must actually
+// produce something when evaluated against the very payload it was written
+// for. This is what makes twenty hand-authored recipes maintainable: a recipe
+// that contradicts itself cannot be committed.
 func TestEveryRecipeLintsAndEvaluatesAgainstItsOwnEvent(t *testing.T) {
+	index := canonicalModel(t)
 	for _, e := range Catalog() {
 		if !e.Recipe.Maps() {
 			continue
@@ -38,7 +39,7 @@ func TestEveryRecipeLintsAndEvaluatesAgainstItsOwnEvent(t *testing.T) {
 		t.Run(e.Type, func(t *testing.T) {
 			doc := &mapping.Document{Rules: []mapping.Rule{e.Recipe.Rule}}
 
-			for _, p := range mapping.Lint(doc, modelFor(t, e.Recipe)) {
+			for _, p := range mapping.Lint(doc, index) {
 				t.Errorf("lint: [%s/%s] %s", p.Section, p.Field, p.Message)
 			}
 
@@ -53,6 +54,64 @@ func TestEveryRecipeLintsAndEvaluatesAgainstItsOwnEvent(t *testing.T) {
 				t.Fatal("recipe produced neither a tuple nor a filter from its own sample")
 			}
 		})
+	}
+}
+
+// The requirements a recipe states are what the recipe screen shows the user,
+// and the shipped model is what they get if they take the file. If the two
+// disagree, the screen sends someone editing a model that already had what
+// they needed — so every requirement of every recipe must be satisfied by it.
+func TestTheShippedModelSatisfiesEveryRequirement(t *testing.T) {
+	index := canonicalModel(t)
+	for _, e := range Catalog() {
+		if len(e.Recipe.Requires) == 0 {
+			continue
+		}
+		t.Run(e.Type, func(t *testing.T) {
+			for _, s := range mapping.CheckRequirements(index, e.Recipe.Requires) {
+				if !s.Satisfied() {
+					t.Errorf("the shipped model does not satisfy %+v", s.Requirement)
+				}
+			}
+		})
+	}
+}
+
+// Nothing in the shipped model is decoration. A relation no recipe writes is a
+// type the user has to reason about for nothing, and this catalog is the only
+// reason the file exists — so every relation in it must be reachable from some
+// recipe's requirements.
+func TestTheShippedModelHasNoUnusedRelations(t *testing.T) {
+	required := map[string]bool{}
+	for _, e := range Catalog() {
+		for _, req := range e.Recipe.Requires {
+			if req.Relation != "" {
+				required[req.Type+"#"+req.Relation] = true
+			}
+		}
+	}
+	// The role recipes name their relation from the payload, so no requirement
+	// can spell them out. They are the reason the model carries two example
+	// role relations at all.
+	required["organization#admin"] = true
+	required["organization#role-name"] = true
+
+	for _, line := range strings.Split(Model(), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "define ") {
+			continue
+		}
+		relation, _, _ := strings.Cut(strings.TrimPrefix(line, "define "), ":")
+		found := false
+		for key := range required {
+			if _, rel, _ := strings.Cut(key, "#"); rel == relation {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("the model defines %q but no recipe requires it", relation)
+		}
 	}
 }
 
@@ -136,11 +195,8 @@ func TestEveryFilterCanMatchATupleTheCatalogWrites(t *testing.T) {
 func TestEveryEventIsClassified(t *testing.T) {
 	// Events that deliberately map to nothing, with the reason they do.
 	noMapping := map[string]bool{
-		// An object needs no tuple to exist in FGA, only to be related.
-		"organization.created": true, "connection.created": true,
-		// Attribute changes are not relationship changes.
-		"user.updated": true, "organization.updated": true,
-		"group.updated": true, "connection.updated": true,
+		// The only event in the catalog with nothing relational in its payload.
+		"organization.updated": true,
 	}
 
 	var mapped, empty int
@@ -167,10 +223,10 @@ func TestEveryEventIsClassified(t *testing.T) {
 			}
 		}
 	}
-	if mapped != 15 {
-		t.Errorf("got %d recipes, want 15", mapped)
+	if mapped != 20 {
+		t.Errorf("got %d recipes, want 20", mapped)
 	}
-	if empty != 6 {
-		t.Errorf("got %d explained-empties, want 6", empty)
+	if empty != 1 {
+		t.Errorf("got %d explained-empties, want 1", empty)
 	}
 }

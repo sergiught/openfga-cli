@@ -122,8 +122,8 @@ func mappedCount() int {
 }
 
 // recipeNote says what an event maps to, for the row the user reads before
-// picking it. Six of the twenty-one events map to nothing, and finding that
-// out only after choosing one reads as a fault in the wizard — or in the
+// picking it. One of the twenty-one events maps to nothing, and finding that
+// out only after choosing it reads as a fault in the wizard — or in the
 // user's own setup — rather than a fact about the event. The vocabulary is the
 // rule editor's own ("tuple", "tuple filter"), so the row teaches the word the
 // next screen will use.

@@ -52,6 +52,11 @@ const (
 	dslGroupMember = "type group\n  relations\n    define member: [user]"
 	dslGroupConn   = "type group\n  relations\n    define connection: [connection]"
 	dslConnIdent   = "type connection\n  relations\n    define identity: [user]"
+	dslConnClient  = "type connection\n  relations\n    define enabled_client: [client]"
+	dslOrgTenant   = "type organization\n  relations\n    define tenant: [tenant]"
+	dslConnTenant  = "type connection\n  relations\n    define tenant: [tenant]"
+	dslClient      = "type client"
+	dslTenant      = "type tenant"
 	dslOrgBare     = "type organization"
 	dslGroupBare   = "type group"
 )
@@ -69,6 +74,12 @@ const (
 	// nested object the organization events use.
 	tmplNewGroup = "group:{{ input.data.object.id }}"
 	tmplGroupCon = "connection:{{ input.data.object.connection_id }}"
+	tmplNewOrg   = "organization:{{ input.data.object.id }}"
+	tmplNewConn  = "connection:{{ input.data.object.id }}"
+	// Every payload carries its tenant beside the object rather than inside it.
+	// It is escaped because a tenant name is chosen by whoever made it, unlike
+	// the generated ids above.
+	tmplTenant = "tenant:{{ fga_escape(input.data.context.tenant.id) }}"
 )
 
 func when(typ string) string { return `input.type == "` + typ + `"` }
@@ -245,18 +256,118 @@ func recipeFor(typ string) Recipe {
 				DSL: dslUser + "\n\n" + dslConnIdent}},
 		}
 
-	// --- no mapping: the two remaining creation events ---
-	case "organization.created", "connection.created":
-		return Recipe{Note: "nothing related yet", Explain: "Nothing to write yet. FGA stores relationships, not objects — a new object needs a tuple only once it is related to something. That happens in the membership events, not this one. Compare group.created, which does write one: its payload names the connection the group was created inside."}
+	// --- the creation events, which relate their new object to the tenant ---
 
-	// --- no mapping: the four remaining update events ---
+	case "organization.created":
+		return membership(typ,
+			"An organization was created. Nothing else in the payload is a relationship — but the tenant beside it is. Every Auth0 event carries data.context.tenant.id, and relating a new object to its tenant is what stops it floating free until someone happens to add a member.\n\nThis is the pattern to copy for your own resources: whatever a document or project hangs from, write that tuple the moment the object exists.",
+			tmplTenant, "tenant", tmplNewOrg, true,
+			[]mapping.Requirement{{Type: "organization", Relation: "tenant", UserTypes: []string{"tenant"},
+				DSL: dslTenant + "\n\n" + dslOrgTenant}})
+
+	case "connection.created":
+		return Recipe{
+			Explain: "A connection was created. Two relationships in one rule, which is why this recipe is worth reading twice: the tuple relates the connection to its tenant, and the iterator below it walks enabled_clients and writes one tuple per application the connection is turned on for.\n\nenabled_clients is an array of plain strings, not objects, so the iterator's element is the client id itself — {{ client }} rather than {{ client.id }}.",
+			Rule: mapping.Rule{
+				Name:   typ,
+				When:   when(typ),
+				Tuples: []mapping.Tuple{{User: tmplTenant, Relation: "tenant", Object: tmplNewConn}},
+				Iterator: &mapping.Iterator{
+					Source: "input.data.object.enabled_clients",
+					As:     "client",
+					Tuples: []mapping.Tuple{{
+						User:     "client:{{ fga_escape(client) }}",
+						Relation: "enabled_client",
+						Object:   tmplNewConn,
+					}},
+				},
+			},
+			Requires: []mapping.Requirement{
+				{Type: "connection", Relation: "tenant", UserTypes: []string{"tenant"},
+					DSL: dslTenant + "\n\n" + dslConnTenant},
+				{Type: "connection", Relation: "enabled_client", UserTypes: []string{"client"},
+					DSL: dslClient + "\n\n" + dslConnClient},
+			},
+		}
+
+	// --- the update events that move a relationship rather than an attribute ---
+
+	case "user.updated":
+		return Recipe{
+			Explain: "A user's profile changed, and identities is one of the things that can change: linking a second login adds an entry. The rule re-writes the whole current list rather than working out what is new, because writing a tuple that already exists is free and getting the difference right is not.\n\nIt is gated on identities actually having changed, so the rule stays quiet for the profile edits — a new phone number, a changed nickname — that make up most of this event.",
+			Rule: mapping.Rule{
+				Name: typ,
+				When: when(typ) + " && input.data.object.identities != input.data.previous_object.identities",
+				Iterator: &mapping.Iterator{
+					Source: "input.data.object.identities",
+					As:     "identity",
+					Tuples: []mapping.Tuple{{
+						User:     "user:{{ fga_escape(identity.user_id) }}",
+						Relation: "identity",
+						Object:   "connection:{{ fga_escape(identity.connection) }}",
+					}},
+				},
+			},
+			Requires: []mapping.Requirement{{Type: "connection", Relation: "identity", UserTypes: []string{"user"},
+				DSL: dslUser + "\n\n" + dslConnIdent}},
+		}
+
+	case "group.updated":
+		return Recipe{
+			Explain: "A group changed, and one of the things that can change is which connection it belongs to. That is a move, not an edit: the old tuple has to go at the same time the new one arrives, or the group ends up in both connections at once.\n\nSo this rule carries two tuples with opposite actions, each gated by its own when. Both gates are the same comparison against previous_object, which is what keeps the rule silent for the renames and description edits this event usually carries — and what stops the two tuples colliding when the connection did not move.",
+			Rule: mapping.Rule{
+				Name: typ,
+				When: when(typ),
+				Tuples: []mapping.Tuple{
+					{
+						User:     "connection:{{ input.data.previous_object.connection_id }}",
+						Relation: "connection",
+						Object:   tmplNewGroup,
+						Action:   "delete",
+						When:     "input.data.object.connection_id != input.data.previous_object.connection_id",
+					},
+					{
+						User:     tmplGroupCon,
+						Relation: "connection",
+						Object:   tmplNewGroup,
+						When:     "input.data.object.connection_id != input.data.previous_object.connection_id",
+					},
+				},
+			},
+			Requires: []mapping.Requirement{{Type: "group", Relation: "connection", UserTypes: []string{"connection"},
+				DSL: dslConnection + "\n\n" + dslGroupConn}},
+		}
+
+	case "connection.updated":
+		return Recipe{
+			Explain: "A connection's settings changed, and enabling it for another application changes enabled_clients. The iterator re-writes the current list, gated on that list having changed.\n\nRead the limit before adopting it: this adds, it does not remove. One rule walks one array, so an application taken off the list keeps its tuple. If that matters, pair this with a rule keyed on the same event that deletes what previous_object holds — or accept that removals arrive with connection.deleted.",
+			Rule: mapping.Rule{
+				Name: typ,
+				When: when(typ) + " && input.data.object.enabled_clients != input.data.previous_object.enabled_clients",
+				Iterator: &mapping.Iterator{
+					Source: "input.data.object.enabled_clients",
+					As:     "client",
+					Tuples: []mapping.Tuple{{
+						User:     "client:{{ fga_escape(client) }}",
+						Relation: "enabled_client",
+						Object:   tmplNewConn,
+					}},
+				},
+			},
+			Requires: []mapping.Requirement{{Type: "connection", Relation: "enabled_client", UserTypes: []string{"client"},
+				DSL: dslClient + "\n\n" + dslConnClient}},
+		}
+
+	// --- no mapping: the one event with nothing relational in it ---
 	//
-	// Not a flat "attributes are not relationships": organization.connection.updated
-	// above is an update event whose is_enabled attribute this same catalog says is
-	// worth a delete rule. Stating the rule as a law contradicts the exception
-	// sitting two cases up, so it is stated as the usual case with its exception
-	// named.
+	// organization.updated is the whole of this branch. Every other event in the
+	// catalog turned out to carry a relationship somewhere — often beside the
+	// object rather than inside it, as with the tenant — and this one genuinely
+	// does not: an id, a name, a display name, some branding colours.
+	//
+	// It is stated as this event's own fact rather than as a law about update
+	// events, because three update events two cases up map perfectly well.
 	default:
-		return Recipe{Note: "attributes", Explain: "Usually nothing to write: this event changes attributes, and an attribute is not a relationship. It carries a previous_object so you can compare the two versions — worth a rule only if one of the changed attributes is something your model treats as a relationship, the way organization.connection.updated treats is_enabled."}
+		return Recipe{Note: "attributes", Explain: "Nothing to write. This event carries an organization's id, name, display name, branding and metadata — and an attribute is not a relationship. It is the only event in this catalog with nothing relational in it.\n\nIt does carry a previous_object, so a rule here is still possible if your model treats one of those attributes as a relationship. The three update events that do map — user.updated, group.updated and connection.updated — all work that way: compare the two versions, and write only when the thing you care about moved."}
 	}
 }

@@ -12,6 +12,17 @@ import (
 //go:embed samples/*.json
 var samples embed.FS
 
+//go:embed model.fga
+var model string
+
+// Model is an authorization model every recipe in this catalog lints against:
+// one file covering all twenty-one events rather than a fragment per event.
+//
+// The recipes each declare the slice of it they need, which is what the recipe
+// screen shows you. This is the other half of that — the union, in a form you
+// can write to disk and hand to `ofga model write`.
+func Model() string { return model }
+
 // Event is one catalog entry: the event type, the group it is filed under in
 // the picker, a one-line summary, and the decoded example payload.
 type Event struct {

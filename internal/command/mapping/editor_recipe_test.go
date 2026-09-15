@@ -158,14 +158,14 @@ func TestSwitchingTheEventOnARecipeRuleMovesItsTrigger(t *testing.T) {
 	}
 }
 
-// The six events that map to nothing explain themselves rather than dead-ending.
+// The one event that maps to nothing explains itself rather than dead-ending.
 func TestAnEventWithNoMappingExplainsWhy(t *testing.T) {
 	m := atRulesHub(t)
 	send(m, key("a"), key("enter"))
-	selectEvent(t, m, "organization.created")
+	selectEvent(t, m, firstUnmappedEvent(t).Type)
 
 	out := m.viewString()
-	if !strings.Contains(out, "relationships") {
+	if !strings.Contains(out, "relationship") {
 		t.Fatalf("no explanation for an event that maps to nothing:\n%s", out)
 	}
 }
@@ -221,30 +221,35 @@ func TestAnEventWithNoMappingStillStartsARule(t *testing.T) {
 	}
 }
 
-// Six of the twenty-one events map to nothing. Learning that only after
-// picking one reads as a fault — in the wizard, or in a setup the user has not
+// One of the twenty-one events maps to nothing. Learning that only after
+// picking it reads as a fault — in the wizard, or in a setup the user has not
 // finished — so the row says it up front, in the words the rule editor uses.
 func TestTheEventListSaysWhatEachEventMaps(t *testing.T) {
 	m := atRulesHub(t)
 	send(m, key("a"), key("enter"))
 
-	// The top rows are always on screen, and between them they cover the three
-	// kinds a user has to tell apart: one that maps by iterating an array, one
-	// that maps by deleting rather than writing, and one that maps nothing.
+	// The top rows are always on screen, and between them they cover the two
+	// kinds a user has to tell apart on sight: one that maps by iterating an
+	// array, one that maps by deleting rather than writing.
 	v := m.events.View()
-	for _, want := range []string{"user.created · 1 tuple", "user.deleted · 2 tuple filters", "user.updated · attributes"} {
+	for _, want := range []string{"user.created · 1 tuple", "user.deleted · 2 tuple filters"} {
 		if !strings.Contains(v, want) {
 			t.Fatalf("the list does not say what the event maps: want %q in:\n%s", want, v)
 		}
 	}
 
-	// And the writing half, far enough down the catalog to need scrolling into
-	// view. Selected rather than filtered: filtering styles each matched rune
-	// individually, which puts escape sequences between the letters of the very
-	// title this asserts on.
-	m.events.SelectID("organization.member.added")
-	if v := m.events.View(); !strings.Contains(v, "organization.member.added · 1 tuple") {
-		t.Fatalf("a mapping event does not say how many tuples:\n%s", v)
+	// And the two further down the catalog, reached by scrolling: the writing
+	// half, and the one event that maps nothing. Selected rather than filtered:
+	// filtering styles each matched rune individually, which puts escape
+	// sequences between the letters of the very title this asserts on.
+	for id, want := range map[string]string{
+		"organization.member.added": "organization.member.added · 1 tuple",
+		"organization.updated":      "organization.updated · attributes",
+	} {
+		m.events.SelectID(id)
+		if v := m.events.View(); !strings.Contains(v, want) {
+			t.Fatalf("the list does not say what %s maps: want %q in:\n%s", id, want, v)
+		}
 	}
 }
 

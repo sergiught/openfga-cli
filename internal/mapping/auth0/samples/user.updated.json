@@ -12,7 +12,7 @@
       "identities": [
         {
           "connection": "Username-Password-Authentication",
-          "user_id": "user_id",
+          "user_id": "507f1f77bcf86cd799439020",
           "provider": "custom",
           "isSocial": false,
           "profileData": {
@@ -25,6 +25,12 @@
             "phone_number": "+15555555555",
             "phone_verified": false
           }
+        },
+        {
+          "connection": "google-oauth2",
+          "user_id": "115048786243456789012",
+          "provider": "google-oauth2",
+          "isSocial": true
         }
       ],
       "email": "john.doe@gmail.com",
@@ -58,7 +64,7 @@
       "identities": [
         {
           "connection": "Username-Password-Authentication",
-          "user_id": "user_id",
+          "user_id": "507f1f77bcf86cd799439020",
           "provider": "custom",
           "isSocial": false,
           "profileData": {
