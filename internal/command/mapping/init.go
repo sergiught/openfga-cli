@@ -90,38 +90,30 @@ func (c *Command) runInit(cmd *cobra.Command, args []string, force bool) error {
 	return nil
 }
 
-// nextSteps prints the path from a saved file to a running sync. A mapping is
-// worth nothing on disk, and the steps that put it to work are spread across a
-// dashboard the wizard never sees, so the one moment the user is certain to be
-// looking is the moment the file lands.
+// nextSteps names what can be done with the file that this command cannot do
+// itself. `ofga mapping` stops at init; checking a mapping and running its
+// tests live in openfga's own CLI, both offline and needing neither a store nor
+// a network — and nothing on the wizard's last screen says either exists.
 //
 // Guarded the way the status printers guard themselves. Hintf has no guard of
 // its own because its usual job is remediation after an error, which --quiet
-// deliberately keeps; a walkthrough after a success is the other case, and
-// --quiet and --plain asked for the result rather than the tour.
+// deliberately keeps; a pointer after a success is the other case, and --quiet
+// and --plain asked for the result rather than the tour.
 func nextSteps(w io.Writer, path string, tests int) {
 	if output.Quiet || output.Plain {
 		return
 	}
-	output.Infof(w, "next, to put it to work:")
-	// The model comes first because the mapping is validated against it: every
-	// relation a tuple writes has to exist on the model chosen here, so a
-	// pipeline built before the model is saved has nothing to check against.
-	output.Hintf(w, "1. save your model in the FGA dashboard — Model Explorer › SAVE")
-	output.Hintf(w, "2. create a pipeline — Auth0 Relationship Sync in the sidebar")
-	output.Hintf(w, "3. paste %s into Add Mappings to Pipeline › Mappings", path)
-	output.Hintf(w, "4. press Start on the pipeline overview — events begin at once")
+	output.Infof(w, "check it offline — add --model-file to check it against your model:")
+	output.Hintf(w, "fga mapping validate %s", path)
 
-	// Only worth saying when there is something not being run. The wizard writes
-	// a test per sample, so a user who worked through several events leaves with
-	// a suite they would reasonably assume the dashboard executes.
+	// Only worth saying when there is something to run. The wizard writes a test
+	// per sample, so a user who worked through several events leaves with a suite
+	// they have no particular reason to know is executable.
 	if tests > 0 {
-		output.Infof(w, "the dashboard checks syntax, structure and model consistency —")
-		output.Hintf(w, "it never runs the tests: block. openfga's own CLI does:")
+		output.Infof(w, "and run the tests the wizard embedded:")
 		output.Hintf(w, "fga mapping test %s", path)
 	}
 
-	output.Warnf(w, "Relationship Sync is in Beta — don't point a pipeline at a production store")
 	output.Infof(w, "spec: %s", languageSpecURL)
 }
 

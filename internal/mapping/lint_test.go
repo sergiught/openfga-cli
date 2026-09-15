@@ -280,7 +280,7 @@ func TestARuleWithNeitherTuplesNorFiltersIsFlagged(t *testing.T) {
 // A filter with no action is a patch, and a patch reconciles the tuples the
 // rule produced against the ones it matches. A rule that produces none has an
 // empty desired state, which mapper refuses rather than reading as "delete
-// everything" — and a failed event stops the pipeline. Nothing reveals that
+// everything" — and that fails the whole event. Nothing reveals that
 // until the first event arrives, so the save has to.
 func TestLintPatchFilterWithoutTuplesBlocks(t *testing.T) {
 	d := &mapping.Document{Rules: []mapping.Rule{{

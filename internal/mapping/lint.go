@@ -256,8 +256,8 @@ func lintFilters(i int, r Rule) []Problem {
 		// A filter with no action is a patch, and a patch is a reconciliation:
 		// mapper diffs the tuples the rule produced against the ones the filter
 		// matches. A rule that produces none has an empty desired state, which
-		// mapper refuses outright rather than read as "delete everything" — and
-		// a failed event stops the whole pipeline. The mistake is invisible
+		// mapper refuses outright rather than read as "delete everything",
+		// failing the whole event. The mistake is invisible
 		// until the first event arrives, so it is caught here instead.
 		if f.Action == "" && !r.WritesTuples() {
 			ps = append(ps, Problem{Rule: i, Section: "filters", Field: "action",

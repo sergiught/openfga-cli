@@ -449,7 +449,7 @@ func TestNoPatchFilterCanShipAnEmptyDesiredState(t *testing.T) {
 			}
 			if desired == 0 {
 				t.Errorf("%d patch filters but the rule produced no tuples from its own sample; "+
-					"mapper would fail the event and stop the pipeline", patches)
+					"mapper would fail the whole event", patches)
 			}
 		})
 	}

@@ -193,12 +193,12 @@ var lifecycleWarnings = map[string]string{
 		"writes nested groups itself, add a third filter sweeping group:…#member out of group: too.",
 
 	"user.updated": "If identities ever arrives empty this rule is skipped rather than clearing the " +
-		"list. mapper treats an empty desired state as a mistake and fails the event, and a failed " +
-		"event stops the pipeline — so skipping is the safer of the two.",
+		"list. mapper treats an empty desired state as a mistake and fails the whole event, so " +
+		"skipping is the safer of the two.",
 
 	"connection.updated": "If enabled_clients arrives empty this rule is skipped rather than clearing " +
-		"the list, so removing the last application leaves its tuple behind. An empty desired state " +
-		"fails the event in mapper, and a failed event stops the pipeline.",
+		"the list, so removing the last application leaves its tuple behind. An empty desired " +
+		"state fails the whole event in mapper.",
 }
 
 func recipeFor(typ string) Recipe {

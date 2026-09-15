@@ -247,38 +247,29 @@ func TestAFailedWriteHandsTheMappingBack(t *testing.T) {
 	}
 }
 
-// A saved file is the middle of the job, not the end: the pipeline that runs it
-// lives in a dashboard the wizard never sees. These assert the walkthrough names
-// every step of that path, in the order the dashboard enforces.
-func TestNextStepsNamesThePathFromFileToRunningPipeline(t *testing.T) {
+// `ofga mapping` stops at init. Checking the file and running its tests live in
+// openfga's own CLI, and a user who has never seen those commands has no reason
+// to guess they exist — least of all that both work offline.
+func TestNextStepsNamesWhatThisCommandCannotDoItself(t *testing.T) {
 	var b bytes.Buffer
 	nextSteps(&b, "auth0.yaml", 0)
 	got := b.String()
 
 	for _, want := range []string{
-		"Model Explorer",
-		"create a pipeline",
-		"auth0.yaml",
-		"Start",
+		"fga mapping validate auth0.yaml",
+		"--model-file",
+		"offline",
 		languageSpecURL,
 	} {
 		if !strings.Contains(got, want) {
-			t.Fatalf("walkthrough does not mention %q:\n%s", want, got)
+			t.Fatalf("next steps do not mention %q:\n%s", want, got)
 		}
-	}
-	// The model is saved before the pipeline is built, because the pipeline
-	// validates the mapping against it.
-	if strings.Index(got, "Model Explorer") > strings.Index(got, "create a pipeline") {
-		t.Fatalf("the model step must come first:\n%s", got)
-	}
-	if !strings.Contains(got, "Beta") {
-		t.Fatalf("the Beta warning is missing:\n%s", got)
 	}
 }
 
-// The dashboard validates a mapping but never runs its tests: block, so a user
-// who authored samples leaves believing in a suite nothing executes. Saying so
-// is only worth the two lines when there is actually a suite.
+// The wizard writes a test per sample, so a user who worked through several
+// events leaves with a suite. Pointing at the runner is only worth two lines
+// when there is actually something to run.
 func TestNextStepsOnlyPointsAtTheTestRunnerWhenThereAreTests(t *testing.T) {
 	var with, without bytes.Buffer
 	nextSteps(&with, "auth0.yaml", 2)
@@ -290,16 +281,27 @@ func TestNextStepsOnlyPointsAtTheTestRunnerWhenThereAreTests(t *testing.T) {
 	if strings.Contains(without.String(), "fga mapping test") {
 		t.Fatalf("a mapping with no tests has no runner to name:\n%s", without.String())
 	}
-	// The warning is about the pipeline, not about the tests, so it survives.
-	if !strings.Contains(without.String(), "Beta") {
-		t.Fatalf("the Beta warning is missing:\n%s", without.String())
+}
+
+// This CLI is not Auth0's and must not read as though it ships their hosted
+// sync product: no walking the user through someone else's dashboard, and no
+// speaking for the release status of a service we do not run.
+func TestNextStepsDoesNotSpeakForAnyoneElsesProduct(t *testing.T) {
+	var b bytes.Buffer
+	nextSteps(&b, "auth0.yaml", 2)
+	got := strings.ToLower(b.String())
+
+	for _, banned := range []string{"relationship sync", "dashboard", "pipeline", "beta"} {
+		if strings.Contains(got, banned) {
+			t.Fatalf("next steps mention %q:\n%s", banned, b.String())
+		}
 	}
 }
 
 // Hintf has no Quiet guard of its own — its usual job is remediation after an
-// error, which --quiet keeps. A walkthrough after a success is the other case,
-// so nextSteps has to guard itself or --quiet prints a four-step tour while
-// suppressing the success line it follows.
+// error, which --quiet keeps. A pointer after a success is the other case, so
+// nextSteps has to guard itself or --quiet prints commands while suppressing
+// the success line they follow.
 func TestNextStepsIsSilentUnderQuietAndPlain(t *testing.T) {
 	defer func(p, q bool) { output.Plain, output.Quiet = p, q }(output.Plain, output.Quiet)
 
