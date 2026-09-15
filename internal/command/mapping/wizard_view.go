@@ -226,6 +226,16 @@ func (m *wizardModel) chromeFor() chrome {
 		// anyway it reads as the one affordance that is broken, on the screen with
 		// the most typing to do.
 		c.keys = []keyHint{{"tab", "next"}, {"^p", "insert path"}, {"esc", "done"}}
+	case m.top() == screenTuples && m.inIter:
+		// Two different lists render on this screen — the rule's own tuples and
+		// the iterator's — and the chrome is all that distinguishes them. Left
+		// alone it calls both "the relationships this rule writes", so a user who
+		// came looking for the iterator's tuples cannot tell they arrived.
+		c.title = "Iterator tuples"
+		c.subtitle = "Written once for each item in the list."
+		if r := m.rule(); r != nil && r.Iterator != nil && r.Iterator.Source != "" {
+			c.subtitle = "Written once for each item in " + r.Iterator.Source + "."
+		}
 	case m.top() == screenRecipe:
 		c.title = m.recipeEvent.Type
 		// An explain-only recipe has no mapping to promise in the subtitle and

@@ -412,3 +412,92 @@ func TestTheAdvertisedMappingCountMatchesTheCatalog(t *testing.T) {
 		t.Fatalf("the event help misstates the catalog: %q", body)
 	}
 }
+
+// sectionDesc returns the rule hub's summary for one section row.
+func sectionDesc(t *testing.T, m *wizardModel, title string) string {
+	t.Helper()
+	for _, it := range m.ruleSections() {
+		if it.Title == title {
+			return it.Desc
+		}
+	}
+	t.Fatalf("no %q row on the rule hub", title)
+	return ""
+}
+
+// atRuleFor accepts the ready-made recipe for typ and stops on its rule hub.
+func atRuleFor(t *testing.T, typ string) *wizardModel {
+	t.Helper()
+	m := atRulesHub(t)
+	send(m, key("a"), key("enter"))
+	selectEvent(t, m, typ)
+	send(m, key("enter"))
+	if m.top() != screenRule {
+		t.Fatalf("top = %v, want the rule hub", m.top())
+	}
+	return m
+}
+
+// The complaint this answers: "the tuples in the rule aren't populated
+// correctly, I see it in the preview but not in the rule picker". They were
+// populated — user.created writes from its iterator, so the tuple sat on
+// Iterator.Tuples while the Tuples row counted only the rule's own and said
+// "0 tuples". Beside a preview plainly showing a tuple, that reads as the
+// recipe having failed rather than as the list living one screen over.
+func TestTheTuplesRowSaysWhenTheTuplesAreOnTheIterator(t *testing.T) {
+	m := atRuleFor(t, "user.created")
+
+	desc := sectionDesc(t, m, "Tuples")
+	if strings.Contains(desc, "0 tuple") {
+		t.Fatalf("the rule writes a tuple from its iterator but the row says %q", desc)
+	}
+	if !strings.Contains(desc, "iterator") {
+		t.Fatalf("the row does not say where the tuples are: %q", desc)
+	}
+}
+
+// A rule can write from both lists. connection.created does — one tuple of its
+// own for the tenant, one per enabled client from the iterator — so the row
+// has to count them separately rather than pick one.
+func TestTheTuplesRowCountsBothListsSeparately(t *testing.T) {
+	m := atRuleFor(t, "connection.created")
+
+	if desc := sectionDesc(t, m, "Tuples"); !strings.Contains(desc, "1 tuple") || !strings.Contains(desc, "iterator") {
+		t.Fatalf("the row does not account for both lists: %q", desc)
+	}
+}
+
+// And a rule with no iterator says nothing about one.
+func TestTheTuplesRowStaysPlainWithoutAnIterator(t *testing.T) {
+	m := atRuleFor(t, "organization.member.added")
+
+	if desc := sectionDesc(t, m, "Tuples"); desc != "1 tuple" {
+		t.Fatalf("desc = %q, want a plain count", desc)
+	}
+}
+
+// Both tuple lists render on the same screen, so the chrome is the only thing
+// that says which one you are looking at. Sending a user to the iterator's
+// tuples is no use if arriving there looks identical to where they started.
+func TestTheIteratorsTupleListSaysItIsTheIterators(t *testing.T) {
+	m := atRuleFor(t, "user.created")
+
+	for i := 0; i < len(m.ruleSections()); i++ {
+		if m.sections.Selected().Title == "Iterator" {
+			break
+		}
+		m.sections.Move(1)
+	}
+	send(m, key("enter"), key("ctrl+t"))
+	if m.top() != screenTuples || !m.inIter {
+		t.Fatalf("top = %v, inIter = %v, want the iterator's tuple list", m.top(), m.inIter)
+	}
+
+	c := m.chromeFor()
+	if c.title == screenChrome[screenTuples].title {
+		t.Fatalf("the iterator's tuple list is titled the same as the rule's: %q", c.title)
+	}
+	if !strings.Contains(c.subtitle, "input.data.object.identities") {
+		t.Fatalf("the subtitle does not name the list being walked: %q", c.subtitle)
+	}
+}

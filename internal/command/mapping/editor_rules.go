@@ -173,7 +173,7 @@ func (m *wizardModel) ruleSections() []picker.Item {
 		{"Variables", "variables", plural(len(r.Variables), "variable")},
 		{"Iterator", "iterator", iteratorSummary(r)},
 		{"Tuple filters", "filters", plural(len(r.Filters), "filter")},
-		{"Tuples", "tuples", plural(len(r.Tuples), "tuple")},
+		{"Tuples", "tuples", tuplesSummary(r)},
 	}
 	items := make([]picker.Item, 0, len(rows))
 	for _, row := range rows {
@@ -216,6 +216,28 @@ func actionSummary(r *mapping.Rule) string {
 		return "per tuple"
 	}
 	return r.Action
+}
+
+// tuplesSummary counts the tuples on this row's list — the rule's own — and
+// names the iterator's separately when it has any. A rule can write from both,
+// and the ready-made recipes for user.created, user.updated and
+// connection.updated write from the iterator alone. On those, a bare "0 tuples"
+// here sits beside a preview plainly showing a tuple, which reads as the recipe
+// having failed to fill the rule in rather than as the tuples living one screen
+// over.
+func tuplesSummary(r *mapping.Rule) string {
+	iter := 0
+	if r.Iterator != nil {
+		iter = len(r.Iterator.Tuples)
+	}
+	if iter == 0 {
+		return plural(len(r.Tuples), "tuple")
+	}
+	own := plural(len(r.Tuples), "tuple")
+	if len(r.Tuples) == 0 {
+		own = "none of its own"
+	}
+	return fmt.Sprintf("%s · %d in the iterator", own, iter)
 }
 
 func iteratorSummary(r *mapping.Rule) string {
