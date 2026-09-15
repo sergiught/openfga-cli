@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -16,6 +17,13 @@ import (
 	"github.com/sergiught/openfga-cli/internal/mapping"
 	"github.com/sergiught/openfga-cli/internal/mapping/auth0"
 )
+
+// ansiSeq matches the colour and style escapes lipgloss writes. Assertions
+// about wording read better against the text alone: a phrase that happens to
+// straddle two styles is still one phrase to the person reading the screen.
+var ansiSeq = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+func plain(view string) string { return ansiSeq.ReplaceAllString(view, "") }
 
 func key(s string) tea.KeyPressMsg {
 	switch s {

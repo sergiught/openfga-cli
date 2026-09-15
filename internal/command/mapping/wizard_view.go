@@ -178,7 +178,7 @@ var screenChrome = map[screen]chrome{
 		[]keyHint{{"tab", "next"}, {"^p", "insert path"}, {"esc", "done"}},
 	},
 	screenFilters: {
-		"Tuple filters", "Delete every existing tuple matching a pattern.",
+		"Tuple filters", "Reconcile what this rule writes, or delete outright.",
 		[]keyHint{{"a", "add"}, {"↵", "edit"}, {"d", "delete"}, {"esc", "back"}, {"?", "help"}},
 	},
 	screenFilter: {
@@ -351,6 +351,48 @@ func (m *wizardModel) previewWidth() int {
 // is teaching, and cut silently it does not read as a cut: the type definition
 // simply ends early, which is indistinguishable from the wizard claiming that is
 // all the model needs.
+// windowLines shows the slice of an overflowing body the user has scrolled to,
+// and records how far it can still go so the key handler knows when to stop.
+// Recording a render's measurement on the model is how the screen that reads
+// the offset and the screen that produces it stay in step: the body's height
+// depends on the terminal's width, which only the render knows.
+func (m *wizardModel) windowLines(body string, n int) string {
+	if n < 1 {
+		n = 1
+	}
+	lines := strings.Split(body, "\n")
+	m.cardMaxOff = len(lines) - n
+	if m.cardMaxOff < 0 {
+		m.cardMaxOff = 0
+	}
+	if m.cardOff > m.cardMaxOff {
+		m.cardOff = m.cardMaxOff
+	}
+	// Only the recipe screen binds the arrows, so only there may a marker name
+	// one. Elsewhere an overflowing card really is a resize away from being
+	// readable, and trimLines says so in those terms.
+	//
+	// The arrows live in the markers rather than the key hints because the hint
+	// row is already 38 cells of a 44-column floor: a fourth key there would
+	// run off the narrowest terminal the wizard supports. The marker is where
+	// the eye already is when the body runs out, and it costs no row of its own.
+	if m.top() != screenRecipe {
+		return trimLines(body, n)
+	}
+	if m.cardOff > 0 {
+		// The marker replaces the first row for the same reason trimLines'
+		// replaces the last: appending would cost the row it accounts for.
+		lines = lines[m.cardOff:]
+		lines[0] = style.Faint.Render(fmt.Sprintf("↑ %d above", m.cardOff))
+	}
+	if len(lines) > n {
+		hidden := len(lines) - n + 1
+		lines = lines[:n]
+		lines[n-1] = style.Faint.Render(fmt.Sprintf("↓ %d more", hidden))
+	}
+	return strings.Join(lines, "\n")
+}
+
 func trimLines(body string, n int) string {
 	if n < 1 {
 		n = 1
@@ -403,7 +445,7 @@ func (m *wizardModel) cardView() string {
 		}
 	}
 
-	card := style.Frame(trimLines(body, inner), cw)
+	card := style.Frame(m.windowLines(body, inner), cw)
 
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
 		card+"\n"+" "+renderHints(c.keys))
@@ -697,6 +739,17 @@ func (m *wizardModel) recipeBody(cw int) string {
 	var b strings.Builder
 	b.WriteString(lipgloss.NewStyle().Foreground(style.Muted).Width(cw).Render(m.recipe.Explain))
 
+	// The warning sits with the explanation rather than under the mapping,
+	// because it is the same kind of claim — what Auth0 does and does not send —
+	// and because the card trims from the bottom. A caveat the user has to
+	// widen their terminal to discover is one they find in production instead.
+	if m.recipe.Warn != "" {
+		b.WriteString("\n\n")
+		b.WriteString(lipgloss.NewStyle().Foreground(style.Amber).Render("! the gap this leaves"))
+		b.WriteString("\n")
+		b.WriteString(lipgloss.NewStyle().Foreground(style.Muted).Width(cw).Render(m.recipe.Warn))
+	}
+
 	if m.recipe.Maps() {
 		b.WriteString("\n\n")
 		b.WriteString(m.recipeMappingBlock(cw))
@@ -710,9 +763,9 @@ func (m *wizardModel) recipeBody(cw int) string {
 
 // recipeMappingBlock evaluates the recipe's rule against the event's own
 // sample and lines each tuple and filter field up with the payload path it
-// came from. The four cleanup recipes carry no tuples at all — their mapping
-// is entirely their filters — so filters get the same treatment, not a
-// fallback.
+// came from. It renders in four groups because a rule has up to four things to
+// say: the tuples it writes, the tuples it writes once per item in a list, the
+// tuples it reconciles away, and the tuples it deletes outright.
 func (m *wizardModel) recipeMappingBlock(cw int) string {
 	doc := &mapping.Document{Rules: []mapping.Rule{m.recipe.Rule}}
 	preview := mapping.Evaluate(m.ctx, doc, m.recipeEvent.Sample)
@@ -733,61 +786,104 @@ func (m *wizardModel) recipeMappingBlock(cw int) string {
 		}
 	}
 
-	// Both groups are headed, for the same two reasons. Unheaded, the rows are
+	// Every group is headed, for the same two reasons. Unheaded, the rows are
 	// six lines of user/relation/object with no word for what they collectively
 	// are — the screen teaches the tuple without ever naming it. And a recipe
 	// built entirely of filters removes tuples; every word on this screen up to
 	// here says a rule produces them, so the one that takes things away has to
 	// say so before the user accepts it.
 	var lines []string
-	if n := len(m.recipe.Rule.Tuples); n > 0 {
-		lines = append(lines, heading.Render(recipeTupleHeading(m.recipe.Rule, n)))
-	}
-	for i, t := range m.recipe.Rule.Tuples {
-		user, relation, object := t.User, t.Relation, t.Object
-		if preview.OK() && i < len(preview.Tuples) {
-			user = preview.Tuples[i].User
-			relation = preview.Tuples[i].Relation
-			object = preview.Tuples[i].Object
+	group := func(head string, render func()) {
+		if len(lines) > 0 {
+			lines = append(lines, "")
 		}
-		lines = append(lines, row("user", user, t.User)...)
-		lines = append(lines, row("relation", relation, t.Relation)...)
-		lines = append(lines, row("object", object, t.Object)...)
+		lines = append(lines, heading.Render(head))
+		render()
+	}
+
+	// A rule carrying filters routes its tuples into the filter operation rather
+	// than into Tuples — they are the desired state of a reconciliation, not
+	// writes of their own — so the resolved values are read from wherever mapper
+	// put them.
+	resolved := preview.Tuples
+	for _, op := range preview.Filters {
+		resolved = append(resolved, op.Tuples...)
+	}
+	tupleRows := func(templates []mapping.Tuple, values []language.Tuple) {
+		for i, t := range templates {
+			user, relation, object := t.User, t.Relation, t.Object
+			if preview.OK() && i < len(values) {
+				user, relation, object = values[i].User, values[i].Relation, values[i].Object
+			}
+			lines = append(lines, row("user", user, t.User)...)
+			lines = append(lines, row("relation", relation, t.Relation)...)
+			lines = append(lines, row("object", object, t.Object)...)
+		}
+	}
+
+	if n := len(m.recipe.Rule.Tuples); n > 0 {
+		group(recipeTupleHeading(m.recipe.Rule, n), func() {
+			tupleRows(m.recipe.Rule.Tuples, resolved)
+		})
+	}
+	// The iterator is evaluated on its own rather than sliced out of the shared
+	// result. Its tuples are appended after the rule's, so an offset would find
+	// them — but only when every one of the rule's own tuples fired, and they
+	// are routinely gated on fields a given sample does not have. A second
+	// evaluation of the iterator alone cannot be thrown off by that.
+	if it := m.recipe.Rule.Iterator; it != nil && len(it.Tuples) > 0 {
+		group(iteratorHeading(*it), func() {
+			tupleRows(it.Tuples, m.iteratorValues())
+		})
 	}
 
 	// mapper groups a rule's rendered filters into one TupleFilterOperation per
 	// rule; there is exactly one rule here, so flattening its Filters gives the
 	// resolved values in the same order as m.recipe.Rule.Filters, the same way
-	// preview.Tuples lines up with the tuple loop above.
-	var resolved []language.TupleFilter
+	// resolved lines up with the tuple loop above.
+	var resolvedFilters []language.TupleFilter
 	for _, op := range preview.Filters {
-		resolved = append(resolved, op.Filters...)
+		resolvedFilters = append(resolvedFilters, op.Filters...)
 	}
-	if len(m.recipe.Rule.Filters) > 0 {
-		if len(lines) > 0 {
-			lines = append(lines, "")
+	filterRows := func(want func(mapping.TupleFilter) bool) func() {
+		return func() {
+			for i, f := range m.recipe.Rule.Filters {
+				if !want(f) {
+					continue
+				}
+				user, relation, object := f.User, f.Relation, f.Object
+				if preview.OK() && i < len(resolvedFilters) {
+					user = resolvedFilters[i].User
+					relation = resolvedFilters[i].Relation
+					object = resolvedFilters[i].Object
+				}
+				// A filter's user, relation and object are each optional — a
+				// filter that names an object with no user leaves user blank on
+				// purpose, matching any user, and vice versa — so a template that
+				// was never set is skipped rather than shown as an empty row.
+				if f.User != "" {
+					lines = append(lines, row("user", user, f.User)...)
+				}
+				if f.Relation != "" {
+					lines = append(lines, row("relation", relation, f.Relation)...)
+				}
+				if f.Object != "" {
+					lines = append(lines, row("object", object, f.Object)...)
+				}
+			}
 		}
-		lines = append(lines, heading.Render(
-			"deletes every existing tuple matching"))
 	}
-	for i, f := range m.recipe.Rule.Filters {
-		user, relation, object := f.User, f.Relation, f.Object
-		if preview.OK() && i < len(resolved) {
-			user, relation, object = resolved[i].User, resolved[i].Relation, resolved[i].Object
-		}
-		// A filter's user, relation and object are each optional — a filter that
-		// names an object with no user leaves user blank on purpose, matching
-		// any user, and vice versa — so a template that was never set is skipped
-		// rather than shown as an empty row.
-		if f.User != "" {
-			lines = append(lines, row("user", user, f.User)...)
-		}
-		if f.Relation != "" {
-			lines = append(lines, row("relation", relation, f.Relation)...)
-		}
-		if f.Object != "" {
-			lines = append(lines, row("object", object, f.Object)...)
-		}
+	if hasFilter(m.recipe.Rule.Filters, isPatchFilter) {
+		// Named for its effect rather than its keyword. "Patch" says nothing to
+		// someone meeting it here, and the reconciliation only ever shows itself
+		// as the deletions above are not: the tuples this rule just wrote stay,
+		// and whatever else the filter reaches does not.
+		group("then deletes any other tuple matching", filterRows(isPatchFilter))
+	}
+	if hasFilter(m.recipe.Rule.Filters, func(f mapping.TupleFilter) bool { return !isPatchFilter(f) }) {
+		group("deletes every existing tuple matching", filterRows(func(f mapping.TupleFilter) bool {
+			return !isPatchFilter(f)
+		}))
 	}
 
 	if !preview.OK() {
@@ -795,6 +891,31 @@ func (m *wizardModel) recipeMappingBlock(cw int) string {
 			style.IconCross+" the sample could not be evaluated"))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// iteratorValues renders the iterator on its own, so its tuples can be shown
+// beside the templates that produced them. Filters are dropped along with the
+// rule's own tuples: with no filter to reconcile against, mapper returns the
+// iterator's output as plain tuples instead of folding it into a filter
+// operation's desired state.
+func (m *wizardModel) iteratorValues() []language.Tuple {
+	r := m.recipe.Rule
+	r.Tuples, r.Filters = nil, nil
+	doc := &mapping.Document{Rules: []mapping.Rule{r}}
+	return mapping.Evaluate(m.ctx, doc, m.recipeEvent.Sample).Tuples
+}
+
+// isPatchFilter reports whether a filter reconciles rather than deletes. An
+// unset action is a patch — that is mapper's default, not an omission.
+func isPatchFilter(f mapping.TupleFilter) bool { return f.Action != "delete" }
+
+func hasFilter(filters []mapping.TupleFilter, want func(mapping.TupleFilter) bool) bool {
+	for _, f := range filters {
+		if want(f) {
+			return true
+		}
+	}
+	return false
 }
 
 // recipeTupleHeading names the tuple block and says what the rule does with it.
@@ -812,6 +933,17 @@ func recipeTupleHeading(r mapping.Rule, n int) string {
 		return verb + " this tuple"
 	}
 	return fmt.Sprintf("%s these %d tuples", verb, n)
+}
+
+// iteratorHeading says that the iterator's tuples repeat, and what they repeat
+// over. The count is per item rather than a total: how many items arrive is a
+// property of the payload, and the sample's count is not the user's.
+func iteratorHeading(it mapping.Iterator) string {
+	what := "one tuple"
+	if n := len(it.Tuples); n > 1 {
+		what = fmt.Sprintf("%d tuples", n)
+	}
+	return "writes " + what + " per item in " + strings.TrimPrefix(it.Source, "input.")
 }
 
 // recipeModelBlock renders what the recipe's requirements need from the

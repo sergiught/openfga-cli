@@ -36,6 +36,15 @@ type Rule struct {
 	AutoWhen string
 }
 
+// WritesTuples reports whether the rule produces any tuples at all, from its
+// own list or one per item from its iterator.
+func (r Rule) WritesTuples() bool {
+	if len(r.Tuples) > 0 {
+		return true
+	}
+	return r.Iterator != nil && len(r.Iterator.Tuples) > 0
+}
+
 // Variable is one entry under `variables:`. Order matters: each expression sees
 // input plus the variables declared before it, and forward references are a
 // compile error.

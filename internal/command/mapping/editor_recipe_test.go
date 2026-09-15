@@ -499,3 +499,125 @@ func TestTheIteratorsTupleListSaysItIsTheIterators(t *testing.T) {
 		t.Fatalf("the subtitle does not name the list being walked: %q", c.subtitle)
 	}
 }
+
+// A lifecycle warning names something Auth0 will not do that the rule cannot
+// make up for. It sits with the explanation rather than under the mapping
+// because the card trims from the bottom: a caveat you have to widen the
+// terminal to find is one you find in production instead.
+func TestARecipeWithAGapWarnsAboutItAboveTheMapping(t *testing.T) {
+	m := atRulesHub(t)
+	send(m, key("a"), key("enter"))
+	selectEvent(t, m, "organization.member.deleted")
+
+	out := plain(m.viewString())
+	warn := strings.Index(out, "the gap this leaves")
+	if warn < 0 {
+		t.Fatalf("no warning on a recipe that has one:\n%s", out)
+	}
+	if mapping := strings.Index(out, "deletes this tuple"); mapping >= 0 && warn > mapping {
+		t.Fatalf("the warning is below the mapping, where the card trims first:\n%s", out)
+	}
+}
+
+func TestARecipeWithNoGapSaysNothing(t *testing.T) {
+	m := atRulesHub(t)
+	send(m, key("a"), key("enter"))
+	selectEvent(t, m, "organization.member.added")
+
+	if out := plain(m.viewString()); strings.Contains(out, "the gap this leaves") {
+		t.Fatalf("a recipe with no warning showed a heading for one:\n%s", out)
+	}
+}
+
+// The tuples of a fan-out recipe live on its iterator, not on the rule. Showing
+// only the rule's own list left user.created — the one recipe whose whole point
+// is the fan-out — displaying no tuples at all.
+func TestAnIteratorsTuplesShowOnTheRecipeScreen(t *testing.T) {
+	m := atRulesHub(t)
+	send(m, key("a"), key("enter"))
+	selectEvent(t, m, "user.created")
+
+	out := plain(m.viewString())
+	for _, want := range []string{
+		"per item in data.object.identities", // the heading says it repeats
+		"identity",                           // the relation it writes
+		"identity.connection",                // the path the object came from
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("%q missing from a fan-out recipe:\n%s", want, out)
+		}
+	}
+}
+
+// A filter with no action patches, and a patch only deletes what the rule did
+// not just write. Describing it as a plain delete told the user their identity
+// tuples were about to be removed.
+func TestAPatchFilterIsNotDescribedAsADelete(t *testing.T) {
+	m := atRulesHub(t)
+	send(m, key("a"), key("enter"))
+	selectEvent(t, m, "user.updated")
+
+	out := plain(m.viewString())
+	if strings.Contains(out, "deletes every existing tuple") {
+		t.Fatalf("a patch filter described as a delete:\n%s", out)
+	}
+	if !strings.Contains(out, "any other tuple matching") {
+		t.Fatalf("the reconciliation is not described:\n%s", out)
+	}
+}
+
+// The recipe screen holds more than a card: explanation, warning, mapping and
+// model requirements. Trimming was the only answer, and it told the user to
+// resize a terminal that was already 40 rows tall.
+func TestALongRecipeScrolls(t *testing.T) {
+	m := atRulesHub(t)
+	send(m, key("a"), key("enter"))
+	selectEvent(t, m, "user.updated")
+
+	top := plain(m.viewString())
+	if !strings.Contains(top, "↓") {
+		t.Fatalf("a recipe taller than the card offered no way down:\n%s", top)
+	}
+	for i := 0; i < 40; i++ {
+		send(m, key("down"))
+	}
+	bottom := plain(m.viewString())
+	if !strings.Contains(bottom, "↑") {
+		t.Fatalf("scrolled down but nothing says there is anything above:\n%s", bottom)
+	}
+	if bottom == top {
+		t.Fatalf("scrolling changed nothing:\n%s", bottom)
+	}
+	// Scrolling is bounded by the body, not by how long a key is held: the
+	// render measures the overflow and the key handler stops there.
+	if m.cardOff != m.cardMaxOff {
+		t.Fatalf("offset %d, want the maximum %d", m.cardOff, m.cardMaxOff)
+	}
+	for i := 0; i < 60; i++ {
+		send(m, key("up"))
+	}
+	if m.cardOff != 0 {
+		t.Fatalf("offset %d after scrolling back up, want 0", m.cardOff)
+	}
+}
+
+// Leaving the screen resets the window, so the next recipe opens at its first
+// line rather than wherever the last one was left.
+func TestLeavingARecipeResetsTheScroll(t *testing.T) {
+	m := atRulesHub(t)
+	send(m, key("a"), key("enter"))
+	selectEvent(t, m, "user.updated")
+	// The overflow is measured by the render, so the screen has to have been
+	// drawn once before a key can scroll it. bubbletea draws after every
+	// message; a test that sends keys without ever asking for the view is the
+	// only way to reach the handler before the first render.
+	m.viewString()
+	send(m, key("down"), key("down"))
+	if m.cardOff == 0 {
+		t.Fatal("the recipe did not scroll")
+	}
+	send(m, key("esc"))
+	if m.cardOff != 0 {
+		t.Fatalf("offset %d after leaving the screen, want 0", m.cardOff)
+	}
+}

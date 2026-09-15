@@ -276,3 +276,48 @@ func TestARuleWithNeitherTuplesNorFiltersIsFlagged(t *testing.T) {
 		t.Fatal("an empty rule should still be flagged")
 	}
 }
+
+// A filter with no action is a patch, and a patch reconciles the tuples the
+// rule produced against the ones it matches. A rule that produces none has an
+// empty desired state, which mapper refuses rather than reading as "delete
+// everything" — and a failed event stops the pipeline. Nothing reveals that
+// until the first event arrives, so the save has to.
+func TestLintPatchFilterWithoutTuplesBlocks(t *testing.T) {
+	d := &mapping.Document{Rules: []mapping.Rule{{
+		Name: "r", When: "true",
+		Filters: []mapping.TupleFilter{{Object: "connection:"}},
+	}}}
+	got := problemsMatching(mapping.Lint(d, nil), "reconcile against")
+	if len(got) != 1 || got[0].Warning {
+		t.Fatalf("problems = %+v", mapping.Lint(d, nil))
+	}
+	if got[0].Section != "filters" || got[0].Field != "action" {
+		t.Fatalf("problem = %+v", got[0])
+	}
+}
+
+func TestLintDeleteFilterWithoutTuplesIsFine(t *testing.T) {
+	d := &mapping.Document{Rules: []mapping.Rule{{
+		Name: "r", When: "true",
+		Filters: []mapping.TupleFilter{{Object: "connection:", Action: "delete"}},
+	}}}
+	if got := problemsMatching(mapping.Lint(d, nil), "reconcile against"); len(got) != 0 {
+		t.Fatalf("a delete filter needs no tuples: %+v", got)
+	}
+}
+
+// The iterator's tuples are the desired state too — they are appended to the
+// rule's own before mapper diffs them against the filter.
+func TestLintAnIteratorSatisfiesAPatchFilter(t *testing.T) {
+	d := &mapping.Document{Rules: []mapping.Rule{{
+		Name: "r", When: "true",
+		Filters: []mapping.TupleFilter{{Object: "connection:"}},
+		Iterator: &mapping.Iterator{
+			Source: "input.data.object.identities", As: "identity",
+			Tuples: []mapping.Tuple{{User: "user:1", Relation: "identity", Object: "connection:c"}},
+		},
+	}}}
+	if got := problemsMatching(mapping.Lint(d, nil), "reconcile against"); len(got) != 0 {
+		t.Fatalf("iterator tuples are a desired state: %+v", got)
+	}
+}

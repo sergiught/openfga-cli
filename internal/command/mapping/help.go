@@ -33,10 +33,18 @@ func helpFor(s screen) (title, body string, ok bool) {
 			"Order matters: a variable sees only the ones declared before it.\n\n" +
 			"  org: input.data.object.organization.id", true
 	case screenFilters:
-		return "Tuple filters", "A filter describes existing tuples this rule owns, so " +
-			"mapper can remove the ones the event says are gone. " +
-			"The object always names a type; user and relation may be blank.\n\n" +
-			"  object: organization:  user: user:alice  action: delete", true
+		return "Tuple filters", "A filter describes existing tuples this rule owns. " +
+			"The object always names a type; user and relation may be blank, and a blank one " +
+			"matches anything.\n\n" +
+			"A filter with no action is a patch, which reconciles: mapper compares the tuples " +
+			"this rule just wrote against every tuple the filter matches, writes the new ones " +
+			"and deletes the rest. That is how a rule keeps a list in step — re-writing the " +
+			"whole list makes the removals happen by themselves.\n\n" +
+			"  object: connection:  user: user:alice          (patch)\n" +
+			"  object: organization:  user: user:alice  action: delete\n\n" +
+			"delete is the other half: it removes what matches and reconciles nothing, which is " +
+			"what a rule with no tuples of its own needs. A patch there would fail the event — " +
+			"mapper reads an empty desired state as a mistake, not as \"delete everything\".", true
 	case screenAction:
 		return "Action", "write adds the tuples, delete removes them. " +
 			"Set it here for the whole rule, or per tuple — never both.", true

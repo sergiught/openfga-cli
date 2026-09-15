@@ -407,7 +407,12 @@ func recipeBody(typ string) Recipe {
 
 	case "user.updated":
 		return Recipe{
-			Explain: "A user's profile changed, and identities is one of the things that can change: linking a second login adds an entry. This rule re-writes the whole current list, which works because writing a tuple that already exists is not an error.\n\nIt adds and never removes, though — unlinking an identity leaves its tuple behind. The gate below only stops the rule running when the list did not change; making unlinking work needs the delete side too, which is the shape group.updated shows.",
+			Explain: "A user's profile changed, and identities is one of the things that can change: linking a " +
+				"second login adds an entry, unlinking one takes it away. The iterator walks the new " +
+				"list and writes a tuple per identity.\n\nThe filter below makes that list the whole truth rather than an addition to it. A filter " +
+				"with no action is a patch: mapper compares the tuples this rule produced against every " +
+				"existing tuple the filter matches, writes the ones that are new, and deletes the ones " +
+				"the list no longer has. An unlinked identity loses its tuple without a rule of its own.",
 			Rule: mapping.Rule{
 				Name: typ,
 				When: when(typ) + " && input.data.object.identities != input.data.previous_object.identities" +
@@ -455,7 +460,11 @@ func recipeBody(typ string) Recipe {
 
 	case "connection.updated":
 		return Recipe{
-			Explain: "A connection's settings changed, and enabling an application changes enabled_clients. The iterator re-writes the current list, gated on the list having changed.\n\nRead the limit before adopting it: it adds, it does not remove. One rule walks one array, so an application taken off the list keeps its tuple. Where that matters, connection.deleted shows the other tool — a tuple filter, which reads what is there and deletes what the event no longer lists.",
+			Explain: "A connection's settings changed, and enabling an application changes enabled_clients. The " +
+				"iterator walks the new list and writes a tuple per client.\n\nThe filter below makes that list the whole truth. A filter with no action is a patch: " +
+				"mapper compares the tuples this rule produced against every existing tuple the filter " +
+				"matches, writes the ones that are new, and deletes the ones the list no longer names. " +
+				"Disabling an application removes its tuple, and connection.deleted still sweeps the rest.",
 			Rule: mapping.Rule{
 				Name: typ,
 				When: when(typ) + " && input.data.object.enabled_clients != input.data.previous_object.enabled_clients" +

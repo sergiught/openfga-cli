@@ -95,6 +95,12 @@ type wizardModel struct {
 	recipeEvent auth0.Event
 	recipe      auth0.Recipe
 
+	// How far the card is scrolled, and how far it can go — the second is
+	// measured by the render, since how tall a body is depends on how wide the
+	// terminal is. Both reset whenever the screen changes.
+	cardOff    int
+	cardMaxOff int
+
 	// Live state recomputed by refresh.
 	preview  mapping.Preview
 	problems []mapping.Problem
@@ -218,7 +224,9 @@ func newWizard(ctx context.Context, path, profile string, load modelLoader) *wiz
 		// object and Lint blocks the save on one. The label said otherwise while
 		// the screen's own subtitle said "object needs a type".
 		field.New("Object", "organization:{{ input.data.object.organization.id }}").WithValidate(vFilterObject),
-		field.New("Action", "delete").WithValidate(vFilterAction),
+		// Placeholder rather than example: an empty action really is a patch, so
+		// the ghost text is the value the field already has.
+		field.New("Action", "patch").WithValidate(vFilterAction),
 	)
 	m.refresh()
 	return m
@@ -540,6 +548,7 @@ func (m *wizardModel) keyModelFile(k tea.KeyPressMsg) tea.Cmd {
 
 func (m *wizardModel) push(s screen) {
 	m.stack = append(m.stack, s)
+	m.cardOff = 0
 	m.applySize()
 }
 
@@ -548,6 +557,7 @@ func (m *wizardModel) pop() {
 	if len(m.stack) > 1 {
 		m.stack = m.stack[:len(m.stack)-1]
 	}
+	m.cardOff = 0
 	m.applySize()
 }
 

@@ -300,7 +300,7 @@ func (m *wizardModel) syncFilters() {
 	for i, f := range r.Filters {
 		items = append(items, uilist.Item{
 			TitleText: filterTitle(f),
-			DescText:  f.Action,
+			DescText:  filterAction(f),
 			Filter:    f.User + " " + f.Relation + " " + f.Object,
 			ID:        fmt.Sprintf("filter-%d", i),
 			Index:     i,
@@ -312,6 +312,16 @@ func (m *wizardModel) syncFilters() {
 
 // filterTitle renders the set pattern, using * for the parts left open — which
 // is what the filter actually means.
+// filterAction names what a filter does, spelling out the default rather than
+// leaving the row blank: an unset action is a patch, and a blank row reads like
+// a field the user forgot to fill in.
+func filterAction(f mapping.TupleFilter) string {
+	if f.Action == "" {
+		return "patch"
+	}
+	return f.Action
+}
+
 func filterTitle(f mapping.TupleFilter) string {
 	part := func(s string) string {
 		if s == "" {
@@ -333,7 +343,17 @@ func (m *wizardModel) keyFilters(k tea.KeyPressMsg) tea.Cmd {
 			m.errMsg = fmt.Sprintf("a rule takes at most %d tuple filters", maxFilters)
 			return nil
 		}
-		r.Filters = append(r.Filters, mapping.TupleFilter{Action: "delete"})
+		// The action a new filter should have is the one the rule can support.
+		// A rule that writes tuples has a desired state, so the filter can
+		// reconcile against it — mapper's own default, and the one that keeps a
+		// list in step without a second rule. A rule that writes none has
+		// nothing to reconcile, and a patch there fails every event, so the only
+		// filter worth starting from is a delete.
+		action := ""
+		if !r.WritesTuples() {
+			action = "delete"
+		}
+		r.Filters = append(r.Filters, mapping.TupleFilter{Action: action})
 		m.openFilter(len(r.Filters) - 1)
 		return nil
 	case "enter":

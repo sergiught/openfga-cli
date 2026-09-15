@@ -49,6 +49,14 @@ func (m *wizardModel) openRecipe(e auth0.Event) {
 
 func (m *wizardModel) keyRecipe(k tea.KeyPressMsg) tea.Cmd {
 	switch k.String() {
+	case "up", "k":
+		if m.cardOff > 0 {
+			m.cardOff--
+		}
+	case "down", "j":
+		if m.cardOff < m.cardMaxOff {
+			m.cardOff++
+		}
 	case "esc":
 		m.pop()
 	case "m":

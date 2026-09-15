@@ -329,3 +329,42 @@ func TestRuleHubSummariesReflectEverySection(t *testing.T) {
 		}
 	}
 }
+
+// A new filter starts as whichever action the rule can actually support. The
+// wizard used to hard-code delete, so patch — mapper's own default, and the
+// shape that keeps a list in step — was reachable only by typing a word the
+// screen never mentioned.
+func TestANewFilterTakesTheActionTheRuleCanSupport(t *testing.T) {
+	m := atRuleHub(t)
+	m.rule().Tuples = []mapping.Tuple{{User: "user:a", Relation: "member", Object: "organization:o"}}
+	openSection(t, m, 4, screenFilters)
+	send(m, key("a"), key("esc"))
+
+	if got := m.rule().Filters[0].Action; got != "" {
+		t.Fatalf("action = %q on a rule that writes tuples, want a patch", got)
+	}
+}
+
+func TestANewFilterOnARuleThatWritesNothingIsADelete(t *testing.T) {
+	m := atRuleHub(t) // a fresh rule writes nothing yet
+	openSection(t, m, 4, screenFilters)
+	send(m, key("a"), key("esc"))
+
+	if got := m.rule().Filters[0].Action; got != "delete" {
+		t.Fatalf("action = %q on a rule with no tuples, want delete: a patch there "+
+			"has an empty desired state and fails every event", got)
+	}
+}
+
+// The list spells the default out. A blank cell reads like a field the user
+// forgot rather than the action the filter has.
+func TestTheFilterListNamesThePatchDefault(t *testing.T) {
+	m := atRuleHub(t)
+	m.rule().Tuples = []mapping.Tuple{{User: "user:a", Relation: "member", Object: "organization:o"}}
+	openSection(t, m, 4, screenFilters)
+	send(m, key("a"), key("esc"))
+
+	if out := plain(m.viewString()); !strings.Contains(out, "patch") {
+		t.Fatalf("the filter list does not say what an unset action does:\n%s", out)
+	}
+}
