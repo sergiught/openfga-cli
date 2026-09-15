@@ -15,6 +15,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/config"
+	"github.com/sergiught/openfga-cli/internal/output"
 )
 
 // run executes `mapping init` with args against a fresh CLI, returning stderr.
@@ -243,5 +244,79 @@ func TestAFailedWriteHandsTheMappingBack(t *testing.T) {
 	// and an explanation beside the error, or the YAML reads as success.
 	if !strings.Contains(errb.String(), "could not be written") {
 		t.Fatalf("stderr does not say why the mapping was printed:\n%s", errb.String())
+	}
+}
+
+// A saved file is the middle of the job, not the end: the pipeline that runs it
+// lives in a dashboard the wizard never sees. These assert the walkthrough names
+// every step of that path, in the order the dashboard enforces.
+func TestNextStepsNamesThePathFromFileToRunningPipeline(t *testing.T) {
+	var b bytes.Buffer
+	nextSteps(&b, "auth0.yaml", 0)
+	got := b.String()
+
+	for _, want := range []string{
+		"Model Explorer",
+		"create a pipeline",
+		"auth0.yaml",
+		"Start",
+		languageSpecURL,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("walkthrough does not mention %q:\n%s", want, got)
+		}
+	}
+	// The model is saved before the pipeline is built, because the pipeline
+	// validates the mapping against it.
+	if strings.Index(got, "Model Explorer") > strings.Index(got, "create a pipeline") {
+		t.Fatalf("the model step must come first:\n%s", got)
+	}
+	if !strings.Contains(got, "Beta") {
+		t.Fatalf("the Beta warning is missing:\n%s", got)
+	}
+}
+
+// The dashboard validates a mapping but never runs its tests: block, so a user
+// who authored samples leaves believing in a suite nothing executes. Saying so
+// is only worth the two lines when there is actually a suite.
+func TestNextStepsOnlyPointsAtTheTestRunnerWhenThereAreTests(t *testing.T) {
+	var with, without bytes.Buffer
+	nextSteps(&with, "auth0.yaml", 2)
+	nextSteps(&without, "auth0.yaml", 0)
+
+	if !strings.Contains(with.String(), "fga mapping test auth0.yaml") {
+		t.Fatalf("a mapping with tests should name the runner:\n%s", with.String())
+	}
+	if strings.Contains(without.String(), "fga mapping test") {
+		t.Fatalf("a mapping with no tests has no runner to name:\n%s", without.String())
+	}
+	// The warning is about the pipeline, not about the tests, so it survives.
+	if !strings.Contains(without.String(), "Beta") {
+		t.Fatalf("the Beta warning is missing:\n%s", without.String())
+	}
+}
+
+// Hintf has no Quiet guard of its own — its usual job is remediation after an
+// error, which --quiet keeps. A walkthrough after a success is the other case,
+// so nextSteps has to guard itself or --quiet prints a four-step tour while
+// suppressing the success line it follows.
+func TestNextStepsIsSilentUnderQuietAndPlain(t *testing.T) {
+	defer func(p, q bool) { output.Plain, output.Quiet = p, q }(output.Plain, output.Quiet)
+
+	for _, tc := range []struct {
+		name         string
+		plain, quiet bool
+	}{
+		{"quiet", false, true},
+		{"plain", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			output.Plain, output.Quiet = tc.plain, tc.quiet
+			var b bytes.Buffer
+			nextSteps(&b, "auth0.yaml", 2)
+			if b.Len() != 0 {
+				t.Fatalf("expected silence, got:\n%s", b.String())
+			}
+		})
 	}
 }

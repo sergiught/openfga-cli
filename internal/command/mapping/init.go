@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -85,9 +86,43 @@ func (c *Command) runInit(cmd *cobra.Command, args []string, force bool) error {
 
 	out := cmd.ErrOrStderr()
 	output.Successf(out, "wrote %s (%s)", path, result.summary())
-	output.Infof(out, "next: edit by hand or re-run `ofga mapping init --force`")
-	output.Infof(out, "spec: %s", languageSpecURL)
+	nextSteps(out, path, result.tests)
 	return nil
+}
+
+// nextSteps prints the path from a saved file to a running sync. A mapping is
+// worth nothing on disk, and the steps that put it to work are spread across a
+// dashboard the wizard never sees, so the one moment the user is certain to be
+// looking is the moment the file lands.
+//
+// Guarded the way the status printers guard themselves. Hintf has no guard of
+// its own because its usual job is remediation after an error, which --quiet
+// deliberately keeps; a walkthrough after a success is the other case, and
+// --quiet and --plain asked for the result rather than the tour.
+func nextSteps(w io.Writer, path string, tests int) {
+	if output.Quiet || output.Plain {
+		return
+	}
+	output.Infof(w, "next, to put it to work:")
+	// The model comes first because the mapping is validated against it: every
+	// relation a tuple writes has to exist on the model chosen here, so a
+	// pipeline built before the model is saved has nothing to check against.
+	output.Hintf(w, "1. save your model in the FGA dashboard — Model Explorer › SAVE")
+	output.Hintf(w, "2. create a pipeline — Auth0 Relationship Sync in the sidebar")
+	output.Hintf(w, "3. paste %s into Add Mappings to Pipeline › Mappings", path)
+	output.Hintf(w, "4. press Start on the pipeline overview — events begin at once")
+
+	// Only worth saying when there is something not being run. The wizard writes
+	// a test per sample, so a user who worked through several events leaves with
+	// a suite they would reasonably assume the dashboard executes.
+	if tests > 0 {
+		output.Infof(w, "the dashboard checks syntax, structure and model consistency —")
+		output.Hintf(w, "it never runs the tests: block. openfga's own CLI does:")
+		output.Hintf(w, "fga mapping test %s", path)
+	}
+
+	output.Warnf(w, "Relationship Sync is in Beta — don't point a pipeline at a production store")
+	output.Infof(w, "spec: %s", languageSpecURL)
 }
 
 // rescue prints a mapping the wizard produced but could not save. By the time
