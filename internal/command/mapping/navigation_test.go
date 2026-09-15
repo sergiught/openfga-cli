@@ -3,7 +3,16 @@ package mapping
 import (
 	"strings"
 	"testing"
+
+	tea "charm.land/bubbletea/v2"
+	lipgloss "charm.land/lipgloss/v2"
 )
+
+// firstLine is the wayfinding bar: it is the first row of every screen.
+func firstLine(s string) string {
+	line, _, _ := strings.Cut(s, "\n")
+	return line
+}
 
 // TestSaveWorksFromEveryScreen pins the key down as global. It used to be
 // handled on exactly two screens — the rules hub and the rule hub — and on the
@@ -63,5 +72,65 @@ func TestSaveIsNotOfferedWithNothingToSave(t *testing.T) {
 	}
 	if strings.Contains(plain(m.viewString()), "^s") {
 		t.Fatalf("the empty hub advertises ^s:\n%s", plain(m.viewString()))
+	}
+}
+
+// TestTopBarNamesWhereEscGoes. The complaint that started this: after picking
+// an Auth0 event there was nothing on screen saying esc was the way back, or
+// where back was. "esc back" would have answered half of it; the destination
+// is the half a hint row cannot carry, because the hint row is the same on
+// every screen that reaches this one.
+func TestTopBarNamesWhereEscGoes(t *testing.T) {
+	m := atRulesHub(t)
+	send(m, key("a"), key("enter"))
+	selectEvent(t, m, "organization.member.added")
+	if m.top() != screenRecipe {
+		t.Fatalf("top = %v, want the recipe card", m.top())
+	}
+	top := firstLine(plain(m.viewString()))
+	if !strings.Contains(top, "esc ‹ Pick an event") {
+		t.Fatalf("the recipe card does not say where esc goes:\n%s", top)
+	}
+}
+
+// The wayfinding bar is on every screen, cards included. Cards used to render
+// no status bar at all, so the six screens that use one — the welcome, the
+// payload fork, the recipe, the help overlay and both confirmations — were the
+// only ones with no breadcrumb and no way out on screen.
+func TestTopBarIsOnCardScreensToo(t *testing.T) {
+	m := atRuleFor(t, "organization.member.added")
+	send(m, key("ctrl+s"))
+	if m.top() != screenConfirmSave {
+		t.Fatalf("top = %v, want the save dialog", m.top())
+	}
+	if top := firstLine(plain(m.viewString())); !strings.Contains(top, "Rules") {
+		t.Fatalf("the save card carries no breadcrumb:\n%s", top)
+	}
+}
+
+// The breadcrumb read screenChrome's static titles, so the three screens that
+// retitle themselves at runtime appeared under the wrong name — the iterator's
+// tuple list showed as the rule's own "Tuples", which is the one pair of
+// screens a user cannot otherwise tell apart.
+func TestBreadcrumbUsesRuntimeTitles(t *testing.T) {
+	m := atRuleFor(t, "user.created")
+	m.inIter = true
+	m.push(screenTuples)
+	top := firstLine(plain(m.viewString()))
+	if !strings.Contains(top, "Iterator tuples") {
+		t.Fatalf("breadcrumb does not name the iterator's list:\n%s", top)
+	}
+}
+
+// The bar costs no rows. It replaces the location line the bottom bar used to
+// carry, so the chrome still occupies three rows and the body budget is
+// untouched — which matters at the floor, where the body is only nine rows.
+func TestChromeStillFitsTheTerminalExactly(t *testing.T) {
+	for _, sz := range [][2]int{{minCols, minRows}, {80, 24}, {120, 40}} {
+		m := atRuleFor(t, "organization.member.added")
+		m.Update(tea.WindowSizeMsg{Width: sz[0], Height: sz[1]})
+		if h := lipgloss.Height(m.viewString()); h != sz[1] {
+			t.Fatalf("at %d×%d the view is %d rows, want %d", sz[0], sz[1], h, sz[1])
+		}
 	}
 }

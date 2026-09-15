@@ -460,9 +460,9 @@ func (m *wizardModel) cardView() string {
 	wrap := lipgloss.NewStyle().Width(cw)
 	body := wrap.Render(b.String())
 
-	// What the body has left once the frame around it and the hint row under it
-	// have taken their rows.
-	inner := m.height - frameRows - 1
+	// What the body has left once the wayfinding bar above it, the frame around
+	// it and the hint row under it have taken their rows.
+	inner := m.height - topRows - frameRows - 1
 
 	// The wordmark heads the welcome card but says nothing the card does not, so
 	// on a terminal too narrow or too short for both it is the art that goes,
@@ -477,8 +477,19 @@ func (m *wizardModel) cardView() string {
 
 	card := style.Frame(m.windowLines(body, inner), cw)
 
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-		card+"\n"+" "+renderHints(c.keys))
+	// The bar is pinned to the terminal rather than sitting on the card: it says
+	// where the card is in the wizard, which is a fact about the wizard. The
+	// card keeps its own action keys underneath it, minus the way out the bar
+	// now carries.
+	acts := make([]keyHint, 0, len(c.keys))
+	for _, h := range c.keys {
+		if h.key != "esc" {
+			acts = append(acts, h)
+		}
+	}
+	return m.topBar() + "\n" +
+		lipgloss.Place(m.width, m.height-topRows, lipgloss.Center, lipgloss.Center,
+			card+"\n"+" "+renderHints(acts))
 }
 
 func (m *wizardModel) cardBody(cw int) string {
@@ -514,7 +525,7 @@ func (m *wizardModel) paneView() string {
 	// The rows the frame can hold. Side by side the preview has all of them;
 	// stacked it has what the editor above it leaves, less the blank row
 	// between the two.
-	rows := m.height - statusRows - frameRows
+	rows := m.height - topRows - statusRows - frameRows
 	if m.sideBySide() {
 		body = lipgloss.JoinHorizontal(lipgloss.Top,
 			lipgloss.NewStyle().Width(cw+paneGutter).Render(body),
@@ -527,7 +538,7 @@ func (m *wizardModel) paneView() string {
 	}
 	// Height pads the body out so the status bar lands on the bottom rows
 	// instead of floating directly under short content.
-	h := m.height - statusRows
+	h := m.height - topRows - statusRows
 	if h < 1 {
 		h = 1
 	}
@@ -540,7 +551,8 @@ func (m *wizardModel) paneView() string {
 	// side, cw is only the editor column's width, not the joined pair's.
 	body = lipgloss.NewStyle().PaddingLeft(1).Render(style.Frame(body, lipgloss.Width(body)))
 
-	return lipgloss.NewStyle().Height(h).MaxHeight(h).Render(body) + "\n" + m.statusBar()
+	return m.topBar() + "\n" +
+		lipgloss.NewStyle().Height(h).MaxHeight(h).Render(body) + "\n" + m.statusBar()
 }
 
 func (m *wizardModel) editorPane(cw int) string {
@@ -632,13 +644,32 @@ func (m *wizardModel) screenBody(cw int) string {
 
 // --- status bar ---
 
-// statusRows is how many rows statusBar occupies: a rule, the location line and
-// the key hints.
-const statusRows = 3
+// topRows and statusRows are what the chrome costs: one row above the frame for
+// the wayfinding bar, two below it for a rule and the key hints. The location
+// line used to sit at the bottom with the hints, making three rows there and
+// none at the top; moving it up splits the same three rows into "where you are
+// and the way out" above the work and "what you can do to it" below, and costs
+// the body nothing.
+const (
+	topRows    = 1
+	statusRows = 2
+)
 
-func (m *wizardModel) statusBar() string {
+// topBar answers "where am I, and how do I leave" on every screen, cards
+// included. Both halves were previously absent or buried: the location line was
+// drawn only by paneView, and the way out sat among the action keys, naming no
+// destination.
+//
+// The way out is measured first and never truncated. It is the one affordance
+// that has to survive a narrow terminal, because a user who cannot read it is
+// stuck; the location gives up columns to it.
+func (m *wizardModel) topBar() string {
 	w := max(m.width, 1)
-	rule := lipgloss.NewStyle().Foreground(style.Subtle).Render(strings.Repeat("─", w))
+
+	right := ""
+	if h, ok := m.wayOut(); ok {
+		right = renderHints([]keyHint{h})
+	}
 
 	left := m.breadcrumb()
 	if chips := m.contextChips(); chips != "" {
@@ -647,9 +678,62 @@ func (m *wizardModel) statusBar() string {
 		}
 		left += chips
 	}
-	return rule +
-		"\n " + ansi.Truncate(left, w-2, "…") +
-		"\n " + ansi.Truncate(renderHints(m.chromeFor().keys), w-2, "…")
+
+	// One column of indent each side, and two of gap so the halves never touch.
+	// Below what an elision would itself cost, the location goes entirely rather
+	// than showing as a lone ellipsis.
+	room := w - 2 - lipgloss.Width(right) - 2
+	if room < 4 {
+		left = ""
+	} else {
+		left = ansi.Truncate(left, room, "…")
+	}
+
+	gap := w - 2 - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 0 {
+		gap = 0
+	}
+	return " " + left + strings.Repeat(" ", gap) + right + " "
+}
+
+// wayOut is the key that leaves the current screen, and where it goes.
+//
+// chromeFor has already decided what esc means here — skip, cancel, quit, or a
+// plain back — so this reads its answer rather than second-guessing it. Only
+// the two labels naming the key's effect without naming its destination are
+// rewritten: "back" and "done" are true on thirteen screens and locate none of
+// them, and the destination is the part the user cannot see.
+func (m *wizardModel) wayOut() (keyHint, bool) {
+	for _, h := range m.chromeFor().keys {
+		if h.key != "esc" {
+			continue
+		}
+		if h.label == "back" || h.label == "done" {
+			if len(m.stack) > 1 {
+				h.label = "‹ " + m.titleFor(m.stack[len(m.stack)-2])
+			}
+		}
+		return h, true
+	}
+	return keyHint{}, false
+}
+
+// statusBar is the action row: the keys that do something to what is on screen.
+func (m *wizardModel) statusBar() string {
+	w := max(m.width, 1)
+	rule := lipgloss.NewStyle().Foreground(style.Subtle).Render(strings.Repeat("─", w))
+
+	// The way out has moved to topBar, so it is dropped here rather than listed
+	// twice. It is the only key present on every screen, and repeating it in the
+	// row meant for this screen's actions is what made it read as one of them.
+	keys := m.chromeFor().keys
+	acts := make([]keyHint, 0, len(keys))
+	for _, h := range keys {
+		if h.key != "esc" {
+			acts = append(acts, h)
+		}
+	}
+	return rule + "\n " + ansi.Truncate(renderHints(acts), w-2, "…")
 }
 
 // breadcrumb answers "where am I" for a hub-and-spoke wizard, the way the
@@ -664,7 +748,7 @@ func (m *wizardModel) breadcrumb() string {
 		case screenWelcome, screenModelSource, screenModelBrowse, screenModelFile:
 			continue
 		}
-		if t := screenChrome[s].title; t != "" {
+		if t := m.titleFor(s); t != "" {
 			parts = append(parts, t)
 		}
 	}
@@ -677,6 +761,26 @@ func (m *wizardModel) breadcrumb() string {
 		parts = append([]string{"…"}, parts[len(parts)-3:]...)
 	}
 	return lipgloss.NewStyle().Foreground(style.Muted).Render(strings.Join(parts, " › "))
+}
+
+// titleFor is the name a screen is going by right now. Two screens retitle
+// themselves from the document — the recipe takes the event's type, and the
+// tuple list becomes the iterator's when it is entered through one — and
+// reading the static table instead listed the iterator's tuples under the
+// rule's own name, which is the one pair of screens that are otherwise
+// identical.
+func (m *wizardModel) titleFor(s screen) string {
+	switch s {
+	case screenRecipe:
+		if m.recipeEvent.Type != "" {
+			return m.recipeEvent.Type
+		}
+	case screenTuples:
+		if m.inIter {
+			return "Iterator tuples"
+		}
+	}
+	return screenChrome[s].title
 }
 
 // contextChips keep the two facts that change what the wizard can offer — the
