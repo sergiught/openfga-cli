@@ -232,7 +232,7 @@ func TestTheEventListSaysWhatEachEventMaps(t *testing.T) {
 	// kinds a user has to tell apart on sight: one that maps by iterating an
 	// array, one that maps by deleting rather than writing.
 	v := m.events.View()
-	for _, want := range []string{"user.created · 1 tuple", "user.deleted · 2 tuple filters"} {
+	for _, want := range []string{"user.created · 1 tuple", "user.deleted · 3 tuple filters"} {
 		if !strings.Contains(v, want) {
 			t.Fatalf("the list does not say what the event maps: want %q in:\n%s", want, v)
 		}

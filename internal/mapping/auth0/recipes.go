@@ -42,14 +42,16 @@ func (r Recipe) Maps() bool {
 	return len(r.Rule.Tuples) > 0 || len(r.Rule.Filters) > 0
 }
 
-// Shared DSL fragments, so each type is spelled once.
+// Shared DSL fragments, so each type is spelled once. These are shown on the
+// recipe screen, never parsed, so a fragment may name a userset whose type is
+// declared in another fragment — model.fga is where they all have to agree.
 const (
 	dslUser        = "type user"
 	dslConnection  = "type connection"
-	dslOrgMember   = "type organization\n  relations\n    define member: [user]"
-	dslOrgRole     = "type organization\n  relations\n    define admin: [user]"
+	dslOrgMember   = "type organization\n  relations\n    define member: [user, group#member]"
+	dslOrgRole     = "type role\n  relations\n    define assignee: [user]"
 	dslOrgConn     = "type organization\n  relations\n    define connection: [connection]"
-	dslGroupMember = "type group\n  relations\n    define member: [user]"
+	dslGroupMember = "type group\n  relations\n    define member: [user, connection#identity]"
 	dslGroupConn   = "type group\n  relations\n    define connection: [connection]"
 	dslConnIdent   = "type connection\n  relations\n    define identity: [user]"
 	dslConnClient  = "type connection\n  relations\n    define enabled_client: [client]"
@@ -59,35 +61,70 @@ const (
 	dslTenant      = "type tenant"
 	dslOrgBare     = "type organization"
 	dslGroupBare   = "type group"
+	dslRoleBare    = "type role"
 )
 
-// tmplOrgID and friends are the payload paths, verified against the embedded
+// tmplOrgID and friends are payload paths, verified against the embedded
 // samples. Ids are used for identity, never display names: names change.
 const (
-	tmplOrgID    = "organization:{{ input.data.object.organization.id }}"
-	tmplOrgUser  = "user:{{ fga_escape(input.data.object.user.user_id) }}"
-	tmplGroupID  = "group:{{ input.data.object.group.id }}"
-	tmplGroupMem = "user:{{ fga_escape(input.data.object.member.id) }}"
-	tmplConnID   = "connection:{{ input.data.object.connection.id }}"
+	tmplOrgID   = "organization:{{ input.data.object.organization.id }}"
+	tmplOrgUser = "user:{{ fga_escape(input.data.object.user.user_id) }}"
+	tmplGroupID = "group:{{ input.data.object.group.id }}"
+	tmplConnID  = "connection:{{ input.data.object.connection.id }}"
+
+	// The user events key on the top-level user_id — "auth0|507f…" — which is
+	// the only id every other event agrees with. identities[].user_id is the
+	// provider's own subject, carries no provider prefix, and the schema types
+	// it as string *or* integer, so it can arrive as a JSON number.
+	tmplUserID = "user:{{ fga_escape(input.data.object.user_id) }}"
+
+	// One role object per role per organization. fga_escape leaves | alone,
+	// which is what makes a compound key like this legal in the first place.
+	tmplRoleID = "role:{{ input.data.object.organization.id }}|{{ input.data.object.role.id }}"
+
 	// The creation events name their own object at the root of the payload, and
-	// a group names its connection with a flat connection_id rather than the
+	// a group names its connection as a flat connection_id rather than the
 	// nested object the organization events use.
 	tmplNewGroup = "group:{{ input.data.object.id }}"
 	tmplGroupCon = "connection:{{ input.data.object.connection_id }}"
+	tmplGroupOrg = "organization:{{ input.data.object.organization_id }}"
 	tmplNewOrg   = "organization:{{ input.data.object.id }}"
 	tmplNewConn  = "connection:{{ input.data.object.id }}"
-	// Every payload carries its tenant beside the object rather than inside it.
-	// It is escaped because a tenant name is chosen by whoever made it, unlike
-	// the generated ids above.
-	tmplTenant = "tenant:{{ fga_escape(input.data.context.tenant.id) }}"
+
+	// A group's own members, as a set. This is the user side of a tuple, not the
+	// object side: it says "everyone in this group", which is how an
+	// organization-scoped group joins an organization in one tuple.
+	tmplGroupSet = "group:{{ input.data.object.id }}#member"
+
+	// A group member is a user or a whole connection, told apart by member_type.
+	tmplGroupMem = "user:{{ fga_escape(input.data.object.member.id) }}"
+	tmplMemConn  = "connection:{{ input.data.object.member.connection_id }}#identity"
+
+	// The tenant is on the envelope, not in data. data.context is optional on
+	// every event type in Auth0's schema, while a0tenant is required on all of
+	// them — reading the tenant from context is how a rule that works in testing
+	// fails in production.
+	tmplTenant = "tenant:{{ fga_escape(input.a0tenant) }}"
+)
+
+// Gates on the tagged unions in the payloads. Auth0 discriminates a group by
+// what it is scoped to and a group member by what kind of thing it is, and a
+// rule that reads one branch's field without checking the tag fails outright on
+// the others: the field is simply absent, and an expression over a missing path
+// is an error, not a blank.
+const (
+	gateScopeConn  = `input.data.object.type == "connection"`
+	gateScopeOrg   = `input.data.object.type == "organization"`
+	gateMemberUser = `input.data.object.member.member_type == "user"`
+	gateMemberConn = `input.data.object.member.member_type == "connection"`
 )
 
 func when(typ string) string { return `input.type == "` + typ + `"` }
 
-// membership builds one of the ten relationship recipes. write says whether
-// the event grants the relationship or removes it: granting needs no action at
-// all, and removing sets "delete" once at rule level rather than on the tuple.
-// Either level is legal; what mapper rejects is a rule that sets both.
+// membership builds one of the single-tuple relationship recipes. write says
+// whether the event grants a relationship or removes it: granting needs no
+// action at all, removing sets "delete" once at the rule level rather than on
+// the tuple. Either level is legal; mapper rejects a rule that sets both.
 func membership(typ, explain, user, relation, object string, write bool, reqs []mapping.Requirement) Recipe {
 	r := Recipe{Explain: explain, Requires: reqs}
 	r.Rule = mapping.Rule{
@@ -101,11 +138,24 @@ func membership(typ, explain, user, relation, object string, write bool, reqs []
 	return r
 }
 
+// union builds a recipe whose tuples are the branches of a tagged union, each
+// gated by its own when. Exactly one fires per event; the others are skipped
+// rather than failed, which is the whole reason the gate is on the tuple and
+// not on the rule.
+func union(typ, explain string, tuples []mapping.Tuple, write bool, reqs []mapping.Requirement) Recipe {
+	r := Recipe{Explain: explain, Requires: reqs}
+	r.Rule = mapping.Rule{Name: typ, When: when(typ), Tuples: tuples}
+	if !write {
+		r.Rule.Action = "delete"
+	}
+	return r
+}
+
 // cleanup builds one of the four deletion recipes. A tuple filter's object is
-// mandatory — mapper rejects a blank one — while its user and relation are
-// optional. So a filter that can name the doomed object names it in full, and
-// one that cannot pins the user instead and leaves the object as a bare type
-// prefix, which is what "every organization" looks like.
+// mandatory — mapper rejects a blank one — while user and relation are
+// optional. So the filter that names an object in full is the one that is
+// doomed to the one it names; the ones that pin a user instead leave the object
+// a bare type prefix, which is what "every organization" looks like.
 func cleanup(typ, explain string, filters []mapping.TupleFilter, reqs []mapping.Requirement) Recipe {
 	return Recipe{
 		Explain: explain,
@@ -121,91 +171,101 @@ func cleanup(typ, explain string, filters []mapping.TupleFilter, reqs []mapping.
 func recipeFor(typ string) Recipe {
 	switch typ {
 
-	// --- the eight relationship recipes ---
+	// --- relationship recipes ---
 
 	case "organization.member.added":
 		return membership(typ,
-			"A user joined an organization. This writes one tuple: that user becomes a member of that organization.",
+			"A user joined an organization. This writes one tuple: the user becomes a member of the organization.\n\nThe model lets a whole group be a member too — group#member on the same relation — which is what group.created writes for an organization-scoped group. One tuple then covers everyone in it, and Auth0 adding a person to the group keeps it true without reaching this rule at all.",
 			tmplOrgUser, "member", tmplOrgID, true,
 			[]mapping.Requirement{{Type: "organization", Relation: "member", UserTypes: []string{"user"},
 				DSL: dslUser + "\n\n" + dslOrgMember}})
 
 	case "organization.member.deleted":
 		return membership(typ,
-			"A user left an organization. This deletes the same membership tuple the added event would have written.",
+			"A user left an organization. This deletes the tuple the added event wrote.",
 			tmplOrgUser, "member", tmplOrgID, false,
 			[]mapping.Requirement{{Type: "organization", Relation: "member", UserTypes: []string{"user"},
 				DSL: dslUser + "\n\n" + dslOrgMember}})
 
 	case "organization.member.role.assigned":
 		return membership(typ,
-			"A role assigned inside an organization. The relation comes from the event itself, so this one rule covers every role you define — but your model needs a relation per role name, and the admin relation below is only an example of the shape.",
-			tmplOrgUser, "{{ input.data.object.role.name }}", tmplOrgID, true,
-			[]mapping.Requirement{{Type: "organization", DSL: dslUser + "\n\n" + dslOrgRole}})
+			"A member was granted a role inside an organization.\n\nThe role is an object, not a relation. Your users invent role names at runtime, and a relation named from role.name breaks the first time somebody calls one \"Billing Manager\" — a relation name cannot contain a space. OpenFGA's rule of thumb is the one to keep: if end-users can define it, it goes in tuples; if it is built into your application, it goes in the model.\n\nThe object is keyed org_…|rol_…, because the same role in two organizations must not be the same object. What the role *permits* is the one thing Auth0 never tells you — you say that once, by hand:\n\n  role:org_…|rol_admin#assignee  admin  organization:org_…\n\nAfter that this rule and the revocation below keep it true on their own.",
+			tmplOrgUser, "assignee", tmplRoleID, true,
+			[]mapping.Requirement{{Type: "role", Relation: "assignee", UserTypes: []string{"user"},
+				DSL: dslUser + "\n\n" + dslOrgRole}})
 
 	case "organization.member.role.deleted":
 		return membership(typ,
-			"A role taken away inside an organization. This deletes the tuple matching the assigned event that wrote it. The relation comes from the event, so your model needs a relation per role name, and the admin relation below is only an example of the shape.",
-			tmplOrgUser, "{{ input.data.object.role.name }}", tmplOrgID, false,
-			[]mapping.Requirement{{Type: "organization", DSL: dslUser + "\n\n" + dslOrgRole}})
+			"A role was taken away inside an organization. This deletes the tuple the assigned event wrote, matching it on the same org_…|rol_… key.\n\nThe tuple that says what the role means — the one you wrote by hand on the organization — is untouched, which is the point of keeping roles in their own type: revoking a person's role never risks the definition of the role.",
+			tmplOrgUser, "assignee", tmplRoleID, false,
+			[]mapping.Requirement{{Type: "role", Relation: "assignee", UserTypes: []string{"user"},
+				DSL: dslUser + "\n\n" + dslOrgRole}})
 
 	case "group.member.added":
-		return membership(typ,
-			"Someone joined a group. The member id here is an email address, so it is escaped before it becomes part of a tuple.",
-			tmplGroupMem, "member", tmplGroupID, true,
+		return union(typ,
+			"Someone joined a group — and \"someone\" is two different things. Auth0 group members are tagged with member_type: a user, or an entire connection. So this rule carries two tuples, each gated on the tag, and exactly one fires.\n\nThe connection branch writes a userset, connection:con_…#identity, rather than a user: it says everyone with an identity in that connection is a member, without a tuple per person. That is the same identity relation user.created writes.\n\nOne thing to check before adopting this: member.id is the member's id as the group knows it, which for a SCIM-provisioned group is often an email rather than the auth0|… user_id every other recipe here uses. If yours differ, pick one key and map to it, or the same person ends up in your store twice.",
+			[]mapping.Tuple{
+				{User: tmplGroupMem, Relation: "member", Object: tmplGroupID, When: gateMemberUser},
+				{User: tmplMemConn, Relation: "member", Object: tmplGroupID, When: gateMemberConn},
+			}, true,
 			[]mapping.Requirement{{Type: "group", Relation: "member", UserTypes: []string{"user"},
-				DSL: dslUser + "\n\n" + dslGroupMember}})
+				DSL: dslUser + "\n\n" + dslConnIdent + "\n\n" + dslGroupMember}})
 
 	case "group.member.deleted":
-		return membership(typ,
-			"Someone left a group. This deletes the membership tuple matching the added event that wrote it.",
-			tmplGroupMem, "member", tmplGroupID, false,
+		return union(typ,
+			"Someone left a group. This deletes whichever of the two tuples the added event wrote, gated the same way on member_type — a rule that only handled users would leave a whole connection's worth of access behind.",
+			[]mapping.Tuple{
+				{User: tmplGroupMem, Relation: "member", Object: tmplGroupID, When: gateMemberUser},
+				{User: tmplMemConn, Relation: "member", Object: tmplGroupID, When: gateMemberConn},
+			}, false,
 			[]mapping.Requirement{{Type: "group", Relation: "member", UserTypes: []string{"user"},
-				DSL: dslUser + "\n\n" + dslGroupMember}})
+				DSL: dslUser + "\n\n" + dslConnIdent + "\n\n" + dslGroupMember}})
 
 	case "organization.connection.added":
 		return membership(typ,
-			"A connection was associated with an organization. This records which organization the connection belongs to.",
+			"A connection was associated with an organization. This records which organization a connection belongs to.",
 			tmplConnID, "connection", tmplOrgID, true,
 			[]mapping.Requirement{{Type: "organization", Relation: "connection", UserTypes: []string{"connection"},
 				DSL: dslConnection + "\n\n" + dslOrgConn}})
 
 	case "organization.connection.removed":
 		return membership(typ,
-			"A connection was dissociated from an organization. This deletes the tuple the added event would have written.",
+			"A connection was dissociated from an organization. This deletes the tuple the added event wrote.",
 			tmplConnID, "connection", tmplOrgID, false,
 			[]mapping.Requirement{{Type: "organization", Relation: "connection", UserTypes: []string{"connection"},
 				DSL: dslConnection + "\n\n" + dslOrgConn}})
 
-	// --- the four deletion recipes ---
+	// --- deletion recipes, which sweep with filters rather than tuples ---
 
 	case "user.deleted":
 		return cleanup(typ,
-			"A user was deleted. The two filters use different identifiers on purpose: the organization events identify a member by user_id, the group events by email address, so a single filter could not match both. No one object id names every organization and group, which is why these are filters and not tuples.",
+			"A user was deleted, and every tuple naming them has to go. The event cannot name the organizations, roles and connections they belonged to, so this sweeps by user instead: each filter reads every tuple with this user and that object type, then deletes what it finds.\n\nThree filters is mapper's hard limit per rule, and this catalog writes a user into four places. Group membership is the one left out, because it is the one whose key may not be the auth0|… user_id — see group.member.added. Add a second rule with the same when if your groups key on user_id too.",
 			[]mapping.TupleFilter{
-				{User: "user:{{ fga_escape(input.data.object.user_id) }}", Object: "organization:", Action: "delete"},
-				{User: "user:{{ fga_escape(input.data.object.email) }}", Object: "group:", Action: "delete"},
+				{User: tmplUserID, Object: "organization:", Action: "delete"},
+				{User: tmplUserID, Object: "role:", Action: "delete"},
+				{User: tmplUserID, Object: "connection:", Action: "delete"},
 			},
 			[]mapping.Requirement{
 				{Type: "organization", DSL: dslUser + "\n\n" + dslOrgBare},
-				{Type: "group", DSL: dslGroupBare},
+				{Type: "role", DSL: dslRoleBare},
+				{Type: "connection", DSL: dslConnection},
 			})
 
 	case "organization.deleted":
 		return cleanup(typ,
-			"An organization was deleted. This removes every tuple that names it as the object, since none of them can outlive it.",
+			"An organization was deleted. This removes every tuple that names the object, since none of them outlive it.",
 			[]mapping.TupleFilter{{Object: "organization:{{ input.data.object.id }}", Action: "delete"}},
 			[]mapping.Requirement{{Type: "organization", DSL: dslOrgBare}})
 
 	case "group.deleted":
 		return cleanup(typ,
-			"A group was deleted. This removes every tuple that names it, so no membership outlives the group.",
+			"A group was deleted. This removes every tuple that names it, as no membership outlives the group.",
 			[]mapping.TupleFilter{{Object: "group:{{ input.data.object.id }}", Action: "delete"}},
 			[]mapping.Requirement{{Type: "group", DSL: dslGroupBare}})
 
 	case "connection.deleted":
 		return cleanup(typ,
-			"A connection was deleted. Both events that attach one — organization.connection.added and group.created — put the connection on the user side of the tuple, so these filters match on the user and sweep both sides it could have been attached to.",
+			"A connection was deleted. Both events that attach one — organization.connection.added and group.created — put the connection on the user side of the tuple, so these filters match on user and sweep both sides it could have been attached to.",
 			[]mapping.TupleFilter{
 				{User: "connection:{{ input.data.object.id }}", Object: "organization:", Action: "delete"},
 				{User: "connection:{{ input.data.object.id }}", Object: "group:", Action: "delete"},
@@ -214,31 +274,39 @@ func recipeFor(typ string) Recipe {
 				{Type: "organization", Relation: "connection", UserTypes: []string{"connection"},
 					DSL: dslConnection + "\n\n" + dslOrgConn},
 				{Type: "group", Relation: "connection", UserTypes: []string{"connection"},
-					DSL: dslGroupConn},
+					DSL: dslConnection + "\n\n" + dslGroupConn},
 			})
 
-	// --- the settings event that turns out to carry one relationship ---
 	case "organization.connection.updated":
 		r := membership(typ,
-			"Most of this event is attributes, but one field is a relationship: is_enabled. A tenant that disables a connection rather than removing it fires this event and no other, so without this rule the organization→connection tuple outlives the access it stands for. The when clause is what keeps the rule honest — the event also fires for every cosmetic change, and this one only matches the disabling.",
+			"An organization's connection settings changed. The one setting that is a relationship is is_enabled: a disabled connection should stop granting anything, so this deletes the tuple when the flag goes false.\n\nThe flags sit on data.object directly, not inside the nested connection — that object carries only an id.",
 			tmplConnID, "connection", tmplOrgID, false,
 			[]mapping.Requirement{{Type: "organization", Relation: "connection", UserTypes: []string{"connection"},
 				DSL: dslConnection + "\n\n" + dslOrgConn}})
-		r.Rule.When = when(typ) + " && !input.data.object.is_enabled"
+		r.Rule.Tuples[0].When = "!input.data.object.is_enabled"
 		return r
 
-	// --- the one creation event that creates a relationship too ---
-	case "group.created":
-		return membership(typ,
-			"A group was created inside a connection. Most creation events relate nothing, but this one carries connection_id: the group belongs to that connection from the moment it exists, so there is a tuple to write straight away.",
-			tmplGroupCon, "connection", tmplNewGroup, true,
-			[]mapping.Requirement{{Type: "group", Relation: "connection", UserTypes: []string{"connection"},
-				DSL: dslConnection + "\n\n" + dslGroupConn}})
+	// --- one creation event that creates a relationship too ---
 
-	// --- the creation event whose relationships are nested in an array ---
+	case "group.created":
+		return union(typ,
+			"A group was created — and where it was created is a three-way choice. Auth0 scopes a group to a connection, to an organization, or to the whole tenant, and tags which with type. Only the first two are relationships, so this rule carries two tuples, each gated on the tag.\n\nThe connection branch is a parent pointer: the group belongs to that connection. The organization branch is the other shape — group:grp_…#member as the *user* of the tuple, which makes everyone in the group a member of the organization in one tuple, and keeps them members as Auth0 adds and removes people.\n\nA tenant-scoped group gets nothing, on purpose: every group is in the tenant, so saying so would be one tuple per group that never answers a question.",
+			[]mapping.Tuple{
+				{User: tmplGroupCon, Relation: "connection", Object: tmplNewGroup, When: gateScopeConn},
+				{User: tmplGroupSet, Relation: "member", Object: tmplGroupOrg, When: gateScopeOrg},
+			}, true,
+			[]mapping.Requirement{
+				{Type: "group", Relation: "connection", UserTypes: []string{"connection"},
+					DSL: dslConnection + "\n\n" + dslGroupConn},
+				{Type: "organization", Relation: "member", UserTypes: []string{"user"},
+					DSL: dslGroupBare + "\n\n" + dslOrgMember},
+			})
+
+	// --- creation events whose relationships are nested in an array ---
+
 	case "user.created":
 		return Recipe{
-			Explain: "A user was created with one or more identities, and each identity says which connection it came from. This is the only recipe that fans out: an iterator walks input.data.object.identities and writes a tuple per element, so a user with three logins gets three tuples from one rule.\n\nRead the rendered tuples before adopting this. Auth0 names the connection here, while every other connection recipe in this catalog uses its con_… id — pick one key for connection and keep to it, or the same connection ends up in your store twice. And identity.user_id is the provider's id, which is the root user_id without its provider| prefix: if your model keys users the way the organization recipes do, use input.data.object.user_id instead.",
+			Explain: "A user was created with one or more identities, and each identity says which connection it came from. This is the only recipe that fans out: the iterator walks input.data.object.identities and writes a tuple per element, so a user with three logins gets three tuples from one rule.\n\nThe user is keyed on the top-level user_id, not on identity.user_id — that one is the provider's own subject, has no auth0| prefix, and the schema allows it to arrive as a number rather than a string.\n\nRead the rendered tuples before adopting this. Auth0 names the connection here, while every other connection recipe in the catalog uses the con_… id. The payload carries no id to use instead, so pick one key for connections and map to it consistently, or the same connection ends up in your store twice.",
 			Rule: mapping.Rule{
 				Name: typ,
 				When: when(typ),
@@ -246,7 +314,7 @@ func recipeFor(typ string) Recipe {
 					Source: "input.data.object.identities",
 					As:     "identity",
 					Tuples: []mapping.Tuple{{
-						User:     "user:{{ fga_escape(identity.user_id) }}",
+						User:     tmplUserID,
 						Relation: "identity",
 						Object:   "connection:{{ fga_escape(identity.connection) }}",
 					}},
@@ -256,18 +324,16 @@ func recipeFor(typ string) Recipe {
 				DSL: dslUser + "\n\n" + dslConnIdent}},
 		}
 
-	// --- the creation events, which relate their new object to the tenant ---
-
 	case "organization.created":
 		return membership(typ,
-			"An organization was created. Nothing else in the payload is a relationship — but the tenant beside it is. Every Auth0 event carries data.context.tenant.id, and relating a new object to its tenant is what stops it floating free until someone happens to add a member.\n\nThis is the pattern to copy for your own resources: whatever a document or project hangs from, write that tuple the moment the object exists.",
+			"An organization was created. It relates to nothing else yet, so the only relationship available is the one to the tenant it was created in — the pattern you copy for your own resources: a document or a project names the thing it hangs from, and the tuple is written the moment the object exists.\n\nThe tenant comes from a0tenant on the envelope rather than from data.context, which Auth0's schema marks optional on every event type.",
 			tmplTenant, "tenant", tmplNewOrg, true,
 			[]mapping.Requirement{{Type: "organization", Relation: "tenant", UserTypes: []string{"tenant"},
 				DSL: dslTenant + "\n\n" + dslOrgTenant}})
 
 	case "connection.created":
 		return Recipe{
-			Explain: "A connection was created. Two relationships in one rule, which is why this recipe is worth reading twice: the tuple relates the connection to its tenant, and the iterator below it walks enabled_clients and writes one tuple per application the connection is turned on for.\n\nenabled_clients is an array of plain strings, not objects, so the iterator's element is the client id itself — {{ client }} rather than {{ client.id }}.",
+			Explain: "A connection was created. Two relationships come out of one rule, which is why this recipe is worth reading twice: the tuple relates the connection to its tenant, and the iterator below walks enabled_clients and writes one tuple per application the connection is turned on for.\n\nenabled_clients is an array of plain strings, not objects, so the iterator's element is the client id itself — {{ client }}, not {{ client.id }}.\n\nAuth0 has since marked enabled_clients deprecated on the connection API. It is still in the event schema, and still the only place the event says which applications a connection serves.",
 			Rule: mapping.Rule{
 				Name:   typ,
 				When:   when(typ),
@@ -290,11 +356,11 @@ func recipeFor(typ string) Recipe {
 			},
 		}
 
-	// --- the update events that move a relationship rather than an attribute ---
+	// --- update events that move a relationship rather than an attribute ---
 
 	case "user.updated":
 		return Recipe{
-			Explain: "A user's profile changed, and identities is one of the things that can change: linking a second login adds an entry. The rule re-writes the whole current list rather than working out what is new, because writing a tuple that already exists is free and getting the difference right is not.\n\nIt is gated on identities actually having changed, so the rule stays quiet for the profile edits — a new phone number, a changed nickname — that make up most of this event.",
+			Explain: "A user's profile changed, and identities is one of the things that can change: linking a second login adds an entry. This rule re-writes the whole current list, which works because writing a tuple that already exists is not an error.\n\nIt adds and never removes, though — unlinking an identity leaves its tuple behind. The gate below only stops the rule running when the list did not change; making unlinking work needs the delete side too, which is the shape group.updated shows.",
 			Rule: mapping.Rule{
 				Name: typ,
 				When: when(typ) + " && input.data.object.identities != input.data.previous_object.identities",
@@ -302,7 +368,7 @@ func recipeFor(typ string) Recipe {
 					Source: "input.data.object.identities",
 					As:     "identity",
 					Tuples: []mapping.Tuple{{
-						User:     "user:{{ fga_escape(identity.user_id) }}",
+						User:     tmplUserID,
 						Relation: "identity",
 						Object:   "connection:{{ fga_escape(identity.connection) }}",
 					}},
@@ -314,7 +380,7 @@ func recipeFor(typ string) Recipe {
 
 	case "group.updated":
 		return Recipe{
-			Explain: "A group changed, and one of the things that can change is which connection it belongs to. That is a move, not an edit: the old tuple has to go at the same time the new one arrives, or the group ends up in both connections at once.\n\nSo this rule carries two tuples with opposite actions, each gated by its own when. Both gates are the same comparison against previous_object, which is what keeps the rule silent for the renames and description edits this event usually carries — and what stops the two tuples colliding when the connection did not move.",
+			Explain: "A group changed, and one of the things that can change is the connection it belongs to. That is a move, not an edit: the old tuple has to go at the same time the new one arrives, or the group ends up in both connections at once.\n\nSo the rule carries two tuples with opposite actions, each gated by its own when. The gates compare against previous_object and also check the group is still connection-scoped, which keeps the rule silent for the renames and description edits the event usually carries — and stops the two tuples colliding when the connection did not move.",
 			Rule: mapping.Rule{
 				Name: typ,
 				When: when(typ),
@@ -324,13 +390,13 @@ func recipeFor(typ string) Recipe {
 						Relation: "connection",
 						Object:   tmplNewGroup,
 						Action:   "delete",
-						When:     "input.data.object.connection_id != input.data.previous_object.connection_id",
+						When:     gateScopeConn + " && input.data.object.connection_id != input.data.previous_object.connection_id",
 					},
 					{
 						User:     tmplGroupCon,
 						Relation: "connection",
 						Object:   tmplNewGroup,
-						When:     "input.data.object.connection_id != input.data.previous_object.connection_id",
+						When:     gateScopeConn + " && input.data.object.connection_id != input.data.previous_object.connection_id",
 					},
 				},
 			},
@@ -340,7 +406,7 @@ func recipeFor(typ string) Recipe {
 
 	case "connection.updated":
 		return Recipe{
-			Explain: "A connection's settings changed, and enabling it for another application changes enabled_clients. The iterator re-writes the current list, gated on that list having changed.\n\nRead the limit before adopting it: this adds, it does not remove. One rule walks one array, so an application taken off the list keeps its tuple. If that matters, pair this with a rule keyed on the same event that deletes what previous_object holds — or accept that removals arrive with connection.deleted.",
+			Explain: "A connection's settings changed, and enabling an application changes enabled_clients. The iterator re-writes the current list, gated on the list having changed.\n\nRead the limit before adopting it: it adds, it does not remove. One rule walks one array, so an application taken off the list keeps its tuple. Where that matters, connection.deleted shows the other tool — a tuple filter, which reads what is there and deletes what the event no longer lists.",
 			Rule: mapping.Rule{
 				Name: typ,
 				When: when(typ) + " && input.data.object.enabled_clients != input.data.previous_object.enabled_clients",
@@ -360,14 +426,14 @@ func recipeFor(typ string) Recipe {
 
 	// --- no mapping: the one event with nothing relational in it ---
 	//
-	// organization.updated is the whole of this branch. Every other event in the
+	// organization.updated, not a whole branch. Every other event in the
 	// catalog turned out to carry a relationship somewhere — often beside the
-	// object rather than inside it, as with the tenant — and this one genuinely
-	// does not: an id, a name, a display name, some branding colours.
+	// object rather than inside it, as the tenant is — and this one genuinely
+	// does not: an id, a name, a display name, and some branding colours.
 	//
-	// It is stated as this event's own fact rather than as a law about update
-	// events, because three update events two cases up map perfectly well.
+	// So the note states the event's own fact rather than a law about update
+	// events, of which the other three map perfectly well.
 	default:
-		return Recipe{Note: "attributes", Explain: "Nothing to write. This event carries an organization's id, name, display name, branding and metadata — and an attribute is not a relationship. It is the only event in this catalog with nothing relational in it.\n\nIt does carry a previous_object, so a rule here is still possible if your model treats one of those attributes as a relationship. The three update events that do map — user.updated, group.updated and connection.updated — all work that way: compare the two versions, and write only when the thing you care about moved."}
+		return Recipe{Note: "attributes", Explain: "Nothing to write. This event carries an organization's id, name, display name and branding metadata — every one of them an attribute, not a relationship. It is the only event in the catalog with nothing relational in it.\n\nIt does carry previous_object, so a rule is still possible if your model treats one of those attributes as a relationship. The other three update events do map — user.updated, group.updated and connection.updated — and all work the same way: compare the two versions, write only when the thing you care about moved."}
 	}
 }
