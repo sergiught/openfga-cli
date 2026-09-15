@@ -147,3 +147,50 @@ func TestEvaluateSurfacesRenderFailureAsEvalErr(t *testing.T) {
 		t.Fatalf("a render failure carries no mapper diagnostics, got %v", p.Diagnostics)
 	}
 }
+
+func TestTupleCountAddsFilterTuplesToTheRulesOwn(t *testing.T) {
+	d := memberAddedDoc()
+	// A patch filter routes the rule's tuples into the filter operation instead
+	// of the top-level list, so a count that read only Tuples would report none.
+	d.Rules[0].Filters = []mapping.TupleFilter{{Object: "organization:"}}
+	p := mapping.Evaluate(context.Background(), d, memberAddedEvent())
+	if !p.OK() {
+		t.Fatalf("not OK: %v %v", p.Diagnostics, p.EvalErr)
+	}
+	if len(p.Tuples) != 0 {
+		t.Fatalf("a filtered rule keeps its tuples on the operation, got %d loose", len(p.Tuples))
+	}
+	if got := p.TupleCount(); got != 1 {
+		t.Fatalf("TupleCount = %d, want 1", got)
+	}
+}
+
+func TestTupleCountIsMapperTupleBudget(t *testing.T) {
+	p := mapping.Evaluate(context.Background(), memberAddedDoc(), memberAddedEvent())
+	if got := p.TupleCount(); got != len(p.Tuples) {
+		t.Fatalf("TupleCount = %d, want %d", got, len(p.Tuples))
+	}
+}
+
+func TestEvaluatedSeparatesNoTuplesFromNothingRun(t *testing.T) {
+	p := mapping.Evaluate(context.Background(), memberAddedDoc(), memberAddedEvent())
+	if !p.Evaluated {
+		t.Fatal("a sample that ran should be marked evaluated")
+	}
+
+	if p := mapping.Evaluate(context.Background(), memberAddedDoc(), nil); p.Evaluated {
+		t.Fatal("no sample means nothing was evaluated")
+	}
+
+	// A document that does not compile never reaches evaluation, and its zero
+	// tuples are the absence of a measurement rather than one.
+	d := memberAddedDoc()
+	d.Rules[0].Name = ""
+	p = mapping.Evaluate(context.Background(), d, memberAddedEvent())
+	if p.OK() {
+		t.Fatal("expected a nameless rule to fail to compile")
+	}
+	if p.Evaluated {
+		t.Fatal("a document that failed to compile was never evaluated")
+	}
+}

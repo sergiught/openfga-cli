@@ -230,6 +230,13 @@ func (m *wizardModel) chromeFor() chrome {
 		// anyway it reads as the one affordance that is broken, on the screen with
 		// the most typing to do.
 		c.keys = []keyHint{{"tab", "next"}, {"^p", "insert path"}, {"esc", "done"}}
+	case m.top() == screenFilters && len(m.ruleFilters()) > 0:
+		// Three per rule is mapper's limit and nothing on the screen says so, so
+		// the only way to learn it is to be refused at the fourth. The count
+		// appears once a filter exists: on an empty list it would be a budget for
+		// something the user has not started spending, and the empty state
+		// already has a sentence to say.
+		c.subtitle = fmt.Sprintf("%d of %d used. %s", len(m.ruleFilters()), maxFilters, c.subtitle)
 	case m.top() == screenTuples && m.inIter:
 		// Two different lists render on this screen — the rule's own tuples and
 		// the iterator's — and the chrome is all that distinguishes them. Left
@@ -262,7 +269,7 @@ func (m *wizardModel) chromeFor() chrome {
 		// screenHelp is a leaf pushed only on top of a screen helpFor answered
 		// for (see help.go), so the entry underneath always exists.
 		c.title, _, _ = helpFor(m.stack[len(m.stack)-2])
-		c.keys = []keyHint{{"any key", "close"}}
+		c.keys = []keyHint{{"↑↓", "scroll"}, {"any key", "close"}}
 	case m.top() != screenConfirmSave:
 	case len(m.doc.Rules) == 0:
 		c.keys = []keyHint{{"esc", "back"}}
@@ -297,8 +304,15 @@ func (m *wizardModel) viewString() string {
 	// is: `rules: []` next to a mapping the user is in the middle of acquiring,
 	// which reads as a verdict on the answer they are being asked for. Every
 	// other screen is the two-pane editor.
+	//
+	// Help is a modal too, and belongs here for a second reason: stacked on a
+	// short terminal the preview lands under it and takes the rows the concept
+	// needs, so the longest explanations were the ones getting cut. A card gives
+	// it the whole terminal, and a file listing beside a definition was never
+	// what the reader reached for anyway.
 	switch m.top() {
-	case screenWelcome, screenPayloadKind, screenRecipe, screenConfirmSave, screenConfirmDelete:
+	case screenWelcome, screenPayloadKind, screenRecipe, screenHelp,
+		screenConfirmSave, screenConfirmDelete:
 		return m.cardView()
 	}
 	return m.paneView()
@@ -368,15 +382,20 @@ func (m *wizardModel) windowLines(body string, n int) string {
 	if m.cardOff > m.cardMaxOff {
 		m.cardOff = m.cardMaxOff
 	}
-	// Only the recipe screen binds the arrows, so only there may a marker name
-	// one. Elsewhere an overflowing card really is a resize away from being
+	// Only the recipe and help cards bind the arrows, so only there may a marker
+	// name one. Elsewhere an overflowing card really is a resize away from being
 	// readable, and trimLines says so in those terms.
+	//
+	// Help scrolls because two of its bodies — tuple filters and the iterator —
+	// are longer than an 80x24 card can hold, and the overlay is the wizard's
+	// teaching surface: a concept the user has to widen their terminal to finish
+	// reading is one they finish learning in production.
 	//
 	// The arrows live in the markers rather than the key hints because the hint
 	// row is already 38 cells of a 44-column floor: a fourth key there would
 	// run off the narrowest terminal the wizard supports. The marker is where
 	// the eye already is when the body runs out, and it costs no row of its own.
-	if m.top() != screenRecipe {
+	if m.top() != screenRecipe && m.top() != screenHelp {
 		return trimLines(body, n)
 	}
 	if m.cardOff > 0 {
@@ -459,6 +478,13 @@ func (m *wizardModel) cardBody(cw int) string {
 		return m.kindPick.View(cw)
 	case screenRecipe:
 		return m.recipeBody(cw)
+	case screenHelp:
+		// The body is prose the wizard authors rather than a widget, so this is
+		// the only thing holding it inside the frame at narrow widths. screenHelp
+		// is a leaf pushed only on top of a screen helpFor answered for, so the
+		// entry underneath always exists.
+		_, body, _ := helpFor(m.stack[len(m.stack)-2])
+		return lipgloss.NewStyle().Foreground(style.Muted).Width(cw).Render(body)
 	case screenConfirmSave:
 		return m.saveSummary()
 	case screenConfirmDelete:
@@ -589,11 +615,6 @@ func (m *wizardModel) screenBody(cw int) string {
 		return m.filterForm.View()
 	case screenPathPick:
 		return m.paths.View()
-	case screenHelp:
-		// The body is prose the wizard authors rather than a widget, so this is
-		// the only thing holding it inside the frame at narrow widths.
-		_, body, _ := helpFor(m.stack[len(m.stack)-2])
-		return lipgloss.NewStyle().Foreground(style.Muted).Width(cw).Render(body)
 	}
 	return ""
 }
@@ -1098,10 +1119,36 @@ func (m *wizardModel) evaluationLines(w int) string {
 				clamp(style.SanitizeTerminal(fmt.Sprintf("– %s: skipped", r.Name)), w)))
 		}
 	}
+	// The tuple cap is the one limit a sample can measure rather than merely
+	// state, and the one worth measuring: an iterator over a real tenant's list
+	// reaches 40 long before a hand-written rule reaches 100 rules. The count is
+	// mapper's own, so the number here is the number the pipeline checks.
+	//
+	// It is gated on the sample having actually run. A document that does not
+	// compile never reaches evaluation, and printing "0 of 40" over the top of
+	// the errors saying why would read as a measurement rather than as the
+	// absence of one — the budget would look spent when nothing had been
+	// weighed.
+	if m.preview.Evaluated {
+		out = append(out, tupleBudget(m.preview.TupleCount(), w))
+	}
 	if len(out) == 0 {
 		return lipgloss.NewStyle().Foreground(style.Faintc).Render("no sample event yet")
 	}
 	return strings.Join(out, "\n")
+}
+
+// tupleBudget renders the sample's tuple count against mapper's per-event cap.
+// Over the cap it turns red because mapper fails the whole event rather than
+// writing the first 40: the tuples listed above this line would not be written
+// at all. Under it the line stays faint — it is a budget, not a warning.
+func tupleBudget(n, w int) string {
+	c := style.Faintc
+	if n > mapping.MaxTuples {
+		c = style.Red
+	}
+	return lipgloss.NewStyle().Foreground(c).Render(
+		clamp(fmt.Sprintf("%d of %d tuples mapper allows per event", n, mapping.MaxTuples), w))
 }
 
 func filterSummary(f language.TupleFilter) string {

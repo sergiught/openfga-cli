@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/sergiught/openfga-cli/internal/mapping"
 	"github.com/sergiught/openfga-cli/internal/mapping/auth0"
 )
 
@@ -52,11 +53,14 @@ func helpFor(s screen) (title, body string, ok bool) {
 		return "Iterator", "Some events carry a list — a user's identities, the applications a " +
 			"connection is enabled for — and one relationship per entry in it.\n\n" +
 			"Source is the list. As names one entry, so the tuples below can read from it. " +
-			"Those tuples are the iterator's own: they are written once per item, while the " +
-			"rule's own tuples are written once no matter how long the list is.\n\n" +
+			"Those tuples are written once per item; the rule's own are written once.\n\n" +
 			"  source: input.data.object.identities\n" +
 			"  as: identity\n" +
-			"  user:{{ identity.user_id }}  identity  connection:{{ identity.connection }}", true
+			"  user:{{ identity.user_id }}  identity  connection:{{ identity.connection }}\n\n" +
+			fmt.Sprintf("Two limits bound the list, and no sample is big enough to show them: "+
+				"mapper walks at most %d items, and one event may produce at most %d tuples in "+
+				"total — two per item runs out at %d. Either overrun fails the event outright.",
+				mapping.MaxIteratorItems, mapping.MaxTuples, mapping.MaxTuples/2), true
 	case screenRule:
 		return "Rule", "A rule reads: when this event arrives, write or delete these relationships.\n\n" +
 			"Trigger names the rule and the events it matches. Tuples are the relationships it " +
@@ -102,10 +106,26 @@ func (m *wizardModel) filtering() bool {
 	return false
 }
 
-// keyHelp dismisses the overlay on any key. screenHelp is a leaf — nothing it
-// handles pushes another screen — so popping always returns to the screen the
-// overlay was opened from.
-func (m *wizardModel) keyHelp(tea.KeyPressMsg) tea.Cmd {
-	m.pop()
+// keyHelp scrolls the overlay on the arrows and dismisses it on anything else.
+// screenHelp is a leaf — nothing it handles pushes another screen — so popping
+// always returns to the screen the overlay was opened from.
+//
+// The arrows are carved out of "any key" rather than added beside it because a
+// body long enough to need them is one the user is still reading: closing the
+// concept they reached for at the moment they try to read the rest of it is the
+// one response that cannot be what they meant.
+func (m *wizardModel) keyHelp(k tea.KeyPressMsg) tea.Cmd {
+	switch k.String() {
+	case "up", "k":
+		if m.cardOff > 0 {
+			m.cardOff--
+		}
+	case "down", "j":
+		if m.cardOff < m.cardMaxOff {
+			m.cardOff++
+		}
+	default:
+		m.pop()
+	}
 	return nil
 }

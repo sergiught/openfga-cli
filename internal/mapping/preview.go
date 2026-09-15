@@ -19,6 +19,14 @@ type Preview struct {
 	Filters     []mapper.TupleFilterOperation
 	Rules       []mapper.RuleTrace
 
+	// Evaluated reports whether the sample was actually run through the mapping.
+	// It is false when there was no sample, and false when the document did not
+	// compile — and the two are indistinguishable from the fields above, because
+	// both leave Tuples empty. A caller that counts tuples needs the difference:
+	// zero tuples measured is a fact about the mapping, zero tuples because
+	// nothing ran is a fact about nothing.
+	Evaluated bool
+
 	// EvalErr holds a failure that produced no diagnostics to show instead — a
 	// Marshal rendering failure, say, where there is no mapper error to derive
 	// diagnostics from. An evaluation error from mapper itself is total over
@@ -28,6 +36,18 @@ type Preview struct {
 
 // OK reports whether the document both compiled and evaluated cleanly.
 func (p Preview) OK() bool { return len(p.Diagnostics) == 0 && p.EvalErr == nil }
+
+// TupleCount is how many tuples the sample produced, counted the way mapper
+// counts them against MaxTuples: a rule's own tuples plus the tuples every
+// filter reconciled against. Both halves count, so a rule that writes twenty
+// tuples and patches twenty more has already spent the whole budget.
+func (p Preview) TupleCount() int {
+	n := len(p.Tuples)
+	for _, op := range p.Filters {
+		n += len(op.Tuples)
+	}
+	return n
+}
 
 // Problems renders the diagnostics as document-level problems, so a caller can
 // list mapper's verdict alongside Lint's. Only the first line of a diagnostic
@@ -88,6 +108,7 @@ func Evaluate(ctx context.Context, d *Document, event map[string]any) Preview {
 		return p
 	}
 
+	p.Evaluated = true
 	res, evalErr := m.Evaluate(ctx, event)
 	if evalErr != nil {
 		if evalDiags := mapper.DiagnosticsFrom(evalErr); len(evalDiags) > 0 {

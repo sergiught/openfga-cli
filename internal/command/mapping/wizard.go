@@ -574,6 +574,14 @@ func (m *wizardModel) rule() *mapping.Rule {
 	return &m.doc.Rules[m.ruleIdx]
 }
 
+// ruleFilters is the open rule's tuple filters, or none when no rule is open.
+func (m *wizardModel) ruleFilters() []mapping.TupleFilter {
+	if r := m.rule(); r != nil {
+		return r.Filters
+	}
+	return nil
+}
+
 // tuples returns the slice the tuple editor is bound to: a rule's own tuples,
 // or its iterator's. Returns nil when there is no rule to edit.
 func (m *wizardModel) tuples() *[]mapping.Tuple {

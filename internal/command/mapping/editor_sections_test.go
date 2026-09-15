@@ -368,3 +368,59 @@ func TestTheFilterListNamesThePatchDefault(t *testing.T) {
 		t.Fatalf("the filter list does not say what an unset action does:\n%s", out)
 	}
 }
+
+func TestTheFilterListSaysHowMuchOfTheCapIsSpent(t *testing.T) {
+	m := atRuleHub(t)
+	openSection(t, m, 4, screenFilters)
+	// Nothing spent yet, and the empty state already has a sentence to say.
+	if got := plain(m.viewString()); strings.Contains(got, "of 3 used") {
+		t.Fatalf("an empty filter list should not carry a budget:\n%s", got)
+	}
+
+	send(m, key("a"), key("esc"))
+	if got := plain(m.viewString()); !strings.Contains(got, "1 of 3 used") {
+		t.Fatalf("want a filter count, got:\n%s", got)
+	}
+
+	send(m, key("a"), key("esc"))
+	send(m, key("a"), key("esc"))
+	if got := plain(m.viewString()); !strings.Contains(got, "3 of 3 used") {
+		t.Fatalf("want a full filter count, got:\n%s", got)
+	}
+	// The count is there so the cap is visible before it refuses a fourth.
+	send(m, key("a"))
+	if m.errMsg == "" {
+		t.Fatal("a fourth filter should be refused")
+	}
+}
+
+func TestTheTupleBudgetCountsOnlyWhatActuallyRan(t *testing.T) {
+	m := atRuleHub(t)
+	m.width, m.height = 100, 30
+	m.applySize()
+
+	r := m.rule()
+	r.Sample = &mapping.Sample{Label: "sample", Event: map[string]any{
+		"type": "organization.member.added",
+		"data": map[string]any{"object": map[string]any{
+			"organization": map[string]any{"id": "org_1"},
+			"user":         map[string]any{"user_id": "auth0|1"},
+		}},
+	}}
+	r.Tuples = []mapping.Tuple{{User: "user:alice", Relation: "member", Object: "organization:acme"}}
+
+	// A nameless rule does not compile, so the sample never runs. Reporting
+	// "0 of 40" over the errors saying why would read as a measurement.
+	r.Name = ""
+	m.refresh()
+	if got := plain(m.viewString()); strings.Contains(got, "of 40 tuples") {
+		t.Fatalf("a document that never compiled has no budget to report:\n%s", got)
+	}
+
+	r.Name = "member_added"
+	r.When = `input.type == "organization.member.added"`
+	m.refresh()
+	if got := plain(m.viewString()); !strings.Contains(got, "1 of 40 tuples") {
+		t.Fatalf("want the sample's tuple count against the cap, got:\n%s", got)
+	}
+}

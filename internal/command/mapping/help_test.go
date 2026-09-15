@@ -224,3 +224,58 @@ func TestEmptyHubAdvertisesHelp(t *testing.T) {
 	}
 	t.Fatal("the empty rules hub does not advertise ?, but ? opens help there")
 }
+
+func TestTheIteratorHelpNamesTheLimitsNoSampleCanShow(t *testing.T) {
+	_, body, ok := helpFor(screenIterator)
+	if !ok {
+		t.Fatal("no help for the iterator screen")
+	}
+	for _, want := range []string{"1000", "40"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("the iterator help does not name %s:\n%s", want, body)
+		}
+	}
+}
+
+func TestHelpScrollsOnTheArrowsAndClosesOnAnythingElse(t *testing.T) {
+	m := atFilters(t)
+	// The narrowest terminal the wizard supports, where the filters help is far
+	// longer than the card can hold — the case the arrows exist for.
+	m.width, m.height = minCols, minRows
+	m.applySize()
+	send(m, key("?"))
+	if m.top() != screenHelp {
+		t.Fatalf("top = %v, want help", m.top())
+	}
+
+	first := m.viewString()
+	send(m, key("down"))
+	if m.top() != screenHelp {
+		t.Fatal("an arrow closed the overlay instead of scrolling it")
+	}
+	if m.viewString() == first {
+		t.Fatal("the help did not scroll")
+	}
+	send(m, key("up"))
+	if got := m.viewString(); got != first {
+		t.Fatal("scrolling back up did not return to the top of the help")
+	}
+
+	send(m, key("x"))
+	if m.top() == screenHelp {
+		t.Fatal("a key that is not an arrow should close the overlay")
+	}
+}
+
+func TestHelpDoesNotShareTheScreenWithThePreview(t *testing.T) {
+	// The help overlay is a modal, and stacked on a short terminal the preview
+	// pane lands underneath it and takes the rows the explanation needs. The
+	// longest help bodies were the ones that got cut.
+	m := atFilters(t)
+	m.width, m.height = 80, 24
+	m.applySize()
+	send(m, key("?"))
+	if got := plain(m.viewString()); strings.Contains(got, "preview") {
+		t.Fatalf("the help overlay still draws the preview pane:\n%s", got)
+	}
+}
