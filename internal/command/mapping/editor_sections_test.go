@@ -99,19 +99,53 @@ func TestVariablesAreUsableInTuples(t *testing.T) {
 	}
 }
 
+// atIterForm walks the rule hub into the iterator hub and opens its Source/As
+// form, which is where the two scalar fields live now that the iterator's
+// tuples have a row of their own.
+func atIterForm(t *testing.T, m *wizardModel) {
+	t.Helper()
+	openSection(t, m, 3, screenIterator)
+	send(m, key("enter")) // Source, the first row
+	if m.top() != screenIterForm {
+		t.Fatalf("top = %v, want the iterator form", m.top())
+	}
+}
+
+// selectIterRow puts the iterator hub's cursor on the named row.
+func selectIterRow(t *testing.T, m *wizardModel, value string) {
+	t.Helper()
+	if m.top() != screenIterator {
+		t.Fatalf("top = %v, want the iterator hub", m.top())
+	}
+	m.iterHub.SetCursor(0)
+	for i := 0; i < m.iterHub.Len(); i++ {
+		if m.iterHub.Selected().Value == value {
+			return
+		}
+		m.iterHub.Move(1)
+	}
+	t.Fatalf("no %q row on the iterator hub", value)
+}
+
+// openIterTuples opens the iterator's own tuple list. The caller is already on
+// the iterator hub.
+func openIterTuples(t *testing.T, m *wizardModel) {
+	t.Helper()
+	selectIterRow(t, m, "tuples")
+	send(m, key("enter"))
+	if m.top() != screenTuples || !m.inIter {
+		t.Fatalf("top = %v, inIter = %v, want the iterator's tuple list", m.top(), m.inIter)
+	}
+}
+
 func TestIteratorFormAndNestedTuples(t *testing.T) {
 	m := atRuleHub(t)
-	openSection(t, m, 3, screenIterator)
+	atIterForm(t, m)
 
 	m.iterForm.SetValues([]string{"input.data.object.identities", "identity"})
-	send(m, key("ctrl+t")) // ctrl+t opens the iterator's tuples
+	send(m, key("esc")) // commit the form, back to the iterator hub
 
-	if m.top() != screenTuples {
-		t.Fatalf("top = %v", m.top())
-	}
-	if !m.inIter {
-		t.Fatal("the tuple editor should be bound to the iterator")
-	}
+	openIterTuples(t, m)
 	send(m, key("a"))
 	m.tupleForm.SetValues(tupleValues(map[tupleField]string{
 		fieldObject:   "connection:{{ identity.connection }}",
@@ -135,29 +169,73 @@ func TestIteratorFormAndNestedTuples(t *testing.T) {
 	}
 }
 
-// TestTypingIntoIteratorSourceStaysOnTheForm guards against binding "edit
-// tuples" to a bare "t": the iterator screen is a text-entry form, and a path
-// like "input.data.object.accounts" contains the letter t several times. Every
-// one of those keystrokes must land in the Source field, not open the tuple
-// list.
-func TestTypingIntoIteratorSourceStaysOnTheForm(t *testing.T) {
+// The iterator's tuples are a row you arrow onto, like every other list in this
+// wizard. They used to be reachable only by a ^t chord from inside the form,
+// which is what "in the iterator I can't select tuples" was about: two text
+// fields, no list, and nothing on screen to select.
+func TestTheIteratorHubOffersItsTuplesAsARow(t *testing.T) {
+	m := atRuleHub(t)
+	atIterForm(t, m)
+	m.iterForm.SetValues([]string{"input.data.object.identities", "identity"})
+	send(m, key("esc"))
+
+	var titles []string
+	for _, it := range m.iteratorSections() {
+		titles = append(titles, it.Title)
+	}
+	want := []string{"Source", "As", "Tuples"}
+	if len(titles) != len(want) {
+		t.Fatalf("iterator hub rows = %v, want %v", titles, want)
+	}
+	for i := range want {
+		if titles[i] != want[i] {
+			t.Fatalf("iterator hub rows = %v, want %v", titles, want)
+		}
+	}
+	openIterTuples(t, m)
+}
+
+// Choosing Tuples before there is an iterator to hang them on says so rather
+// than opening a list whose edits would be discarded.
+func TestTheIteratorHubRefusesTuplesWithoutASource(t *testing.T) {
 	m := atRuleHub(t)
 	openSection(t, m, 3, screenIterator)
+	selectIterRow(t, m, "tuples")
+	send(m, key("enter"))
+
+	if m.top() == screenTuples {
+		t.Fatal("the tuple list opened with no iterator to hold the tuples")
+	}
+	if m.errMsg == "" {
+		t.Fatal("no iterator, and no word about why the row did nothing")
+	}
+}
+
+// TestTypingIntoIteratorSourceStaysOnTheForm guards against binding "edit
+// tuples" to a bare "t": the iterator form is text entry, and a path like
+// "input.data.object.accounts" contains the letter t several times. Every one
+// of those keystrokes must land in the Source field.
+func TestTypingIntoIteratorSourceStaysOnTheForm(t *testing.T) {
+	m := atRuleHub(t)
+	atIterForm(t, m)
 
 	typeText(m, "input.data.object.accounts")
 	if got := m.iterForm.Values()[0]; got != "input.data.object.accounts" {
 		t.Fatalf("source = %q", got)
 	}
-	if m.top() != screenIterator {
-		t.Fatalf("top = %v, want screenIterator", m.top())
+	if m.top() != screenIterForm {
+		t.Fatalf("top = %v, want the iterator form", m.top())
 	}
 }
 
 func TestLeavingTheIteratorRebindsTheTupleEditor(t *testing.T) {
 	m := atRuleHub(t)
-	openSection(t, m, 3, screenIterator)
+	atIterForm(t, m)
 	m.iterForm.SetValues([]string{"input.data.object.identities", "identity"})
-	send(m, key("ctrl+t"), key("esc"), key("esc")) // tuples -> iterator -> rule hub
+	send(m, key("esc"))
+
+	openIterTuples(t, m)
+	send(m, key("esc"), key("esc")) // tuples -> iterator hub -> rule hub
 
 	if m.inIter {
 		t.Fatal("inIter must be cleared on the way out")
@@ -174,14 +252,14 @@ func TestLeavingTheIteratorRebindsTheTupleEditor(t *testing.T) {
 
 func TestClearingTheIteratorSourceRemovesIt(t *testing.T) {
 	m := atRuleHub(t)
-	openSection(t, m, 3, screenIterator)
+	atIterForm(t, m)
 	m.iterForm.SetValues([]string{"input.data.object.identities", "identity"})
-	send(m, key("esc"))
+	send(m, key("esc"), key("esc")) // form -> iterator hub -> rule hub
 	if m.rule().Iterator == nil {
 		t.Fatal("iterator should exist")
 	}
 
-	openSection(t, m, 3, screenIterator)
+	atIterForm(t, m)
 	m.iterForm.SetValues([]string{"", ""})
 	send(m, key("esc"))
 	if m.rule().Iterator != nil {

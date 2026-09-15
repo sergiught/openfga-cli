@@ -40,6 +40,15 @@ func helpFor(s screen) (title, body string, ok bool) {
 	case screenAction:
 		return "Action", "write adds the tuples, delete removes them. " +
 			"Set it here for the whole rule, or per tuple — never both.", true
+	case screenIterator:
+		return "Iterator", "Some events carry a list — a user's identities, the applications a " +
+			"connection is enabled for — and one relationship per entry in it.\n\n" +
+			"Source is the list. As names one entry, so the tuples below can read from it. " +
+			"Those tuples are the iterator's own: they are written once per item, while the " +
+			"rule's own tuples are written once no matter how long the list is.\n\n" +
+			"  source: input.data.object.identities\n" +
+			"  as: identity\n" +
+			"  user:{{ identity.user_id }}  identity  connection:{{ identity.connection }}", true
 	case screenRule:
 		return "Rule", "A rule reads: when this event arrives, write or delete these relationships.\n\n" +
 			"Trigger names the rule and the events it matches. Tuples are the relationships it " +

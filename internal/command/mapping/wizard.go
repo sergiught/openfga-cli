@@ -42,6 +42,7 @@ const (
 	screenVariables
 	screenVariable
 	screenIterator
+	screenIterForm
 	screenFilters
 	screenFilter
 	screenPathPick
@@ -127,6 +128,7 @@ type wizardModel struct {
 	varList    *uilist.List
 	varForm    *field.Form
 	iterForm   *field.Form
+	iterHub    *picker.Picker
 	filterList *uilist.List
 	filterForm *field.Form
 
@@ -174,6 +176,7 @@ func newWizard(ctx context.Context, path, profile string, load modelLoader) *wiz
 		{Title: "Another JSON payload", Desc: "paste or load your own event", Value: "other"},
 	})
 	m.sections = picker.New(nil)
+	m.iterHub = picker.New(nil)
 	m.events = uilist.New()
 	m.events.SetFilterPlaceholder("filter events")
 	// Compact: 21 catalog entries plus the two escapes do not fit on one page
@@ -337,7 +340,7 @@ func (m *wizardModel) routePaste(msg tea.PasteMsg) tea.Cmd {
 		cmd := m.varForm.Update(msg)
 		m.commitVariable()
 		return cmd
-	case screenIterator:
+	case screenIterForm:
 		cmd := m.iterForm.Update(msg)
 		if strings.TrimSpace(m.iterForm.Values()[0]) != "" {
 			m.commitIterator()
@@ -429,6 +432,8 @@ func (m *wizardModel) key(k tea.KeyPressMsg) tea.Cmd {
 		return m.keyVariable(k)
 	case screenIterator:
 		return m.keyIterator(k)
+	case screenIterForm:
+		return m.keyIterForm(k)
 	case screenFilters:
 		return m.keyFilters(k)
 	case screenFilter:
@@ -598,4 +603,8 @@ func (m *wizardModel) refresh() {
 	cursor := m.sections.Cursor()
 	m.sections = picker.New(m.ruleSections())
 	m.sections.SetCursor(cursor)
+
+	iterCursor := m.iterHub.Cursor()
+	m.iterHub = picker.New(m.iteratorSections())
+	m.iterHub.SetCursor(iterCursor)
 }

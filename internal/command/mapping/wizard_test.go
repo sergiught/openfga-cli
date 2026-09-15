@@ -995,10 +995,11 @@ func textWidgetCases() []textWidgetCase {
 			reach: func(t *testing.T) *wizardModel {
 				m := atTrigger(t)
 				send(m, key("esc"))                                          // trigger -> the rule hub
-				send(m, key("down"), key("down"), key("down"), key("enter")) // Iterator
+				send(m, key("down"), key("down"), key("down"), key("enter")) // Iterator hub
+				send(m, key("enter"))                                        // its Source row
 				return m
 			},
-			want:  screenIterator,
+			want:  screenIterForm,
 			value: func(m *wizardModel) string { return m.iterForm.Values()[0] },
 			// This is the blank-source guard's own test, not the shared "before
 			// != after" check above: that paste (into a blank field) already makes

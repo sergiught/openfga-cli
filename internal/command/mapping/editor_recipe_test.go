@@ -488,10 +488,8 @@ func TestTheIteratorsTupleListSaysItIsTheIterators(t *testing.T) {
 		}
 		m.sections.Move(1)
 	}
-	send(m, key("enter"), key("ctrl+t"))
-	if m.top() != screenTuples || !m.inIter {
-		t.Fatalf("top = %v, inIter = %v, want the iterator's tuple list", m.top(), m.inIter)
-	}
+	send(m, key("enter"))
+	openIterTuples(t, m)
 
 	c := m.chromeFor()
 	if c.title == screenChrome[screenTuples].title {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/sergiught/openfga-cli/internal/mapping"
 	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
+	"github.com/sergiught/openfga-cli/internal/ui/picker"
 )
 
 // maxFilters caps tuple filters per rule, mirroring mapper's own limit:
@@ -152,7 +153,75 @@ func (m *wizardModel) keyVariable(k tea.KeyPressMsg) tea.Cmd {
 
 // --- iterator ---
 
+// iteratorSections builds the iterator's own hub. An iterator is a source, a
+// name for the element, and a list of tuples written once per item — and the
+// tuples were the only one of the three with no row to arrow onto, reachable
+// only by a ^t chord from inside the form. Every other list in this wizard is a
+// row you select, so the one that was not read as absent rather than hidden.
+func (m *wizardModel) iteratorSections() []picker.Item {
+	r := m.rule()
+	if r == nil {
+		return nil
+	}
+	src, as, tuples := "not set", "not set", "set a source first"
+	if r.Iterator != nil {
+		if r.Iterator.Source != "" {
+			src = r.Iterator.Source
+		}
+		if r.Iterator.As != "" {
+			as = r.Iterator.As
+		}
+		tuples = plural(len(r.Iterator.Tuples), "tuple")
+	}
+	return []picker.Item{
+		{Title: "Source", Desc: src, Value: "source"},
+		{Title: "As", Desc: as, Value: "as"},
+		{Title: "Tuples", Desc: tuples, Value: "tuples"},
+	}
+}
+
 func (m *wizardModel) openIterator() {
+	if m.rule() == nil {
+		return
+	}
+	m.syncRules() // rebuilds the hub's rows
+	m.push(screenIterator)
+}
+
+// keyIterator handles the iterator hub. Source and As open the same two-field
+// form, focused on the row that was chosen: they are one edit in mapper's YAML
+// and splitting them into a screen each would make naming the element a
+// separate errand from deciding what to walk.
+func (m *wizardModel) keyIterator(k tea.KeyPressMsg) tea.Cmd {
+	switch k.String() {
+	case "up", "k":
+		m.iterHub.Move(-1)
+	case "down", "j":
+		m.iterHub.Move(1)
+	case "esc":
+		m.pop()
+	case "enter", " ":
+		switch m.iterHub.Selected().Value {
+		case "source":
+			m.openIterForm(0)
+		case "as":
+			m.openIterForm(1)
+		case "tuples":
+			// Tuples hang off the iterator, so there has to be one to hang them
+			// on. The row says so before it is chosen, and this is the case where
+			// the user chose it anyway.
+			if m.rule().Iterator == nil {
+				m.errMsg = "set a source first"
+				return nil
+			}
+			m.inIter = true
+			m.openTuples()
+		}
+	}
+	return nil
+}
+
+func (m *wizardModel) openIterForm(focus int) {
 	r := m.rule()
 	if r == nil {
 		return
@@ -163,7 +232,8 @@ func (m *wizardModel) openIterator() {
 	}
 	m.iterForm.Reset() // clears values, so it must come first
 	m.iterForm.SetValues([]string{src, as})
-	m.push(screenIterator)
+	m.iterForm.FocusIndex(focus)
+	m.push(screenIterForm)
 }
 
 // commitIterator writes the form back, dropping the iterator entirely when the
@@ -188,21 +258,11 @@ func (m *wizardModel) commitIterator() {
 	m.syncRules()
 }
 
-func (m *wizardModel) keyIterator(k tea.KeyPressMsg) tea.Cmd {
+func (m *wizardModel) keyIterForm(k tea.KeyPressMsg) tea.Cmd {
 	switch k.String() {
 	case "esc":
 		m.commitIterator()
 		m.pop()
-		return nil
-	case "ctrl+t":
-		// Editing the iterator's tuples needs the iterator to exist first.
-		m.commitIterator()
-		if m.rule().Iterator == nil {
-			m.errMsg = "set a source first"
-			return nil
-		}
-		m.inIter = true
-		m.openTuples()
 		return nil
 	case "ctrl+p":
 		m.openPathPick(m.iterForm, m.iterForm.FocusedIndex(), false)

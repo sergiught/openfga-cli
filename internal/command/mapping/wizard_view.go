@@ -167,11 +167,15 @@ var screenChrome = map[screen]chrome{
 	},
 	screenIterator: {
 		// Not "repeat this rule's tuples": an iterator carries its own tuple list
-		// (Iterator.Tuples, reached with ^t) and the rule's own tuples are written
-		// once regardless. Filling in Source and As and expecting the tuple
-		// already on the rule to fan out produces nothing at all.
+		// and the rule's own tuples are written once regardless. Filling in Source
+		// and As and expecting the tuple already on the rule to fan out produces
+		// nothing at all.
 		"Iterator", "Write a separate set of tuples for each item in a list.",
-		[]keyHint{{"tab", "next"}, {"^t", "edit tuples"}, {"^p", "insert path"}, {"esc", "done"}},
+		[]keyHint{{"↑↓", "move"}, {"↵", "select"}, {"esc", "back"}, {"?", "help"}},
+	},
+	screenIterForm: {
+		"Iterator", "What to walk, and what to call each item.",
+		[]keyHint{{"tab", "next"}, {"^p", "insert path"}, {"esc", "done"}},
 	},
 	screenFilters: {
 		"Tuple filters", "Delete every existing tuple matching a pattern.",
@@ -534,6 +538,8 @@ func (m *wizardModel) screenBody(cw int) string {
 	case screenVariable:
 		return m.varForm.View()
 	case screenIterator:
+		return m.iterHub.View(cw)
+	case screenIterForm:
 		return m.iterForm.View()
 	case screenFilters:
 		return listOrEmpty(m.filterList, "No tuple filters yet.", "a", "add one")
