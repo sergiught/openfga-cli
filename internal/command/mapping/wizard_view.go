@@ -1147,7 +1147,7 @@ func (m *wizardModel) previewPane(w, rows int) string {
 	if n := yamlLines(rows, lipgloss.Height(eval)); n > 0 {
 		b.WriteString(style.SectionHeader(m.path, w))
 		b.WriteString("\n")
-		b.WriteString(clampLines(string(m.preview.YAML), w, n))
+		b.WriteString(highlightedYAML(string(m.preview.YAML), w, n))
 		b.WriteString("\n\n")
 	}
 	b.WriteString(style.SectionHeader("preview", w))
@@ -1197,7 +1197,7 @@ func (m *wizardModel) evaluationLines(w int) string {
 	// there is a rule to fix — so until then the pane says what it is for.
 	if len(m.doc.Rules) == 0 {
 		return lipgloss.NewStyle().Foreground(style.Faintc).Render(
-			clamp("tuples appear here as you add rules", w))
+			wrapText("tuples appear here as you add rules", w))
 	}
 	var out []string
 	for _, d := range m.preview.Diagnostics {
@@ -1205,11 +1205,11 @@ func (m *wizardModel) evaluationLines(w int) string {
 		if d.Field != "" {
 			line = style.IconCross + " " + diagLocation(d) + d.Field + ": " + d.Message
 		}
-		out = append(out, lipgloss.NewStyle().Foreground(style.Red).Render(clamp(sanitizeKeepingLines(line), w)))
+		out = append(out, lipgloss.NewStyle().Foreground(style.Red).Render(wrapText(sanitizeKeepingLines(line), w)))
 	}
 	if m.preview.EvalErr != nil {
 		out = append(out, lipgloss.NewStyle().Foreground(style.Red).Render(
-			clamp(sanitizeKeepingLines(style.IconCross+" "+m.preview.EvalErr.Error()), w)))
+			wrapText(sanitizeKeepingLines(style.IconCross+" "+m.preview.EvalErr.Error()), w)))
 	}
 	for _, t := range m.preview.Tuples {
 		action := string(t.Action)
@@ -1219,19 +1219,19 @@ func (m *wizardModel) evaluationLines(w int) string {
 		// An evaluated tuple is built from the user's own event payload.
 		line := fmt.Sprintf("%s %-6s %s  %s  %s", style.IconCheck, action, t.User, t.Relation, t.Object)
 		out = append(out, lipgloss.NewStyle().Foreground(style.Green).Render(
-			clamp(style.SanitizeTerminal(line), w)))
+			wrapText(style.SanitizeTerminal(line), w)))
 	}
 	for _, op := range m.preview.Filters {
 		for _, f := range op.Filters {
 			out = append(out, lipgloss.NewStyle().Foreground(style.Primary).Render(
-				clamp(style.SanitizeTerminal(fmt.Sprintf("%s %-6s %s",
+				wrapText(style.SanitizeTerminal(fmt.Sprintf("%s %-6s %s",
 					style.IconChange, f.Action, filterSummary(f))), w)))
 		}
 	}
 	for _, r := range m.preview.Rules {
 		if r.Status == "skipped" {
 			out = append(out, lipgloss.NewStyle().Foreground(style.Faintc).Render(
-				clamp(style.SanitizeTerminal(fmt.Sprintf("– %s: skipped", r.Name)), w)))
+				wrapText(style.SanitizeTerminal(fmt.Sprintf("– %s: skipped", r.Name)), w)))
 		}
 	}
 	// The tuple cap is the one limit a sample can measure rather than merely
@@ -1263,7 +1263,7 @@ func tupleBudget(n, w int) string {
 		c = style.Red
 	}
 	return lipgloss.NewStyle().Foreground(c).Render(
-		clamp(fmt.Sprintf("%d of %d tuples mapper allows per event", n, mapping.MaxTuples), w))
+		wrapText(fmt.Sprintf("%d of %d tuples mapper allows per event", n, mapping.MaxTuples), w))
 }
 
 func filterSummary(f language.TupleFilter) string {
@@ -1274,22 +1274,6 @@ func filterSummary(f language.TupleFilter) string {
 		}
 	}
 	return strings.Join(parts, " ")
-}
-
-// clampLines truncates a block to n lines and each line to w cells. n <= 0 hides
-// the block entirely, which is how the YAML half yields space on short screens.
-func clampLines(s string, w, n int) string {
-	if n <= 0 {
-		return ""
-	}
-	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
-	if len(lines) > n {
-		lines = append(lines[:n], lipgloss.NewStyle().Foreground(style.Faintc).Render("…"))
-	}
-	for i, l := range lines {
-		lines[i] = clamp(l, w)
-	}
-	return strings.Join(lines, "\n")
 }
 
 // sanitizeKeepingLines strips terminal control sequences the way
