@@ -59,7 +59,13 @@ type group
     # group.member.added / .deleted. A group member is a user or a whole
     # connection — Auth0 allows both — and connection#identity is how the second
     # kind is said: everyone with an identity in that connection is a member.
-    define member: [user, connection#identity]
+    #
+    # group#member is here for parity with Auth0's own suggested model, which
+    # lists it. No event in this catalog writes it: the member_type in
+    # group.member.added is a closed union of "user" and "connection", so a
+    # nested group can only arrive from your own writes — in which case
+    # group.deleted needs a third filter, which its warning describes.
+    define member: [user, group#member, connection#identity]
 
 type organization
   relations
@@ -77,12 +83,27 @@ type organization
     # yours to decide, and this is where you say it. One tuple per role that
     # should mean admin, not one per user:
     #
-    #   role:org_1234567890abcdef|rol_admin#assignee  admin  organization:org_1234567890abcdef
+    #   role:org_1234567890abcdef|rol_admin#assignee  role_admin  organization:org_1234567890abcdef
     #
     # After that, everyone Auth0 puts in the role is an admin, and every later
     # assignment and revocation keeps it true with no further tuples of yours.
     # [user] is for the first admin, who exists before any role does.
-    define admin: [user, role#assignee]
+    define role_admin: [user, role#assignee]
+
+    # ...but only while they are still a member, and that `and` is load-bearing.
+    #
+    # Auth0 never emits organization.member.role.deleted when someone leaves an
+    # organization, or when the organization itself is deleted — only
+    # organization.member.deleted. So the assignee tuple outlives the
+    # membership, and no mapping can clean it up: a tuple filter matches an
+    # exact object or a bare `type:` prefix, and this catalog keys roles
+    # org_…|rol_… precisely so they cannot leak across organizations. There is
+    # no filter that says "this user's roles in this one organization".
+    #
+    # Requiring membership makes the orphan inert instead of dangerous. The
+    # stale tuple still sits in the store until you reconcile, but it grants
+    # nothing the moment the membership goes.
+    define admin: role_admin and member
 
 # ── what you replace ──────────────────────────────────────────────────────
 #

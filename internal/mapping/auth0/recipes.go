@@ -27,7 +27,12 @@ type Recipe struct {
 	// looking for the missing type. Nothing is missing — the event carries no
 	// relationship — and the row now says so before it is picked rather than on
 	// the screen after.
-	Note     string
+	Note string
+	// Warn is a hole in Auth0's event set that this recipe cannot close, shown
+	// beside the rule rather than buried in Explain. These are the failures a
+	// user discovers in production: an event Auth0 never sends, or a case the
+	// rule deliberately skips. A recipe with no such hole leaves it empty.
+	Warn     string
 	Rule     mapping.Rule
 	Requires []mapping.Requirement
 }
@@ -168,7 +173,41 @@ func cleanup(typ, explain string, filters []mapping.TupleFilter, reqs []mapping.
 	}
 }
 
+// lifecycleWarnings are the gaps Auth0 leaves that no rule can fill. They live
+// in one table rather than in each recipe's prose because they are claims about
+// Auth0's behaviour, not about the mapping — when Auth0 starts emitting one of
+// these events, the fix is to delete a line here.
+var lifecycleWarnings = map[string]string{
+	"organization.member.deleted": "Auth0 sends no organization.member.role.deleted when someone " +
+		"leaves, so their role assignments outlive the membership. No filter can reach them: roles " +
+		"are keyed org_…|rol_…, and a filter matches a whole object or a bare type: prefix, never a " +
+		"partial id. The shipped model defines admin as `role_admin and member`, so the leftovers " +
+		"grant nothing — but they stay in the store until you reconcile.",
+
+	"organization.deleted": "Roles scoped to this organization are left behind, for the same reason " +
+		"organization.member.deleted leaves them: role:org_…|rol_… is neither a whole object this " +
+		"event knows nor a bare type: prefix. They grant nothing once the memberships are gone.",
+
+	"group.deleted": "The shipped model allows a group to be a member of another group, but no Auth0 " +
+		"event writes one — member_type is a closed union of user and connection. If your application " +
+		"writes nested groups itself, add a third filter sweeping group:…#member out of group: too.",
+
+	"user.updated": "If identities ever arrives empty this rule is skipped rather than clearing the " +
+		"list. mapper treats an empty desired state as a mistake and fails the event, and a failed " +
+		"event stops the pipeline — so skipping is the safer of the two.",
+
+	"connection.updated": "If enabled_clients arrives empty this rule is skipped rather than clearing " +
+		"the list, so removing the last application leaves its tuple behind. An empty desired state " +
+		"fails the event in mapper, and a failed event stops the pipeline.",
+}
+
 func recipeFor(typ string) Recipe {
+	r := recipeBody(typ)
+	r.Warn = lifecycleWarnings[typ]
+	return r
+}
+
+func recipeBody(typ string) Recipe {
 	switch typ {
 
 	// --- relationship recipes ---
@@ -189,7 +228,7 @@ func recipeFor(typ string) Recipe {
 
 	case "organization.member.role.assigned":
 		return membership(typ,
-			"A member was granted a role inside an organization.\n\nThe role is an object, not a relation. Your users invent role names at runtime, and a relation named from role.name breaks the first time somebody calls one \"Billing Manager\" — a relation name cannot contain a space. OpenFGA's rule of thumb is the one to keep: if end-users can define it, it goes in tuples; if it is built into your application, it goes in the model.\n\nThe object is keyed org_…|rol_…, because the same role in two organizations must not be the same object. What the role *permits* is the one thing Auth0 never tells you — you say that once, by hand:\n\n  role:org_…|rol_admin#assignee  admin  organization:org_…\n\nAfter that this rule and the revocation below keep it true on their own.",
+			"A member was granted a role inside an organization.\n\nThe role is an object, not a relation. Your users invent role names at runtime, and a relation named from role.name breaks the first time somebody calls one \"Billing Manager\" — a relation name cannot contain a space. OpenFGA's rule of thumb is the one to keep: if end-users can define it, it goes in tuples; if it is built into your application, it goes in the model.\n\nThe object is keyed org_…|rol_…, because the same role in two organizations must not be the same object. What the role *permits* is the one thing Auth0 never tells you — you say that once, by hand:\n\n  role:org_…|rol_admin#assignee  role_admin  organization:org_…\n\nAfter that this rule and the revocation below keep it true on their own.",
 			tmplOrgUser, "assignee", tmplRoleID, true,
 			[]mapping.Requirement{{Type: "role", Relation: "assignee", UserTypes: []string{"user"},
 				DSL: dslUser + "\n\n" + dslOrgRole}})
@@ -260,8 +299,16 @@ func recipeFor(typ string) Recipe {
 	case "group.deleted":
 		return cleanup(typ,
 			"A group was deleted. This removes every tuple that names it, as no membership outlives the group.",
-			[]mapping.TupleFilter{{Object: "group:{{ input.data.object.id }}", Action: "delete"}},
-			[]mapping.Requirement{{Type: "group", DSL: dslGroupBare}})
+			[]mapping.TupleFilter{
+				{Object: "group:{{ input.data.object.id }}", Action: "delete"},
+				{User: tmplGroupSet, Object: "organization:", Action: "delete"},
+			},
+			[]mapping.Requirement{
+				{Type: "group", Relation: "member", UserTypes: []string{"user"},
+					DSL: dslUser + "\n\n" + dslGroupMember},
+				{Type: "organization", Relation: "member", UserTypes: []string{"user"},
+					DSL: dslGroupBare + "\n\n" + dslOrgMember},
+			})
 
 	case "connection.deleted":
 		return cleanup(typ,
@@ -363,7 +410,9 @@ func recipeFor(typ string) Recipe {
 			Explain: "A user's profile changed, and identities is one of the things that can change: linking a second login adds an entry. This rule re-writes the whole current list, which works because writing a tuple that already exists is not an error.\n\nIt adds and never removes, though — unlinking an identity leaves its tuple behind. The gate below only stops the rule running when the list did not change; making unlinking work needs the delete side too, which is the shape group.updated shows.",
 			Rule: mapping.Rule{
 				Name: typ,
-				When: when(typ) + " && input.data.object.identities != input.data.previous_object.identities",
+				When: when(typ) + " && input.data.object.identities != input.data.previous_object.identities" +
+					" && len(input.data.object.identities) > 0",
+				Filters: []mapping.TupleFilter{{User: tmplUserID, Relation: "identity", Object: "connection:"}},
 				Iterator: &mapping.Iterator{
 					Source: "input.data.object.identities",
 					As:     "identity",
@@ -409,7 +458,9 @@ func recipeFor(typ string) Recipe {
 			Explain: "A connection's settings changed, and enabling an application changes enabled_clients. The iterator re-writes the current list, gated on the list having changed.\n\nRead the limit before adopting it: it adds, it does not remove. One rule walks one array, so an application taken off the list keeps its tuple. Where that matters, connection.deleted shows the other tool — a tuple filter, which reads what is there and deletes what the event no longer lists.",
 			Rule: mapping.Rule{
 				Name: typ,
-				When: when(typ) + " && input.data.object.enabled_clients != input.data.previous_object.enabled_clients",
+				When: when(typ) + " && input.data.object.enabled_clients != input.data.previous_object.enabled_clients" +
+					" && len(input.data.object.enabled_clients) > 0",
+				Filters: []mapping.TupleFilter{{Relation: "enabled_client", Object: tmplNewConn}},
 				Iterator: &mapping.Iterator{
 					Source: "input.data.object.enabled_clients",
 					As:     "client",

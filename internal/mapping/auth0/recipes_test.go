@@ -137,7 +137,7 @@ func TestTheAuth0HalfOfTheModelHasNoUnusedRelations(t *testing.T) {
 	}
 	// Auth0's event says a user was given a role; it never says what the role
 	// permits. This is where the user says it, so no recipe can require it.
-	required["admin"] = true
+	required["role_admin"] = true
 
 	auth0Part, _ := modelHalves(t)
 	for _, line := range strings.Split(auth0Part, "\n") {
@@ -218,20 +218,24 @@ func canMatch(user, object string, tuples [][2]string) bool {
 // every rendered filter must be capable of selecting a tuple some recipe here
 // actually writes.
 //
-// Only type prefixes are compared. Each sample carries its own ids, so matching
-// whole rendered values would fail for unrelated reasons.
+// Only type prefixes are compared, and they are read off the templates rather
+// than off rendered output. Each sample carries its own ids, so matching whole
+// values would fail for unrelated reasons — and a sample exercises one branch
+// of a gated rule, so rendering would miss the others. group.created writes a
+// group userset into an organization only when the group is organization-
+// scoped, and its sample is connection-scoped; the sweep for that tuple in
+// group.deleted is not dead just because no sample happens to produce it.
 func TestEveryFilterCanMatchATupleTheCatalogWrites(t *testing.T) {
 	var tuples [][2]string
-	for _, e := range Catalog() {
-		// Maps(), not len(Rule.Tuples): a recipe can write from its iterator
-		// alone, and the two that do are the only ones writing an identity — so
-		// checking the rule's own tuples made user.deleted's sweep of them look
-		// like a filter matching nothing.
-		if !e.Recipe.Maps() {
-			continue
-		}
-		for _, tup := range renderRecipe(t, e).Tuples {
+	collect := func(ts []mapping.Tuple) {
+		for _, tup := range ts {
 			tuples = append(tuples, [2]string{typePrefix(tup.User), typePrefix(tup.Object)})
+		}
+	}
+	for _, e := range Catalog() {
+		collect(e.Recipe.Rule.Tuples)
+		if it := e.Recipe.Rule.Iterator; it != nil {
+			collect(it.Tuples)
 		}
 	}
 	if len(tuples) == 0 {
@@ -394,6 +398,58 @@ func TestRecipesSurviveTheBranchesTheirSamplesDoNotShow(t *testing.T) {
 			}
 			if filters != tc.filters {
 				t.Errorf("got %d filters, want %d", filters, tc.filters)
+			}
+		})
+	}
+}
+
+// lifecycleWarnings is keyed by event type, so a typo in a key is silent: the
+// warning simply never reaches the screen it was written for. Every key must
+// name an event the catalog actually has.
+func TestEveryLifecycleWarningNamesARealEvent(t *testing.T) {
+	known := map[string]bool{}
+	for _, e := range Catalog() {
+		known[e.Type] = true
+	}
+	for typ := range lifecycleWarnings {
+		if !known[typ] {
+			t.Errorf("lifecycleWarnings has %q, which is not an event in the catalog", typ)
+		}
+	}
+	for _, e := range Catalog() {
+		if e.Recipe.Warn != "" && e.Recipe.Warn != lifecycleWarnings[e.Type] {
+			t.Errorf("%s: warning on the recipe does not match the table", e.Type)
+		}
+	}
+}
+
+// A tuple filter with no action is a patch: mapper reconciles the tuples the
+// rule produces against the ones the filter matches. It fails the event outright
+// when the rule produces none, on the grounds that an empty desired state would
+// delete everything — and a failed event stops the whole pipeline. So a recipe
+// shipping a patch filter must be one that always writes something.
+func TestNoPatchFilterCanShipAnEmptyDesiredState(t *testing.T) {
+	for _, e := range Catalog() {
+		var patches int
+		for _, f := range e.Recipe.Rule.Filters {
+			if f.Action == "" {
+				patches++
+			}
+		}
+		if patches == 0 {
+			continue
+		}
+		t.Run(e.Type, func(t *testing.T) {
+			// A rule carrying filters routes its tuples into the filter
+			// operation rather than into Tuples: the desired state belongs to
+			// the reconciliation, not to the event's own writes.
+			var desired int
+			for _, op := range renderRecipe(t, e).Filters {
+				desired += len(op.Tuples)
+			}
+			if desired == 0 {
+				t.Errorf("%d patch filters but the rule produced no tuples from its own sample; "+
+					"mapper would fail the event and stop the pipeline", patches)
 			}
 		})
 	}
