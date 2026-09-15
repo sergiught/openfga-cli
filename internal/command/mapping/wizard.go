@@ -386,6 +386,17 @@ func (m *wizardModel) key(k tea.KeyPressMsg) tea.Cmd {
 		}
 	}
 
+	// ctrl+s saves the whole file, from wherever the user happens to be. It used
+	// to be handled on the two hubs only; on the form screens it reached the
+	// field package, where the same chord means "submit this form" — so pressing
+	// it while editing a trigger left the screen and saved nothing, which is the
+	// one outcome indistinguishable from esc. Routing it here makes the key mean
+	// one thing everywhere, which is what lets every hint row advertise it.
+	if m.canSave() && k.String() == "ctrl+s" {
+		m.push(screenConfirmSave)
+		return nil
+	}
+
 	switch m.top() {
 	case screenWelcome:
 		switch k.String() {

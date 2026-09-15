@@ -211,15 +211,17 @@ func TestSaveCountsTuplesAcrossRulesAndIterators(t *testing.T) {
 	}
 }
 
+// An empty document cannot reach the save dialog at all. The dialog used to be
+// reachable and say "no rules" once you got there, which spent a keystroke to
+// tell the user their own screen was empty — the hub already says so, and its
+// hint row has never offered the key.
 func TestEmptyDocumentCannotBeSaved(t *testing.T) {
 	m := atRulesHub(t)
 	send(m, key("ctrl+s"))
-	// With no rules there is nothing to write; the dialog says so and Save is
-	// not offered.
-	if !strings.Contains(m.viewString(), "no rules") {
-		t.Fatalf("view = %s", m.viewString())
+	if m.top() != screenRules {
+		t.Fatalf("top = %v, want to stay on the hub", m.top())
 	}
-	send(m, key("enter"))
+	send(m, key("s"), key("enter"))
 	if m.done {
 		t.Fatal("an empty document must not be saved")
 	}
@@ -337,7 +339,7 @@ func TestTheWholeFlowWritesAHandAuthoredMapping(t *testing.T) {
 	typeText(m, "member")
 	send(m, key("tab"))
 	typeText(m, "user:1")
-	send(m, key("ctrl+s")) // submit the form directly; the rest is optional
+	send(m, key("esc")) // esc commits the form and leaves; the rest is optional
 	if m.top() != screenTuples {
 		t.Fatalf("top = %v, want the tuple list", m.top())
 	}

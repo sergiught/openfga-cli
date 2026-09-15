@@ -116,11 +116,11 @@ var screenChrome = map[screen]chrome{
 	},
 	screenRules: {
 		"Rules", "Each rule turns one kind of event into tuples.",
-		[]keyHint{{"a", "add"}, {"↵", "open"}, {"d", "delete"}, {"m", "model"}, {"^s", "save"}, {"esc", "quit"}, {"?", "help"}},
+		[]keyHint{{"a", "add"}, {"↵", "open"}, {"d", "delete"}, {"m", "model"}, {"esc", "quit"}, {"?", "help"}},
 	},
 	screenRule: {
 		"Rule", "Pick a part of this rule to edit.",
-		[]keyHint{{"↑↓", "move"}, {"↵", "open"}, {"^s", "save"}, {"esc", "back"}, {"?", "help"}},
+		[]keyHint{{"↑↓", "move"}, {"↵", "open"}, {"esc", "back"}, {"?", "help"}},
 	},
 	screenPayloadKind: {
 		"What are you mapping?", "Start from a ready-made example, or bring your own payload.",
@@ -277,6 +277,17 @@ func (m *wizardModel) chromeFor() chrome {
 		c.keys = []keyHint{{"↵", "save"}, {"esc", "back"}, {"q", "quit without saving"}}
 	default:
 		c.keys = []keyHint{{"s", "save anyway"}, {"esc", "back"}, {"q", "quit without saving"}}
+	}
+
+	// The save key is global (see wizardModel.key), so it is advertised
+	// globally rather than named by hand on the two screens that used to handle
+	// it. Not while loading: every key is ignored until the fetch lands.
+	//
+	// Copied rather than appended in place — c.keys still aliases the
+	// screenChrome table's own backing array, and an append into spare capacity
+	// there would edit the table for every screen drawn afterwards.
+	if m.canSave() && !m.loading {
+		c.keys = append(append([]keyHint(nil), c.keys...), keyHint{"^s", "save file"})
 	}
 	return c
 }

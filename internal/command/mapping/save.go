@@ -9,6 +9,22 @@ import (
 	"github.com/sergiught/openfga-cli/internal/mapping"
 )
 
+// canSave reports whether the save key has anything to do from here. It gates
+// both the key and the hint that advertises it, so the two cannot disagree.
+//
+// An empty document is excluded because the dialog it opens says only that
+// there is nothing to save — a key whose entire effect is that rebuke is worse
+// than one that is absent. The three modal screens are excluded because they
+// already own the keyboard: stacking a save dialog on a delete confirmation
+// answers a question the user was asked but has not answered yet.
+func (m *wizardModel) canSave() bool {
+	switch m.top() {
+	case screenConfirmSave, screenConfirmDelete, screenHelp:
+		return false
+	}
+	return len(m.doc.Rules) > 0
+}
+
 func (m *wizardModel) keyConfirmSave(k tea.KeyPressMsg) tea.Cmd {
 	if len(m.doc.Rules) == 0 {
 		// Nothing to write: the only useful action is going back.

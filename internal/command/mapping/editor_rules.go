@@ -38,8 +38,13 @@ func (m *wizardModel) keyRules(k tea.KeyPressMsg) tea.Cmd {
 			}
 		}
 		return nil
-	case "ctrl+s", "s":
-		m.push(screenConfirmSave)
+	case "s":
+		// ctrl+s is intercepted globally; s is the hub-local spelling of it, and
+		// shares the same guard so the two cannot disagree about when saving is
+		// on offer.
+		if m.canSave() {
+			m.push(screenConfirmSave)
+		}
 		return nil
 	case "esc", "q":
 		if len(m.doc.Rules) == 0 {
@@ -257,8 +262,6 @@ func (m *wizardModel) keyRule(k tea.KeyPressMsg) tea.Cmd {
 	case "esc":
 		m.pop()
 		m.syncRules()
-	case "ctrl+s":
-		m.push(screenConfirmSave)
 	case "enter", " ":
 		switch m.sections.Selected().Value {
 		case "trigger":

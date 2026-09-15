@@ -506,11 +506,13 @@ func TestModelFileLoadsAndBadFileStaysOnTheField(t *testing.T) {
 	}
 }
 
-// ctrl+s submits the single-field form without leaving the screen (neither
-// keyModelFile nor keyEventFile watch for Completed()), so re-entering the
-// screen is the only way back in. Init() used to leave the form's completed
-// flag set forever, permanently deadening the field for the rest of the
-// session even after re-entry; Resume() clears it.
+// ctrl+s used to reach the field package on this screen, where it means
+// "submit this form" — it left the screen up with the form completed, and
+// Init() kept that completed flag set forever, permanently deadening the field
+// even after re-entry. The wizard now intercepts ctrl+s before the field ever
+// sees it, so the old route in is gone; what has to keep working is that
+// pressing it here still leaves a half-typed path editable. Resume() clears
+// the flag, and this is the test that would notice if it stopped.
 func TestCtrlSOnModelFileDoesNotPermanentlyDeadenTheField(t *testing.T) {
 	m := atModelSource(t, nil)
 	atModelFile(t, m)
@@ -543,7 +545,17 @@ func TestCtrlSOnEventFileDoesNotPermanentlyDeadenTheField(t *testing.T) {
 	}
 
 	typeText(m, "/tmp/a.json")
+	// A rule exists by the time this screen is reachable, so ctrl+s has
+	// something to save and opens the dialog over the half-typed path. Backing
+	// out of it has to return here, not discard the screen.
 	send(m, key("ctrl+s"))
+	if m.top() != screenConfirmSave {
+		t.Fatalf("ctrl+s = %v, want the save dialog", m.top())
+	}
+	send(m, key("esc"))
+	if m.top() != screenEventFile {
+		t.Fatalf("top = %v, want back on the file screen", m.top())
+	}
 	send(m, key("esc"))
 	if m.top() != screenEventPick {
 		t.Fatalf("top = %v, want back on the event pick", m.top())
