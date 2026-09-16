@@ -70,6 +70,7 @@ func (m *wizardModel) finish() tea.Cmd {
 
 	m.result = &wizardResult{
 		data:   data,
+		doc:    &doc,
 		rules:  len(doc.Rules),
 		tuples: countTuples(doc.Rules),
 		tests:  len(doc.Tests),

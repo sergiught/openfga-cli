@@ -16,6 +16,8 @@ import (
 	"github.com/sergiught/openfga-cli/internal/atomicfile"
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/mapping"
+	"github.com/sergiught/openfga-cli/internal/modeltest"
 	"github.com/sergiught/openfga-cli/internal/output"
 )
 
@@ -90,7 +92,7 @@ func (c *Command) runInit(cmd *cobra.Command, args []string, force bool) error {
 
 	out := cmd.ErrOrStderr()
 	output.Successf(out, "wrote %s (%s)", path, result.summary())
-	nextSteps(out, path, saveModel(out, path, result.model), result.tests)
+	nextSteps(out, path, saveModel(out, path, result.model, result.doc), result.tests)
 	return nil
 }
 
@@ -101,13 +103,14 @@ func (c *Command) runInit(cmd *cobra.Command, args []string, force bool) error {
 // names the mapping the user asked for, and a model beside it is one they
 // wrote. Nor does a failed write fail the command — the mapping is already on
 // disk, and the model is a convenience, not the thing the user came for.
-func saveModel(w io.Writer, path string, data []byte) string {
+func saveModel(w io.Writer, path string, data []byte, doc *mapping.Document) string {
 	if len(data) == 0 {
 		return ""
 	}
 	modelPath := filepath.Join(filepath.Dir(path), startingModelFile)
 	if _, err := os.Stat(modelPath); err == nil {
 		output.Infof(w, "%s already exists, so the starting model was left alone", modelPath)
+		warnModelDoesNotCover(w, path, modelPath, doc)
 		return ""
 	}
 	if err := saveFile(modelPath, data); err != nil {
@@ -116,6 +119,63 @@ func saveModel(w io.Writer, path string, data []byte) string {
 	}
 	output.Successf(w, "wrote %s (a starting authorization model to edit)", modelPath)
 	return modelPath
+}
+
+// warnModelDoesNotCover reports what the mapping writes that the model already
+// sitting beside it has no room for.
+//
+// The starting model is written only when there was none, so a user who keeps
+// one across runs keeps whatever the catalog needed the first time — and the
+// mapping that just went out may name types and relations added since. Saying
+// nothing leaves that to surface one rejected write at a time, against a real
+// store. The lint is the one the wizard already runs against a loaded model;
+// here it costs a read of a file we just found.
+func warnModelDoesNotCover(w io.Writer, path, modelPath string, doc *mapping.Document) {
+	if doc == nil {
+		return
+	}
+	raw, err := os.ReadFile(modelPath)
+	if err == nil {
+		var loaded *modeltest.LoadedModel
+		if loaded, err = modeltest.LoadModelBytes(raw); err == nil {
+			reportUncovered(w, path, modelPath, mapping.Lint(doc, mapping.IndexModel(loaded.SDK)))
+			return
+		}
+	}
+	output.Warnf(w, "could not check %s against the mapping: %v", modelPath, err)
+}
+
+// reportUncovered names the distinct gaps, capped: a mapping whose model is a
+// generation behind can produce one problem per tuple, and a wall of them buries
+// the command that shows them all in context.
+//
+// Only the warnings are read. Lint marks every model mismatch as one — a mapping
+// may legitimately be written before the model that satisfies it — and those are
+// exactly the problems that mean "the model does not cover this". The blocking
+// problems are about the mapping's own shape, which a model cannot fix.
+func reportUncovered(w io.Writer, path, modelPath string, problems []mapping.Problem) {
+	const show = 4
+	var msgs []string
+	seen := map[string]bool{}
+	for _, p := range problems {
+		if !p.Warning || seen[p.Message] {
+			continue
+		}
+		seen[p.Message] = true
+		msgs = append(msgs, p.Message)
+	}
+	if len(msgs) == 0 {
+		return
+	}
+
+	output.Warnf(w, "but it does not cover this mapping:")
+	for _, msg := range msgs[:min(len(msgs), show)] {
+		output.Warnf(w, "  %s", msg)
+	}
+	if n := len(msgs) - show; n > 0 {
+		output.Warnf(w, "  and %d more", n)
+	}
+	output.Hintf(w, "fga mapping validate %s --model-file %s", path, modelPath)
 }
 
 // nextSteps names what can be done with the file that this command cannot do
@@ -216,7 +276,10 @@ type wizardResult struct {
 	// none of their own. A mapping names types and relations; with no model
 	// saying those exist, every write the file describes is one the store
 	// refuses, and the user has no way to find that out until it happens.
-	model  []byte
+	model []byte
+	// doc is the mapping as a document, kept so a model already sitting beside
+	// the file can be checked against what the mapping actually writes.
+	doc    *mapping.Document
 	rules  int
 	tuples int
 	tests  int

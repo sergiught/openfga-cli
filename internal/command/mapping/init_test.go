@@ -15,6 +15,8 @@ import (
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/config"
+	"github.com/sergiught/openfga-cli/internal/mapping"
+	"github.com/sergiught/openfga-cli/internal/mapping/auth0"
 	"github.com/sergiught/openfga-cli/internal/output"
 )
 
@@ -334,7 +336,7 @@ func TestAnExistingModelIsNeverOverwritten(t *testing.T) {
 	}
 
 	var b bytes.Buffer
-	if got := saveModel(&b, filepath.Join(dir, "mapping.yaml"), []byte("type theirs\n")); got != "" {
+	if got := saveModel(&b, filepath.Join(dir, "mapping.yaml"), []byte("type theirs\n"), nil); got != "" {
 		t.Fatalf("saveModel claimed to write %q over a model that was already there", got)
 	}
 
@@ -358,5 +360,61 @@ func TestNextStepsValidatesAgainstTheModelItJustWrote(t *testing.T) {
 
 	if want := "fga mapping validate auth0.yaml --model-file model.fga"; !strings.Contains(b.String(), want) {
 		t.Fatalf("next steps do not run the check against the model:\n%s", b.String())
+	}
+}
+
+// docWriting is a one-rule mapping that writes a single tuple, for checking a
+// model against something concrete.
+func docWriting(relation, object string) *mapping.Document {
+	return &mapping.Document{Rules: []mapping.Rule{{
+		Name:   "user.created",
+		When:   `input.type == "user.created"`,
+		Tuples: []mapping.Tuple{{User: "user:alice", Relation: relation, Object: object}},
+	}}}
+}
+
+// The starting model is written only when there was none, so a user who keeps
+// one across runs keeps whatever the catalog needed the first time. This is the
+// shape that bites: a model a generation behind, beside a mapping naming types
+// added since. Nothing said so, and the mismatch surfaced one rejected write at
+// a time against a real store.
+func TestAStaleModelBesideTheMappingIsCalledOut(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, startingModelFile),
+		[]byte("model\n  schema 1.1\ntype user\n"), 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	var b bytes.Buffer
+	saveModel(&b, filepath.Join(dir, "mapping.yaml"), []byte("type user\n"),
+		docWriting("member", "tenant:acme"))
+
+	out := b.String()
+	if !strings.Contains(out, "does not cover this mapping") {
+		t.Fatalf("a model missing the mapping's types said nothing:\n%s", out)
+	}
+	if !strings.Contains(out, "tenant") {
+		t.Fatalf("the warning does not name what is missing:\n%s", out)
+	}
+	if !strings.Contains(out, "--model-file") {
+		t.Fatalf("nothing said how to see the rest:\n%s", out)
+	}
+}
+
+// And a model that does cover the mapping stays quiet. A warning that fires
+// either way is one the user learns to scroll past, which costs the case above.
+func TestAModelThatCoversTheMappingIsNotCalledOut(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, startingModelFile),
+		[]byte(auth0.Model()), 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	var b bytes.Buffer
+	saveModel(&b, filepath.Join(dir, "mapping.yaml"), []byte("type user\n"),
+		docWriting("member", "tenant:acme"))
+
+	if out := b.String(); strings.Contains(out, "does not cover") {
+		t.Fatalf("a model that covers the mapping was called stale:\n%s", out)
 	}
 }
