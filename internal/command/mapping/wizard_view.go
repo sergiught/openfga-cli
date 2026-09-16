@@ -460,9 +460,10 @@ func (m *wizardModel) cardView() string {
 	wrap := lipgloss.NewStyle().Width(cw)
 	body := wrap.Render(b.String())
 
-	// What the body has left once the wayfinding bar above it, the frame around
-	// it and the hint row under it have taken their rows.
-	inner := m.height - topRows - frameRows - 1
+	// What the body has left once the frame around it and the hint row under it
+	// have taken their rows. The wayfinding bar costs none: it rides the frame's
+	// top border.
+	inner := m.height - topPad - frameRows - 1
 
 	// The wordmark heads the welcome card but says nothing the card does not, so
 	// on a terminal too narrow or too short for both it is the art that goes,
@@ -475,20 +476,19 @@ func (m *wizardModel) cardView() string {
 		}
 	}
 
-	card := style.Frame(m.windowLines(body, inner), cw)
+	left, right := m.topLegends()
+	card := style.FrameTitled(m.windowLines(body, inner), cw, left, right)
 
-	// The bar is pinned to the terminal rather than sitting on the card: it says
-	// where the card is in the wizard, which is a fact about the wizard. The
-	// card keeps its own action keys underneath it, minus the way out the bar
-	// now carries.
+	// The card keeps its own action keys underneath it, minus the way out its
+	// border now carries.
 	acts := make([]keyHint, 0, len(c.keys))
 	for _, h := range c.keys {
 		if h.key != "esc" {
 			acts = append(acts, h)
 		}
 	}
-	return m.topBar() + "\n" +
-		lipgloss.Place(m.width, m.height-topRows, lipgloss.Center, lipgloss.Center,
+	return strings.Repeat("\n", topPad) +
+		lipgloss.Place(m.width, m.height-topPad, lipgloss.Center, lipgloss.Center,
 			card+"\n"+" "+renderHints(acts))
 }
 
@@ -525,7 +525,7 @@ func (m *wizardModel) paneView() string {
 	// The rows the frame can hold. Side by side the preview has all of them;
 	// stacked it has what the editor above it leaves, less the blank row
 	// between the two.
-	rows := m.height - topRows - statusRows - frameRows
+	rows := m.height - topPad - statusRows - frameRows
 	if m.sideBySide() {
 		body = lipgloss.JoinHorizontal(lipgloss.Top,
 			lipgloss.NewStyle().Width(cw+paneGutter).Render(body),
@@ -538,7 +538,7 @@ func (m *wizardModel) paneView() string {
 	}
 	// Height pads the body out so the status bar lands on the bottom rows
 	// instead of floating directly under short content.
-	h := m.height - topRows - statusRows
+	h := m.height - topPad - statusRows
 	if h < 1 {
 		h = 1
 	}
@@ -549,9 +549,11 @@ func (m *wizardModel) paneView() string {
 	// status bar's rule spans the full width and indents its own text to match.
 	// The frame is measured off the assembled body rather than cw: side by
 	// side, cw is only the editor column's width, not the joined pair's.
-	body = lipgloss.NewStyle().PaddingLeft(1).Render(style.Frame(body, lipgloss.Width(body)))
+	left, right := m.topLegends()
+	body = lipgloss.NewStyle().PaddingLeft(1).Render(
+		style.FrameTitled(body, lipgloss.Width(body), left, right))
 
-	return m.topBar() + "\n" +
+	return strings.Repeat("\n", topPad) +
 		lipgloss.NewStyle().Height(h).MaxHeight(h).Render(body) + "\n" + m.statusBar()
 }
 
@@ -644,28 +646,26 @@ func (m *wizardModel) screenBody(cw int) string {
 
 // --- status bar ---
 
-// topRows and statusRows are what the chrome costs: one row above the frame for
-// the wayfinding bar, two below it for a rule and the key hints. The location
-// line used to sit at the bottom with the hints, making three rows there and
-// none at the top; moving it up splits the same three rows into "where you are
-// and the way out" above the work and "what you can do to it" below, and costs
-// the body nothing.
-const (
-	topRows    = 1
-	statusRows = 2
-)
+// topPad is the blank row above the frame, so the border is not flush against
+// the top of the terminal: the vertical counterpart of the column of breathing
+// room the frame is given on its left.
+const topPad = 1
 
-// topBar answers "where am I, and how do I leave" on every screen, cards
-// included. Both halves were previously absent or buried: the location line was
-// drawn only by paneView, and the way out sat among the action keys, naming no
-// destination.
+// statusRows is what the bottom chrome costs: a rule and the key hints. The
+// wayfinding bar above the work costs nothing at all, because it is set into
+// the frame's top border rather than given a row of its own — on a 16-row
+// terminal the body has nine rows, and none of them is worth spending on
+// answering "where am I".
+const statusRows = 2
+
+// topLegends are the two halves that ride the frame's top border: where this
+// screen sits in the wizard, and the key that leaves it. Both were previously
+// absent or buried — the location line was drawn only by paneView, and the way
+// out sat among the action keys, naming no destination.
 //
-// The way out is measured first and never truncated. It is the one affordance
-// that has to survive a narrow terminal, because a user who cannot read it is
-// stuck; the location gives up columns to it.
-func (m *wizardModel) topBar() string {
-	w := max(m.width, 1)
-
+// Neither is fitted to a width here. The frame knows how much border it has,
+// and drops the location before the way out when it runs short.
+func (m *wizardModel) topLegends() (string, string) {
 	right := ""
 	if h, ok := m.wayOut(); ok {
 		right = renderHints([]keyHint{h})
@@ -678,22 +678,7 @@ func (m *wizardModel) topBar() string {
 		}
 		left += chips
 	}
-
-	// One column of indent each side, and two of gap so the halves never touch.
-	// Below what an elision would itself cost, the location goes entirely rather
-	// than showing as a lone ellipsis.
-	room := w - 2 - lipgloss.Width(right) - 2
-	if room < 4 {
-		left = ""
-	} else {
-		left = ansi.Truncate(left, room, "…")
-	}
-
-	gap := w - 2 - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 0 {
-		gap = 0
-	}
-	return " " + left + strings.Repeat(" ", gap) + right + " "
+	return left, right
 }
 
 // wayOut is the key that leaves the current screen, and where it goes.
@@ -723,8 +708,8 @@ func (m *wizardModel) statusBar() string {
 	w := max(m.width, 1)
 	rule := lipgloss.NewStyle().Foreground(style.Subtle).Render(strings.Repeat("─", w))
 
-	// The way out has moved to topBar, so it is dropped here rather than listed
-	// twice. It is the only key present on every screen, and repeating it in the
+	// The way out has moved to the frame's border, so it is dropped here rather
+	// than listed twice. It is the only key present on every screen, and repeating it in the
 	// row meant for this screen's actions is what made it read as one of them.
 	keys := m.chromeFor().keys
 	acts := make([]keyHint, 0, len(keys))

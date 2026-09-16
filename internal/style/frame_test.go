@@ -45,3 +45,49 @@ func TestFrameTintsItsBorder(t *testing.T) {
 		t.Fatalf("border lost its colour — BorderForeground dropped:\n%q", out)
 	}
 }
+
+func TestFrameTitledKeepsTheFrameItsSize(t *testing.T) {
+	const cw = 40
+	out := FrameTitled("hello", cw, "Rules › Rule", "esc ‹ Rules")
+	for i, ln := range strings.Split(out, "\n") {
+		if got := lipgloss.Width(ln); got != cw+6 {
+			t.Fatalf("line %d is %d wide, want %d:\n%s", i, got, cw+6, out)
+		}
+	}
+	top := strings.Split(out, "\n")[0]
+	for _, want := range []string{"╭", "Rules › Rule", "esc ‹ Rules", "╮"} {
+		if !strings.Contains(top, want) {
+			t.Fatalf("%q is not on the border line: %q", want, top)
+		}
+	}
+}
+
+// The way out is the one affordance that has to survive a narrow terminal: a
+// user who cannot read it is stuck. The location gives up its columns to it.
+func TestFrameTitledDropsTheLocationBeforeTheWayOut(t *testing.T) {
+	top := strings.Split(FrameTitled("x", 12, "Rules › Rule › Tuples", "esc ‹ Rules"), "\n")[0]
+	if !strings.Contains(top, "esc ‹ Rules") {
+		t.Fatalf("the way out was truncated away: %q", top)
+	}
+	if lipgloss.Width(top) != 18 {
+		t.Fatalf("the border line is %d wide, want 18: %q", lipgloss.Width(top), top)
+	}
+}
+
+// Narrower than either legend, the border goes back to being a border rather
+// than rendering a line of ellipses.
+func TestFrameTitledFallsBackToAPlainBorder(t *testing.T) {
+	top := strings.Split(FrameTitled("x", 1, "Rules", "esc ‹ Rules"), "\n")[0]
+	if strings.ContainsAny(top, "…") || strings.Contains(top, "esc") {
+		t.Fatalf("the border kept a legend it had no room for: %q", top)
+	}
+	if lipgloss.Width(top) != 7 {
+		t.Fatalf("the border line is %d wide, want 7: %q", lipgloss.Width(top), top)
+	}
+}
+
+func TestFrameTitledWithNoLegendsIsJustAFrame(t *testing.T) {
+	if got, want := FrameTitled("hello", 20, "", ""), Frame("hello", 20); got != want {
+		t.Fatalf("an unlabelled titled frame differs from a plain one:\ngot  %q\nwant %q", got, want)
+	}
+}

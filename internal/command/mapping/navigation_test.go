@@ -8,10 +8,17 @@ import (
 	lipgloss "charm.land/lipgloss/v2"
 )
 
-// firstLine is the wayfinding bar: it is the first row of every screen.
-func firstLine(s string) string {
-	line, _, _ := strings.Cut(s, "\n")
-	return line
+// wayfindingBar is the frame's top border, which every screen draws and which
+// carries the location and the way out set into it.
+func wayfindingBar(t *testing.T, view string) string {
+	t.Helper()
+	for _, l := range strings.Split(view, "\n") {
+		if strings.Contains(l, "╭") {
+			return l
+		}
+	}
+	t.Fatalf("the view has no frame to carry a wayfinding bar:\n%s", view)
+	return ""
 }
 
 // TestSaveWorksFromEveryScreen pins the key down as global. It used to be
@@ -87,7 +94,7 @@ func TestTopBarNamesWhereEscGoes(t *testing.T) {
 	if m.top() != screenRecipe {
 		t.Fatalf("top = %v, want the recipe card", m.top())
 	}
-	top := firstLine(plain(m.viewString()))
+	top := wayfindingBar(t, plain(m.viewString()))
 	if !strings.Contains(top, "esc ‹ Pick an event") {
 		t.Fatalf("the recipe card does not say where esc goes:\n%s", top)
 	}
@@ -103,7 +110,7 @@ func TestTopBarIsOnCardScreensToo(t *testing.T) {
 	if m.top() != screenConfirmSave {
 		t.Fatalf("top = %v, want the save dialog", m.top())
 	}
-	if top := firstLine(plain(m.viewString())); !strings.Contains(top, "Rules") {
+	if top := wayfindingBar(t, plain(m.viewString())); !strings.Contains(top, "Rules") {
 		t.Fatalf("the save card carries no breadcrumb:\n%s", top)
 	}
 }
@@ -116,21 +123,36 @@ func TestBreadcrumbUsesRuntimeTitles(t *testing.T) {
 	m := atRuleFor(t, "user.created")
 	m.inIter = true
 	m.push(screenTuples)
-	top := firstLine(plain(m.viewString()))
+	top := wayfindingBar(t, plain(m.viewString()))
 	if !strings.Contains(top, "Iterator tuples") {
 		t.Fatalf("breadcrumb does not name the iterator's list:\n%s", top)
 	}
 }
 
-// The bar costs no rows. It replaces the location line the bottom bar used to
-// carry, so the chrome still occupies three rows and the body budget is
-// untouched — which matters at the floor, where the body is only nine rows.
+// The bar costs no rows at all: it is set into a border the frame was drawing
+// anyway. The chrome is the two status rows, and the body keeps everything
+// else — which matters at the floor, where it is only nine rows.
 func TestChromeStillFitsTheTerminalExactly(t *testing.T) {
 	for _, sz := range [][2]int{{minCols, minRows}, {80, 24}, {120, 40}} {
 		m := atRuleFor(t, "organization.member.added")
 		m.Update(tea.WindowSizeMsg{Width: sz[0], Height: sz[1]})
 		if h := lipgloss.Height(m.viewString()); h != sz[1] {
 			t.Fatalf("at %d×%d the view is %d rows, want %d", sz[0], sz[1], h, sz[1])
+		}
+	}
+}
+
+// The frame does not sit flush against the top of the terminal. It is the
+// vertical counterpart of the column of breathing room on its left, and the
+// only row of the wizard that is deliberately empty.
+func TestTheFrameDoesNotTouchTheTopOfTheTerminal(t *testing.T) {
+	for _, sz := range [][2]int{{minCols, minRows}, {100, 24}} {
+		m := atRuleFor(t, "organization.member.added")
+		m.Update(tea.WindowSizeMsg{Width: sz[0], Height: sz[1]})
+		view := plain(m.viewString())
+		top, _, _ := strings.Cut(view, "\n")
+		if strings.TrimSpace(top) != "" {
+			t.Fatalf("at %d×%d the frame starts on row 0: %q", sz[0], sz[1], top)
 		}
 	}
 }
