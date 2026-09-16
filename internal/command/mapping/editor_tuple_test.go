@@ -391,7 +391,7 @@ func memberAddedEvent() map[string]any {
 	}
 }
 
-// ^o picks a type or relation out of the loaded authorization model. With no
+// ctrl+o picks a type or relation out of the loaded authorization model. With no
 // model loaded it can do nothing, and it was offered in the footer regardless —
 // on the screen with the most typing to do, the one key that never responds.
 func TestTheModelPickerIsOnlyOfferedWhenThereIsAModel(t *testing.T) {
@@ -399,15 +399,15 @@ func TestTheModelPickerIsOnlyOfferedWhenThereIsAModel(t *testing.T) {
 	if m.index.Empty() {
 		t.Fatal("this helper is supposed to load a model; the test asserts the wrong thing")
 	}
-	if !offersKey(m, "^o") {
-		t.Fatalf("^o missing with a model loaded: %v", m.chromeFor().keys)
+	if !offersKey(m, "ctrl+o") {
+		t.Fatalf("ctrl+o missing with a model loaded: %v", m.chromeFor().keys)
 	}
 
 	// The same screen, with the model taken away: the key has nothing to do, so
 	// it stops being advertised.
 	m.index = nil
-	if offersKey(m, "^o") {
-		t.Fatalf("^o still offered with no model: %v", m.chromeFor().keys)
+	if offersKey(m, "ctrl+o") {
+		t.Fatalf("ctrl+o still offered with no model: %v", m.chromeFor().keys)
 	}
 
 	// Hidden is not disabled — a user who knows the key can still press it, and
@@ -417,7 +417,7 @@ func TestTheModelPickerIsOnlyOfferedWhenThereIsAModel(t *testing.T) {
 		t.Fatal("no model should open no picker")
 	}
 	if !strings.Contains(m.noteMsg, "No model loaded") {
-		t.Fatalf("pressing ^o with no model said %q", m.noteMsg)
+		t.Fatalf("pressing ctrl+o with no model said %q", m.noteMsg)
 	}
 }
 

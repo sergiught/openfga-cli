@@ -221,7 +221,7 @@ func atModelFile(t *testing.T, m *wizardModel) {
 	}
 	send(m, key("ctrl+p"))
 	if m.top() != screenModelFile {
-		t.Fatalf("^p should open the path field: top = %v", m.top())
+		t.Fatalf("ctrl+p should open the path field: top = %v", m.top())
 	}
 }
 

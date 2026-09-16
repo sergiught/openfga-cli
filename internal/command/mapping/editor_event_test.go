@@ -462,7 +462,7 @@ func mappingTuple() []mapping.Tuple {
 	}}
 }
 
-// ^d on the paste screen reads "accept", so pressing it on an empty box is a
+// ctrl+d on the paste screen reads "accept", so pressing it on an empty box is a
 // normal way to find out what it does. The answer used to be the encoding/json
 // package's own words.
 func TestAcceptingAnEmptyPasteSaysSoInEnglish(t *testing.T) {

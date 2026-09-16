@@ -451,11 +451,11 @@ func (m *wizardModel) key(k tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 
-	// The preview's own keys, from any screen that has a preview: ^t switches
+	// The preview's own keys, from any screen that has a preview: ctrl+t switches
 	// the pane between the file and the payload, pgup/pgdn page whichever is on
 	// show. The bare arrows belong to whichever list or form has the screen —
 	// the pane is never the focused thing — so it takes keys nothing else in
-	// the wizard binds. ^t is advertised in the hint row the way ^s is, being
+	// the wizard binds. ctrl+t is advertised in the hint row the way ctrl+s is,
 	// global in the same way; the section's own header names both keys again,
 	// beside the position readout that gives them their point.
 	//

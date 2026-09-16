@@ -170,7 +170,7 @@ func TestIteratorFormAndNestedTuples(t *testing.T) {
 }
 
 // The iterator's tuples are a row you arrow onto, like every other list in this
-// wizard. They used to be reachable only by a ^t chord from inside the form,
+// wizard. They used to be reachable only by a chord from inside the form,
 // which is what "in the iterator I can't select tuples" was about: two text
 // fields, no list, and nothing on screen to select.
 func TestTheIteratorHubOffersItsTuplesAsARow(t *testing.T) {

@@ -146,7 +146,7 @@ func TestTypedPathFromTheBrowserLeavesEveryModelScreen(t *testing.T) {
 	m := browseAt(t, dir)
 	send(m, key("ctrl+p"))
 	if m.top() != screenModelFile {
-		t.Fatalf("^p should open the path field: top = %v", m.top())
+		t.Fatalf("ctrl+p should open the path field: top = %v", m.top())
 	}
 
 	m.modelPath.SetValues([]string{filepath.Join(dir, "model.fga")})

@@ -156,7 +156,7 @@ func (m *wizardModel) keyVariable(k tea.KeyPressMsg) tea.Cmd {
 // iteratorSections builds the iterator's own hub. An iterator is a source, a
 // name for the element, and a list of tuples written once per item — and the
 // tuples were the only one of the three with no row to arrow onto, reachable
-// only by a ^t chord from inside the form. Every other list in this wizard is a
+// only by a chord from inside the form. Every other list in this wizard is a
 // row you select, so the one that was not read as absent rather than hidden.
 func (m *wizardModel) iteratorSections() []picker.Item {
 	r := m.rule()

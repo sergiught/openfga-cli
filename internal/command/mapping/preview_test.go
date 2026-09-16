@@ -154,12 +154,12 @@ func TestTheDocumentReachesItsLastRowByPaging(t *testing.T) {
 
 // The payload is the other half of the pane. Writing
 // `{{ input.data.object.organization.id }}` means knowing what the event holds,
-// and ^p inserts one path without ever showing the shape they come from.
+// and ctrl+p inserts one path without ever showing the shape they come from.
 func TestThePayloadIsOneKeyAway(t *testing.T) {
 	m := atRuleFor(t, "organization.member.added")
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 
-	if pane := plain(previewOf(m)); !strings.Contains(pane, "^t input payload") {
+	if pane := plain(previewOf(m)); !strings.Contains(pane, "ctrl+t input payload") {
 		t.Fatalf("the file's header never offers the way to the payload:\n%s", pane)
 	}
 	send(m, key("ctrl+t"))
@@ -171,12 +171,12 @@ func TestThePayloadIsOneKeyAway(t *testing.T) {
 	}
 
 	// And back, by the key its own header offers.
-	if !strings.Contains(pane, "^t file") {
+	if !strings.Contains(pane, "ctrl+t file") {
 		t.Fatalf("the payload's header never offers the way back:\n%s", pane)
 	}
 	send(m, key("ctrl+t"))
 	if pane := plain(previewOf(m)); !strings.Contains(pane, m.path) {
-		t.Fatalf("^t did not bring the file back:\n%s", pane)
+		t.Fatalf("ctrl+t did not bring the file back:\n%s", pane)
 	}
 }
 
@@ -187,11 +187,11 @@ func TestTheHintRowOffersTheSwitch(t *testing.T) {
 	m := atRuleFor(t, "organization.member.added")
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 
-	if bar := plain(m.statusBar()); !strings.Contains(bar, "^t input payload") {
+	if bar := plain(m.statusBar()); !strings.Contains(bar, "ctrl+t input payload") {
 		t.Fatalf("the hint row never offers the switch:\n%s", bar)
 	}
 	send(m, key("ctrl+t"))
-	if bar := plain(m.statusBar()); !strings.Contains(bar, "^t file") {
+	if bar := plain(m.statusBar()); !strings.Contains(bar, "ctrl+t file") {
 		t.Fatalf("the hint row never offers the way back:\n%s", bar)
 	}
 }
@@ -203,14 +203,14 @@ func TestTheHintRowKeepsTheSwitchToItself(t *testing.T) {
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 
 	m.rule().Sample = nil
-	if bar := plain(m.statusBar()); strings.Contains(bar, "^t") {
+	if bar := plain(m.statusBar()); strings.Contains(bar, "ctrl+t") {
 		t.Fatalf("a rule with no sample still offers the switch:\n%s", bar)
 	}
 
 	m = atRuleFor(t, "organization.member.added")
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	send(m, key("?"))
-	if bar := plain(m.statusBar()); strings.Contains(bar, "^t") {
+	if bar := plain(m.statusBar()); strings.Contains(bar, "ctrl+t") {
 		t.Fatalf("a card screen with no preview still offers the switch:\n%s", bar)
 	}
 }
@@ -253,7 +253,7 @@ func TestThePaneShowsOneSectionAtATime(t *testing.T) {
 			m.previewMode = mode
 			pane := plain(previewOf(m))
 			// The bodies, not the headers: the file's header names the payload,
-			// that being where its ^t leads.
+			// that being where its ctrl+t leads.
 			if strings.Contains(pane, `version: "1"`) && strings.Contains(pane, `"a0stream"`) {
 				t.Errorf("at %dx%d the pane shows both sections:\n%s", sz.w, sz.h, pane)
 			}
@@ -450,15 +450,15 @@ func TestANarrowHeaderKeepsTheSwitch(t *testing.T) {
 	m.Update(tea.WindowSizeMsg{Width: sideBySideMin + 4, Height: 30})
 
 	pane := plain(previewOf(m))
-	if strings.Contains(pane, "pgup/pgdn 1-") && strings.Contains(pane, "^t input payload") {
+	if strings.Contains(pane, "pgup/pgdn 1-") && strings.Contains(pane, "ctrl+t input payload") {
 		t.Skipf("the rule still holds both, so nothing was dropped:\n%s", pane)
 	}
-	if !strings.Contains(pane, "^t input payload") {
+	if !strings.Contains(pane, "ctrl+t input payload") {
 		t.Fatalf("the narrow header dropped the switch and kept the position:\n%s", pane)
 	}
 }
 
-// ^t is offered only where there is a payload behind it. On a rule that has no
+// ctrl+t is offered only where there is a payload behind it. On a rule that has no
 // sample the header says nothing about the key, and pressing it anyway leaves
 // the file where it is rather than heading an empty section.
 func TestSwitchingDoesNothingWithNoPayload(t *testing.T) {
@@ -466,12 +466,12 @@ func TestSwitchingDoesNothingWithNoPayload(t *testing.T) {
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	m.rule().Sample = nil
 
-	if pane := plain(previewOf(m)); strings.Contains(pane, "^t") {
+	if pane := plain(previewOf(m)); strings.Contains(pane, "ctrl+t") {
 		t.Fatalf("the header offers a switch to nothing:\n%s", pane)
 	}
 	send(m, key("ctrl+t"))
 	if m.previewMode != previewDoc {
-		t.Fatal("^t switched the pane to a payload that does not exist")
+		t.Fatal("ctrl+t switched the pane to a payload that does not exist")
 	}
 	if pane := plain(previewOf(m)); !strings.Contains(pane, m.path) {
 		t.Fatalf("the file left the pane:\n%s", pane)

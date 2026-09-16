@@ -354,13 +354,13 @@ func (m *wizardModel) setSample(label string, event map[string]any) {
 // object — mapper's `input` is a map, and a bare array or scalar would fail
 // later with a much worse message.
 func decodeEvent(raw []byte) (map[string]any, error) {
-	// An empty box is the commonest way to reach this function: ^d reads
+	// An empty box is the commonest way to reach this function: ctrl+d reads
 	// "accept", and a user pressing it to find out what it does gets handed
 	// "unexpected end of JSON input" — a description of the parser's position,
 	// not of theirs, and one that implies they pasted something broken rather
 	// than nothing at all.
 	if len(strings.TrimSpace(string(raw))) == 0 {
-		return nil, errors.New("nothing pasted yet — paste one event payload, then press ^d")
+		return nil, errors.New("nothing pasted yet — paste one event payload, then press ctrl+d")
 	}
 	var event map[string]any
 	if err := json.Unmarshal(raw, &event); err != nil {

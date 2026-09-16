@@ -70,7 +70,7 @@ func helpFor(s screen) (title, body string, ok bool) {
 			"of tuples over a list in the event.", true
 	case screenModelSource:
 		return "Authorization model", "Loading your model lets the wizard check that every type and " +
-			"relation a tuple names exists, and offer them with ^o while you type.\n\n" +
+			"relation a tuple names exists, and offer them with ctrl+o while you type.\n\n" +
 			"It is optional. The mapping is just as valid without one, and a mismatch is reported " +
 			"but never blocks a save — your model may simply be older than the mapping.", true
 	case screenEventPick:
