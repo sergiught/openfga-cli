@@ -1,6 +1,7 @@
 package mapping
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -1126,13 +1127,24 @@ func (m *wizardModel) previewPane(w, rows int) string {
 		return ""
 	}
 	eval := m.evaluationLines(w)
+	doc := string(m.preview.YAML)
+	label, payload := m.samplePayload()
+	docRows, payloadRows := previewBudget(rows, lipgloss.Height(eval),
+		wrappedHeight(doc, w), wrappedHeight(payload, w))
+
 	var b strings.Builder
-	// On a short terminal the YAML half yields all its rows to the evaluation
-	// half; drop its header too, rather than leaving a heading over nothing.
-	if n := yamlLines(rows, lipgloss.Height(eval)); n > 0 {
+	// On a short terminal a section yields all its rows to the ones below it;
+	// drop its header too, rather than leaving a heading over nothing.
+	if docRows > 0 {
 		b.WriteString(style.SectionHeader(m.path, w))
 		b.WriteString("\n")
-		b.WriteString(highlightedYAML(string(m.preview.YAML), w, n))
+		b.WriteString(highlightedYAML(doc, w, docRows))
+		b.WriteString("\n\n")
+	}
+	if payloadRows > 0 {
+		b.WriteString(style.SectionHeader(label, w))
+		b.WriteString("\n")
+		b.WriteString(highlightedJSON(payload, w, payloadRows))
 		b.WriteString("\n\n")
 	}
 	b.WriteString(style.SectionHeader("preview", w))
@@ -1141,24 +1153,73 @@ func (m *wizardModel) previewPane(w, rows int) string {
 	return b.String()
 }
 
-// yamlLines gives the YAML half whatever rows the pane has left after the
-// evaluation half, which is measured first because it is what the user is
-// reacting to. The three rows held back are this half's header, the blank row
-// under it, and the evaluation half's header.
+// previewBudget splits the pane's rows between the two read-only sections that
+// sit above the evaluation.
+//
+// The evaluation is measured first and keeps what it needs, because it is what
+// the user is reacting to. The document takes what it can of the rest and the
+// payload takes what is left, which is the order the screen already implied:
+// the wizard's whole promise is watching mapping.yaml being written, and the
+// payload is reference material beside it.
 //
 // The budget comes from the rows the caller actually has rather than from a
 // height threshold. A threshold had the file disappear from a 30-row terminal
-// while five rows sat empty below the frame — on the screen whose whole promise
-// is watching that file being written.
+// while five rows sat empty below the frame.
 //
-// Under three rows the half is dropped rather than shrunk: a file shown two
-// lines at a time says nothing the header has not already said, and the rows
-// are worth more to the evaluation.
-func yamlLines(rows, evalRows int) int {
-	if n := rows - evalRows - 3; n >= 3 {
-		return n
+// Each section costs two rows beyond its content — its own header and the blank
+// row separating it from the next — and the evaluation's header is the single
+// row taken off the top, having no blank row of its own.
+func previewBudget(rows, evalRows, docWant, payloadWant int) (doc, payload int) {
+	left := rows - evalRows - 1
+	doc = fitSection(left-2, docWant)
+	if doc > 0 {
+		left -= doc + 2
 	}
-	return 0
+	return doc, fitSection(left-2, payloadWant)
+}
+
+// fitSection gives a section what it asks for, capped at the room there is for
+// it.
+//
+// Under three rows the section is dropped rather than shrunk: a file shown two
+// lines at a time says nothing its header has not already said, and the rows
+// are worth more to the section below. A section that cannot fit is given one
+// row less than the room it fills, because truncating adds the ellipsis row.
+func fitSection(room, want int) int {
+	if room < 3 {
+		return 0
+	}
+	if want > room {
+		return room - 1
+	}
+	return want
+}
+
+// samplePayload is the event the current rule is previewed against, as indented
+// JSON, and the name to head it with.
+//
+// Inside an iterator it is the first element of the iterated list under the
+// alias rather than the whole event, because that is the shape the expressions
+// on those screens address — `identity.connection`, not
+// `input.data.object.identities[0].connection`. Showing the whole event there
+// would point the user at paths that do not resolve.
+func (m *wizardModel) samplePayload() (string, string) {
+	r := m.rule()
+	if r == nil || r.Sample == nil {
+		return "", ""
+	}
+
+	label, value := "event", any(r.Sample.Event)
+	if m.inIter && r.Iterator != nil && r.Iterator.As != "" {
+		elem, ok := mapping.Lookup(r.Sample.Event, r.Iterator.Source+"[0]")
+		if !ok {
+			return "", ""
+		}
+		label, value = r.Iterator.As, elem
+	}
+
+	out, _ := json.MarshalIndent(value, "", "  ")
+	return label, string(out)
 }
 
 // diagLocation prefixes a diagnostic with its line, or with nothing when mapper

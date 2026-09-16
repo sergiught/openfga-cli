@@ -139,3 +139,129 @@ func TestTheDocumentStopsAtTheRowsItWasGiven(t *testing.T) {
 		t.Fatalf("the document block is %d rows, want its 6 plus the … row", h)
 	}
 }
+
+// The payload is the third thing the pane shows. Writing
+// `{{ input.data.object.organization.id }}` means knowing what the event holds,
+// and ^p inserts one path without ever showing the shape they come from.
+func TestThePayloadIsShownBesideTheMapping(t *testing.T) {
+	m := atRuleFor(t, "organization.member.added")
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	pane := plain(previewOf(m))
+	for _, want := range []string{"event", `"a0tenant"`, `"org_1234567890abcdef"`} {
+		if !strings.Contains(pane, want) {
+			t.Fatalf("the payload section is missing %q:\n%s", want, pane)
+		}
+	}
+}
+
+// Inside an iterator the expressions address the item, not the event:
+// `identity.connection`, never `input.data.object.identities[0].connection`.
+// Showing the whole event there would point the user at paths that do not
+// resolve — the same rewrite the path picker already does.
+func TestInsideAnIteratorThePayloadIsTheItem(t *testing.T) {
+	m := atRuleFor(t, "user.created")
+	m.inIter = true
+
+	label, payload := m.samplePayload()
+	if label != "identity" {
+		t.Fatalf("the payload is headed %q, want the iterator's alias", label)
+	}
+	if !strings.Contains(payload, `"connection"`) {
+		t.Fatalf("the item's own fields are missing:\n%s", payload)
+	}
+	if strings.Contains(payload, "a0tenant") {
+		t.Fatalf("the whole event is shown, whose paths do not resolve here:\n%s", payload)
+	}
+}
+
+// The payload is reference material beside the file being written, so it is the
+// section that gives up its rows first. The document and the evaluation — the
+// wizard's promise, and the thing the user is reacting to — both outlive it.
+//
+// The assertion is on the rendered view rather than the pane, because the pane
+// is drawn into a MaxHeight container: a budget that promises more rows than
+// the pane has is not an overflow, it is the evaluation silently clipped off
+// the bottom.
+func TestThePayloadYieldsItsRowsBeforeTheOthers(t *testing.T) {
+	var lost int
+	for _, h := range []int{60, 40, 30, 24, 20, minRows} {
+		m := atRuleFor(t, "organization.member.added")
+		m.Update(tea.WindowSizeMsg{Width: 120, Height: h})
+		view := plain(m.viewString())
+
+		if !strings.Contains(view, "preview") {
+			t.Errorf("at 120x%d the payload cost the evaluation its place:\n%s", h, view)
+		}
+		if !strings.Contains(view, m.path) {
+			t.Errorf("at 120x%d the document went before the payload:\n%s", h, view)
+		}
+		if !strings.Contains(plain(previewOf(m)), "event \u2500") {
+			lost++
+		}
+	}
+	if lost == 0 {
+		t.Fatal("the payload never yielded, so this proves nothing about the order")
+	}
+}
+
+// The budget is what stands between three sections and a pane that promises
+// more rows than it has. It is checked against the renderers themselves rather
+// than against a model of them, because the off-by-one that matters is the
+// ellipsis row a truncated section adds.
+func TestPreviewBudgetFitsTheRowsItWasGiven(t *testing.T) {
+	const w = 50
+	for _, tc := range []struct{ rows, eval, doc, payload int }{
+		{40, 4, 12, 60},  // a long payload against a short document
+		{40, 4, 60, 60},  // both longer than the pane
+		{30, 10, 12, 60}, // a talkative evaluation
+		{24, 8, 12, 60},
+		{20, 12, 12, 60}, // nothing left for either
+		{40, 4, 5, 5},    // both short, room to spare
+	} {
+		doc := strings.Repeat("key: value\n", tc.doc)
+		payload := strings.Repeat("  \"key\": \"value\",\n", tc.payload)
+
+		docRows, payloadRows := previewBudget(tc.rows, tc.eval,
+			wrappedHeight(doc, w), wrappedHeight(payload, w))
+
+		used := tc.eval + 1 // the evaluation and its header
+		if docRows > 0 {
+			used += lipgloss.Height(highlightedYAML(doc, w, docRows)) + 2
+		}
+		if payloadRows > 0 {
+			used += lipgloss.Height(highlightedJSON(payload, w, payloadRows)) + 2
+		}
+		if used > tc.rows {
+			t.Errorf("rows=%d eval=%d doc=%d payload=%d: the budget spends %d of %d",
+				tc.rows, tc.eval, tc.doc, tc.payload, used, tc.rows)
+		}
+	}
+}
+
+// Three sections sharing the rows two had is only safe while the screen still
+// fits the terminal. The general overflow sweep drives screens by stack alone,
+// so it never has a sample and never renders a payload section at all.
+func TestTheScreenWithAPayloadStaysInsideTheTerminal(t *testing.T) {
+	for _, sz := range layoutSizes {
+		m := atRuleFor(t, "organization.member.added")
+		m.Update(tea.WindowSizeMsg{Width: sz.w, Height: sz.h})
+		if _, payload := m.samplePayload(); payload == "" {
+			t.Fatal("this rule has no sample, so the test exercises nothing")
+		}
+		if why := doesNotFit(m.viewString(), sz.w, sz.h); why != "" {
+			t.Errorf("at %dx%d: %s:\n%s", sz.w, sz.h, why, m.viewString())
+		}
+	}
+}
+
+// Colour over the payload is decoration only, the same contract the document
+// half keeps: stripping the escapes gives back the JSON that went in.
+func TestHighlightingLeavesThePayloadAlone(t *testing.T) {
+	src := "{\n  \"type\": \"user.created\",\n  \"data\": {\n    \"id\": 7\n  }\n}"
+	if got := plain(highlightedJSON(src, 60, 20)); got != src {
+		t.Fatalf("highlighting changed the payload:\ngot  %q\nwant %q", got, src)
+	}
+	if !strings.Contains(highlightedJSON(src, 60, 20), style.Key.Render(`"type"`)) {
+		t.Fatal("the field names are not picked out from their values")
+	}
+}

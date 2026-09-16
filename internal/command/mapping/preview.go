@@ -64,6 +64,54 @@ func wrapText(s string, w int) string {
 	return strings.Join(out, "\n")
 }
 
+// wrappedHeight is how many rows a block takes once wrapped to w, which is what
+// a section asks the row budget for. An empty block asks for nothing rather than
+// for the one row a bare "" would otherwise count as.
+func wrappedHeight(s string, w int) int {
+	if s == "" {
+		return 0
+	}
+	n := 0
+	for _, l := range strings.Split(strings.TrimRight(s, "\n"), "\n") {
+		n += len(wrapLine(l, w))
+	}
+	return n
+}
+
+// jsonKey matches a field at the head of a line: indent, the quoted name, then
+// the colon and whatever follows. The quotes are what make this safe where the
+// YAML pattern needs a trailing space to be — a value carrying a colon of its
+// own cannot reach the front of a line unquoted.
+var jsonKey = regexp.MustCompile(`^(\s*)("(?:[^"\\]|\\.)*")(:.*)$`)
+
+// highlightedJSON is the payload half of the preview: the event the rule is
+// evaluated against, wrapped to the pane, cut to the rows it was given, and
+// coloured.
+//
+// Only field names are picked out. The values are the reason to read this at
+// all — they are what a user checks a path against before writing it into a
+// template — so they keep the plain foreground rather than competing with a
+// second colour for it.
+func highlightedJSON(s string, w, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	var out []string
+	for _, line := range strings.Split(strings.TrimRight(s, "\n"), "\n") {
+		for i, row := range wrapLine(line, w) {
+			if m := jsonKey.FindStringSubmatch(row); i == 0 && m != nil {
+				out = append(out, m[1]+style.Key.Render(m[2])+m[3])
+				continue
+			}
+			out = append(out, row)
+		}
+	}
+	if len(out) > n {
+		out = append(out[:n], style.Faint.Render("…"))
+	}
+	return strings.Join(out, "\n")
+}
+
 // yamlKey matches a field at the head of a line: indent, an optional list
 // marker, the name, and the colon. The trailing space is required so that a
 // value carrying a colon of its own — `user:alice`, which is every tuple the
