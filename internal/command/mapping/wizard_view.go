@@ -290,6 +290,14 @@ func (m *wizardModel) chromeFor() chrome {
 	if m.canSave() && !m.loading {
 		c.keys = append(append([]keyHint(nil), c.keys...), keyHint{"^s", "save file"})
 	}
+
+	// The preview's switch, likewise global rather than listed per screen, and
+	// offered only where there is a preview to switch and a payload to switch
+	// to. It names where it leads in the same words the pane's own header uses,
+	// so the two read as one affordance rather than two.
+	if h, ok := m.previewSwitch(); ok && !m.loading {
+		c.keys = append(append([]keyHint(nil), c.keys...), h)
+	}
 	return c
 }
 
@@ -1155,11 +1163,13 @@ func (m *wizardModel) previewPane(w, rows int) string {
 		m.payloadShown, m.payloadOff = payload, 0
 	}
 
-	// The switch names where it leads rather than what is on show, that being
-	// the half of the pair the header is not already saying.
-	title, body, other := m.path, yamlRows(string(m.preview.YAML), w), label
+	title, body := m.path, yamlRows(string(m.preview.YAML), w)
 	if m.showsPayload() {
-		title, body, other = label, jsonRows(payload, w), "file"
+		title, body = label, jsonRows(payload, w)
+	}
+	var other string
+	if h, ok := m.previewSwitch(); ok {
+		other = h.label
 	}
 
 	// What the section has to fill: the pane's rows, less the evaluation and the
@@ -1197,6 +1207,30 @@ func (m *wizardModel) showsPayload() bool {
 	return payload != ""
 }
 
+// previewSwitch is the ^t affordance: the key, and the section it leads to.
+//
+// It names where the key goes rather than what is on show, that being the half
+// of the pair the pane's own header is not already saying. There is nothing to
+// offer on a card screen, which has no preview, or on one with no sample behind
+// it: the key does nothing in either case, and a hint for a key that does
+// nothing reads as one affordance broken rather than as one absent.
+//
+// The hint row and the section header both ask here, so that the two say the
+// same words about the same key.
+func (m *wizardModel) previewSwitch() (keyHint, bool) {
+	if !m.hasPane() {
+		return keyHint{}, false
+	}
+	if m.showsPayload() {
+		return keyHint{"^t", "file"}, true
+	}
+	label, payload := m.samplePayload()
+	if payload == "" {
+		return keyHint{}, false
+	}
+	return keyHint{"^t", label}, true
+}
+
 // previewOff points at the offset of the section on show, which is the one the
 // scroll keys move. The two keep their offsets separately, so that a look at
 // the payload and back does not cost the user their place in the file.
@@ -1218,11 +1252,12 @@ func (m *wizardModel) previewOff() *int {
 // leave yesterday's reach behind for the keys to move an invisible offset
 // through.
 //
-// The keys are named here rather than in the hint row, which is already 38
-// cells of a 44-column floor. ^t appears wherever there is something to switch
-// to; the page keys only once there is something to scroll to, so that they
-// read as an offer at the moment it becomes one, beside the numbers that make
-// it worth taking.
+// The keys are named on the rule as well as in the hint row, because only here
+// can they be said beside the numbers that make them worth taking: the row has
+// no room for a position readout, and ^t on its own does not say that there is
+// a whole other section to reach. The page keys appear only once there is
+// something to scroll to, so that they read as an offer at the moment it
+// becomes one.
 func (m *wizardModel) previewWindow(rows []string, n int, other string) (string, []string) {
 	m.previewPage, m.previewMaxOff = n, 0
 	if n < 1 || len(rows) == 0 {

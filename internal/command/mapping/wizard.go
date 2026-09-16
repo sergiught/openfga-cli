@@ -455,8 +455,9 @@ func (m *wizardModel) key(k tea.KeyPressMsg) tea.Cmd {
 	// the pane between the file and the payload, pgup/pgdn page whichever is on
 	// show. The bare arrows belong to whichever list or form has the screen —
 	// the pane is never the focused thing — so it takes keys nothing else in
-	// the wizard binds, and the section advertises them on its own header rather
-	// than in the hint row, which is already 38 cells of a 44-column floor.
+	// the wizard binds. ^t is advertised in the hint row the way ^s is, being
+	// global in the same way; the section's own header names both keys again,
+	// beside the position readout that gives them their point.
 	//
 	// alt+↑↓ held this job first and never arrived: a modified arrow is encoded
 	// by agreement between terminal and application, and enough of them are

@@ -180,6 +180,41 @@ func TestThePayloadIsOneKeyAway(t *testing.T) {
 	}
 }
 
+// The header note alone meant a user had to be reading the preview already to
+// learn there was a second half of it. The hint row is where a user looks for
+// keys, so the switch is named there too, in the same words.
+func TestTheHintRowOffersTheSwitch(t *testing.T) {
+	m := atRuleFor(t, "organization.member.added")
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	if bar := plain(m.statusBar()); !strings.Contains(bar, "^t input payload") {
+		t.Fatalf("the hint row never offers the switch:\n%s", bar)
+	}
+	send(m, key("ctrl+t"))
+	if bar := plain(m.statusBar()); !strings.Contains(bar, "^t file") {
+		t.Fatalf("the hint row never offers the way back:\n%s", bar)
+	}
+}
+
+// A hint for a key that does nothing is worse than no hint: the user presses
+// it, nothing moves, and they are left doubting the rest of the row.
+func TestTheHintRowKeepsTheSwitchToItself(t *testing.T) {
+	m := atRuleFor(t, "organization.member.added")
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	m.rule().Sample = nil
+	if bar := plain(m.statusBar()); strings.Contains(bar, "^t") {
+		t.Fatalf("a rule with no sample still offers the switch:\n%s", bar)
+	}
+
+	m = atRuleFor(t, "organization.member.added")
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	send(m, key("?"))
+	if bar := plain(m.statusBar()); strings.Contains(bar, "^t") {
+		t.Fatalf("a card screen with no preview still offers the switch:\n%s", bar)
+	}
+}
+
 // Inside an iterator the expressions address the item, not the event:
 // `identity.connection`, never `input.data.object.identities[0].connection`.
 // Showing the whole event there would point the user at paths that do not
