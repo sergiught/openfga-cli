@@ -64,20 +64,6 @@ func wrapText(s string, w int) string {
 	return strings.Join(out, "\n")
 }
 
-// wrappedHeight is how many rows a block takes once wrapped to w, which is what
-// a section asks the row budget for. An empty block asks for nothing rather than
-// for the one row a bare "" would otherwise count as.
-func wrappedHeight(s string, w int) int {
-	if s == "" {
-		return 0
-	}
-	n := 0
-	for _, l := range strings.Split(strings.TrimRight(s, "\n"), "\n") {
-		n += len(wrapLine(l, w))
-	}
-	return n
-}
-
 // jsonKey matches a field at the head of a line: indent, the quoted name, then
 // the colon and whatever follows. The quotes are what make this safe where the
 // YAML pattern needs a trailing space to be — a value carrying a colon of its
@@ -118,16 +104,21 @@ func jsonRows(s string, w int) []string {
 // wizard writes — is not mistaken for a field.
 var yamlKey = regexp.MustCompile(`^(\s*)(- )?([\w.-]+:)( .*)?$`)
 
-// highlightedYAML is the document half of the preview: wrapped to the pane,
-// cut to the rows it was given, and coloured.
+// yamlRows is the document half of the preview: the file as it stands, wrapped
+// to the pane and coloured, as the rows it occupies.
+//
+// The rows come back whole rather than cut to a count, for the same reason
+// jsonRows' do: the section shows a scrolled window onto them, and both the
+// window's position and the count on its header are measured in these rows. It
+// used to truncate at the count instead, which always cut the bottom — where
+// the rule the user had just written had landed.
 //
 // Colour comes last, after the wrap, so that no escape sequence is ever cut
 // through the middle — the reason the old rune-based clamp could not have
-// stayed. n <= 0 hides the block entirely, which is how this half yields its
-// rows to the evaluation half on a short screen.
-func highlightedYAML(s string, w, n int) string {
-	if n <= 0 {
-		return ""
+// stayed.
+func yamlRows(s string, w int) []string {
+	if s == "" {
+		return nil
 	}
 	var out []string
 	for _, line := range strings.Split(strings.TrimRight(s, "\n"), "\n") {
@@ -138,10 +129,7 @@ func highlightedYAML(s string, w, n int) string {
 			out = append(out, coloured)
 		}
 	}
-	if len(out) > n {
-		out = append(out[:n], style.Faint.Render("…"))
-	}
-	return strings.Join(out, "\n")
+	return out
 }
 
 // highlightYAML colours one rendered row. first says the row starts a line

@@ -308,26 +308,37 @@ func (m *wizardModel) viewString() string {
 			lipgloss.Center, lipgloss.Center,
 			style.Faint.Render(fmt.Sprintf("terminal too small — need %d×%d", minCols, minRows)))
 	}
-	// The welcome screen is the tour's front door and matches the connection
-	// wizard exactly; the confirmations are modals, which is the one surface the
-	// rest of the CLI also boxes. The add-rule fork joins them — both the
-	// payload-kind question and the recipe it leads to concern a rule that does
-	// not exist yet, so a pane beside them can only show the file as it already
-	// is: `rules: []` next to a mapping the user is in the middle of acquiring,
-	// which reads as a verdict on the answer they are being asked for. Every
-	// other screen is the two-pane editor.
-	//
-	// Help is a modal too, and belongs here for a second reason: stacked on a
-	// short terminal the preview lands under it and takes the rows the concept
-	// needs, so the longest explanations were the ones getting cut. A card gives
-	// it the whole terminal, and a file listing beside a definition was never
-	// what the reader reached for anyway.
-	switch m.top() {
-	case screenWelcome, screenPayloadKind, screenRecipe, screenHelp,
-		screenConfirmSave, screenConfirmDelete:
+	if !m.hasPane() {
 		return m.cardView()
 	}
 	return m.paneView()
+}
+
+// hasPane is whether the screen is the two-pane editor rather than a centered
+// card. It decides how the screen is drawn, and with it whether the preview is
+// on show for its own keys to have anything to move.
+//
+// The welcome screen is the tour's front door and matches the connection
+// wizard exactly; the confirmations are modals, which is the one surface the
+// rest of the CLI also boxes. The add-rule fork joins them — both the
+// payload-kind question and the recipe it leads to concern a rule that does
+// not exist yet, so a pane beside them can only show the file as it already
+// is: `rules: []` next to a mapping the user is in the middle of acquiring,
+// which reads as a verdict on the answer they are being asked for. Every
+// other screen is the two-pane editor.
+//
+// Help is a modal too, and belongs here for a second reason: stacked on a
+// short terminal the preview lands under it and takes the rows the concept
+// needs, so the longest explanations were the ones getting cut. A card gives
+// it the whole terminal, and a file listing beside a definition was never
+// what the reader reached for anyway.
+func (m *wizardModel) hasPane() bool {
+	switch m.top() {
+	case screenWelcome, screenPayloadKind, screenRecipe, screenHelp,
+		screenConfirmSave, screenConfirmDelete:
+		return false
+	}
+	return true
 }
 
 // cardWidth is the centered card's content width. It deliberately ignores
@@ -1122,12 +1133,20 @@ func indentDSL(dsl string, cw int) string {
 // previewPane renders the file being built and what the current sample turns
 // into. It is the whole point of the hub-and-spoke design: every edit is
 // visible immediately.
+//
+// One long section is on show at a time — the file or the payload, ^t switches
+// — over the evaluation, which is pinned below both because it is what the user
+// is reacting to and costs two or three rows to keep. The two long sections
+// used to split the pane's rows between them, which held while the file was
+// short and the events were small. Both grow: the file with every rule, the
+// payload with whatever the event happens to carry, and a fixed split between
+// two growing things starves both. Whole rows for one of them and a window that
+// scrolls holds up however far either grows.
 func (m *wizardModel) previewPane(w, rows int) string {
 	if w < 20 {
 		return ""
 	}
 	eval := m.evaluationLines(w)
-	doc := string(m.preview.YAML)
 	label, payload := m.samplePayload()
 	// A different payload starts at the top. The offset belongs to the one it
 	// was scrolled on, and carried across it would open the next rule's event
@@ -1135,26 +1154,25 @@ func (m *wizardModel) previewPane(w, rows int) string {
 	if payload != m.payloadShown {
 		m.payloadShown, m.payloadOff = payload, 0
 	}
-	pay := jsonRows(payload, w)
-	docRows, payloadRows := previewBudget(rows, lipgloss.Height(eval),
-		wrappedHeight(doc, w), len(pay))
+
+	// The switch names where it leads rather than what is on show, that being
+	// the half of the pair the header is not already saying.
+	title, body, other := m.path, yamlRows(string(m.preview.YAML), w), label
+	if m.showsPayload() {
+		title, body, other = label, jsonRows(payload, w), "file"
+	}
+
+	// What the section has to fill: the pane's rows, less the evaluation and the
+	// single row of its header, less the section's own header and the blank row
+	// separating the two.
+	window, notes := m.previewWindow(body, rows-lipgloss.Height(eval)-3, other)
 
 	var b strings.Builder
-	// On a short terminal a section yields all its rows to the ones below it;
-	// drop its header too, rather than leaving a heading over nothing.
-	if docRows > 0 {
-		b.WriteString(style.SectionHeader(m.path, w))
-		b.WriteString("\n")
-		b.WriteString(highlightedYAML(doc, w, docRows))
-		b.WriteString("\n\n")
-	}
-	// Cleared before the section is drawn rather than after it is skipped, so
-	// that a payload hidden by a short terminal cannot leave yesterday's reach
-	// behind for the scroll keys to move an invisible offset through.
-	m.payloadMaxOff = 0
-	if payloadRows > 0 {
-		window, note := m.payloadWindow(pay, payloadRows)
-		b.WriteString(style.SectionHeaderNoted(label, w, note))
+	// A section with nothing under it is not a section. An empty document is the
+	// welcome screen's ordinary state, and a heading over nothing there reads as
+	// the wizard having mislaid the file rather than as not having started one.
+	if window != "" {
+		b.WriteString(style.SectionHeaderNoted(title, w, notes...))
 		b.WriteString("\n")
 		b.WriteString(window)
 		b.WriteString("\n\n")
@@ -1165,126 +1183,73 @@ func (m *wizardModel) previewPane(w, rows int) string {
 	return b.String()
 }
 
-// The two floors that decide whether the pane holds two read-only sections or
-// one.
+// showsPayload is whether the pane is showing the payload rather than the file.
 //
-// A payload window under eight rows shows too little shape at once to find
-// anything in, even scrolling, and is not worth the rows it costs. A document
-// under twelve is below one whole rule — its event, its iterator and two or
-// three tuples — and the document truncates from the bottom, so what those
-// rows cost is sight of the tuple the user just wrote. Watching that happen is
-// the wizard's promise, and a payload is not worth breaking it for.
-//
-// Under their sum the payload yields entirely, which is how a 30-row terminal
-// shows the file exactly as it did before the payload existed.
-const (
-	payloadMin = 8
-	docMin     = 12
-)
-
-// previewBudget splits the pane's rows between the two read-only sections that
-// sit above the evaluation.
-//
-// The evaluation is measured first and keeps what it needs, because it is what
-// the user is reacting to. Of what is left, the document keeps precedence but
-// only down to the payload's floor — it used to take everything it wanted
-// before the payload was considered at all, which left the payload three rows
-// of the hundred-odd a large event asks for on a 40-row terminal: a section in
-// name only.
-//
-// Precedence stays with the document for a reason the two sections do not
-// share. The document truncates, and it truncates from the bottom, where the
-// rule the user just wrote has landed; the payload scrolls, so a window is all
-// it needs, and what it cannot show it can still reach.
-//
-// The budget comes from the rows the caller actually has rather than from a
-// height threshold. A threshold had the file disappear from a 30-row terminal
-// while five rows sat empty below the frame.
-//
-// Each section costs two rows beyond its content — its own header and the blank
-// row separating it from the next — and the evaluation's header is the single
-// row taken off the top, having no blank row of its own.
-func previewBudget(rows, evalRows, docWant, payloadWant int) (doc, payload int) {
-	left := rows - evalRows - 1
-	room := left - 4
-
-	// The document alone: either there is no payload to place, or no room to
-	// place one without cutting the document past being worth reading.
-	if payloadWant == 0 || room < docMin+payloadMin {
-		return fitSection(left-2, docWant), 0
+// The mode is a preference, not a fact: a screen with no sample behind it shows
+// the file whatever the mode says, rather than heading a section with nothing
+// under it. The render and the scroll keys both ask here, so that the keys
+// always move the offset of the thing the user can watch moving.
+func (m *wizardModel) showsPayload() bool {
+	if m.previewMode != previewPayload {
+		return false
 	}
-	if docWant == 0 {
-		return 0, fitPayload(left-2, payloadWant)
-	}
-
-	doc = fitSection(min(docWant, room-payloadMin), docWant)
-	used := doc
-	if doc < docWant {
-		// The ellipsis row that says the document was cut is a row of the pane
-		// like any other, and the payload cannot also be given it.
-		used++
-	}
-	return doc, fitPayload(room-used, payloadWant)
+	_, payload := m.samplePayload()
+	return payload != ""
 }
 
-// fitSection gives a section what it asks for, capped at the room there is for
-// it.
-//
-// A section that cannot fit is given one row less than the room it fills,
-// because truncating adds the ellipsis row that says so. Under three rows it is
-// dropped rather than shrunk: a file shown two lines at a time says nothing its
-// header has not already said, and the rows are worth more to the section
-// below. A section whose whole content fits is never dropped, however short —
-// two lines shown out of two is the file, not a sample of it.
-func fitSection(room, want int) int {
-	if want <= room {
-		return want
+// previewOff points at the offset of the section on show, which is the one the
+// scroll keys move. The two keep their offsets separately, so that a look at
+// the payload and back does not cost the user their place in the file.
+func (m *wizardModel) previewOff() *int {
+	if m.showsPayload() {
+		return &m.payloadOff
 	}
-	if room < 3 {
-		return 0
-	}
-	return room - 1
+	return &m.docOff
 }
 
-// fitPayload is fitSection for the payload, which scrolls rather than truncates
-// and so spends no row on an ellipsis: what would have said "there is more" is
-// the position on its header instead, which says how much more and how to
-// reach it.
-func fitPayload(room, want int) int {
-	if want <= room {
-		return want
+// previewWindow is the slice of the section the user has scrolled to, and the
+// notes its header may carry — longest first, for SectionHeaderNoted to take
+// the widest of them that fits.
+//
+// The offset is clamped here and both its ceiling and the page recorded, for
+// the reason windowLines does the same: only the render knows how many rows the
+// section came to, because that depends on how wide the pane is. They are
+// cleared first, so that a pane too short to draw the section at all cannot
+// leave yesterday's reach behind for the keys to move an invisible offset
+// through.
+//
+// The keys are named here rather than in the hint row, which is already 38
+// cells of a 44-column floor. ^t appears wherever there is something to switch
+// to; the page keys only once there is something to scroll to, so that they
+// read as an offer at the moment it becomes one, beside the numbers that make
+// it worth taking.
+func (m *wizardModel) previewWindow(rows []string, n int, other string) (string, []string) {
+	m.previewPage, m.previewMaxOff = n, 0
+	if n < 1 || len(rows) == 0 {
+		return "", nil
 	}
-	if room < 3 {
-		return 0
-	}
-	return room
-}
 
-// payloadWindow is the slice of the payload the user has scrolled to, and the
-// note its header carries to say which slice that is.
-//
-// The offset is clamped here and its ceiling recorded, for the reason
-// windowLines does the same: only the render knows how many rows the payload
-// came to, because that depends on how wide the pane is.
-//
-// The keys are named in the note rather than in the hint row, which is already
-// 38 cells of a 44-column floor. Named only while there is something to scroll
-// to, they read as an offer at the moment it becomes one, beside the numbers
-// that make it worth taking.
-func (m *wizardModel) payloadWindow(rows []string, n int) (string, string) {
-	m.payloadMaxOff = len(rows) - n
-	if m.payloadMaxOff < 0 {
-		m.payloadMaxOff = 0
+	off := m.previewOff()
+	m.previewMaxOff = max(len(rows)-n, 0)
+	*off = min(*off, m.previewMaxOff)
+
+	var switchNote string
+	if other != "" {
+		switchNote = "^t " + other
 	}
-	if m.payloadOff > m.payloadMaxOff {
-		m.payloadOff = m.payloadMaxOff
+	if m.previewMaxOff == 0 {
+		return strings.Join(rows, "\n"), []string{switchNote}
 	}
-	if len(rows) <= n {
-		return strings.Join(rows, "\n"), ""
+
+	// The switch outlives the position when the rule cannot hold both. A reader
+	// can see for themselves that there is more below; the key that reaches the
+	// other section is the one thing the screen cannot otherwise admit to.
+	pos := fmt.Sprintf("pgup/pgdn %d-%d/%d", *off+1, *off+n, len(rows))
+	notes := []string{pos}
+	if switchNote != "" {
+		notes = []string{pos + " · " + switchNote, switchNote, pos}
 	}
-	off := m.payloadOff
-	return strings.Join(rows[off:off+n], "\n"),
-		fmt.Sprintf("alt+↑↓ %d-%d/%d", off+1, off+n, len(rows))
+	return strings.Join(rows[*off:*off+n], "\n"), notes
 }
 
 // samplePayload is the event the current rule is previewed against, as indented

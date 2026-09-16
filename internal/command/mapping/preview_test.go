@@ -91,7 +91,7 @@ func TestNoPreviewRowOverflowsThePane(t *testing.T) {
 // from their values, and the {{ }} templates — the only part of the file that
 // runs — from the literal text around them.
 func TestTheDocumentPreviewIsHighlighted(t *testing.T) {
-	out := highlightedYAML("rules:\n  - user: \"user:{{ input.id }}\"\n", 60, 10)
+	out := strings.Join(yamlRows("rules:\n  - user: \"user:{{ input.id }}\"\n", 60), "\n")
 	for _, want := range []string{
 		style.Key.Render("rules:"),
 		style.Key.Render("user:"),
@@ -108,7 +108,7 @@ func TestTheDocumentPreviewIsHighlighted(t *testing.T) {
 // would be worse than one with no colour at all.
 func TestHighlightingLeavesTheTextAlone(t *testing.T) {
 	src := "version: \"1\"\nrules:\n  # a comment\n  - name: x\n    when: input.type == \"x\"\n"
-	got := plain(highlightedYAML(src, 60, 10))
+	got := plain(strings.Join(yamlRows(src, 60), "\n"))
 	if want := strings.TrimRight(src, "\n"); got != want {
 		t.Fatalf("highlighting changed the text:\ngot  %q\nwant %q", got, want)
 	}
@@ -118,10 +118,9 @@ func TestHighlightingLeavesTheTextAlone(t *testing.T) {
 // still part of the same expression. Colouring only the half that carries the
 // braces would read as the expression ending mid-line.
 func TestASplitTemplateStaysHighlightedOnBothRows(t *testing.T) {
-	out := highlightedYAML("  object: \"organization:{{ input.data.object.organization.id }}\"", 30, 10)
-	rows := strings.Split(out, "\n")
+	rows := yamlRows("  object: \"organization:{{ input.data.object.organization.id }}\"", 30)
 	if len(rows) < 2 {
-		t.Fatalf("the line did not wrap, so there is nothing to carry over: %q", out)
+		t.Fatalf("the line did not wrap, so there is nothing to carry over: %q", rows)
 	}
 	open, _, _ := strings.Cut(lipgloss.NewStyle().Foreground(style.Keyword).Render("x"), "x")
 	for i, r := range rows[:2] {
@@ -131,26 +130,53 @@ func TestASplitTemplateStaysHighlightedOnBothRows(t *testing.T) {
 	}
 }
 
-// The budget the YAML half is given is in rows, and wrapping spends rows — so
-// the block must still stop where it was told to.
-func TestTheDocumentStopsAtTheRowsItWasGiven(t *testing.T) {
-	src := strings.Repeat("  - name: a name long enough that it has to wrap somewhere\n", 20)
-	if h := lipgloss.Height(highlightedYAML(src, 30, 6)); h != 7 {
-		t.Fatalf("the document block is %d rows, want its 6 plus the … row", h)
+// The file used to be cut to the rows it was given, and it was cut from the
+// bottom — which is where the rule the user had just written had landed, and
+// watching that appear is the whole promise of a live preview. It scrolls now,
+// so what used to be lost is merely further down.
+func TestTheDocumentReachesItsLastRowByPaging(t *testing.T) {
+	m := atRuleFor(t, "organization.member.added")
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: minRows})
+
+	all := yamlRows(string(m.preview.YAML), m.previewWidth())
+	last := strings.TrimRight(plain(all[len(all)-1]), " ")
+	if strings.Contains(plain(previewOf(m)), last) {
+		t.Fatalf("the file already fits in %d rows, so paging it proves nothing", len(all))
 	}
+	for range len(all) {
+		if strings.Contains(plain(previewOf(m)), last) {
+			return
+		}
+		send(m, key("pgdown"))
+	}
+	t.Fatalf("the file's last row %q is out of reach:\n%s", last, plain(previewOf(m)))
 }
 
-// The payload is the third thing the pane shows. Writing
+// The payload is the other half of the pane. Writing
 // `{{ input.data.object.organization.id }}` means knowing what the event holds,
 // and ^p inserts one path without ever showing the shape they come from.
-func TestThePayloadIsShownBesideTheMapping(t *testing.T) {
+func TestThePayloadIsOneKeyAway(t *testing.T) {
 	m := atRuleFor(t, "organization.member.added")
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	if pane := plain(previewOf(m)); !strings.Contains(pane, "^t input payload") {
+		t.Fatalf("the file's header never offers the way to the payload:\n%s", pane)
+	}
+	send(m, key("ctrl+t"))
 	pane := plain(previewOf(m))
 	for _, want := range []string{"input payload", `"a0tenant"`, `"org_1234567890abcdef"`} {
 		if !strings.Contains(pane, want) {
 			t.Fatalf("the payload section is missing %q:\n%s", want, pane)
 		}
+	}
+
+	// And back, by the key its own header offers.
+	if !strings.Contains(pane, "^t file") {
+		t.Fatalf("the payload's header never offers the way back:\n%s", pane)
+	}
+	send(m, key("ctrl+t"))
+	if pane := plain(previewOf(m)); !strings.Contains(pane, m.path) {
+		t.Fatalf("^t did not bring the file back:\n%s", pane)
 	}
 }
 
@@ -174,68 +200,56 @@ func TestInsideAnIteratorThePayloadIsTheItem(t *testing.T) {
 	}
 }
 
-// The payload is reference material beside the file being written, so it is the
-// section that gives up its rows first. The document and the evaluation — the
-// wizard's promise, and the thing the user is reacting to — both outlive it.
-//
-// The assertion is on the rendered view rather than the pane, because the pane
-// is drawn into a MaxHeight container: a budget that promises more rows than
-// the pane has is not an overflow, it is the evaluation silently clipped off
-// the bottom.
-func TestThePayloadYieldsItsRowsBeforeTheOthers(t *testing.T) {
-	var lost int
-	for _, h := range []int{60, 40, 30, 24, 20, minRows} {
-		m := atRuleFor(t, "organization.member.added")
-		m.Update(tea.WindowSizeMsg{Width: 120, Height: h})
-		view := plain(m.viewString())
+// The pane holds one long section and the evaluation, never both long sections
+// at once. Splitting fixed rows between two things that each grow without limit
+// is what this replaced: the file lost its tail to a payload that was itself
+// down to three rows of a hundred-odd.
+func TestThePaneShowsOneSectionAtATime(t *testing.T) {
+	for _, sz := range layoutSizes {
+		m := atRuleFor(t, "user.updated")
+		m.Update(tea.WindowSizeMsg{Width: sz.w, Height: sz.h})
 
-		if !strings.Contains(view, "preview") {
-			t.Errorf("at 120x%d the payload cost the evaluation its place:\n%s", h, view)
+		if !m.sideBySide() {
+			// Stacked, the pane is whatever rows the editor leaves, which can be
+			// none at all — previewOf has no meaningful width to ask for.
+			continue
 		}
-		if !strings.Contains(view, m.path) {
-			t.Errorf("at 120x%d the document went before the payload:\n%s", h, view)
+		for _, mode := range []previewMode{previewDoc, previewPayload} {
+			m.previewMode = mode
+			pane := plain(previewOf(m))
+			// The bodies, not the headers: the file's header names the payload,
+			// that being where its ^t leads.
+			if strings.Contains(pane, `version: "1"`) && strings.Contains(pane, `"a0stream"`) {
+				t.Errorf("at %dx%d the pane shows both sections:\n%s", sz.w, sz.h, pane)
+			}
+			if !strings.Contains(pane, "preview") {
+				t.Errorf("at %dx%d the section cost the evaluation its place:\n%s", sz.w, sz.h, pane)
+			}
 		}
-		if !strings.Contains(plain(previewOf(m)), "input payload \u2500") {
-			lost++
-		}
-	}
-	if lost == 0 {
-		t.Fatal("the payload never yielded, so this proves nothing about the order")
 	}
 }
 
-// The budget is what stands between three sections and a pane that promises
-// more rows than it has. It is checked against the renderers themselves rather
-// than against a model of them, because the off-by-one that matters is the
-// ellipsis row a truncated section adds.
-func TestPreviewBudgetFitsTheRowsItWasGiven(t *testing.T) {
-	const w = 50
-	for _, tc := range []struct{ rows, eval, doc, payload int }{
-		{40, 4, 12, 60},  // a long payload against a short document
-		{40, 4, 60, 60},  // both longer than the pane
-		{30, 10, 12, 60}, // a talkative evaluation
-		{24, 8, 12, 60},
-		{20, 12, 12, 60}, // nothing left for either
-		{40, 4, 5, 5},    // both short, room to spare
-	} {
-		doc := strings.Repeat("key: value\n", tc.doc)
-		payload := strings.Repeat("  \"key\": \"value\",\n", tc.payload)
+// The pane is drawn into a MaxHeight container, so a section that promises more
+// rows than the pane has is not an overflow to catch — it is the evaluation
+// silently clipped off the bottom. The check is on the rendered view for that
+// reason, and it is the evaluation that has to survive: it is what the user is
+// reacting to.
+func TestThePaneNeverSpendsMoreRowsThanItHas(t *testing.T) {
+	for _, sz := range layoutSizes {
+		for _, mode := range []previewMode{previewDoc, previewPayload} {
+			m := atRuleFor(t, "user.updated")
+			m.Update(tea.WindowSizeMsg{Width: sz.w, Height: sz.h})
+			m.previewMode = mode
 
-		docRows, payloadRows := previewBudget(tc.rows, tc.eval,
-			wrappedHeight(doc, w), len(jsonRows(payload, w)))
-
-		used := tc.eval + 1 // the evaluation and its header
-		if docRows > 0 {
-			used += lipgloss.Height(highlightedYAML(doc, w, docRows)) + 2
-		}
-		if payloadRows > 0 {
-			var mm wizardModel
-			window, _ := mm.payloadWindow(jsonRows(payload, w), payloadRows)
-			used += lipgloss.Height(window) + 2
-		}
-		if used > tc.rows {
-			t.Errorf("rows=%d eval=%d doc=%d payload=%d: the budget spends %d of %d",
-				tc.rows, tc.eval, tc.doc, tc.payload, used, tc.rows)
+			if why := doesNotFit(m.viewString(), sz.w, sz.h); why != "" {
+				t.Errorf("at %dx%d mode=%d: %s:\n%s", sz.w, sz.h, mode, why, m.viewString())
+			}
+			// Stacked, the pane takes what the editor leaves and a short terminal
+			// leaves nothing — which predates the sections taking turns.
+			if view := plain(m.viewString()); m.sideBySide() && !strings.Contains(view, "preview") {
+				t.Errorf("at %dx%d mode=%d the evaluation was clipped away:\n%s",
+					sz.w, sz.h, mode, view)
+			}
 		}
 	}
 }
@@ -273,34 +287,46 @@ func TestHighlightingLeavesThePayloadAlone(t *testing.T) {
 // 114 lines of JSON against a section that can offer around twenty, and eliding
 // long values would have saved eight rows of that — so the section has to move
 // instead, and the claim to check is that moving it reaches everything.
-func TestScrollingReachesEveryRowOfThePayload(t *testing.T) {
+func TestPagingReachesEveryRowOfThePayload(t *testing.T) {
 	m := atRuleFor(t, "user.updated")
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 60})
+	send(m, key("ctrl+t"))
 
 	_, payload := m.samplePayload()
 	all := jsonRows(payload, m.previewWidth())
 
 	first := plain(previewOf(m))
-	if m.payloadMaxOff == 0 {
-		t.Fatalf("this payload fits in %d rows, so scrolling it proves nothing", len(all))
+	if m.previewMaxOff == 0 {
+		t.Fatalf("this payload fits in %d rows, so paging it proves nothing", len(all))
 	}
-	if !strings.Contains(first, "alt+↑↓") {
+	if !strings.Contains(first, "pgup/pgdn") {
 		t.Fatalf("the section never offers the keys that move it:\n%s", first)
 	}
 
-	// Walk it from top to bottom, ticking off every row that comes into view.
+	// Walk it from top to bottom, ticking off every row that comes into view. A
+	// page overlaps the one before it by a row, so nothing can fall between two
+	// jumps.
 	seen := map[string]bool{}
 	for {
 		for _, row := range strings.Split(plain(previewOf(m)), "\n") {
 			seen[strings.TrimRight(row, " ")] = true
 		}
-		if m.payloadOff >= m.payloadMaxOff {
+		if m.payloadOff >= m.previewMaxOff {
 			break
 		}
-		before := m.payloadOff
-		send(m, key("alt+down"))
+		before, tail := m.payloadOff, m.payloadOff+m.previewPage-1
+		send(m, key("pgdown"))
 		if m.payloadOff == before {
-			t.Fatalf("alt+down stopped moving at %d of %d", before, m.payloadMaxOff)
+			t.Fatalf("pgdn stopped moving at %d of %d", before, m.previewMaxOff)
+		}
+		// A page is one row short of the window, so the row the eye stopped on
+		// is still on screen to land on. Checked by index rather than by the
+		// rows seen, because a payload repeats itself — `},` is most of a
+		// closing brace's line — and a skipped row would be ticked off by its
+		// twin somewhere else.
+		if m.payloadOff > tail {
+			t.Fatalf("paging jumped from row %d to row %d, past the %d on screen",
+				before+1, m.payloadOff+1, m.previewPage)
 		}
 	}
 	for i, row := range all {
@@ -312,10 +338,10 @@ func TestScrollingReachesEveryRowOfThePayload(t *testing.T) {
 
 	// And back, without the offset running past the top into negative rows.
 	for range len(all) + 10 {
-		send(m, key("alt+up"))
+		send(m, key("pgup"))
 	}
 	if m.payloadOff != 0 {
-		t.Fatalf("scrolling back left the offset at %d", m.payloadOff)
+		t.Fatalf("paging back left the offset at %d", m.payloadOff)
 	}
 }
 
@@ -325,13 +351,14 @@ func TestScrollingReachesEveryRowOfThePayload(t *testing.T) {
 // The sizes are chosen so that clamping alone cannot pass this: the iterator's
 // item is long enough at 120x40 to hold an offset of its own, so an offset that
 // survives the switch survives visibly rather than being trimmed to zero.
-func TestScrollingOnePayloadDoesNotMoveTheNext(t *testing.T) {
+func TestPagingOnePayloadDoesNotMoveTheNext(t *testing.T) {
 	m := atRuleFor(t, "user.updated")
-	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	send(m, key("ctrl+t"))
 	previewOf(m)
 
-	for range 20 {
-		send(m, key("alt+down"))
+	for range 3 {
+		send(m, key("pgdown"))
 	}
 	if m.payloadOff < 20 {
 		t.Fatalf("the event only scrolled to %d, too little to carry", m.payloadOff)
@@ -340,7 +367,7 @@ func TestScrollingOnePayloadDoesNotMoveTheNext(t *testing.T) {
 	// The iterator's item is a different payload on the same rule.
 	m.inIter = true
 	pane := plain(previewOf(m))
-	if m.payloadMaxOff == 0 {
+	if m.previewMaxOff == 0 {
 		t.Fatal("the item fits, so clamping would hide a carried offset")
 	}
 	if m.payloadOff != 0 {
@@ -352,27 +379,66 @@ func TestScrollingOnePayloadDoesNotMoveTheNext(t *testing.T) {
 	}
 }
 
-// A payload section exists to be read. Three rows of a hundred-and-twenty-two
-// is not a section, it is a rumour of one — and three rows is what the document
-// taking everything it wanted left it on a 40-row terminal. So the payload gets
-// a window worth scrolling or it gets nothing, and the document is never cut
-// below a whole rule to pay for it.
-func TestThePayloadGetsAWindowWorthReadingOrNone(t *testing.T) {
-	for _, sz := range layoutSizes {
-		for _, eval := range []int{2, 4, 10} {
-			for _, want := range []int{9, 25, 122} {
-				rows := sz.h - statusRows - frameRows
-				doc, payload := previewBudget(rows, eval, 21, want)
+// The two sections keep their places separately. A look at the payload and back
+// should not cost the user the part of the file they were watching — which is
+// the whole reason to look at the payload in the first place.
+func TestSwitchingKeepsEachSectionsPlace(t *testing.T) {
+	m := atRuleFor(t, "user.updated")
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: minRows + 6})
+	previewOf(m)
 
-				if payload > 0 && payload < payloadMin && payload < want {
-					t.Errorf("%dx%d eval=%d: the payload got %d rows of %d",
-						sz.w, sz.h, eval, payload, want)
-				}
-				if payload > 0 && doc > 0 && doc+1 < docMin {
-					t.Errorf("%dx%d eval=%d: the payload cut the document to %d rows",
-						sz.w, sz.h, eval, doc)
-				}
-			}
-		}
+	send(m, key("pgdown"))
+	doc := m.docOff
+	if doc == 0 {
+		t.Fatal("the file fits, so there is no place to keep")
+	}
+
+	send(m, key("ctrl+t"))
+	previewOf(m)
+	send(m, key("pgdown"))
+	if m.docOff != doc {
+		t.Fatalf("paging the payload moved the file from %d to %d", doc, m.docOff)
+	}
+
+	send(m, key("ctrl+t"))
+	previewOf(m)
+	if m.docOff != doc {
+		t.Fatalf("the file came back at row %d, not the %d it was left at", m.docOff, doc)
+	}
+}
+
+// A rule too narrow for both keeps the switch and drops the position. Which
+// part of a long file you are looking at is visible in it; the key that reaches
+// the payload is not visible anywhere else.
+func TestANarrowHeaderKeepsTheSwitch(t *testing.T) {
+	m := atRuleFor(t, "user.updated")
+	m.Update(tea.WindowSizeMsg{Width: sideBySideMin + 4, Height: 30})
+
+	pane := plain(previewOf(m))
+	if strings.Contains(pane, "pgup/pgdn 1-") && strings.Contains(pane, "^t input payload") {
+		t.Skipf("the rule still holds both, so nothing was dropped:\n%s", pane)
+	}
+	if !strings.Contains(pane, "^t input payload") {
+		t.Fatalf("the narrow header dropped the switch and kept the position:\n%s", pane)
+	}
+}
+
+// ^t is offered only where there is a payload behind it. On a rule that has no
+// sample the header says nothing about the key, and pressing it anyway leaves
+// the file where it is rather than heading an empty section.
+func TestSwitchingDoesNothingWithNoPayload(t *testing.T) {
+	m := atRuleFor(t, "user.updated")
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m.rule().Sample = nil
+
+	if pane := plain(previewOf(m)); strings.Contains(pane, "^t") {
+		t.Fatalf("the header offers a switch to nothing:\n%s", pane)
+	}
+	send(m, key("ctrl+t"))
+	if m.previewMode != previewDoc {
+		t.Fatal("^t switched the pane to a payload that does not exist")
+	}
+	if pane := plain(previewOf(m)); !strings.Contains(pane, m.path) {
+		t.Fatalf("the file left the pane:\n%s", pane)
 	}
 }

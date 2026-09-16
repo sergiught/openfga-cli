@@ -101,14 +101,19 @@ type wizardModel struct {
 	cardOff    int
 	cardMaxOff int
 
-	// The same pair for the preview's payload section, which scrolls separately
-	// from the cards because it sits beside the screen rather than instead of
-	// it, and is measured by previewPane for the same reason: how many rows the
-	// payload comes to depends on how wide the pane is. payloadShown is the
-	// payload the offset was taken on, so that a different one starts at its
-	// top rather than wherever the last one had been left.
+	// Which of the preview's two long sections is on show, and how far each is
+	// scrolled. They keep separate offsets so that a look at the payload and
+	// back does not cost the user their place in the file. previewMaxOff and
+	// previewPage belong to whichever is on show and are measured by the render,
+	// for the reason cardMaxOff is: how many rows a section comes to depends on
+	// how wide the pane is. payloadShown is the payload the offset was taken on,
+	// so that a different one opens at its top rather than wherever the last one
+	// was left.
+	previewMode   previewMode
+	docOff        int
 	payloadOff    int
-	payloadMaxOff int
+	previewMaxOff int
+	previewPage   int
 	payloadShown  string
 
 	// Live state recomputed by refresh.
@@ -372,6 +377,42 @@ func (m *wizardModel) routePaste(msg tea.PasteMsg) tea.Cmd {
 	return nil
 }
 
+// previewMode is which of the preview pane's two long sections it shows. They
+// take turns rather than share: the file grows with every rule and the payload
+// with whatever the event carries, and a pane split between two growing things
+// gives neither enough rows to be read in.
+type previewMode int
+
+const (
+	previewDoc previewMode = iota
+	previewPayload
+)
+
+// togglePreview switches the pane between the file and the payload.
+//
+// Switching to a payload that is not there does nothing rather than showing an
+// empty section — on those screens the header does not offer the key either, so
+// pressing it is a guess, and the honest answer to a guess is no change.
+func (m *wizardModel) togglePreview() {
+	if m.previewMode == previewPayload {
+		m.previewMode = previewDoc
+		return
+	}
+	if _, payload := m.samplePayload(); payload != "" {
+		m.previewMode = previewPayload
+	}
+}
+
+// pagePreview moves the section on show by n pages.
+//
+// A page is one row short of the window, so that the line the eye stopped on is
+// still there after the jump. Paging by the whole window gives the reader
+// nothing to land on and makes them hunt for where they were.
+func (m *wizardModel) pagePreview(n int) {
+	off := m.previewOff()
+	*off = min(max(*off+n*max(m.previewPage-1, 1), 0), m.previewMaxOff)
+}
+
 func (m *wizardModel) key(k tea.KeyPressMsg) tea.Cmd {
 	// Every keystroke clears the last transient message; a stale error next to a
 	// fresh screen is worse than none. The note goes with it: the two are set
@@ -410,23 +451,29 @@ func (m *wizardModel) key(k tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 
-	// alt+↑↓ scrolls the preview's payload, from wherever a payload is on show.
-	// The bare arrows belong to whichever list or form has the screen, so the
-	// payload — which is never the focused thing — takes the modified pair, and
-	// nothing else in the wizard binds it. The section advertises the keys on
-	// its own header once it has more rows than it can show; the hint row is
-	// too crowded at 44 columns to carry a fifth key that is usually moot.
-	switch k.String() {
-	case "alt+up":
-		if m.payloadOff > 0 {
-			m.payloadOff--
+	// The preview's own keys, from any screen that has a preview: ^t switches
+	// the pane between the file and the payload, pgup/pgdn page whichever is on
+	// show. The bare arrows belong to whichever list or form has the screen —
+	// the pane is never the focused thing — so it takes keys nothing else in
+	// the wizard binds, and the section advertises them on its own header rather
+	// than in the hint row, which is already 38 cells of a 44-column floor.
+	//
+	// alt+↑↓ held this job first and never arrived: a modified arrow is encoded
+	// by agreement between terminal and application, and enough of them are
+	// taken by the window manager on the way that the binding could not be
+	// relied on. pgup/pgdn are unmodified keys with one sequence each.
+	if m.hasPane() {
+		switch k.String() {
+		case "ctrl+t":
+			m.togglePreview()
+			return nil
+		case "pgup":
+			m.pagePreview(-1)
+			return nil
+		case "pgdown":
+			m.pagePreview(1)
+			return nil
 		}
-		return nil
-	case "alt+down":
-		if m.payloadOff < m.payloadMaxOff {
-			m.payloadOff++
-		}
-		return nil
 	}
 
 	switch m.top() {
