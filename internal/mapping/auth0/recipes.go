@@ -64,6 +64,8 @@ const (
 	dslConnTenant  = "type connection\n  relations\n    define tenant: [tenant]"
 	dslClient      = "type client"
 	dslTenant      = "type tenant"
+	dslTenantMem   = "type tenant\n  relations\n    define member: [user]"
+	dslPlanAssign  = "type plan\n  relations\n    define assignee: [user]"
 	dslOrgBare     = "type organization"
 	dslGroupBare   = "type group"
 	dslRoleBare    = "type role"
@@ -110,6 +112,12 @@ const (
 	// them — reading the tenant from context is how a rule that works in testing
 	// fails in production.
 	tmplTenant = "tenant:{{ fga_escape(input.a0tenant) }}"
+
+	// app_metadata is where Auth0 lets you keep facts of your own on a user, and
+	// a plan or tier is the one most tenants put there. It is the only thing a
+	// creation event says about what the new user may do, as opposed to who they
+	// are — so it is the one worth a tuple.
+	tmplPlan = "plan:{{ fga_escape(input.data.object.app_metadata.plan) }}"
 )
 
 // Gates on the tagged unions in the payloads. Auth0 discriminates a group by
@@ -122,6 +130,12 @@ const (
 	gateScopeOrg   = `input.data.object.type == "organization"`
 	gateMemberUser = `input.data.object.member.member_type == "user"`
 	gateMemberConn = `input.data.object.member.member_type == "connection"`
+
+	// app_metadata is optional, and so is anything in it. `in` is the presence
+	// test this dialect has — CEL's has() macro is not registered — and it reads
+	// false rather than failing when app_metadata is missing altogether, so one
+	// clause covers both the empty map and the absent one.
+	gatePlan = `"plan" in input.data.object.app_metadata`
 )
 
 func when(typ string) string { return `input.type == "` + typ + `"` }
@@ -242,7 +256,7 @@ func recipeBody(typ string) Recipe {
 
 	case "group.member.added":
 		return union(typ,
-			"Someone joined a group — and \"someone\" is two different things. Auth0 group members are tagged with member_type: a user, or an entire connection. So this rule carries two tuples, each gated on the tag, and exactly one fires.\n\nThe connection branch writes a userset, connection:con_…#identity, rather than a user: it says everyone with an identity in that connection is a member, without a tuple per person. That is the same identity relation user.created writes.\n\nOne thing to check before adopting this: member.id is the member's id as the group knows it, which for a SCIM-provisioned group is often an email rather than the auth0|… user_id every other recipe here uses. If yours differ, pick one key and map to it, or the same person ends up in your store twice.",
+			"Someone joined a group — and \"someone\" is two different things. Auth0 group members are tagged with member_type: a user, or an entire connection. So this rule carries two tuples, each gated on the tag, and exactly one fires.\n\nThe connection branch writes a userset, connection:con_…#identity, rather than a user: it says everyone with an identity in that connection is a member, without a tuple per person. That is the same identity relation user.updated writes.\n\nOne thing to check before adopting this: member.id is the member's id as the group knows it, which for a SCIM-provisioned group is often an email rather than the auth0|… user_id every other recipe here uses. If yours differ, pick one key and map to it, or the same person ends up in your store twice.",
 			[]mapping.Tuple{
 				{User: tmplGroupMem, Relation: "member", Object: tmplGroupID, When: gateMemberUser},
 				{User: tmplMemConn, Relation: "member", Object: tmplGroupID, When: gateMemberConn},
@@ -349,26 +363,23 @@ func recipeBody(typ string) Recipe {
 					DSL: dslGroupBare + "\n\n" + dslOrgMember},
 			})
 
-	// --- creation events whose relationships are nested in an array ---
-
 	case "user.created":
 		return Recipe{
-			Explain: "A user was created with one or more identities, and each identity says which connection it came from. This is the only recipe that fans out: the iterator walks input.data.object.identities and writes a tuple per element, so a user with three logins gets three tuples from one rule.\n\nThe user is keyed on the top-level user_id, not on identity.user_id — that one is the provider's own subject, has no auth0| prefix, and the schema allows it to arrive as a number rather than a string.\n\nRead the rendered tuples before adopting this. Auth0 names the connection here, while every other connection recipe in the catalog uses the con_… id. The payload carries no id to use instead, so pick one key for connections and map to it consistently, or the same connection ends up in your store twice.",
+			Explain: "A user was created. What can you say about someone who exists and has done nothing yet? Two things, and the recipe writes both.\n\nThe first is where they are: every Auth0 user belongs to a tenant, and this is the root fact every later check hangs from — the same shape organization.created writes, one level up. On its own it answers \"is this person one of ours\", which is the question a signed-in-users-only resource asks.\n\nThe second is what they may do. app_metadata is where Auth0 lets you keep your own facts on a user, and a plan or tier is what most tenants put there. That tuple is gated: a user created without one writes nothing rather than failing, because app_metadata is optional and so is anything inside it.\n\nThe identities array is deliberately not mapped here. It says which login provider the user came from, which is Auth0's bookkeeping rather than an authorization question anyone asks — and user.updated maps it, where a linked or unlinked login is the change the event is actually reporting.",
 			Rule: mapping.Rule{
 				Name: typ,
 				When: when(typ),
-				Iterator: &mapping.Iterator{
-					Source: "input.data.object.identities",
-					As:     "identity",
-					Tuples: []mapping.Tuple{{
-						User:     tmplUserID,
-						Relation: "identity",
-						Object:   "connection:{{ fga_escape(identity.connection) }}",
-					}},
+				Tuples: []mapping.Tuple{
+					{User: tmplUserID, Relation: "member", Object: tmplTenant},
+					{User: tmplUserID, Relation: "assignee", Object: tmplPlan, When: gatePlan},
 				},
 			},
-			Requires: []mapping.Requirement{{Type: "connection", Relation: "identity", UserTypes: []string{"user"},
-				DSL: dslUser + "\n\n" + dslConnIdent}},
+			Requires: []mapping.Requirement{
+				{Type: "tenant", Relation: "member", UserTypes: []string{"user"},
+					DSL: dslUser + "\n\n" + dslTenantMem},
+				{Type: "plan", Relation: "assignee", UserTypes: []string{"user"},
+					DSL: dslUser + "\n\n" + dslPlanAssign},
+			},
 		}
 
 	case "organization.created":
@@ -377,6 +388,8 @@ func recipeBody(typ string) Recipe {
 			tmplTenant, "tenant", tmplNewOrg, true,
 			[]mapping.Requirement{{Type: "organization", Relation: "tenant", UserTypes: []string{"tenant"},
 				DSL: dslTenant + "\n\n" + dslOrgTenant}})
+
+	// --- a creation event whose relationships are nested in an array ---
 
 	case "connection.created":
 		return Recipe{

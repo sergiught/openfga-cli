@@ -220,7 +220,7 @@ func TestTheHintRowKeepsTheSwitchToItself(t *testing.T) {
 // Showing the whole event there would point the user at paths that do not
 // resolve — the same rewrite the path picker already does.
 func TestInsideAnIteratorThePayloadIsTheItem(t *testing.T) {
-	m := atRuleFor(t, "user.created")
+	m := atRuleFor(t, "user.updated")
 	m.inIter = true
 
 	label, payload := m.samplePayload()

@@ -352,6 +352,21 @@ func TestRecipesSurviveTheBranchesTheirSamplesDoNotShow(t *testing.T) {
 			"role":{"id":"rol_1234567890abcdef","name":"Billing Manager"}}}}`,
 		want: []string{"user:auth0|507f1f77bcf86cd799439020 assignee role:org_1234567890abcdef|rol_1234567890abcdef write"},
 	}, {
+		name: "a user created with no app_metadata still joins the tenant",
+		typ:  "user.created",
+		payload: `{"type":"user.created","a0tenant":"acme","data":{"object":{
+			"user_id":"auth0|507f1f77bcf86cd799439020","created_at":"2025-02-01T12:34:56Z",
+			"updated_at":"2025-02-01T12:34:56Z","identities":[]}}}`,
+		want: []string{"user:auth0|507f1f77bcf86cd799439020 member tenant:acme write"},
+	}, {
+		name: "an app_metadata carrying everything but a plan grants no plan",
+		typ:  "user.created",
+		payload: `{"type":"user.created","a0tenant":"acme","data":{"object":{
+			"user_id":"auth0|507f1f77bcf86cd799439020","created_at":"2025-02-01T12:34:56Z",
+			"updated_at":"2025-02-01T12:34:56Z","identities":[],
+			"app_metadata":{"signup_source":"referral"}}}}`,
+		want: []string{"user:auth0|507f1f77bcf86cd799439020 member tenant:acme write"},
+	}, {
 		name: "an event with no data.context still finds its tenant",
 		typ:  "organization.created",
 		payload: `{"type":"organization.created","a0tenant":"acme","data":{"object":{

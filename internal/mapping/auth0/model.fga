@@ -28,6 +28,23 @@ type client
 # anything to write at all: a new organization relates to nothing else at the
 # moment it exists.
 type tenant
+  relations
+    # user.created. The first thing true of anyone who has just signed up, and
+    # the one a resource open to every signed-in user checks.
+    define member: [user]
+
+# Your own plans or tiers, named by app_metadata.plan. Auth0 does not define
+# these — app_metadata is the part of a user it keeps for you — but it is the
+# one thing a creation event says about what a user may do rather than who they
+# are, so it is worth a type.
+#
+# A type rather than a relation on user, for the reason role is a type: your
+# tiers are yours to invent at runtime, and a relation per tier would mean a
+# model change every time marketing adds one.
+type plan
+  relations
+    # user.created, when the user has a plan. Users without one write nothing.
+    define assignee: [user]
 
 # One object per role per organization, keyed org_…|rol_… — the same role in two
 # organizations is two objects, because Auth0 scopes the assignment that way and
@@ -107,9 +124,10 @@ type organization
 
 # ── what you replace ──────────────────────────────────────────────────────
 #
-# Four ways to reach a permission, in six lines: granted to one person, granted
-# to a group, inherited from the organization, and derived from an Auth0 role.
-# Everything above this line feeds them.
+# Six ways to reach a permission: granted to one person, granted to a group,
+# inherited from the organization, derived from an Auth0 role, open to everyone
+# in the tenant, and gated on the plan the user is on. Everything above this
+# line feeds them.
 
 type document
   relations
@@ -117,5 +135,13 @@ type document
     define editor: [user, group#member]
     define viewer: [user, group#member]
 
-    define can_view: viewer or editor or member from organization
+    # What makes the two tuples user.created writes worth writing. tenant is for
+    # the documents open to anyone signed in — a help page, a template gallery —
+    # and plan is what a paid feature hangs off: the user needs the permission
+    # *and* the tier.
+    define tenant: [tenant]
+    define plan: [plan]
+
+    define can_view: viewer or editor or member from organization or member from tenant
     define can_edit: editor or admin from organization
+    define can_export: can_edit and assignee from plan

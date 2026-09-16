@@ -230,10 +230,10 @@ func TestTheEventListSaysWhatEachEventMaps(t *testing.T) {
 	send(m, key("a"), key("enter"))
 
 	// The top rows are always on screen, and between them they cover the two
-	// kinds a user has to tell apart on sight: one that maps by iterating an
-	// array, one that maps by deleting rather than writing.
+	// kinds a user has to tell apart on sight: one that maps by writing tuples,
+	// one that maps by deleting rather than writing.
 	v := m.events.View()
-	for _, want := range []string{"user.created · 1 tuple", "user.deleted · 3 tuple filters"} {
+	for _, want := range []string{"user.created · 2 tuples", "user.deleted · 3 tuple filters"} {
 		if !strings.Contains(v, want) {
 			t.Fatalf("the list does not say what the event maps: want %q in:\n%s", want, v)
 		}
@@ -441,12 +441,12 @@ func atRuleFor(t *testing.T, typ string) *wizardModel {
 
 // The complaint this answers: "the tuples in the rule aren't populated
 // correctly, I see it in the preview but not in the rule picker". They were
-// populated — user.created writes from its iterator, so the tuple sat on
+// populated — user.updated writes from its iterator, so the tuple sat on
 // Iterator.Tuples while the Tuples row counted only the rule's own and said
 // "0 tuples". Beside a preview plainly showing a tuple, that reads as the
 // recipe having failed rather than as the list living one screen over.
 func TestTheTuplesRowSaysWhenTheTuplesAreOnTheIterator(t *testing.T) {
-	m := atRuleFor(t, "user.created")
+	m := atRuleFor(t, "user.updated")
 
 	desc := sectionDesc(t, m, "Tuples")
 	if strings.Contains(desc, "0 tuple") {
@@ -481,7 +481,7 @@ func TestTheTuplesRowStaysPlainWithoutAnIterator(t *testing.T) {
 // that says which one you are looking at. Sending a user to the iterator's
 // tuples is no use if arriving there looks identical to where they started.
 func TestTheIteratorsTupleListSaysItIsTheIterators(t *testing.T) {
-	m := atRuleFor(t, "user.created")
+	m := atRuleFor(t, "user.updated")
 
 	for i := 0; i < len(m.ruleSections()); i++ {
 		if m.sections.Selected().Title == "Iterator" {
@@ -531,12 +531,12 @@ func TestARecipeWithNoGapSaysNothing(t *testing.T) {
 }
 
 // The tuples of a fan-out recipe live on its iterator, not on the rule. Showing
-// only the rule's own list left user.created — the one recipe whose whole point
+// only the rule's own list left user.updated — the one recipe whose whole point
 // is the fan-out — displaying no tuples at all.
 func TestAnIteratorsTuplesShowOnTheRecipeScreen(t *testing.T) {
 	m := atRulesHub(t)
 	send(m, key("a"), key("enter"))
-	selectEvent(t, m, "user.created")
+	selectEvent(t, m, "user.updated")
 
 	out := plain(m.viewString())
 	for _, want := range []string{
