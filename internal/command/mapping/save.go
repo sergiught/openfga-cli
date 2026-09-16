@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/sergiught/openfga-cli/internal/mapping"
+	"github.com/sergiught/openfga-cli/internal/mapping/auth0"
 )
 
 // canSave reports whether the save key has anything to do from here. It gates
@@ -73,6 +74,14 @@ func (m *wizardModel) finish() tea.Cmd {
 		tuples: countTuples(doc.Rules),
 		tests:  len(doc.Tests),
 	}
+	// A user who loaded no model leaves with a file naming types and relations
+	// that nothing says exist, and finds out which ones are missing one rejected
+	// write at a time. The catalog's own model is the one already written to
+	// agree with the recipes, so it goes out beside them — to edit, not to adopt:
+	// its second half is an example resource, marked as the part to replace.
+	if m.index.Empty() {
+		m.result.model = []byte(auth0.Model())
+	}
 	m.done = true
 	return tea.Quit
 }
@@ -108,6 +117,9 @@ func (m *wizardModel) saveSummary() string {
 	fmt.Fprintf(&b, "Write %s to %s.\n", plural(len(m.doc.Rules), "rule"), m.path)
 	fmt.Fprintf(&b, "%s, %s.\n",
 		plural(countTuples(m.doc.Rules), "tuple"), plural(m.sampledRules(), "sampled rule"))
+	if m.index.Empty() {
+		fmt.Fprintf(&b, "No model was loaded, so a starting %s goes beside it.\n", startingModelFile)
+	}
 
 	if blocking := m.saveProblems(); len(blocking) > 0 {
 		fmt.Fprintf(&b, "\nMapping has %s. Save anyway to fix by hand?\n\n", plural(len(blocking), "error"))

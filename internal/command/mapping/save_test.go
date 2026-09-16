@@ -266,8 +266,8 @@ func TestTheWholeFlowWritesAMappingFile(t *testing.T) {
 	if !m.done || m.result == nil {
 		t.Fatalf("done = %v result = %+v", m.done, m.result)
 	}
-	if err := saveMapping(m.path, m.result.data); err != nil {
-		t.Fatalf("saveMapping: %v", err)
+	if err := saveFile(m.path, m.result.data); err != nil {
+		t.Fatalf("saveFile: %v", err)
 	}
 
 	written, err := os.ReadFile(path)
@@ -357,8 +357,8 @@ func TestTheWholeFlowWritesAHandAuthoredMapping(t *testing.T) {
 	if !m.done || m.result == nil {
 		t.Fatalf("done = %v result = %+v", m.done, m.result)
 	}
-	if err := saveMapping(m.path, m.result.data); err != nil {
-		t.Fatalf("saveMapping: %v", err)
+	if err := saveFile(m.path, m.result.data); err != nil {
+		t.Fatalf("saveFile: %v", err)
 	}
 
 	written, err := os.ReadFile(path)
@@ -428,5 +428,37 @@ func TestTheSaveGateRepeatsWhatTheModelSaid(t *testing.T) {
 	send(m, key("ctrl+s"), key("enter"))
 	if !m.done || m.result == nil {
 		t.Fatalf("a warning must not block the save: done=%v result=%+v", m.done, m.result)
+	}
+}
+
+// A mapping names types and relations. With no model saying those exist, every
+// write the file describes is one the store refuses, and the user finds out one
+// rejection at a time — so the wizard sends the catalog's own model out beside
+// the mapping it just wrote.
+func TestAWizardWithNoModelShipsOneToStartFrom(t *testing.T) {
+	m := atRulesHubWithRule(t)
+	send(m, key("ctrl+s"), key("s"))
+
+	if m.result == nil {
+		t.Fatal("the wizard produced no result")
+	}
+	if !strings.Contains(string(m.result.model), "type user") {
+		t.Fatalf("no starting model went with the mapping:\n%s", m.result.model)
+	}
+}
+
+// A user who loaded their own model has already answered this question, and a
+// second model appearing beside their mapping is one they have to read before
+// they can be sure it is not the one their store runs on.
+func TestAWizardWithAModelShipsNoOtherOne(t *testing.T) {
+	m := atRulesHubWithRule(t)
+	m.index = mapping.IndexModel(testModel())
+	send(m, key("ctrl+s"), key("s"))
+
+	if m.result == nil {
+		t.Fatal("the wizard produced no result")
+	}
+	if len(m.result.model) > 0 {
+		t.Fatalf("a loaded model was shadowed by a second one:\n%s", m.result.model)
 	}
 }

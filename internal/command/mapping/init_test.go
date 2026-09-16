@@ -167,7 +167,7 @@ func TestTooManyArgs(t *testing.T) {
 
 func TestSaveMappingCreatesParentDirectories(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "dir", "mapping.yaml")
-	if err := saveMapping(path, []byte("version: \"1\"\n")); err != nil {
+	if err := saveFile(path, []byte("version: \"1\"\n")); err != nil {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(path)
@@ -191,7 +191,7 @@ func TestSaveMappingOverwrites(t *testing.T) {
 	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := saveMapping(path, []byte("new")); err != nil {
+	if err := saveFile(path, []byte("new")); err != nil {
 		t.Fatal(err)
 	}
 	if b, _ := os.ReadFile(path); string(b) != "new" {
@@ -220,7 +220,7 @@ func TestSuccessOutputNamesTheFileAndCounts(t *testing.T) {
 	}
 }
 
-// The wizard's output lives only in memory until saveMapping writes it, and by
+// The wizard's output lives only in memory until saveFile writes it, and by
 // then the TUI is gone. A failing write used to return the error and drop the
 // mapping with it — the one moment in the flow where the user can lose work they
 // cannot get back by pressing esc.
@@ -252,7 +252,7 @@ func TestAFailedWriteHandsTheMappingBack(t *testing.T) {
 // to guess they exist — least of all that both work offline.
 func TestNextStepsNamesWhatThisCommandCannotDoItself(t *testing.T) {
 	var b bytes.Buffer
-	nextSteps(&b, "auth0.yaml", 0)
+	nextSteps(&b, "auth0.yaml", "", 0)
 	got := b.String()
 
 	for _, want := range []string{
@@ -272,8 +272,8 @@ func TestNextStepsNamesWhatThisCommandCannotDoItself(t *testing.T) {
 // when there is actually something to run.
 func TestNextStepsOnlyPointsAtTheTestRunnerWhenThereAreTests(t *testing.T) {
 	var with, without bytes.Buffer
-	nextSteps(&with, "auth0.yaml", 2)
-	nextSteps(&without, "auth0.yaml", 0)
+	nextSteps(&with, "auth0.yaml", "", 2)
+	nextSteps(&without, "auth0.yaml", "", 0)
 
 	if !strings.Contains(with.String(), "fga mapping test auth0.yaml") {
 		t.Fatalf("a mapping with tests should name the runner:\n%s", with.String())
@@ -288,7 +288,7 @@ func TestNextStepsOnlyPointsAtTheTestRunnerWhenThereAreTests(t *testing.T) {
 // speaking for the release status of a service we do not run.
 func TestNextStepsDoesNotSpeakForAnyoneElsesProduct(t *testing.T) {
 	var b bytes.Buffer
-	nextSteps(&b, "auth0.yaml", 2)
+	nextSteps(&b, "auth0.yaml", "", 2)
 	got := strings.ToLower(b.String())
 
 	for _, banned := range []string{"relationship sync", "dashboard", "pipeline", "beta"} {
@@ -315,10 +315,48 @@ func TestNextStepsIsSilentUnderQuietAndPlain(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			output.Plain, output.Quiet = tc.plain, tc.quiet
 			var b bytes.Buffer
-			nextSteps(&b, "auth0.yaml", 2)
+			nextSteps(&b, "auth0.yaml", "", 2)
 			if b.Len() != 0 {
 				t.Fatalf("expected silence, got:\n%s", b.String())
 			}
 		})
+	}
+}
+
+// --force names the mapping the user asked for. A model already sitting beside
+// it is one they wrote, and overwriting it would trade a convenience for the
+// only copy of something they cannot get back.
+func TestAnExistingModelIsNeverOverwritten(t *testing.T) {
+	dir := t.TempDir()
+	mine := filepath.Join(dir, startingModelFile)
+	if err := os.WriteFile(mine, []byte("type mine\n"), 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	var b bytes.Buffer
+	if got := saveModel(&b, filepath.Join(dir, "mapping.yaml"), []byte("type theirs\n")); got != "" {
+		t.Fatalf("saveModel claimed to write %q over a model that was already there", got)
+	}
+
+	after, err := os.ReadFile(mine)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if string(after) != "type mine\n" {
+		t.Fatalf("the user's model was overwritten: %s", after)
+	}
+	if !strings.Contains(b.String(), startingModelFile) {
+		t.Fatalf("nothing said why no model was written:\n%s", b.String())
+	}
+}
+
+// Writing a model and then printing the validate command without it would leave
+// the user to discover the flag that makes the check worth running.
+func TestNextStepsValidatesAgainstTheModelItJustWrote(t *testing.T) {
+	var b bytes.Buffer
+	nextSteps(&b, "auth0.yaml", "model.fga", 0)
+
+	if want := "fga mapping validate auth0.yaml --model-file model.fga"; !strings.Contains(b.String(), want) {
+		t.Fatalf("next steps do not run the check against the model:\n%s", b.String())
 	}
 }

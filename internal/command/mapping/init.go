@@ -20,8 +20,12 @@ import (
 )
 
 // defaultFile is the mapping file name `ofga mapping init` writes when the user
-// names none.
-const defaultFile = "mapping.yaml"
+// names none. startingModelFile is the authorization model written beside it
+// when the user loaded none of their own.
+const (
+	defaultFile       = "mapping.yaml"
+	startingModelFile = "model.fga"
+)
 
 // languageSpecURL is printed whenever the wizard cannot run, so a user who has
 // to write the file by hand knows where the grammar is documented.
@@ -79,15 +83,39 @@ func (c *Command) runInit(cmd *cobra.Command, args []string, force bool) error {
 		return nil
 	}
 
-	if err := saveMapping(path, result.data); err != nil {
+	if err := saveFile(path, result.data); err != nil {
 		rescue(cmd, result.data)
 		return err
 	}
 
 	out := cmd.ErrOrStderr()
 	output.Successf(out, "wrote %s (%s)", path, result.summary())
-	nextSteps(out, path, result.tests)
+	nextSteps(out, path, saveModel(out, path, result.model), result.tests)
 	return nil
+}
+
+// saveModel writes the starting model beside the mapping and returns where it
+// went, or "" when there was nothing to write.
+//
+// A model already sitting there is never overwritten, --force or not: --force
+// names the mapping the user asked for, and a model beside it is one they
+// wrote. Nor does a failed write fail the command — the mapping is already on
+// disk, and the model is a convenience, not the thing the user came for.
+func saveModel(w io.Writer, path string, data []byte) string {
+	if len(data) == 0 {
+		return ""
+	}
+	modelPath := filepath.Join(filepath.Dir(path), startingModelFile)
+	if _, err := os.Stat(modelPath); err == nil {
+		output.Infof(w, "%s already exists, so the starting model was left alone", modelPath)
+		return ""
+	}
+	if err := saveFile(modelPath, data); err != nil {
+		output.Warnf(w, "could not write %s: %v", modelPath, err)
+		return ""
+	}
+	output.Successf(w, "wrote %s (a starting authorization model to edit)", modelPath)
+	return modelPath
 }
 
 // nextSteps names what can be done with the file that this command cannot do
@@ -99,12 +127,17 @@ func (c *Command) runInit(cmd *cobra.Command, args []string, force bool) error {
 // its own because its usual job is remediation after an error, which --quiet
 // deliberately keeps; a pointer after a success is the other case, and --quiet
 // and --plain asked for the result rather than the tour.
-func nextSteps(w io.Writer, path string, tests int) {
+func nextSteps(w io.Writer, path, modelPath string, tests int) {
 	if output.Quiet || output.Plain {
 		return
 	}
-	output.Infof(w, "check it offline — add --model-file to check it against your model:")
-	output.Hintf(w, "fga mapping validate %s", path)
+	if modelPath != "" {
+		output.Infof(w, "check it offline, against the model written beside it:")
+		output.Hintf(w, "fga mapping validate %s --model-file %s", path, modelPath)
+	} else {
+		output.Infof(w, "check it offline — add --model-file to check it against your model:")
+		output.Hintf(w, "fga mapping validate %s", path)
+	}
 
 	// Only worth saying when there is something to run. The wizard writes a test
 	// per sample, so a user who worked through several events leaves with a suite
@@ -151,11 +184,11 @@ func targetPath(args []string) string {
 	return defaultFile
 }
 
-// saveMapping writes data to path atomically. atomicfile deliberately leaves
+// saveFile writes data to path atomically. atomicfile deliberately leaves
 // creating the destination directory to its caller; for a wizard that has just
 // spent the user's time authoring a mapping, failing the save on a missing
 // parent is worse than creating one, so we create it.
-func saveMapping(path string, data []byte) error {
+func saveFile(path string, data []byte) error {
 	if dir := filepath.Dir(path); dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return fmt.Errorf("create %s: %w", dir, err)
@@ -178,7 +211,12 @@ func saveMapping(path string, data []byte) error {
 
 // wizardResult is what a completed wizard hands back to the command.
 type wizardResult struct {
-	data   []byte
+	data []byte
+	// model is the starting authorization model, set only when the user loaded
+	// none of their own. A mapping names types and relations; with no model
+	// saying those exist, every write the file describes is one the store
+	// refuses, and the user has no way to find that out until it happens.
+	model  []byte
 	rules  int
 	tuples int
 	tests  int
