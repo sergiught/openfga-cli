@@ -147,7 +147,7 @@ func TestThePayloadIsShownBesideTheMapping(t *testing.T) {
 	m := atRuleFor(t, "organization.member.added")
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	pane := plain(previewOf(m))
-	for _, want := range []string{"event", `"a0tenant"`, `"org_1234567890abcdef"`} {
+	for _, want := range []string{"input payload", `"a0tenant"`, `"org_1234567890abcdef"`} {
 		if !strings.Contains(pane, want) {
 			t.Fatalf("the payload section is missing %q:\n%s", want, pane)
 		}
@@ -163,7 +163,7 @@ func TestInsideAnIteratorThePayloadIsTheItem(t *testing.T) {
 	m.inIter = true
 
 	label, payload := m.samplePayload()
-	if label != "identity" {
+	if label != "identity payload" {
 		t.Fatalf("the payload is headed %q, want the iterator's alias", label)
 	}
 	if !strings.Contains(payload, `"connection"`) {
@@ -195,7 +195,7 @@ func TestThePayloadYieldsItsRowsBeforeTheOthers(t *testing.T) {
 		if !strings.Contains(view, m.path) {
 			t.Errorf("at 120x%d the document went before the payload:\n%s", h, view)
 		}
-		if !strings.Contains(plain(previewOf(m)), "event \u2500") {
+		if !strings.Contains(plain(previewOf(m)), "input payload \u2500") {
 			lost++
 		}
 	}
@@ -222,14 +222,16 @@ func TestPreviewBudgetFitsTheRowsItWasGiven(t *testing.T) {
 		payload := strings.Repeat("  \"key\": \"value\",\n", tc.payload)
 
 		docRows, payloadRows := previewBudget(tc.rows, tc.eval,
-			wrappedHeight(doc, w), wrappedHeight(payload, w))
+			wrappedHeight(doc, w), len(jsonRows(payload, w)))
 
 		used := tc.eval + 1 // the evaluation and its header
 		if docRows > 0 {
 			used += lipgloss.Height(highlightedYAML(doc, w, docRows)) + 2
 		}
 		if payloadRows > 0 {
-			used += lipgloss.Height(highlightedJSON(payload, w, payloadRows)) + 2
+			var mm wizardModel
+			window, _ := mm.payloadWindow(jsonRows(payload, w), payloadRows)
+			used += lipgloss.Height(window) + 2
 		}
 		if used > tc.rows {
 			t.Errorf("rows=%d eval=%d doc=%d payload=%d: the budget spends %d of %d",
@@ -258,10 +260,119 @@ func TestTheScreenWithAPayloadStaysInsideTheTerminal(t *testing.T) {
 // half keeps: stripping the escapes gives back the JSON that went in.
 func TestHighlightingLeavesThePayloadAlone(t *testing.T) {
 	src := "{\n  \"type\": \"user.created\",\n  \"data\": {\n    \"id\": 7\n  }\n}"
-	if got := plain(highlightedJSON(src, 60, 20)); got != src {
+	rows := strings.Join(jsonRows(src, 60), "\n")
+	if got := plain(rows); got != src {
 		t.Fatalf("highlighting changed the payload:\ngot  %q\nwant %q", got, src)
 	}
-	if !strings.Contains(highlightedJSON(src, 60, 20), style.Key.Render(`"type"`)) {
+	if !strings.Contains(rows, style.Key.Render(`"type"`)) {
 		t.Fatal("the field names are not picked out from their values")
+	}
+}
+
+// Scrolling is the whole answer to a payload that does not fit. user.updated is
+// 114 lines of JSON against a section that can offer around twenty, and eliding
+// long values would have saved eight rows of that — so the section has to move
+// instead, and the claim to check is that moving it reaches everything.
+func TestScrollingReachesEveryRowOfThePayload(t *testing.T) {
+	m := atRuleFor(t, "user.updated")
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 60})
+
+	_, payload := m.samplePayload()
+	all := jsonRows(payload, m.previewWidth())
+
+	first := plain(previewOf(m))
+	if m.payloadMaxOff == 0 {
+		t.Fatalf("this payload fits in %d rows, so scrolling it proves nothing", len(all))
+	}
+	if !strings.Contains(first, "alt+↑↓") {
+		t.Fatalf("the section never offers the keys that move it:\n%s", first)
+	}
+
+	// Walk it from top to bottom, ticking off every row that comes into view.
+	seen := map[string]bool{}
+	for {
+		for _, row := range strings.Split(plain(previewOf(m)), "\n") {
+			seen[strings.TrimRight(row, " ")] = true
+		}
+		if m.payloadOff >= m.payloadMaxOff {
+			break
+		}
+		before := m.payloadOff
+		send(m, key("alt+down"))
+		if m.payloadOff == before {
+			t.Fatalf("alt+down stopped moving at %d of %d", before, m.payloadMaxOff)
+		}
+	}
+	for i, row := range all {
+		if want := strings.TrimRight(plain(row), " "); !seen[want] {
+			t.Fatalf("row %d of %d is unreachable at every scroll position: %q",
+				i+1, len(all), want)
+		}
+	}
+
+	// And back, without the offset running past the top into negative rows.
+	for range len(all) + 10 {
+		send(m, key("alt+up"))
+	}
+	if m.payloadOff != 0 {
+		t.Fatalf("scrolling back left the offset at %d", m.payloadOff)
+	}
+}
+
+// The offset belongs to the payload it was taken on. Carried across, it would
+// open the next one somewhere in its middle, on a row that means nothing there.
+//
+// The sizes are chosen so that clamping alone cannot pass this: the iterator's
+// item is long enough at 120x40 to hold an offset of its own, so an offset that
+// survives the switch survives visibly rather than being trimmed to zero.
+func TestScrollingOnePayloadDoesNotMoveTheNext(t *testing.T) {
+	m := atRuleFor(t, "user.updated")
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	previewOf(m)
+
+	for range 20 {
+		send(m, key("alt+down"))
+	}
+	if m.payloadOff < 20 {
+		t.Fatalf("the event only scrolled to %d, too little to carry", m.payloadOff)
+	}
+
+	// The iterator's item is a different payload on the same rule.
+	m.inIter = true
+	pane := plain(previewOf(m))
+	if m.payloadMaxOff == 0 {
+		t.Fatal("the item fits, so clamping would hide a carried offset")
+	}
+	if m.payloadOff != 0 {
+		t.Fatalf("the item opened at row %d, where the event had been left", m.payloadOff)
+	}
+	_, payload := m.samplePayload()
+	if first := jsonRows(payload, m.previewWidth())[0]; !strings.Contains(pane, plain(first)) {
+		t.Fatalf("the item does not start at its first row %q:\n%s", plain(first), pane)
+	}
+}
+
+// A payload section exists to be read. Three rows of a hundred-and-twenty-two
+// is not a section, it is a rumour of one — and three rows is what the document
+// taking everything it wanted left it on a 40-row terminal. So the payload gets
+// a window worth scrolling or it gets nothing, and the document is never cut
+// below a whole rule to pay for it.
+func TestThePayloadGetsAWindowWorthReadingOrNone(t *testing.T) {
+	for _, sz := range layoutSizes {
+		for _, eval := range []int{2, 4, 10} {
+			for _, want := range []int{9, 25, 122} {
+				rows := sz.h - statusRows - frameRows
+				doc, payload := previewBudget(rows, eval, 21, want)
+
+				if payload > 0 && payload < payloadMin && payload < want {
+					t.Errorf("%dx%d eval=%d: the payload got %d rows of %d",
+						sz.w, sz.h, eval, payload, want)
+				}
+				if payload > 0 && doc > 0 && doc+1 < docMin {
+					t.Errorf("%dx%d eval=%d: the payload cut the document to %d rows",
+						sz.w, sz.h, eval, doc)
+				}
+			}
+		}
 	}
 }

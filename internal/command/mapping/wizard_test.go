@@ -39,6 +39,10 @@ func key(s string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyTab}
 	case "space":
 		return tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}
+	case "alt+up":
+		return tea.KeyPressMsg{Code: tea.KeyUp, Mod: tea.ModAlt}
+	case "alt+down":
+		return tea.KeyPressMsg{Code: tea.KeyDown, Mod: tea.ModAlt}
 	default:
 		return tea.KeyPressMsg{Code: []rune(s)[0], Text: s}
 	}

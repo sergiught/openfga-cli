@@ -84,17 +84,20 @@ func wrappedHeight(s string, w int) int {
 // own cannot reach the front of a line unquoted.
 var jsonKey = regexp.MustCompile(`^(\s*)("(?:[^"\\]|\\.)*")(:.*)$`)
 
-// highlightedJSON is the payload half of the preview: the event the rule is
-// evaluated against, wrapped to the pane, cut to the rows it was given, and
-// coloured.
+// jsonRows is the payload half of the preview: the event the rule is evaluated
+// against, wrapped to the pane and coloured, as the rows it occupies.
+//
+// The rows come back whole rather than cut to a count, because the section
+// shows a scrolled window onto them and both the window's position and the
+// count on its header are measured in these rows.
 //
 // Only field names are picked out. The values are the reason to read this at
 // all — they are what a user checks a path against before writing it into a
 // template — so they keep the plain foreground rather than competing with a
 // second colour for it.
-func highlightedJSON(s string, w, n int) string {
-	if n <= 0 {
-		return ""
+func jsonRows(s string, w int) []string {
+	if s == "" {
+		return nil
 	}
 	var out []string
 	for _, line := range strings.Split(strings.TrimRight(s, "\n"), "\n") {
@@ -106,10 +109,7 @@ func highlightedJSON(s string, w, n int) string {
 			out = append(out, row)
 		}
 	}
-	if len(out) > n {
-		out = append(out[:n], style.Faint.Render("…"))
-	}
-	return strings.Join(out, "\n")
+	return out
 }
 
 // yamlKey matches a field at the head of a line: indent, an optional list

@@ -1129,8 +1129,15 @@ func (m *wizardModel) previewPane(w, rows int) string {
 	eval := m.evaluationLines(w)
 	doc := string(m.preview.YAML)
 	label, payload := m.samplePayload()
+	// A different payload starts at the top. The offset belongs to the one it
+	// was scrolled on, and carried across it would open the next rule's event
+	// somewhere in its middle, on a row that means nothing there.
+	if payload != m.payloadShown {
+		m.payloadShown, m.payloadOff = payload, 0
+	}
+	pay := jsonRows(payload, w)
 	docRows, payloadRows := previewBudget(rows, lipgloss.Height(eval),
-		wrappedHeight(doc, w), wrappedHeight(payload, w))
+		wrappedHeight(doc, w), len(pay))
 
 	var b strings.Builder
 	// On a short terminal a section yields all its rows to the ones below it;
@@ -1141,10 +1148,15 @@ func (m *wizardModel) previewPane(w, rows int) string {
 		b.WriteString(highlightedYAML(doc, w, docRows))
 		b.WriteString("\n\n")
 	}
+	// Cleared before the section is drawn rather than after it is skipped, so
+	// that a payload hidden by a short terminal cannot leave yesterday's reach
+	// behind for the scroll keys to move an invisible offset through.
+	m.payloadMaxOff = 0
 	if payloadRows > 0 {
-		b.WriteString(style.SectionHeader(label, w))
+		window, note := m.payloadWindow(pay, payloadRows)
+		b.WriteString(style.SectionHeaderNoted(label, w, note))
 		b.WriteString("\n")
-		b.WriteString(highlightedJSON(payload, w, payloadRows))
+		b.WriteString(window)
 		b.WriteString("\n\n")
 	}
 	b.WriteString(style.SectionHeader("preview", w))
@@ -1153,14 +1165,37 @@ func (m *wizardModel) previewPane(w, rows int) string {
 	return b.String()
 }
 
+// The two floors that decide whether the pane holds two read-only sections or
+// one.
+//
+// A payload window under eight rows shows too little shape at once to find
+// anything in, even scrolling, and is not worth the rows it costs. A document
+// under twelve is below one whole rule — its event, its iterator and two or
+// three tuples — and the document truncates from the bottom, so what those
+// rows cost is sight of the tuple the user just wrote. Watching that happen is
+// the wizard's promise, and a payload is not worth breaking it for.
+//
+// Under their sum the payload yields entirely, which is how a 30-row terminal
+// shows the file exactly as it did before the payload existed.
+const (
+	payloadMin = 8
+	docMin     = 12
+)
+
 // previewBudget splits the pane's rows between the two read-only sections that
 // sit above the evaluation.
 //
 // The evaluation is measured first and keeps what it needs, because it is what
-// the user is reacting to. The document takes what it can of the rest and the
-// payload takes what is left, which is the order the screen already implied:
-// the wizard's whole promise is watching mapping.yaml being written, and the
-// payload is reference material beside it.
+// the user is reacting to. Of what is left, the document keeps precedence but
+// only down to the payload's floor — it used to take everything it wanted
+// before the payload was considered at all, which left the payload three rows
+// of the hundred-odd a large event asks for on a 40-row terminal: a section in
+// name only.
+//
+// Precedence stays with the document for a reason the two sections do not
+// share. The document truncates, and it truncates from the bottom, where the
+// rule the user just wrote has landed; the payload scrolls, so a window is all
+// it needs, and what it cannot show it can still reach.
 //
 // The budget comes from the rows the caller actually has rather than from a
 // height threshold. A threshold had the file disappear from a 30-row terminal
@@ -1171,32 +1206,94 @@ func (m *wizardModel) previewPane(w, rows int) string {
 // row taken off the top, having no blank row of its own.
 func previewBudget(rows, evalRows, docWant, payloadWant int) (doc, payload int) {
 	left := rows - evalRows - 1
-	doc = fitSection(left-2, docWant)
-	if doc > 0 {
-		left -= doc + 2
+	room := left - 4
+
+	// The document alone: either there is no payload to place, or no room to
+	// place one without cutting the document past being worth reading.
+	if payloadWant == 0 || room < docMin+payloadMin {
+		return fitSection(left-2, docWant), 0
 	}
-	return doc, fitSection(left-2, payloadWant)
+	if docWant == 0 {
+		return 0, fitPayload(left-2, payloadWant)
+	}
+
+	doc = fitSection(min(docWant, room-payloadMin), docWant)
+	used := doc
+	if doc < docWant {
+		// The ellipsis row that says the document was cut is a row of the pane
+		// like any other, and the payload cannot also be given it.
+		used++
+	}
+	return doc, fitPayload(room-used, payloadWant)
 }
 
 // fitSection gives a section what it asks for, capped at the room there is for
 // it.
 //
-// Under three rows the section is dropped rather than shrunk: a file shown two
-// lines at a time says nothing its header has not already said, and the rows
-// are worth more to the section below. A section that cannot fit is given one
-// row less than the room it fills, because truncating adds the ellipsis row.
+// A section that cannot fit is given one row less than the room it fills,
+// because truncating adds the ellipsis row that says so. Under three rows it is
+// dropped rather than shrunk: a file shown two lines at a time says nothing its
+// header has not already said, and the rows are worth more to the section
+// below. A section whose whole content fits is never dropped, however short —
+// two lines shown out of two is the file, not a sample of it.
 func fitSection(room, want int) int {
+	if want <= room {
+		return want
+	}
 	if room < 3 {
 		return 0
 	}
-	if want > room {
-		return room - 1
+	return room - 1
+}
+
+// fitPayload is fitSection for the payload, which scrolls rather than truncates
+// and so spends no row on an ellipsis: what would have said "there is more" is
+// the position on its header instead, which says how much more and how to
+// reach it.
+func fitPayload(room, want int) int {
+	if want <= room {
+		return want
 	}
-	return want
+	if room < 3 {
+		return 0
+	}
+	return room
+}
+
+// payloadWindow is the slice of the payload the user has scrolled to, and the
+// note its header carries to say which slice that is.
+//
+// The offset is clamped here and its ceiling recorded, for the reason
+// windowLines does the same: only the render knows how many rows the payload
+// came to, because that depends on how wide the pane is.
+//
+// The keys are named in the note rather than in the hint row, which is already
+// 38 cells of a 44-column floor. Named only while there is something to scroll
+// to, they read as an offer at the moment it becomes one, beside the numbers
+// that make it worth taking.
+func (m *wizardModel) payloadWindow(rows []string, n int) (string, string) {
+	m.payloadMaxOff = len(rows) - n
+	if m.payloadMaxOff < 0 {
+		m.payloadMaxOff = 0
+	}
+	if m.payloadOff > m.payloadMaxOff {
+		m.payloadOff = m.payloadMaxOff
+	}
+	if len(rows) <= n {
+		return strings.Join(rows, "\n"), ""
+	}
+	off := m.payloadOff
+	return strings.Join(rows[off:off+n], "\n"),
+		fmt.Sprintf("alt+↑↓ %d-%d/%d", off+1, off+n, len(rows))
 }
 
 // samplePayload is the event the current rule is previewed against, as indented
 // JSON, and the name to head it with.
+//
+// The name is the root the expressions on the screen are written against, so
+// the header doubles as a reminder of what to type: `input payload` over the
+// event, `identity payload` over an iterator's item. It used to read "event",
+// which named the thing but not the word that reaches it.
 //
 // Inside an iterator it is the first element of the iterated list under the
 // alias rather than the whole event, because that is the shape the expressions
@@ -1209,13 +1306,13 @@ func (m *wizardModel) samplePayload() (string, string) {
 		return "", ""
 	}
 
-	label, value := "event", any(r.Sample.Event)
+	label, value := "input payload", any(r.Sample.Event)
 	if m.inIter && r.Iterator != nil && r.Iterator.As != "" {
 		elem, ok := mapping.Lookup(r.Sample.Event, r.Iterator.Source+"[0]")
 		if !ok {
 			return "", ""
 		}
-		label, value = r.Iterator.As, elem
+		label, value = r.Iterator.As+" payload", elem
 	}
 
 	out, _ := json.MarshalIndent(value, "", "  ")

@@ -484,6 +484,24 @@ func SectionHeaderTinted(title string, width int, tint color.Color) string {
 	return sectionHeader(title, width, Muted, tint)
 }
 
+// SectionHeaderNoted is SectionHeader with a note set into the right-hand end
+// of the rule, the way a scrollbar's readout rides its own track: the title
+// says what the section is, the note says which part of it you are looking at.
+//
+// The note is dropped rather than crushed when the rule has no room to hold it
+// with a cell of daylight on either side, without which it reads as a ragged
+// end to the title rather than as a marker on the rule.
+func SectionHeaderNoted(title string, width int, note string) string {
+	rem := width - lipgloss.Width(title) - lipgloss.Width(note) - 4
+	if note == "" || rem < 1 {
+		return SectionHeader(title, width)
+	}
+	rule := lipgloss.NewStyle().Foreground(Faintc)
+	return lipgloss.NewStyle().Bold(true).Foreground(Muted).Render(title) +
+		" " + rule.Render(strings.Repeat("─", rem)) +
+		" " + rule.Render(note) + " " + rule.Render("─")
+}
+
 // SectionHeaderFocused renders the header with both the title and rule in the
 // Primary accent, marking the main panel as the focused region.
 func SectionHeaderFocused(title string, width int) string {

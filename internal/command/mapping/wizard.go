@@ -101,6 +101,16 @@ type wizardModel struct {
 	cardOff    int
 	cardMaxOff int
 
+	// The same pair for the preview's payload section, which scrolls separately
+	// from the cards because it sits beside the screen rather than instead of
+	// it, and is measured by previewPane for the same reason: how many rows the
+	// payload comes to depends on how wide the pane is. payloadShown is the
+	// payload the offset was taken on, so that a different one starts at its
+	// top rather than wherever the last one had been left.
+	payloadOff    int
+	payloadMaxOff int
+	payloadShown  string
+
 	// Live state recomputed by refresh.
 	preview  mapping.Preview
 	problems []mapping.Problem
@@ -397,6 +407,25 @@ func (m *wizardModel) key(k tea.KeyPressMsg) tea.Cmd {
 	// one thing everywhere, which is what lets every hint row advertise it.
 	if m.canSave() && k.String() == "ctrl+s" {
 		m.push(screenConfirmSave)
+		return nil
+	}
+
+	// alt+↑↓ scrolls the preview's payload, from wherever a payload is on show.
+	// The bare arrows belong to whichever list or form has the screen, so the
+	// payload — which is never the focused thing — takes the modified pair, and
+	// nothing else in the wizard binds it. The section advertises the keys on
+	// its own header once it has more rows than it can show; the hint row is
+	// too crowded at 44 columns to carry a fifth key that is usually moot.
+	switch k.String() {
+	case "alt+up":
+		if m.payloadOff > 0 {
+			m.payloadOff--
+		}
+		return nil
+	case "alt+down":
+		if m.payloadOff < m.payloadMaxOff {
+			m.payloadOff++
+		}
 		return nil
 	}
 
