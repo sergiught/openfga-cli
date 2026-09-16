@@ -364,8 +364,11 @@ func (m *wizardModel) routePaste(msg tea.PasteMsg) tea.Cmd {
 
 func (m *wizardModel) key(k tea.KeyPressMsg) tea.Cmd {
 	// Every keystroke clears the last transient message; a stale error next to a
-	// fresh screen is worse than none.
-	m.errMsg = ""
+	// fresh screen is worse than none. The note goes with it: the two are set
+	// together by a failed model load, where the note is the reassurance for that
+	// error, and clearing only the error left "That's OK" standing alone on every
+	// screen afterwards with nothing left to be OK about.
+	m.errMsg, m.noteMsg = "", ""
 
 	// ctrl+c gets out from anywhere, ahead of the per-screen routing. bubbletea
 	// delivers it as an ordinary key, so a screen that does not handle it traps

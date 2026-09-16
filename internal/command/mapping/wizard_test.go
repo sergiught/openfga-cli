@@ -310,6 +310,26 @@ func TestChoosingAModelViaTheStoreMidFlowUnwindsTheFork(t *testing.T) {
 	}
 }
 
+// A failed load says two things at once: what went wrong, and that it does not
+// have to stop you. The second only makes sense beside the first — on its own
+// "That's OK" is reassurance about nothing, and it used to outlive the error by
+// the whole rest of the session, on every screen the user visited.
+func TestTheReassuranceDoesNotOutliveTheErrorItReassuresAbout(t *testing.T) {
+	m := atModelSource(t, nil) // the default test loader fails
+	selectSource(t, m, "server")
+	send(m, key("enter"))
+	m.Update(m.loadCmd())
+
+	if v := plain(m.viewString()); !strings.Contains(v, "free text") {
+		t.Fatalf("the failed load did not offer the fallback at all:\n%s", v)
+	}
+
+	send(m, key("down"))
+	if v := plain(m.viewString()); strings.Contains(v, "free text") {
+		t.Fatalf("the note outlived the error beside it:\n%s", v)
+	}
+}
+
 func TestModelSourceOffersConnectedStoreWhenAProfileIsActive(t *testing.T) {
 	m := atModelSource(t, nil)
 	v := m.viewString()
