@@ -535,7 +535,7 @@ func (m *wizardModel) cardBody(cw int) string {
 		// is a leaf pushed only on top of a screen helpFor answered for, so the
 		// entry underneath always exists.
 		_, body, _ := helpFor(m.stack[len(m.stack)-2])
-		return lipgloss.NewStyle().Foreground(style.Muted).Width(cw).Render(body)
+		return style.Subtitle.Width(cw).Render(body)
 	case screenConfirmSave:
 		return m.saveSummary()
 	case screenConfirmDelete:
@@ -603,11 +603,11 @@ func (m *wizardModel) editorPane(cw int) string {
 	// wizard writes — so both wrap at cw like every other body above. Left
 	// unbounded they stretch the frame drawn around them past the terminal.
 	if m.errMsg != "" {
-		b.WriteString("\n\n" + lipgloss.NewStyle().Foreground(style.Red).Width(cw).Render(
+		b.WriteString("\n\n" + style.Failure.Width(cw).Render(
 			glyph(icons.I().Cross, m.errMsg)))
 	}
 	if m.noteMsg != "" {
-		b.WriteString("\n" + lipgloss.NewStyle().Foreground(style.Muted).Width(cw).Render(m.noteMsg))
+		b.WriteString("\n" + style.Subtitle.Width(cw).Render(m.noteMsg))
 	}
 	return b.String()
 }
@@ -649,7 +649,7 @@ func (m *wizardModel) screenBody(cw int) string {
 		if len(m.ctxKeys) > 0 {
 			// A condition's parameters come from the model, so the list is as long
 			// as the model makes it: wrap at cw rather than stretching the frame.
-			body += "\n" + lipgloss.NewStyle().Foreground(style.Muted).Width(cw).Render(
+			body += "\n" + style.Subtitle.Width(cw).Render(
 				"condition parameters: "+strings.Join(m.ctxKeys, ", "))
 		}
 		return body
@@ -703,7 +703,7 @@ func (m *wizardModel) topLegends() (string, string) {
 	left := m.breadcrumb()
 	if chips := m.contextChips(); chips != "" {
 		if left != "" {
-			left += lipgloss.NewStyle().Foreground(style.Faintc).Render("  ·  ")
+			left += style.Faint.Render("  ·  ")
 		}
 		left += chips
 	}
@@ -724,7 +724,7 @@ func (m *wizardModel) wayOut() (keyHint, bool) {
 		}
 		if h.label == "back" || h.label == "done" {
 			if len(m.stack) > 1 {
-				h.label = "‹ " + m.titleFor(m.stack[len(m.stack)-2])
+				h.label = "◂ " + m.titleFor(m.stack[len(m.stack)-2])
 			}
 		}
 		return h, true
@@ -755,6 +755,10 @@ func (m *wizardModel) statusBar() string {
 // model screens are skipped: loading a model is something you step aside to do,
 // not a level of the document you are inside, so listing it would imply the
 // rules hub hangs off it.
+//
+// ▸ separates the hops because that is the glyph the playground descends with
+// (see mainTitle), and ◂ takes the way out on the other end of the same border
+// so that the two read as one pair pointing opposite ways.
 func (m *wizardModel) breadcrumb() string {
 	var parts []string
 	for _, s := range m.stack {
@@ -774,7 +778,7 @@ func (m *wizardModel) breadcrumb() string {
 	if len(parts) > 3 {
 		parts = append([]string{"…"}, parts[len(parts)-3:]...)
 	}
-	return lipgloss.NewStyle().Foreground(style.Muted).Render(strings.Join(parts, " › "))
+	return style.Subtitle.Render(strings.Join(parts, " ▸ "))
 }
 
 // titleFor is the name a screen is going by right now. Two screens retitle
@@ -800,7 +804,7 @@ func (m *wizardModel) titleFor(s screen) string {
 // contextChips keep the two facts that change what the wizard can offer — the
 // file being written and whether a model is loaded — on screen at all times.
 func (m *wizardModel) contextChips() string {
-	faint := lipgloss.NewStyle().Foreground(style.Faintc)
+	faint := style.Faint
 	chips := []string{faint.Render(glyph(icons.I().Store, m.path))}
 	if m.index.Empty() {
 		chips = append(chips, faint.Render(glyph(icons.I().Model, "no model")))
@@ -844,7 +848,7 @@ func glyph(ic, text string) string {
 // emptyState renders "nothing here yet" plus the one key that fixes it, with the
 // key picked out so it reads as an instruction rather than prose.
 func emptyState(what, key, action string) string {
-	muted := lipgloss.NewStyle().Foreground(style.Muted)
+	muted := style.Subtitle
 	return muted.Render(what) + "\n\n" +
 		muted.Render("Press") + style.Keycap(key) + muted.Render("to "+action+".")
 }
@@ -866,7 +870,7 @@ func (m *wizardModel) loadingBody() string {
 	return m.spin.View() + " " +
 		style.Value.Render(fmt.Sprintf("Reading the authorization model from profile %s…", m.profile)) +
 		"\n\n" +
-		lipgloss.NewStyle().Foreground(style.Muted).
+		style.Subtitle.
 			Render("Retried a few times before giving up.")
 }
 
@@ -886,10 +890,10 @@ func (m *wizardModel) welcomeBody(cw int) string {
 	}
 	// "as you type" is the row the subtitle's definition costs at the 44-column
 	// floor, and "watch the file compile" already carries the liveness.
-	prose := lipgloss.NewStyle().Foreground(style.Muted).Width(cw).Render(
+	prose := style.Subtitle.Width(cw).Render(
 		"Pick an event, describe the tuples it should produce, and watch " +
 			"the file compile.")
-	key := lipgloss.NewStyle().Foreground(style.Muted).Width(7)
+	key := style.Subtitle.Width(7)
 	return strings.Join([]string{
 		prose,
 		"",
@@ -903,7 +907,7 @@ func (m *wizardModel) welcomeBody(cw int) string {
 // loaded model has and lacks.
 func (m *wizardModel) recipeBody(cw int) string {
 	var b strings.Builder
-	b.WriteString(lipgloss.NewStyle().Foreground(style.Muted).Width(cw).Render(m.recipe.Explain))
+	b.WriteString(style.Subtitle.Width(cw).Render(m.recipe.Explain))
 
 	// The warning sits with the explanation rather than under the mapping,
 	// because it is the same kind of claim — what Auth0 does and does not send —
@@ -911,9 +915,9 @@ func (m *wizardModel) recipeBody(cw int) string {
 	// widen their terminal to discover is one they find in production instead.
 	if m.recipe.Warn != "" {
 		b.WriteString("\n\n")
-		b.WriteString(lipgloss.NewStyle().Foreground(style.Amber).Render("! the gap this leaves"))
+		b.WriteString(style.Warn.Render("! the gap this leaves"))
 		b.WriteString("\n")
-		b.WriteString(lipgloss.NewStyle().Foreground(style.Muted).Width(cw).Render(m.recipe.Warn))
+		b.WriteString(style.Subtitle.Width(cw).Render(m.recipe.Warn))
 	}
 
 	if m.recipe.Maps() {
@@ -936,9 +940,9 @@ func (m *wizardModel) recipeMappingBlock(cw int) string {
 	doc := &mapping.Document{Rules: []mapping.Rule{m.recipe.Rule}}
 	preview := mapping.Evaluate(m.ctx, doc, m.recipeEvent.Sample)
 
-	label := lipgloss.NewStyle().Foreground(style.Muted).Width(9)
-	source := lipgloss.NewStyle().Foreground(style.Faintc)
-	heading := lipgloss.NewStyle().Foreground(style.Muted)
+	label := style.Subtitle.Width(9)
+	source := style.Faint
+	heading := style.Subtitle
 
 	// Value and source path each get their own line rather than sharing one: the
 	// value already spends the whole cw-9 budget the row has left after the
@@ -1053,7 +1057,7 @@ func (m *wizardModel) recipeMappingBlock(cw int) string {
 	}
 
 	if !preview.OK() {
-		lines = append(lines, "", lipgloss.NewStyle().Foreground(style.Red).Render(
+		lines = append(lines, "", style.Failure.Render(
 			glyph(icons.I().Cross, "the sample could not be evaluated")))
 	}
 	return strings.Join(lines, "\n")
@@ -1118,7 +1122,7 @@ func iteratorHeading(it mapping.Iterator) string {
 // the user who skipped loading a model has not told us anything is wrong.
 func (m *wizardModel) recipeModelBlock(cw int) string {
 	statuses := mapping.CheckRequirements(m.index, m.recipe.Requires)
-	muted := lipgloss.NewStyle().Foreground(style.Muted)
+	muted := style.Subtitle
 
 	// Checked comes solely from whether a model is loaded (ix.Empty()), not from
 	// anything about the individual requirement, so it is the same on every
@@ -1135,11 +1139,11 @@ func (m *wizardModel) recipeModelBlock(cw int) string {
 	lines := []string{muted.Render("your model")}
 	for _, s := range statuses {
 		if s.Satisfied() {
-			lines = append(lines, lipgloss.NewStyle().Foreground(style.Green).Render(
+			lines = append(lines, style.Success.Render(
 				glyph(icons.I().Check, requirementName(s.Requirement))))
 			continue
 		}
-		lines = append(lines, lipgloss.NewStyle().Foreground(style.Red).Render(
+		lines = append(lines, style.Failure.Render(
 			"! "+requirementName(s.Requirement)+" not in your model"))
 		lines = append(lines, indentDSL(s.Requirement.DSL, cw))
 	}
@@ -1160,7 +1164,7 @@ func indentDSL(dsl string, cw int) string {
 	for i, l := range lines {
 		lines[i] = "    " + clamp(l, cw-4)
 	}
-	return lipgloss.NewStyle().Foreground(style.Faintc).Render(strings.Join(lines, "\n"))
+	return style.Faint.Render(strings.Join(lines, "\n"))
 }
 
 // previewPane renders the file being built and what the current sample turns
@@ -1364,7 +1368,7 @@ func (m *wizardModel) evaluationLines(w int) string {
 	// them not having started. It becomes true the moment it is actionable — when
 	// there is a rule to fix — so until then the pane says what it is for.
 	if len(m.doc.Rules) == 0 {
-		return lipgloss.NewStyle().Foreground(style.Faintc).Render(
+		return style.Faint.Render(
 			wrapText("tuples appear here as you add rules", w))
 	}
 	var out []string
@@ -1373,10 +1377,10 @@ func (m *wizardModel) evaluationLines(w int) string {
 		if d.Field != "" {
 			line = glyph(icons.I().Cross, diagLocation(d)+d.Field+": "+d.Message)
 		}
-		out = append(out, lipgloss.NewStyle().Foreground(style.Red).Render(wrapText(sanitizeKeepingLines(line), w)))
+		out = append(out, style.Failure.Render(wrapText(sanitizeKeepingLines(line), w)))
 	}
 	if m.preview.EvalErr != nil {
-		out = append(out, lipgloss.NewStyle().Foreground(style.Red).Render(
+		out = append(out, style.Failure.Render(
 			wrapText(sanitizeKeepingLines(glyph(icons.I().Cross, m.preview.EvalErr.Error())), w)))
 	}
 	for _, t := range m.preview.Tuples {
@@ -1387,7 +1391,7 @@ func (m *wizardModel) evaluationLines(w int) string {
 		// An evaluated tuple is built from the user's own event payload.
 		line := glyph(icons.I().Check,
 			fmt.Sprintf("%-6s %s  %s  %s", action, t.User, t.Relation, t.Object))
-		out = append(out, lipgloss.NewStyle().Foreground(style.Green).Render(
+		out = append(out, style.Success.Render(
 			wrapText(style.SanitizeTerminal(line), w)))
 	}
 	for _, op := range m.preview.Filters {
@@ -1399,7 +1403,7 @@ func (m *wizardModel) evaluationLines(w int) string {
 	}
 	for _, r := range m.preview.Rules {
 		if r.Status == "skipped" {
-			out = append(out, lipgloss.NewStyle().Foreground(style.Faintc).Render(
+			out = append(out, style.Faint.Render(
 				wrapText(style.SanitizeTerminal(fmt.Sprintf("– %s: skipped", r.Name)), w)))
 		}
 	}
@@ -1417,7 +1421,7 @@ func (m *wizardModel) evaluationLines(w int) string {
 		out = append(out, tupleBudget(m.preview.TupleCount(), w))
 	}
 	if len(out) == 0 {
-		return lipgloss.NewStyle().Foreground(style.Faintc).Render("no sample event yet")
+		return style.Faint.Render("no sample event yet")
 	}
 	return strings.Join(out, "\n")
 }

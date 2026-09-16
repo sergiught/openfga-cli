@@ -63,8 +63,8 @@ func TestSaveIsAdvertisedWhereverItWorks(t *testing.T) {
 	m := atRulesHub(t)
 	addRuleAtTrigger(m)
 	view := plain(m.viewString())
-	if !strings.Contains(view, "^s") {
-		t.Fatalf("the trigger screen does not mention ^s:\n%s", view)
+	if !strings.Contains(view, "ctrl+s") {
+		t.Fatalf("the trigger screen does not mention ctrl+s:\n%s", view)
 	}
 }
 
@@ -77,8 +77,8 @@ func TestSaveIsNotOfferedWithNothingToSave(t *testing.T) {
 	if m.top() == screenConfirmSave {
 		t.Fatal("ctrl+s opened the save dialog with no rules to save")
 	}
-	if strings.Contains(plain(m.viewString()), "^s") {
-		t.Fatalf("the empty hub advertises ^s:\n%s", plain(m.viewString()))
+	if strings.Contains(plain(m.viewString()), "ctrl+s") {
+		t.Fatalf("the empty hub advertises ctrl+s:\n%s", plain(m.viewString()))
 	}
 }
 
@@ -95,7 +95,7 @@ func TestTopBarNamesWhereEscGoes(t *testing.T) {
 		t.Fatalf("top = %v, want the recipe card", m.top())
 	}
 	top := wayfindingBar(t, plain(m.viewString()))
-	if !strings.Contains(top, "esc ‹ Pick an event") {
+	if !strings.Contains(top, "esc ◂ Pick an event") {
 		t.Fatalf("the recipe card does not say where esc goes:\n%s", top)
 	}
 }
