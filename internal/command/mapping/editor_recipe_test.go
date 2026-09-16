@@ -2,6 +2,7 @@ package mapping
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -574,15 +575,18 @@ func TestALongRecipeScrolls(t *testing.T) {
 	send(m, key("a"), key("enter"))
 	selectEvent(t, m, "user.updated")
 
+	below := regexp.MustCompile(`⋯ \d+ more`)
+	above := regexp.MustCompile(`⋯ \d+ above`)
+
 	top := plain(m.viewString())
-	if !strings.Contains(top, "↓") {
+	if !below.MatchString(top) {
 		t.Fatalf("a recipe taller than the card offered no way down:\n%s", top)
 	}
 	for i := 0; i < 40; i++ {
 		send(m, key("down"))
 	}
 	bottom := plain(m.viewString())
-	if !strings.Contains(bottom, "↑") {
+	if !above.MatchString(bottom) {
 		t.Fatalf("scrolled down but nothing says there is anything above:\n%s", bottom)
 	}
 	if bottom == top {

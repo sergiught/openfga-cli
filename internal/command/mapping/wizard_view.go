@@ -110,7 +110,7 @@ var screenChrome = map[screen]chrome{
 	},
 	screenModelBrowse: {
 		"Choose a model file", "Walk to a .fga or .json authorization model.",
-		[]keyHint{{"↑↓", "move"}, {"/", "filter"}, {"↵", "open"}, {"^p", "type a path"}, {"esc", "back"}},
+		[]keyHint{{"↑↓", "move"}, {"/", "filter"}, {"↵", "open"}, {"ctrl+p", "type a path"}, {"esc", "back"}},
 	},
 	screenModelFile: {
 		"Load a model file", "Point at a .fga or .json authorization model.",
@@ -133,7 +133,7 @@ var screenChrome = map[screen]chrome{
 	// throw the edit away, and here it would keep it.
 	screenTrigger: {
 		"Trigger", "Name the rule, and say which events it matches.",
-		[]keyHint{{"tab", "next"}, {"^e", "pick event"}, {"^p", "insert path"}, {"esc", "done"}},
+		[]keyHint{{"tab", "next"}, {"ctrl+e", "pick event"}, {"ctrl+p", "insert path"}, {"esc", "done"}},
 	},
 	screenEventPick: {
 		"Pick an event", "Choose a sample payload to build the rule against.",
@@ -141,7 +141,7 @@ var screenChrome = map[screen]chrome{
 	},
 	screenEventPaste: {
 		"Paste an event", "Paste one event payload as JSON.",
-		[]keyHint{{"^d", "accept"}, {"esc", "cancel"}},
+		[]keyHint{{"ctrl+d", "accept"}, {"esc", "cancel"}},
 	},
 	screenEventFile: {
 		"Load an event", "Read a sample event from a JSON file.",
@@ -153,7 +153,7 @@ var screenChrome = map[screen]chrome{
 	},
 	screenTuple: {
 		"Tuple", "Wrap an expression in {{ }} to read from the event.",
-		[]keyHint{{"tab", "next"}, {"^o", "pick from model"}, {"^p", "insert path"}, {"esc", "done"}},
+		[]keyHint{{"tab", "next"}, {"ctrl+o", "pick from model"}, {"ctrl+p", "insert path"}, {"esc", "done"}},
 	},
 	screenAction: {
 		"Rule action", "Write or delete every tuple in this rule?",
@@ -165,7 +165,7 @@ var screenChrome = map[screen]chrome{
 	},
 	screenVariable: {
 		"Variable", "A name, and the expression it stands for.",
-		[]keyHint{{"tab", "next"}, {"^p", "insert path"}, {"esc", "done"}},
+		[]keyHint{{"tab", "next"}, {"ctrl+p", "insert path"}, {"esc", "done"}},
 	},
 	screenIterator: {
 		// Not "repeat this rule's tuples": an iterator carries its own tuple list
@@ -177,7 +177,7 @@ var screenChrome = map[screen]chrome{
 	},
 	screenIterForm: {
 		"Iterator", "What to walk, and what to call each item.",
-		[]keyHint{{"tab", "next"}, {"^p", "insert path"}, {"esc", "done"}},
+		[]keyHint{{"tab", "next"}, {"ctrl+p", "insert path"}, {"esc", "done"}},
 	},
 	screenFilters: {
 		"Tuple filters", "Reconcile what this rule writes, or delete outright.",
@@ -185,7 +185,7 @@ var screenChrome = map[screen]chrome{
 	},
 	screenFilter: {
 		"Tuple filter", "Blank user or relation matches anything; object needs a type.",
-		[]keyHint{{"tab", "next"}, {"^p", "insert path"}, {"esc", "done"}},
+		[]keyHint{{"tab", "next"}, {"ctrl+p", "insert path"}, {"esc", "done"}},
 	},
 	screenPathPick: {
 		"Insert a path", "Pick a value from the sample event.",
@@ -227,11 +227,11 @@ func (m *wizardModel) chromeFor() chrome {
 		// the model is reached with m from a screen esc really does return to.
 		c.keys = []keyHint{{"↑↓", "move"}, {"↵", "select"}, {"esc", "skip"}, {"?", "help"}}
 	case m.top() == screenTuple && m.index.Empty():
-		// ^o picks a type or relation out of the loaded model. With no model there
+		// ctrl+o picks a type or relation out of the loaded model. With no model there
 		// is nothing to pick from, and the key does nothing at all — advertised
 		// anyway it reads as the one affordance that is broken, on the screen with
 		// the most typing to do.
-		c.keys = []keyHint{{"tab", "next"}, {"^p", "insert path"}, {"esc", "done"}}
+		c.keys = []keyHint{{"tab", "next"}, {"ctrl+p", "insert path"}, {"esc", "done"}}
 	case m.top() == screenFilters && len(m.ruleFilters()) > 0:
 		// Three per rule is mapper's limit and nothing on the screen says so, so
 		// the only way to learn it is to be refused at the fourth. The count
@@ -289,7 +289,7 @@ func (m *wizardModel) chromeFor() chrome {
 	// screenChrome table's own backing array, and an append into spare capacity
 	// there would edit the table for every screen drawn afterwards.
 	if m.canSave() && !m.loading {
-		c.keys = append(append([]keyHint(nil), c.keys...), keyHint{"^s", "save file"})
+		c.keys = append(append([]keyHint(nil), c.keys...), keyHint{"ctrl+s", "save file"})
 	}
 
 	// The preview's switch, likewise global rather than listed per screen, and
@@ -414,19 +414,27 @@ func (m *wizardModel) windowLines(body string, n int) string {
 	if m.cardOff > m.cardMaxOff {
 		m.cardOff = m.cardMaxOff
 	}
-	// Only the recipe and help cards bind the arrows, so only there may a marker
-	// name one. Elsewhere an overflowing card really is a resize away from being
-	// readable, and trimLines says so in those terms.
+	// Only the recipe and help cards bind the arrows, so only there can a marker
+	// promise that scrolling reaches the rest. Elsewhere an overflowing card
+	// really is a resize away from being readable, and trimLines says so in
+	// those terms.
 	//
 	// Help scrolls because two of its bodies — tuple filters and the iterator —
 	// are longer than an 80x24 card can hold, and the overlay is the wizard's
 	// teaching surface: a concept the user has to widen their terminal to finish
 	// reading is one they finish learning in production.
 	//
-	// The arrows live in the markers rather than the key hints because the hint
-	// row is already 38 cells of a 44-column floor: a fourth key there would
-	// run off the narrowest terminal the wizard supports. The marker is where
-	// the eye already is when the body runs out, and it costs no row of its own.
+	// The marker carries this rather than the key hints. It is where the eye
+	// already is when the body runs out, it costs no row of its own, and the
+	// hint row it would otherwise join truncates from the tail at the 44-column
+	// floor — which is exactly the terminal where a card overflows and the
+	// marker is needed most.
+	//
+	// ⋯ and its two-column indent are the playground's marker (see capLinesAt),
+	// so that "there is more than fits" looks the same wherever the CLI says it.
+	// The count stays: the playground's panes name the remedy instead, but there
+	// the remedy is the whole answer, and here the user is deciding whether the
+	// rest is worth scrolling or resizing for.
 	if m.top() != screenRecipe && m.top() != screenHelp {
 		return trimLines(body, n)
 	}
@@ -434,12 +442,12 @@ func (m *wizardModel) windowLines(body string, n int) string {
 		// The marker replaces the first row for the same reason trimLines'
 		// replaces the last: appending would cost the row it accounts for.
 		lines = lines[m.cardOff:]
-		lines[0] = style.Faint.Render(fmt.Sprintf("↑ %d above", m.cardOff))
+		lines[0] = style.Faint.Render(fmt.Sprintf("  ⋯ %d above", m.cardOff))
 	}
 	if len(lines) > n {
 		hidden := len(lines) - n + 1
 		lines = lines[:n]
-		lines[n-1] = style.Faint.Render(fmt.Sprintf("↓ %d more", hidden))
+		lines[n-1] = style.Faint.Render(fmt.Sprintf("  ⋯ %d more", hidden))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -457,7 +465,7 @@ func trimLines(body string, n int) string {
 	// the frame would cost the very row it was accounting for.
 	hidden := len(lines) - n + 1
 	lines = lines[:n]
-	lines[n-1] = style.Faint.Render(fmt.Sprintf("… %d more (resize)", hidden))
+	lines[n-1] = style.Faint.Render(fmt.Sprintf("  ⋯ %d more (resize)", hidden))
 	return strings.Join(lines, "\n")
 }
 
@@ -1159,7 +1167,7 @@ func indentDSL(dsl string, cw int) string {
 // into. It is the whole point of the hub-and-spoke design: every edit is
 // visible immediately.
 //
-// One long section is on show at a time — the file or the payload, ^t switches
+// One long section is on show at a time — the file or the payload, ctrl+t switches
 // — over the evaluation, which is pinned below both because it is what the user
 // is reacting to and costs two or three rows to keep. The two long sections
 // used to split the pane's rows between them, which held while the file was
@@ -1224,7 +1232,7 @@ func (m *wizardModel) showsPayload() bool {
 	return payload != ""
 }
 
-// previewSwitch is the ^t affordance: the key, and the section it leads to.
+// previewSwitch is the ctrl+t affordance: the key, and the section it leads to.
 //
 // It names where the key goes rather than what is on show, that being the half
 // of the pair the pane's own header is not already saying. There is nothing to
@@ -1239,13 +1247,13 @@ func (m *wizardModel) previewSwitch() (keyHint, bool) {
 		return keyHint{}, false
 	}
 	if m.showsPayload() {
-		return keyHint{"^t", "file"}, true
+		return keyHint{"ctrl+t", "file"}, true
 	}
 	label, payload := m.samplePayload()
 	if payload == "" {
 		return keyHint{}, false
 	}
-	return keyHint{"^t", label}, true
+	return keyHint{"ctrl+t", label}, true
 }
 
 // previewOff points at the offset of the section on show, which is the one the
@@ -1271,7 +1279,7 @@ func (m *wizardModel) previewOff() *int {
 //
 // The keys are named on the rule as well as in the hint row, because only here
 // can they be said beside the numbers that make them worth taking: the row has
-// no room for a position readout, and ^t on its own does not say that there is
+// no room for a position readout, and ctrl+t on its own does not say that there is
 // a whole other section to reach. The page keys appear only once there is
 // something to scroll to, so that they read as an offer at the moment it
 // becomes one.
@@ -1287,7 +1295,7 @@ func (m *wizardModel) previewWindow(rows []string, n int, other string) (string,
 
 	var switchNote string
 	if other != "" {
-		switchNote = "^t " + other
+		switchNote = "ctrl+t " + other
 	}
 	if m.previewMaxOff == 0 {
 		return strings.Join(rows, "\n"), []string{switchNote}
