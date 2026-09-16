@@ -292,15 +292,15 @@ func recipeBody(typ string) Recipe {
 
 	case "user.deleted":
 		return cleanup(typ,
-			"A user was deleted, and every tuple naming them has to go. The event cannot name the organizations, roles and connections they belonged to, so this sweeps by user instead: each filter reads every tuple with this user and that object type, then deletes what it finds.\n\nThree filters is mapper's hard limit per rule, and this catalog writes a user into four places. Group membership is the one left out, because it is the one whose key may not be the auth0|… user_id — see group.member.added. Add a second rule with the same when if your groups key on user_id too.",
+			"A user was deleted, and every tuple naming them has to go. The event cannot name the organizations, tenants and connections they belonged to, so this sweeps by user instead: each filter reads every tuple with this user and that object type, then deletes what it finds.\n\nThree filters is mapper's hard limit per rule, and this catalog writes a user into six places — so the three here are the ones that still grant something on their own. Roles are not among them: the shipped model defines admin as `role_admin and member`, which makes a leftover role assignment inert the moment the organization filter above removes the membership.\n\nTwo want a second rule with the same when. Group membership is left out because its key may not be the auth0|… user_id — see group.member.added — and the plan tuple because it is the sixth of six. Their filters are {user: user:…, object: \"group:\"} and {user: user:…, object: \"plan:\"}.",
 			[]mapping.TupleFilter{
 				{User: tmplUserID, Object: "organization:", Action: "delete"},
-				{User: tmplUserID, Object: "role:", Action: "delete"},
+				{User: tmplUserID, Object: "tenant:", Action: "delete"},
 				{User: tmplUserID, Object: "connection:", Action: "delete"},
 			},
 			[]mapping.Requirement{
 				{Type: "organization", DSL: dslUser + "\n\n" + dslOrgBare},
-				{Type: "role", DSL: dslRoleBare},
+				{Type: "tenant", DSL: dslTenant},
 				{Type: "connection", DSL: dslConnection},
 			})
 
@@ -365,7 +365,7 @@ func recipeBody(typ string) Recipe {
 
 	case "user.created":
 		return Recipe{
-			Explain: "A user was created. What can you say about someone who exists and has done nothing yet? Two things, and the recipe writes both.\n\nThe first is where they are: every Auth0 user belongs to a tenant, and this is the root fact every later check hangs from — the same shape organization.created writes, one level up. On its own it answers \"is this person one of ours\", which is the question a signed-in-users-only resource asks.\n\nThe second is what they may do. app_metadata is where Auth0 lets you keep your own facts on a user, and a plan or tier is what most tenants put there. That tuple is gated: a user created without one writes nothing rather than failing, because app_metadata is optional and so is anything inside it.\n\nThe identities array is deliberately not mapped here. It says which login provider the user came from, which is Auth0's bookkeeping rather than an authorization question anyone asks — and user.updated maps it, where a linked or unlinked login is the change the event is actually reporting.",
+			Explain: "A user was created. What can you say about someone who exists and has done nothing yet? Two things, and the recipe writes both.\n\nThe first is where they are: every Auth0 user belongs to a tenant, and this is the root fact every later check hangs from — the same shape organization.created writes, one level up. On its own it answers \"is this person one of ours\", which is the question a signed-in-users-only resource asks.\n\nThe second is what they may do. app_metadata is where Auth0 lets you keep your own facts on a user, and a plan or tier is what most tenants put there. That tuple is gated: a user created without one writes nothing rather than failing, because app_metadata is optional and so is anything inside it.\n\nThis rule only ever grants a plan. Auth0 sends the change as user.updated, and the recipe for that event maps identities rather than app_metadata, so a downgrade never revokes and an upgrade never arrives. If you gate anything on the plan, add a rule for it: when `input.type == \"user.updated\" && input.data.object.app_metadata != input.data.previous_object.app_metadata`, carrying a delete tuple for the previous plan and a write for the new one, each gated on its own side being present — the same delete/write pair group.updated uses to move a group between connections.\n\nThe identities array is deliberately not mapped here. It says which login provider the user came from, which is Auth0's bookkeeping rather than an authorization question anyone asks — and user.updated maps it, where a linked or unlinked login is the change the event is actually reporting.",
 			Rule: mapping.Rule{
 				Name: typ,
 				When: when(typ),

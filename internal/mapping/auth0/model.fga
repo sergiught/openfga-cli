@@ -64,7 +64,7 @@ type connection
   relations
     # connection.created
     define tenant: [tenant]
-    # user.created / user.updated, one per entry in the user's identities
+    # user.updated, one per entry in the user's identities
     define identity: [user]
     # connection.created / connection.updated, one per enabled client
     define enabled_client: [client]
