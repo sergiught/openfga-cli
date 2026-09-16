@@ -16,6 +16,7 @@ import (
 
 	"github.com/sergiught/openfga-cli/internal/mapping"
 	"github.com/sergiught/openfga-cli/internal/mapping/auth0"
+	"github.com/sergiught/openfga-cli/internal/ui/icons"
 )
 
 // ansiSeq matches the colour and style escapes lipgloss writes. Assertions
@@ -99,6 +100,25 @@ func newTestWizard(t *testing.T, load modelLoader) *wizardModel {
 	m.Init()
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	return m
+}
+
+// Every other command resolves its glyphs through icons.I(), so `icons = off`
+// or a Nerd Font rung reaches all of them. The wizard used to be the one
+// exception, hardcoding the unicode glyphs whatever the config said.
+func TestTheWizardFollowsTheIconRung(t *testing.T) {
+	t.Cleanup(func() { icons.Apply(icons.ModeNerdFont) })
+
+	icons.Apply(icons.ModeUnicode)
+	m := newTestWizard(t, nil)
+	unicodeStore := icons.I().Store
+	if out := plain(m.viewString()); !strings.Contains(out, unicodeStore) {
+		t.Fatalf("the unicode rung's store glyph is missing:\n%s", out)
+	}
+
+	icons.Apply(icons.ModeOff)
+	if out := plain(m.viewString()); strings.Contains(out, unicodeStore) {
+		t.Fatalf("glyphs are off and the wizard still draws one:\n%s", out)
+	}
 }
 
 func TestWelcomeShowsTargetFileAndAdvancesOnEnter(t *testing.T) {

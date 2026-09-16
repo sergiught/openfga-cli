@@ -14,6 +14,7 @@ import (
 
 	"github.com/sergiught/openfga-cli/internal/mapping"
 	"github.com/sergiught/openfga-cli/internal/style"
+	"github.com/sergiught/openfga-cli/internal/ui/icons"
 	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
 	"github.com/sergiught/openfga-cli/internal/ui/logo"
 )
@@ -595,7 +596,7 @@ func (m *wizardModel) editorPane(cw int) string {
 	// unbounded they stretch the frame drawn around them past the terminal.
 	if m.errMsg != "" {
 		b.WriteString("\n\n" + lipgloss.NewStyle().Foreground(style.Red).Width(cw).Render(
-			style.IconCross+" "+m.errMsg))
+			glyph(icons.I().Cross, m.errMsg)))
 	}
 	if m.noteMsg != "" {
 		b.WriteString("\n" + lipgloss.NewStyle().Foreground(style.Muted).Width(cw).Render(m.noteMsg))
@@ -792,12 +793,12 @@ func (m *wizardModel) titleFor(s screen) string {
 // file being written and whether a model is loaded — on screen at all times.
 func (m *wizardModel) contextChips() string {
 	faint := lipgloss.NewStyle().Foreground(style.Faintc)
-	chips := []string{faint.Render(style.IconStore + " " + m.path)}
+	chips := []string{faint.Render(glyph(icons.I().Store, m.path))}
 	if m.index.Empty() {
-		chips = append(chips, faint.Render(style.IconModel+" no model"))
+		chips = append(chips, faint.Render(glyph(icons.I().Model, "no model")))
 	} else {
-		chips = append(chips, faint.Render(fmt.Sprintf("%s %d types",
-			style.IconModel, len(m.index.TypeNames()))))
+		chips = append(chips, faint.Render(glyph(icons.I().Model,
+			fmt.Sprintf("%d types", len(m.index.TypeNames())))))
 	}
 	return strings.Join(chips, "  ")
 }
@@ -812,6 +813,17 @@ func renderHints(hs []keyHint) string {
 			lipgloss.NewStyle().Foreground(style.Muted).Render(h.label))
 	}
 	return strings.Join(parts, "  ")
+}
+
+// glyph prefixes text with an icon and the space that sets it off, or with
+// nothing at all when the active rung has no glyph for it. Under `icons = off`
+// the space is all that would be left of the icon, and a line that starts one
+// column in reads as an indent rather than as an icon that is not there.
+func glyph(ic, text string) string {
+	if ic == "" {
+		return text
+	}
+	return ic + " " + text
 }
 
 // --- bodies ---
@@ -1029,7 +1041,7 @@ func (m *wizardModel) recipeMappingBlock(cw int) string {
 
 	if !preview.OK() {
 		lines = append(lines, "", lipgloss.NewStyle().Foreground(style.Red).Render(
-			style.IconCross+" the sample could not be evaluated"))
+			glyph(icons.I().Cross, "the sample could not be evaluated")))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -1111,7 +1123,7 @@ func (m *wizardModel) recipeModelBlock(cw int) string {
 	for _, s := range statuses {
 		if s.Satisfied() {
 			lines = append(lines, lipgloss.NewStyle().Foreground(style.Green).Render(
-				style.IconCheck+" "+requirementName(s.Requirement)))
+				glyph(icons.I().Check, requirementName(s.Requirement))))
 			continue
 		}
 		lines = append(lines, lipgloss.NewStyle().Foreground(style.Red).Render(
@@ -1344,15 +1356,15 @@ func (m *wizardModel) evaluationLines(w int) string {
 	}
 	var out []string
 	for _, d := range m.preview.Diagnostics {
-		line := style.IconCross + " " + diagLocation(d) + d.Message
+		line := glyph(icons.I().Cross, diagLocation(d)+d.Message)
 		if d.Field != "" {
-			line = style.IconCross + " " + diagLocation(d) + d.Field + ": " + d.Message
+			line = glyph(icons.I().Cross, diagLocation(d)+d.Field+": "+d.Message)
 		}
 		out = append(out, lipgloss.NewStyle().Foreground(style.Red).Render(wrapText(sanitizeKeepingLines(line), w)))
 	}
 	if m.preview.EvalErr != nil {
 		out = append(out, lipgloss.NewStyle().Foreground(style.Red).Render(
-			wrapText(sanitizeKeepingLines(style.IconCross+" "+m.preview.EvalErr.Error()), w)))
+			wrapText(sanitizeKeepingLines(glyph(icons.I().Cross, m.preview.EvalErr.Error())), w)))
 	}
 	for _, t := range m.preview.Tuples {
 		action := string(t.Action)
@@ -1360,15 +1372,16 @@ func (m *wizardModel) evaluationLines(w int) string {
 			action = "write"
 		}
 		// An evaluated tuple is built from the user's own event payload.
-		line := fmt.Sprintf("%s %-6s %s  %s  %s", style.IconCheck, action, t.User, t.Relation, t.Object)
+		line := glyph(icons.I().Check,
+			fmt.Sprintf("%-6s %s  %s  %s", action, t.User, t.Relation, t.Object))
 		out = append(out, lipgloss.NewStyle().Foreground(style.Green).Render(
 			wrapText(style.SanitizeTerminal(line), w)))
 	}
 	for _, op := range m.preview.Filters {
 		for _, f := range op.Filters {
 			out = append(out, lipgloss.NewStyle().Foreground(style.Primary).Render(
-				wrapText(style.SanitizeTerminal(fmt.Sprintf("%s %-6s %s",
-					style.IconChange, f.Action, filterSummary(f))), w)))
+				wrapText(style.SanitizeTerminal(glyph(icons.I().Change,
+					fmt.Sprintf("%-6s %s", f.Action, filterSummary(f)))), w)))
 		}
 	}
 	for _, r := range m.preview.Rules {
