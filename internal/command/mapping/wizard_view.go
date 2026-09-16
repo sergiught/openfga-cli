@@ -510,7 +510,7 @@ func (m *wizardModel) cardView() string {
 	}
 	return strings.Repeat("\n", topPad) +
 		lipgloss.Place(m.width, m.height-topPad, lipgloss.Center, lipgloss.Center,
-			card+"\n"+" "+renderHints(acts))
+			card+"\n"+renderHints(acts))
 }
 
 func (m *wizardModel) cardBody(cw int) string {
@@ -739,7 +739,7 @@ func (m *wizardModel) statusBar() string {
 			acts = append(acts, h)
 		}
 	}
-	return rule + "\n " + ansi.Truncate(renderHints(acts), w-2, "…")
+	return rule + "\n" + ansi.Truncate(renderHints(acts), w, "…")
 }
 
 // breadcrumb answers "where am I" for a hub-and-spoke wizard, the way the
@@ -803,16 +803,21 @@ func (m *wizardModel) contextChips() string {
 	return strings.Join(chips, "  ")
 }
 
-// renderHints draws each affordance as a keycap pill followed by its label.
-// style.Keycap already pads one column each side, so the label is appended with
-// no separator of its own — adding one would double the gap.
+// renderHints draws each affordance as one keycap pill holding both the key and
+// what it does, joined by a single space — the playground's footer exactly (see
+// shell.renderStatus), so that the two surfaces read as one application.
+//
+// The key used to be pilled on its own with the label in plain text beside it,
+// which made the raised background read as the key's own shape rather than as
+// the boundary of one affordance, and left the row's units ambiguous at a
+// glance. style.Keycap pads a column each side, so the pills need no separator
+// wider than the one space that keeps their backgrounds apart.
 func renderHints(hs []keyHint) string {
 	parts := make([]string, 0, len(hs))
 	for _, h := range hs {
-		parts = append(parts, style.Keycap(h.key)+
-			lipgloss.NewStyle().Foreground(style.Muted).Render(h.label))
+		parts = append(parts, style.Keycap(h.key+" "+h.label))
 	}
-	return strings.Join(parts, "  ")
+	return strings.Join(parts, " ")
 }
 
 // glyph prefixes text with an icon and the space that sets it off, or with
