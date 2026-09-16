@@ -367,6 +367,38 @@ func TestRecipesSurviveTheBranchesTheirSamplesDoNotShow(t *testing.T) {
 			"app_metadata":{"signup_source":"referral"}}}}`,
 		want: []string{"user:auth0|507f1f77bcf86cd799439020 member tenant:acme write"},
 	}, {
+		name: "a group rescoped away from a connection is skipped, not failed",
+		typ:  "group.updated",
+		payload: `{"type":"group.updated","a0tenant":"acme","data":{
+			"object":{"id":"grp_01949dad80fc7d56","name":"Engineering","type":"connection",
+			"connection_id":"con_kFOHQUeaCSC1Kjqz"},
+			"previous_object":{"id":"grp_01949dad80fc7d56","name":"Engineering",
+			"type":"organization","organization_id":"org_1234567890abcdef"}}}`,
+		want: nil,
+	}, {
+		name: "re-enabling a connection puts the tuple back",
+		typ:  "organization.connection.updated",
+		payload: `{"type":"organization.connection.updated","a0tenant":"acme","data":{
+			"object":{"connection":{"id":"con_kFOHQUeaCSC1Kjqz"},
+			"organization":{"id":"org_1234567890abcdef"},"is_enabled":true},
+			"previous_object":{"connection":{"id":"con_kFOHQUeaCSC1Kjqz"},
+			"organization":{"id":"org_1234567890abcdef"},"is_enabled":false}}}`,
+		want: []string{"connection:con_kFOHQUeaCSC1Kjqz connection organization:org_1234567890abcdef write"},
+	}, {
+		name: "a connection payload with no is_enabled writes nothing and does not fail",
+		typ:  "organization.connection.updated",
+		payload: `{"type":"organization.connection.updated","a0tenant":"acme","data":{
+			"object":{"connection":{"id":"con_kFOHQUeaCSC1Kjqz"},
+			"organization":{"id":"org_1234567890abcdef"}}}}`,
+		want: nil,
+	}, {
+		name: "a connection associated while disabled grants nothing",
+		typ:  "organization.connection.added",
+		payload: `{"type":"organization.connection.added","a0tenant":"acme","data":{"object":{
+			"connection":{"id":"con_kFOHQUeaCSC1Kjqz"},
+			"organization":{"id":"org_1234567890abcdef"},"is_enabled":false}}}`,
+		want: nil,
+	}, {
 		name: "an event with no data.context still finds its tenant",
 		typ:  "organization.created",
 		payload: `{"type":"organization.created","a0tenant":"acme","data":{"object":{

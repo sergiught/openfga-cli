@@ -126,7 +126,12 @@ const (
 // the others: the field is simply absent, and an expression over a missing path
 // is an error, not a blank.
 const (
-	gateScopeConn  = `input.data.object.type == "connection"`
+	gateScopeConn = `input.data.object.type == "connection"`
+	// The move recipe reads connection_id off both objects, so both have to be
+	// connection-scoped before either is touched. Without this a group rescoped
+	// from an organization fails the event on a nil previous_object.connection_id
+	// rather than being skipped.
+	gatePrevConn   = `input.data.previous_object.type == "connection"`
 	gateScopeOrg   = `input.data.object.type == "organization"`
 	gateMemberUser = `input.data.object.member.member_type == "user"`
 	gateMemberConn = `input.data.object.member.member_type == "connection"`
@@ -136,6 +141,13 @@ const (
 	// false rather than failing when app_metadata is missing altogether, so one
 	// clause covers both the empty map and the absent one.
 	gatePlan = `"plan" in input.data.object.app_metadata`
+
+	// is_enabled says whether a connection grants anything, and Auth0 omits it
+	// from some organization-connection payloads. Reading a missing path is an
+	// error rather than a blank, so the presence test comes first wherever the
+	// flag can be absent.
+	gateEnabled    = `input.data.object.is_enabled`
+	gateHasEnabled = `"is_enabled" in input.data.object`
 )
 
 func when(typ string) string { return `input.type == "` + typ + `"` }
@@ -275,11 +287,13 @@ func recipeBody(typ string) Recipe {
 				DSL: dslUser + "\n\n" + dslConnIdent + "\n\n" + dslGroupMember}})
 
 	case "organization.connection.added":
-		return membership(typ,
-			"A connection was associated with an organization. This records which organization a connection belongs to.",
+		r := membership(typ,
+			"A connection was associated with an organization. This records which organization a connection belongs to.\n\nThe tuple is gated on is_enabled, because Auth0 lets a connection be associated in a disabled state and a disabled connection grants nothing — the same reading organization.connection.updated applies when the flag changes later. Associated-while-disabled writes no tuple; the update event writes one when someone turns it on.",
 			tmplConnID, "connection", tmplOrgID, true,
 			[]mapping.Requirement{{Type: "organization", Relation: "connection", UserTypes: []string{"connection"},
 				DSL: dslConnection + "\n\n" + dslOrgConn}})
+		r.Rule.Tuples[0].When = gateEnabled
+		return r
 
 	case "organization.connection.removed":
 		return membership(typ,
@@ -326,10 +340,11 @@ func recipeBody(typ string) Recipe {
 
 	case "connection.deleted":
 		return cleanup(typ,
-			"A connection was deleted. Both events that attach one — organization.connection.added and group.created — put the connection on the user side of the tuple, so these filters match on user and sweep both sides it could have been attached to.",
+			"A connection was deleted. organization.connection.added and group.created put the connection on the user side of a tuple, so the first two filters match on user. connection.created and connection.updated put it on the object side — its tenant, and one tuple per enabled client — so the third names the object in full and takes all of them at once.\n\nTwo things survive. The connection:con_…#identity usersets group.member.added writes into groups are a different user string than the connection itself, so no user filter reaches them; and the identity tuples user.updated writes are keyed by connection name rather than id — see the gap noted on that recipe.",
 			[]mapping.TupleFilter{
 				{User: "connection:{{ input.data.object.id }}", Object: "organization:", Action: "delete"},
 				{User: "connection:{{ input.data.object.id }}", Object: "group:", Action: "delete"},
+				{Object: "connection:{{ input.data.object.id }}", Action: "delete"},
 			},
 			[]mapping.Requirement{
 				{Type: "organization", Relation: "connection", UserTypes: []string{"connection"},
@@ -339,13 +354,16 @@ func recipeBody(typ string) Recipe {
 			})
 
 	case "organization.connection.updated":
-		r := membership(typ,
-			"An organization's connection settings changed. The one setting that is a relationship is is_enabled: a disabled connection should stop granting anything, so this deletes the tuple when the flag goes false.\n\nThe flags sit on data.object directly, not inside the nested connection — that object carries only an id.",
-			tmplConnID, "connection", tmplOrgID, false,
+		return union(typ,
+			"An organization's connection settings changed. The one setting that is a relationship is is_enabled: a disabled connection should stop granting anything.\n\nSo this carries the flag in both directions — a delete when it is false, a write when it is true. Deleting only would be one-way: a connection disabled and later re-enabled would stay dissociated in your store with nothing left to put it back, because organization.connection.added fires only on the first association.\n\nBoth gates test for the flag before reading it. Auth0 ships organization-connection payloads without it, and an expression over a missing path is an error rather than a blank — the rule would fail the whole event instead of skipping it.\n\nThe flags sit on data.object directly, not inside the nested connection — that object carries only an id.",
+			[]mapping.Tuple{
+				{User: tmplConnID, Relation: "connection", Object: tmplOrgID, Action: "delete",
+					When: gateHasEnabled + " && !input.data.object.is_enabled"},
+				{User: tmplConnID, Relation: "connection", Object: tmplOrgID,
+					When: gateHasEnabled + " && input.data.object.is_enabled"},
+			}, true,
 			[]mapping.Requirement{{Type: "organization", Relation: "connection", UserTypes: []string{"connection"},
 				DSL: dslConnection + "\n\n" + dslOrgConn}})
-		r.Rule.Tuples[0].When = "!input.data.object.is_enabled"
-		return r
 
 	// --- one creation event that creates a relationship too ---
 
@@ -457,13 +475,13 @@ func recipeBody(typ string) Recipe {
 						Relation: "connection",
 						Object:   tmplNewGroup,
 						Action:   "delete",
-						When:     gateScopeConn + " && input.data.object.connection_id != input.data.previous_object.connection_id",
+						When:     gateScopeConn + " && " + gatePrevConn + " && input.data.object.connection_id != input.data.previous_object.connection_id",
 					},
 					{
 						User:     tmplGroupCon,
 						Relation: "connection",
 						Object:   tmplNewGroup,
-						When:     gateScopeConn + " && input.data.object.connection_id != input.data.previous_object.connection_id",
+						When:     gateScopeConn + " && " + gatePrevConn + " && input.data.object.connection_id != input.data.previous_object.connection_id",
 					},
 				},
 			},
