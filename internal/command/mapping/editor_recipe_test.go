@@ -530,6 +530,19 @@ func TestARecipeWithNoGapSaysNothing(t *testing.T) {
 	}
 }
 
+// wholeCard returns everything the card renders, scrolling to reach what does
+// not fit. A recipe with a long explanation, a warning and a mapping outgrows
+// an 80x24 card, and the arrows are how the wizard says to read the rest — so
+// "the screen shows X" means X is reachable, not that it is on the first row.
+func wholeCard(m *wizardModel) string {
+	var b strings.Builder
+	for i := 0; i < 60; i++ {
+		b.WriteString(plain(m.viewString()))
+		send(m, key("down"))
+	}
+	return b.String()
+}
+
 // The tuples of a fan-out recipe live on its iterator, not on the rule. Showing
 // only the rule's own list left user.updated — the one recipe whose whole point
 // is the fan-out — displaying no tuples at all.
@@ -538,7 +551,7 @@ func TestAnIteratorsTuplesShowOnTheRecipeScreen(t *testing.T) {
 	send(m, key("a"), key("enter"))
 	selectEvent(t, m, "user.updated")
 
-	out := plain(m.viewString())
+	out := wholeCard(m)
 	for _, want := range []string{
 		"per item in data.object.identities", // the heading says it repeats
 		"identity",                           // the relation it writes
@@ -558,7 +571,7 @@ func TestAPatchFilterIsNotDescribedAsADelete(t *testing.T) {
 	send(m, key("a"), key("enter"))
 	selectEvent(t, m, "user.updated")
 
-	out := plain(m.viewString())
+	out := wholeCard(m)
 	if strings.Contains(out, "deletes every existing tuple") {
 		t.Fatalf("a patch filter described as a delete:\n%s", out)
 	}

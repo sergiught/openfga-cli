@@ -218,9 +218,12 @@ var lifecycleWarnings = map[string]string{
 		"event writes one — member_type is a closed union of user and connection. If your application " +
 		"writes nested groups itself, add a third filter sweeping group:…#member out of group: too.",
 
-	"user.updated": "If identities ever arrives empty this rule is skipped rather than clearing the " +
-		"list. mapper treats an empty desired state as a mistake and fails the whole event, so " +
-		"skipping is the safer of the two.",
+	"user.updated": "identities[].connection is the connection's name; every other recipe here " +
+		"keys connections by con_… id, and Auth0 never puts that id in an identity. So these tuples " +
+		"do not join the rest: the connection:con_…#identity userset in group.member.added stays " +
+		"empty, and connection.deleted does not sweep them. Pick one key and resolve to it.\n\n" +
+		"Also, if identities arrives empty this rule is skipped rather than clearing the list. " +
+		"mapper treats an empty desired state as a mistake and fails the whole event.",
 
 	"connection.updated": "If enabled_clients arrives empty this rule is skipped rather than clearing " +
 		"the list, so removing the last application leaves its tuple behind. An empty desired " +
@@ -268,7 +271,7 @@ func recipeBody(typ string) Recipe {
 
 	case "group.member.added":
 		return union(typ,
-			"Someone joined a group — and \"someone\" is two different things. Auth0 group members are tagged with member_type: a user, or an entire connection. So this rule carries two tuples, each gated on the tag, and exactly one fires.\n\nThe connection branch writes a userset, connection:con_…#identity, rather than a user: it says everyone with an identity in that connection is a member, without a tuple per person. That is the same identity relation user.updated writes.\n\nOne thing to check before adopting this: member.id is the member's id as the group knows it, which for a SCIM-provisioned group is often an email rather than the auth0|… user_id every other recipe here uses. If yours differ, pick one key and map to it, or the same person ends up in your store twice.",
+			"Someone joined a group — and \"someone\" is two different things. Auth0 group members are tagged with member_type: a user, or an entire connection. So this rule carries two tuples, each gated on the tag, and exactly one fires.\n\nThe connection branch writes a userset, connection:con_…#identity, rather than a user: it says everyone with an identity in that connection is a member, without a tuple per person.\n\nOne thing to check before adopting this: member.id is the member's id as the group knows it, which for a SCIM-provisioned group is often an email rather than the auth0|… user_id every other recipe here uses. If yours differ, pick one key and map to it, or the same person ends up in your store twice.",
 			[]mapping.Tuple{
 				{User: tmplGroupMem, Relation: "member", Object: tmplGroupID, When: gateMemberUser},
 				{User: tmplMemConn, Relation: "member", Object: tmplGroupID, When: gateMemberConn},
