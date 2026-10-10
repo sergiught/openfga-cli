@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.268.0](https://github.com/sergiught/openfga-cli/compare/v0.267.0...v0.268.0) (2026-10-10)
+
+
+### Features
+
+* **build:** ship third-party license attribution and gate dependency licenses ([#141](https://github.com/sergiught/openfga-cli/issues/141)) ([0075851](https://github.com/sergiught/openfga-cli/commit/007585102129140dbfaff76942df278436644d6f))
+
+
+### Bug fixes
+
+* **deps:** bump x/crypto and moby/go-archive to clear govulncheck ([#136](https://github.com/sergiught/openfga-cli/issues/136)) ([4dca1b7](https://github.com/sergiught/openfga-cli/commit/4dca1b7e42bf3b0373f9cf217ee3b6da85460dc0))
+* **deps:** require go 1.27.2 and bump x/net to clear govulncheck ([#153](https://github.com/sergiught/openfga-cli/issues/153)) ([b878a8d](https://github.com/sergiught/openfga-cli/commit/b878a8d1f282dcc036401ee20aee590ce9864948))
+
+
+### Build
+
+* generate THIRD_PARTY_LICENSES at release time instead of committing it ([#157](https://github.com/sergiught/openfga-cli/issues/157)) ([d691ad9](https://github.com/sergiught/openfga-cli/commit/d691ad920313c5f647b7f128046c00c7bc9a1c6a))
+
 ## [0.267.0](https://github.com/sergiught/openfga-cli/compare/v0.266.0...v0.267.0) (2026-08-03)
 
 
