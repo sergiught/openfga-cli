@@ -11,6 +11,10 @@ before:
     # in .assets/ rather than dist/ because goreleaser empties dist/ *after*
     # before-hooks run, which would delete them before the archives are built.
     - go run ./tools/genassets -out ./.assets -version {{ .Version }}
+    # The attribution bundle is generated here rather than committed, so it
+    # always matches the modules this release links and dependency bumps never
+    # need a follow-up commit. It also fails the release on a disallowed license.
+    - go run ./tools/licensegen
 
 builds:
   - id: ofga

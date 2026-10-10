@@ -110,17 +110,13 @@ docs-check: ## Fail if the generated command reference is out of date (CI checks
 		fi
 
 .PHONY: licenses
-licenses: ## Regenerate THIRD_PARTY_LICENSES from the modules linked into the binary
+licenses: ## Generate THIRD_PARTY_LICENSES from the modules linked into the binary (goreleaser does this at release)
 	@go run ./tools/licensegen
 
 .PHONY: license-check
-license-check: ## Fail if a dependency license is disallowed or the bundle is stale (CI checks this too)
+license-check: ## Fail if a dependency license is not on the allowlist (CI checks this too)
 	@set -e; tmp=$$(mktemp -d); trap 'rm -rf $$tmp' EXIT; \
-		go run ./tools/licensegen -out $$tmp/THIRD_PARTY_LICENSES; \
-		if ! diff -q $$tmp/THIRD_PARTY_LICENSES THIRD_PARTY_LICENSES >/dev/null; then \
-			echo "third-party licenses are stale — run 'make licenses' and commit"; \
-			exit 1; \
-		fi
+		go run ./tools/licensegen -out $$tmp/THIRD_PARTY_LICENSES
 
 #-----------------------------------------------------------------------------------------------------------------------
 # Release
