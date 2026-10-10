@@ -192,9 +192,8 @@ func generate(w io.Writer, mods []module) error {
 		}
 
 		// A module may be covered by several licenses at once, so report every
-		// match rather than the first. Sorted and deduplicated because the
-		// bundle is committed and diffed in CI: unstable ordering would show up
-		// as spurious churn on unrelated dependency bumps.
+		// match rather than the first. Sorted and deduplicated so the bundle is
+		// byte-stable: the same module set always yields the same release file.
 		var ids []string
 		for i, text := range texts {
 			// NOTICE files travel with the bundle to satisfy Apache-2.0 4(d),
