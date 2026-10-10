@@ -25,7 +25,7 @@ require (
 	github.com/openfga/language/pkg/go v0.3.2
 	github.com/openfga/openfga v1.22.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
-	github.com/sergiught/go-openfga v0.110.0
+	github.com/sergiught/go-openfga v0.111.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/testcontainers/testcontainers-go v0.44.0
