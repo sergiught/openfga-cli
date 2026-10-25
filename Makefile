@@ -4,7 +4,7 @@
 BINARIES_DIR = $(CURDIR)/bin
 BINARY_NAME  = ofga
 MAIN         = ./cmd/ofga
-GOLANGCI_LINT_VERSION = v2.14.0
+GOLANGCI_LINT_VERSION = v2.15.0
 GOVULNCHECK_VERSION   = v1.9.0
 
 # Build metadata baked into the binary via -ldflags so local builds report
