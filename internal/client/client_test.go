@@ -133,7 +133,10 @@ func TestWithCaptureRecordsThroughTransport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for range c.Stores.All(context.Background(), nil) { // drive one request
+	for _, err := range c.Stores.All(context.Background(), nil) { // drive one request
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	if len(rec.Snapshot()) == 0 {
 		t.Fatal("expected WithCapture to record at least one request")
@@ -161,7 +164,10 @@ func TestCaptureRedactsConfiguredHeaderValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for range c.Stores.All(context.Background(), nil) { // drive one request
+	for _, err := range c.Stores.All(context.Background(), nil) { // drive one request
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	if sent != secret {
