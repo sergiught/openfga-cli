@@ -362,8 +362,10 @@ func (m Model) advanceQueryForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if show := m.qform.Values()[n] == "true"; show != m.qShowContext {
 			m.qShowContext = show
 			vals := m.qform.Values()
+			carets := m.qform.Carets()
 			m.rebuildQueryForm()
 			m.qform.SetValues(vals[:n])
+			m.qform.SetCarets(carets[:n])
 			return m, m.qform.FocusIndex(n)
 		}
 	}
@@ -384,8 +386,10 @@ func (m Model) advanceQueryForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// run, so the core tweak-one-field-and-rerun loop doesn't force the user
 		// to retype user/relation/object each time (esc drops to the panel for
 		// r / history / resolution).
+		carets := m.qform.Carets()
 		m.rebuildQueryForm()
 		m.qform.SetValues(vals)
+		m.qform.SetCarets(carets)
 		if cerr != nil {
 			m.setQueryError(cerr.Error())
 			return m, nil

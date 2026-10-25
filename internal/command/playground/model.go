@@ -865,9 +865,11 @@ func (m *Model) resize() {
 		m.qformWidth = w
 	} else if w != m.qformWidth {
 		vals := m.qform.Values()
+		carets := m.qform.Carets()
 		focus := m.qform.FocusedIndex()
 		m.rebuildQueryForm()
 		m.qform.SetValues(vals)
+		m.qform.SetCarets(carets)
 		m.qform.FocusIndex(focus)
 		m.qformWidth = w
 	}
