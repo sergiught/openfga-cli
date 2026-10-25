@@ -152,12 +152,12 @@ func objectOf(raw []byte) (map[string]any, error) {
 }
 
 // exactNumbers turns a json.Number into an int when it is an integer that
-// fits in 64 bits, and into a float64 otherwise, walking maps and slices. It
+// fits in an int, and into a float64 otherwise, walking maps and slices. It
 // clears *fits on a number too large for a float64.
 func exactNumbers(v any, fits *bool) any {
 	switch x := v.(type) {
 	case json.Number:
-		if i, err := strconv.ParseInt(x.String(), 10, 64); err == nil {
+		if i, err := strconv.ParseInt(x.String(), 10, strconv.IntSize); err == nil {
 			return int(i)
 		}
 		f, err := x.Float64()
