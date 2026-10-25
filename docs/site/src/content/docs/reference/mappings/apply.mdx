@@ -5,6 +5,10 @@ sidebar:
   order: 100
 ---
 
+import CommandDemo from '../../../../components/CommandDemo.astro';
+
+<CommandDemo slug="mappings-apply" />
+
 Evaluate events with a mapping file and write the tuples they produce to the active profile's store. With no file argument it uses ./mapping.yaml.
 
 Events are a JSON object, a JSON array, or one object per line (JSONL); --events - reads stdin. apply always plans first: it reads the store for every tuple filter, shows each event's writes and deletes, and asks before writing (--force skips the question, --dry-run stops after the plan). It then writes exactly that plan. Each event goes out as one request, except events with more than 100 changes or a tuple whose condition or context changes (deleted, then rewritten), which are split into several. Writes of tuples that already exist unchanged and deletes of tuples already gone are ignored; a write that conflicts with a stored tuple's condition fails — use a tuple_filter for tuples whose condition or context changes. The plan reflects the store when it was computed.

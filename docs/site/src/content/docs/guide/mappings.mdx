@@ -1,0 +1,261 @@
+---
+title: Syncing events into tuples
+description: Write mapping rules that turn identity-provider events into OpenFGA tuples, test them, and apply events to a store.
+sidebar:
+  order: 6
+---
+
+import CommandDemo from '../../../components/CommandDemo.astro';
+
+A mapping file is a set of YAML rules, in
+[openfga/mapper](https://github.com/openfga/mapper/blob/v0.1.1/docs/language-spec.md)'s
+language, that turn events from an identity provider into OpenFGA tuples. An
+event arrives, every rule whose `when` matches it runs, and the tuples those
+rules produce are written to or deleted from the store. Use one when a store has
+to follow what happens in Auth0, or in any other source of events.
+
+`ofga mappings` opens a workspace where you edit the rules against sample events
+and see the tuples they produce as you type. `validate`, `test` and `apply` do
+the same jobs from a script.
+
+<CommandDemo slug="mappings" />
+
+*The workspace on the example mapping: a rule's live tuples, Check, Tests, and a plan of four sample events.*
+
+The examples below use the files in `examples/mappings/` in this repository:
+`auth0.yaml` (four rules for Auth0 organization events), `model.fga` (the model
+those tuples are written against) and `events.jsonl` (five events: two members
+join, one is given a role, the role is removed, one member leaves). Run the CLI
+commands from the repository root.
+
+### A first mapping
+
+In an empty directory, run:
+
+```bash
+ofga mappings
+```
+
+1. The start screen lists the mapping files in the directory, the ones you
+   opened recently, and two ways to start a new one. Choose **New from Auth0
+   events** and press `enter`.
+2. **Pick an event** lists the Auth0 events, each with what its ready-made
+   mapping writes. Press `/`, type `organization.member.added`, press `enter`
+   to keep the filter, then `enter` again to select the event.
+3. The recipe screen shows the rule it would add: each tuple's value for the
+   sample event, the payload path it came from, and the types and relations
+   the model needs. Press `enter` (**use this**).
+4. **Name the file** suggests `mapping.yaml`. Press `enter`. Nothing is written
+   until you save.
+5. The workspace asks which model to check against. Press `esc` for now; the
+   next section comes back to it.
+6. The **Rules** pane lists the new rule. Press `enter` to open it. In a
+   terminal at least 135 columns wide, the preview on the right shows the file
+   and, under it, the tuples the rule produces for its sample event:
+
+   ```
+   ✓ write  user:auth0|507f1f77bcf86cd799439020  member  organization:org_1234567890abcdef
+   ✓ write  user:auth0|507f1f77bcf86cd799439020  holder  membership:org_1234567890abcdef|auth0|507f1f77bcf86cd799439020
+   ```
+
+   Edit any part of the rule and the preview follows. `a` on the Rules pane
+   adds another rule the same way.
+7. Press `ctrl+s` to save. The first save of a file started from Auth0 events
+   also writes a starting `model.fga` beside it, unless a model is already
+   there.
+
+These steps produce a `mapping.yaml` with one rule. Repeat them with
+`organization.member.deleted`, `organization.member.role.assigned` and
+`organization.member.role.deleted` and you get `examples/mappings/auth0.yaml`.
+To skip the steps, open it:
+
+```bash
+ofga mappings examples/mappings/auth0.yaml
+```
+
+### Check it against your model
+
+A rule can write a type or relation your model does not have. The workspace
+asks for a model when a file opens and offers, in order: the `model.fga` or
+`model.json` beside the mapping, the active profile's store model, another
+model file, or no model. Press `m` on the Rules or Check pane to change it.
+
+The **Check** pane (`2`) lists everything wrong with the mapping, and the model
+types and relations it writes that the model lacks. `enter` on a finding opens
+the rule it belongs to.
+
+From the CLI, check a file against a model file, offline:
+
+```bash
+ofga mappings validate examples/mappings/auth0.yaml --model-file examples/mappings/model.fga
+```
+
+```
+● examples/mappings/auth0.yaml: 4 rules, 4 tests; checked against examples/mappings/model.fga (4 types)
+```
+
+Or against the model of the active profile's store (the model
+`--model-id` names, else the profile's `model_id`, else the latest):
+
+```bash
+ofga mappings validate examples/mappings/auth0.yaml --model-from-store
+```
+
+Without either flag, `validate` checks the mapping alone. It exits `0` when the
+file is valid and `1` when it is not.
+
+### Tests
+
+A test is one event and exactly the tuples the mapping must produce for it. A
+missing or extra tuple fails it. When you save, each rule's sample event is
+saved as a test of the tuples it produced, so `auth0.yaml` carries four tests
+without anyone writing them.
+
+The **Tests** pane (`3`) runs them against the mapping as it is now. `r` runs
+them again, `e` opens the rule behind a test, and `a` adds a test of your own
+from any event.
+
+From the CLI:
+
+```bash
+ofga mappings test examples/mappings/auth0.yaml
+```
+
+```
+✓ organization.member.added (<1ms)
+✓ organization.member.deleted (<1ms)
+✓ organization.member.role.assigned (<1ms)
+✓ organization.member.role.deleted (<1ms)
+● 4 passed, 0 failed
+```
+
+`--run` runs only the tests whose name contains the text:
+
+```bash
+ofga mappings test examples/mappings/auth0.yaml --run role
+```
+
+```
+✓ organization.member.role.assigned (<1ms)
+✓ organization.member.role.deleted (<1ms)
+● 2 passed, 0 failed, 2 filtered
+```
+
+### Apply events
+
+`apply` runs events through the saved file and writes the resulting tuples to
+the active profile's store. It always plans first: it reads the store for every
+tuple filter, shows each event's writes and deletes, and asks before writing.
+Planning needs a reachable server and a selected store, `--dry-run` and the
+workspace's Apply pane included.
+
+In the workspace, the **Apply** pane (`4`) lists the file's test inputs, not
+selected. Press `o` to load an events file (its events come in selected) or `v`
+to paste events, then:
+
+| Key | Action |
+| --- | --- |
+| `space` | select or deselect an event |
+| `p` | plan the selected events; nothing is written yet |
+| `a` | apply the plan on screen; `y` confirms |
+| `ctrl+c` or `q` | stop while events are being sent, between requests |
+| `r` | after a failure or a stop, plan again from the event that did not finish |
+
+Apply uses the saved file: save your edits with `ctrl+s` before planning.
+
+To follow along, create a store with the example model:
+
+```bash
+ofga stores create mappings-demo --use
+ofga model write --file examples/mappings/model.fga
+```
+
+From the CLI, see the plan without writing anything:
+
+```bash
+ofga mappings apply examples/mappings/auth0.yaml --events examples/mappings/events.jsonl --dry-run
+```
+
+```
+event 1 · organization.member.added
+  + user:user_anne member organization:org_acme
+  + user:user_anne holder membership:org_acme|user_anne
+event 2 · organization.member.added
+  + user:user_bob member organization:org_acme
+  + user:user_bob holder membership:org_acme|user_bob
+event 3 · organization.member.role.assigned
+  + membership:org_acme|user_anne#holder assignee role:org_acme|rol_admin
+event 4 · organization.member.role.deleted
+  - membership:org_acme|user_anne#holder assignee role:org_acme|rol_admin
+event 5 · organization.member.deleted
+  - user:user_bob member organization:org_acme
+  - user:user_bob holder membership:org_acme|user_bob
+● 5 events: 5 writes, 3 deletes, 0 matched no rule
+```
+
+Drop `--dry-run` to apply it. `apply` prints the same plan, then asks
+`Apply 5 writes and 3 deletes to store <name> (<id>)? [y/N]`, then:
+
+```
+● sent 5 writes and 3 deletes across 5 events to store <name>
+```
+
+The store ends up with Anne's two tuples, `user:user_anne member organization:org_acme`
+and `user:user_anne holder membership:org_acme|user_anne`; `ofga tuples read`
+shows them. The holder tuple is what a role hangs from, so when a member leaves,
+`organization.member.deleted` removes their roles in that organization too.
+
+`--force` skips the question, for scripts. If a run fails part way, the error
+ends with `resume with:` and the command that continues from the event that
+did not finish, using `--from-event`:
+
+```bash
+ofga mappings apply examples/mappings/auth0.yaml --events examples/mappings/events.jsonl --from-event 4 --force
+```
+
+**Warning:** re-running a whole events file replays every event, including
+every patch and delete rule, so an earlier event can briefly revoke tuples a
+later event re-adds. To continue a failed run, resume it with `--from-event`
+instead of starting over.
+
+With no file argument, `validate`, `test` and `apply` use `./mapping.yaml`.
+
+### In CI
+
+```bash
+ofga mappings validate examples/mappings/auth0.yaml --model-file examples/mappings/model.fga
+ofga mappings test examples/mappings/auth0.yaml --report junit --report-file mapping-tests.xml
+ofga mappings test examples/mappings/auth0.yaml --report github   # GitHub Actions ::error annotations
+```
+
+`validate` exits `1` when the file is invalid or the model lacks a type or
+relation it names. `test` exits `3` when a test fails. `--report` writes a
+report in the given format: `junit` (XML for test dashboards), `json`, or
+`github` (an `::error` annotation per failing test, pointing at its line in
+the mapping file). With `--report-file` it goes to that path; without it, it is
+printed.
+
+### Workspace keys
+
+These keys work on every pane:
+
+| Key | Action |
+| --- | --- |
+| `1 2 3 4` | show Rules, Check, Tests or Apply |
+| `tab / shift+tab` | next / previous pane |
+| `esc` | back; at the top of a pane, the sidebar |
+| `ctrl+t` | the preview: file or event (when the preview shows) |
+| `pgup / pgdown` | page the preview (when it shows) |
+| `ctrl+s` | save |
+| `?` | this help |
+| `q / ctrl+c` | quit; asks first when there are unsaved edits, and stops an apply first |
+
+Each pane has its own keys, shown in the footer. Press `?` for the focused
+pane's keys and what they do.
+
+### Further reading
+
+- [mapper's language spec](https://github.com/openfga/mapper/blob/v0.1.1/docs/language-spec.md):
+  rules, expressions, tuple filters and iterators.
+- [`ofga mappings` reference](../../reference/mappings/): every subcommand and
+  flag.

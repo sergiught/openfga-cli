@@ -1,0 +1,23 @@
+model
+  schema 1.1
+
+type user
+
+# One object per member per organization, keyed org_...|user_..., so leaving
+# can remove the member's roles with the membership.
+type membership
+  relations
+    define holder: [user]
+
+# One object per role per organization, keyed org_...|rol_...
+type role
+  relations
+    define assignee: [membership#holder]
+
+type organization
+  relations
+    define member: [user]
+    # The role's assignees, as a role object, or a user directly.
+    define role_admin: [user, role#assignee]
+    # An admin has the admin role and is still a member.
+    define admin: role_admin and member

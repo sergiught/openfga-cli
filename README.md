@@ -133,6 +133,7 @@ Every command has a generated reference page with a live demo recording:
 - [The interactive TUI](https://sergiught.github.io/openfga-cli/guide/tui/): playground tour + full keybinding reference
 - [Command reference](https://sergiught.github.io/openfga-cli/reference/): every command and flag
 - [Testing authorization models](https://sergiught.github.io/openfga-cli/guide/model-testing/): the `model test` workspace, coverage, CI
+- [Syncing events into tuples](https://sergiught.github.io/openfga-cli/guide/mappings/): the `mappings` workspace, tests, applying events to a store
 - [Configuration](https://sergiught.github.io/openfga-cli/guide/configuration/): config file, profiles, env vars
 - [Authentication](https://sergiught.github.io/openfga-cli/guide/authentication/): auth methods, secret files, keyring
 - [Scripting & automation](https://sergiught.github.io/openfga-cli/guide/scripting/): output formats, exit codes, pagination

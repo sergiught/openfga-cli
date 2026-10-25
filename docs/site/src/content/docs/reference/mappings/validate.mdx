@@ -5,6 +5,10 @@ sidebar:
   order: 102
 ---
 
+import CommandDemo from '../../../../components/CommandDemo.astro';
+
+<CommandDemo slug="mappings-validate" />
+
 Compile a mapping file with openfga/mapper and report every problem with its line and column. With no file argument it uses ./mapping.yaml.
 
 Pass --model-file (offline) or --model-from-store to also check that the authorization model has every type, relation and user type the mapping's tuples and tuple filters name. Without either, the model is not checked.
