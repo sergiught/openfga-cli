@@ -167,6 +167,22 @@ func (f *Field) setValue(s string) {
 	f.in.SetValue(style.SanitizeTerminal(s))
 }
 
+// setCursor moves the caret within the field's text. No-op on non-text fields.
+func (f *Field) setCursor(pos int) {
+	if f.kind == kindText {
+		f.in.SetCursor(pos)
+	}
+}
+
+// cursor is the caret's rune offset within the field's text. Non-text fields
+// have no caret and report 0.
+func (f *Field) cursor() int {
+	if f.kind != kindText {
+		return 0
+	}
+	return f.in.Position()
+}
+
 func (f *Field) setWidth(w int) {
 	if f.kind == kindText {
 		f.in.SetWidth(w)
@@ -383,6 +399,28 @@ func (f *Form) SetValues(vals []string) {
 	for i, fl := range f.fields {
 		if i < len(vals) {
 			fl.setValue(vals[i])
+		}
+	}
+}
+
+// Carets reports every field's caret, in field order; non-text fields have no
+// caret and report 0. Pair it with SetCarets to carry carets across a rebuild:
+// a form built from scratch starts every caret at 0.
+func (f *Form) Carets() []int {
+	out := make([]int, len(f.fields))
+	for i, fl := range f.fields {
+		out[i] = fl.cursor()
+	}
+	return out
+}
+
+// SetCarets restores carets saved by Carets, in field order. Each one is
+// clamped to its field's current value; extra entries are ignored and missing
+// ones leave the field's caret where it is.
+func (f *Form) SetCarets(carets []int) {
+	for i, fl := range f.fields {
+		if i < len(carets) {
+			fl.setCursor(carets[i])
 		}
 	}
 }
