@@ -370,3 +370,26 @@ func TestGitHubAnnotationFileUsesRepositoryRelativeSource(t *testing.T) {
 		t.Fatalf("annotation file = %q, want repository-relative source path", got)
 	}
 }
+
+// GitHub shows an annotation as text: a bidi override in a test's name or
+// message reorders what the reviewer reads. The lines of a multi-line message
+// survive.
+func TestWriteGitHubReportStripsHiddenControls(t *testing.T) {
+	res := &Results{Tests: []TestResult{{
+		Name:  "evil\u202etset\u009b31m",
+		Error: "line one\u2067\nline two\x1b[2J",
+	}}}
+	var buf bytes.Buffer
+	if err := WriteReport("github", &buf, res); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, bad := range []string{"\u202e", "\u2067", "\u009b", "\x1b"} {
+		if strings.Contains(out, bad) {
+			t.Fatalf("report carries %q:\n%q", bad, out)
+		}
+	}
+	if !strings.Contains(out, "title=model test%3A eviltset31m::line one%0Aline two\n") {
+		t.Fatalf("want the visible text kept, lines included:\n%q", out)
+	}
+}

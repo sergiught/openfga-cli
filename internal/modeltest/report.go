@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/sergiught/openfga-cli/internal/output"
+	"github.com/sergiught/openfga-cli/internal/style"
 )
 
 // WriteReport writes res in the given format ("junit", "json", or "github") to w.
@@ -27,7 +28,8 @@ func WriteReport(format string, w io.Writer, res *Results) error {
 
 // writeGitHubReport emits a GitHub Actions workflow annotation per failing test
 // (https://docs.github.com/actions/using-workflows/workflow-commands-for-github-actions),
-// so failures surface as errors in the Actions log and job summary. Annotations
+// so failures surface as errors in the Actions log and job summary. GitHub
+// renders an annotation as text, so its title and message go through ghText.
 func writeGitHubReport(w io.Writer, res *Results) error {
 	for _, t := range res.Tests {
 		if t.Passed && t.Error == "" {
@@ -54,8 +56,8 @@ func writeGitHubReport(w io.Writer, res *Results) error {
 		if t.Column > 0 {
 			props = append(props, fmt.Sprintf("col=%d", t.Column))
 		}
-		props = append(props, "title="+ghEscapeProp("model test: "+t.Name))
-		if _, err := fmt.Fprintf(w, "::error %s::%s\n", strings.Join(props, ","), ghEscapeData(msg)); err != nil {
+		props = append(props, "title="+ghEscapeProp(ghText("model test: "+t.Name)))
+		if _, err := fmt.Fprintf(w, "::error %s::%s\n", strings.Join(props, ","), ghEscapeData(ghText(msg))); err != nil {
 			return err
 		}
 	}
@@ -79,6 +81,17 @@ func githubAnnotationFile(t TestResult) string {
 		return t.File
 	}
 	return filepath.ToSlash(rel)
+}
+
+// ghText is s with every control and bidi character stripped from each line. A
+// test's name and message can carry them, and an override in one would reorder
+// what the reviewer reads in the annotation.
+func ghText(s string) string {
+	lines := strings.Split(s, "\n")
+	for i := range lines {
+		lines[i] = style.SanitizeTerminal(lines[i])
+	}
+	return strings.Join(lines, "\n")
 }
 
 // ghEscapeData / ghEscapeProp apply GitHub's workflow-command escaping so a
