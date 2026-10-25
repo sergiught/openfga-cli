@@ -142,9 +142,9 @@ homebrew_casks:
     # downloads, so without this macOS Gatekeeper blocks the binary on first run.
     hooks:
       post:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/ofga"]
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/ofga"]
           end
 
 # Arch User Repository (ofga-bin). Skipped unless AUR_KEY (SSH private key) is
