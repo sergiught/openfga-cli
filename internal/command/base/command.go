@@ -18,6 +18,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/command/api"
 	"github.com/sergiught/openfga-cli/internal/command/assertions"
 	"github.com/sergiught/openfga-cli/internal/command/configcmd"
+	"github.com/sergiught/openfga-cli/internal/command/mapping"
 	"github.com/sergiught/openfga-cli/internal/command/model"
 	"github.com/sergiught/openfga-cli/internal/command/playground"
 	"github.com/sergiught/openfga-cli/internal/command/profiles"
@@ -496,6 +497,7 @@ func (c *Command) RegisterSubCommands() {
 		store.New(c.cli).Command(),
 		model.New(c.cli).Command(),
 		tuple.New(c.cli).Command(),
+		mapping.New(c.cli).Command(),
 		query.New(c.cli).Command(),
 		assertions.New(c.cli).Command(),
 		api.New(c.cli).Command(),

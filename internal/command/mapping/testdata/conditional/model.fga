@@ -1,0 +1,12 @@
+model
+  schema 1.1
+
+type user
+
+type team
+  relations
+    define member: [user, user with lvl]
+
+condition lvl(level: int) {
+  level >= 2
+}

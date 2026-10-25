@@ -1,0 +1,69 @@
+---
+title: "ofga mappings validate"
+description: "Check a mapping file, and optionally that a model has every type and relation it names"
+sidebar:
+  order: 102
+---
+
+Compile a mapping file with openfga/mapper and report every problem with its line and column. With no file argument it uses ./mapping.yaml.
+
+Pass --model-file (offline) or --model-from-store to also check that the authorization model has every type, relation and user type the mapping's tuples and tuple filters name. Without either, the model is not checked.
+
+Exit codes: 0 valid · 1 invalid or error · 2 usage · 4 network.
+
+## Usage
+
+```sh
+ofga mappings validate [file] [flags]
+```
+
+## Examples
+
+```sh
+# Check ./mapping.yaml
+ofga mappings validate
+
+# Check against a model file, in CI
+ofga mappings validate sync/auth0.yaml --model-file model.fga
+```
+
+## Flags
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--model-file` | check against an authorization model file (.fga or .json) |   |
+| `--model-from-store` | check against the active profile's store model (--model-id, or the latest) | `false` |
+
+<details>
+<summary>Global flags</summary>
+
+```
+      --api-url string                   OpenFGA API URL (overrides profile/env)
+      --auth-client-secret-file string   read the process-scoped OAuth client secret from a file
+      --auth-private-key-file string     read the process-scoped private-key JWT signing key from a file
+      --auth-token-file string           read the process-scoped API token from a file
+      --config string                    path to the config file (overrides OPENFGA_CONFIG)
+  -d, --debug                            enable debug logging
+      --header stringArray               extra request header as 'Name: value' (repeatable; adds to the profile's headers)
+      --jq string                        filter machine-readable output through this jq expression (implies -o json)
+      --json                             output machine-readable JSON (alias for --output json)
+      --model-id string                  authorization model ID (overrides profile/env)
+      --no-color                         disable colored output
+      --no-input                         never prompt or launch the interactive TUI
+  -o, --output string                    output format: json, yaml, plain or table (takes precedence over --json/--yaml/--plain)
+      --plain                            output unstyled, tab-separated rows (alias for --output plain)
+  -p, --profile string                   configuration profile to use
+  -q, --quiet                            suppress incidental output
+      --store-id string                  store ID (overrides profile/env)
+      --theme string                     color theme (aurora, catppuccin, charm, dracula, gruvbox, nord, tokyonight, mono)
+      --timeout duration                 per-request timeout (0 disables) (default 30s)
+  -v, --verbose                          alias for --debug
+      --yaml                             output machine-readable YAML (alias for --output yaml)
+```
+
+</details>
+
+## Related
+
+- [ofga mappings apply](../apply/)
+- [ofga mappings test](../test/)

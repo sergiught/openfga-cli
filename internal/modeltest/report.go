@@ -56,7 +56,11 @@ func writeGitHubReport(w io.Writer, res *Results) error {
 		if t.Column > 0 {
 			props = append(props, fmt.Sprintf("col=%d", t.Column))
 		}
-		props = append(props, "title="+ghEscapeProp(ghText("model test: "+t.Name)))
+		label := res.Label
+		if label == "" {
+			label = "model test"
+		}
+		props = append(props, "title="+ghEscapeProp(ghText(label+": "+t.Name)))
 		if _, err := fmt.Fprintf(w, "::error %s::%s\n", strings.Join(props, ","), ghEscapeData(ghText(msg))); err != nil {
 			return err
 		}
@@ -68,24 +72,46 @@ func githubAnnotationFile(t TestResult) string {
 	if t.sourcePath == "" {
 		return t.File
 	}
+	if rel, ok := repoRelative(t.sourcePath); ok {
+		return rel
+	}
+	return t.File
+}
+
+// RepoPath is path relative to the repository root ($GITHUB_WORKSPACE, else
+// the working directory) in slash form: how model test names files in GitHub
+// annotations, so CI can place them. A path outside the root comes back as
+// given.
+func RepoPath(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return path
+	}
+	if rel, ok := repoRelative(abs); ok {
+		return rel
+	}
+	return path
+}
+
+// repoRelative is abs relative to the repository root, when it is inside it.
+func repoRelative(abs string) (string, bool) {
 	root := os.Getenv("GITHUB_WORKSPACE")
 	if root == "" {
 		var err error
-		root, err = os.Getwd()
-		if err != nil {
-			return t.File
+		if root, err = os.Getwd(); err != nil {
+			return "", false
 		}
 	}
-	rel, err := filepath.Rel(root, t.sourcePath)
+	rel, err := filepath.Rel(root, abs)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return t.File
+		return "", false
 	}
-	return filepath.ToSlash(rel)
+	return filepath.ToSlash(rel), true
 }
 
 // ghText is s with every control and bidi character stripped from each line. A
-// test's name and message can carry them, and an override in one would reorder
-// what the reviewer reads in the annotation.
+// mapping test's name and tuples come from event payloads, and an override in
+// one would reorder what the reviewer reads in the annotation.
 func ghText(s string) string {
 	lines := strings.Split(s, "\n")
 	for i := range lines {

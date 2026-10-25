@@ -1,0 +1,76 @@
+---
+title: "ofga mappings apply"
+description: "Evaluate events and write the resulting tuples to the store"
+sidebar:
+  order: 100
+---
+
+Evaluate events with a mapping file and write the tuples they produce to the active profile's store. With no file argument it uses ./mapping.yaml.
+
+Events are a JSON object, a JSON array, or one object per line (JSONL); --events - reads stdin. apply always plans first: it reads the store for every tuple filter, shows each event's writes and deletes, and asks before writing (--force skips the question, --dry-run stops after the plan). It then writes exactly that plan. Each event goes out as one request, except events with more than 100 changes or a tuple whose condition or context changes (deleted, then rewritten), which are split into several. Writes of tuples that already exist unchanged and deletes of tuples already gone are ignored; a write that conflicts with a stored tuple's condition fails — use a tuple_filter for tuples whose condition or context changes. The plan reflects the store when it was computed.
+
+Re-running the whole file replays every event, and a patch or delete rule in an earlier event can briefly revoke tuples a later event re-adds. Resume a failed run with --from-event, which the failure message prints.
+
+Exit codes: 0 ok · 1 error · 2 usage · 4 network · 130 interrupted.
+
+## Usage
+
+```sh
+ofga mappings apply [file] --events <file|-> [flags]
+```
+
+## Examples
+
+```sh
+# See what an export would change
+ofga mappings apply --events export.jsonl --dry-run
+
+# Apply it without the prompt, in a script
+ofga mappings apply sync/auth0.yaml --events export.jsonl --force
+
+# Continue a run that failed at event 40
+ofga mappings apply sync/auth0.yaml --events export.jsonl --from-event 40 --force
+```
+
+## Flags
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `-n, --dry-run` | show the plan without writing anything | `false` |
+| `--events` | events to apply: a JSON or JSONL file, or - for stdin |   |
+| `-f, --force` | write without asking | `false` |
+| `--from-event` | skip the events before this one (1-based), to resume a failed run | `1` |
+
+<details>
+<summary>Global flags</summary>
+
+```
+      --api-url string                   OpenFGA API URL (overrides profile/env)
+      --auth-client-secret-file string   read the process-scoped OAuth client secret from a file
+      --auth-private-key-file string     read the process-scoped private-key JWT signing key from a file
+      --auth-token-file string           read the process-scoped API token from a file
+      --config string                    path to the config file (overrides OPENFGA_CONFIG)
+  -d, --debug                            enable debug logging
+      --header stringArray               extra request header as 'Name: value' (repeatable; adds to the profile's headers)
+      --jq string                        filter machine-readable output through this jq expression (implies -o json)
+      --json                             output machine-readable JSON (alias for --output json)
+      --model-id string                  authorization model ID (overrides profile/env)
+      --no-color                         disable colored output
+      --no-input                         never prompt or launch the interactive TUI
+  -o, --output string                    output format: json, yaml, plain or table (takes precedence over --json/--yaml/--plain)
+      --plain                            output unstyled, tab-separated rows (alias for --output plain)
+  -p, --profile string                   configuration profile to use
+  -q, --quiet                            suppress incidental output
+      --store-id string                  store ID (overrides profile/env)
+      --theme string                     color theme (aurora, catppuccin, charm, dracula, gruvbox, nord, tokyonight, mono)
+      --timeout duration                 per-request timeout (0 disables) (default 30s)
+  -v, --verbose                          alias for --debug
+      --yaml                             output machine-readable YAML (alias for --output yaml)
+```
+
+</details>
+
+## Related
+
+- [ofga mappings test](../test/)
+- [ofga mappings validate](../validate/)

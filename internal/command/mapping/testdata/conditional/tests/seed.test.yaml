@@ -1,0 +1,10 @@
+tests:
+  - name: seed
+    tuples:
+      - user: user:z
+        relation: member
+        object: team:t9
+    check:
+      - user: user:z
+        object: team:t9
+        assertions: {member: true}

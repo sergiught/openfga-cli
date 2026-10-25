@@ -1,0 +1,12 @@
+version: "1"
+rules:
+  - name: sync-roles
+    when: input.type == "organization.member.role.assigned"
+    tuple_filters:
+      - object: "organization:{{ input.data.object.organization.id }}"
+        user: "user:{{ fga_escape(input.data.object.user.user_id) }}"
+        action: patch
+    tuples:
+      - user: "user:{{ fga_escape(input.data.object.user.user_id) }}"
+        relation: "{{ lower(input.data.object.role.name) }}"
+        object: "organization:{{ input.data.object.organization.id }}"
