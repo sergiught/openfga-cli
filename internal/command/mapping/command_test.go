@@ -13,7 +13,7 @@ import (
 
 func TestGroupHasItsSubcommands(t *testing.T) {
 	cmd := New(cli.New(log.New(io.Discard), config.New(), "test")).Command()
-	if cmd.Use != "mappings" {
+	if cmd.Use != "mappings [file]" {
 		t.Fatalf("Use = %q", cmd.Use)
 	}
 	if len(cmd.Aliases) != 1 || cmd.Aliases[0] != "mapping" {

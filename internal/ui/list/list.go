@@ -247,6 +247,22 @@ func (l *List) Selected() (Item, bool) {
 // SettingFilter reports whether the user is currently typing a filter.
 func (l *List) SettingFilter() bool { return l.Model.SettingFilter() }
 
+// ResyncFilter recomputes the filtered matches synchronously. bubbles hands the
+// re-run back as a command for a running program to execute; a caller driving
+// the list without a bubbletea runtime never runs it, so the visible items would
+// lag a keystroke behind. Safe to reapply inline for the same reason SetItems
+// does it: pure matching over items already set.
+func (l *List) ResyncFilter() {
+	if !l.SettingFilter() {
+		return
+	}
+	caret := l.Model.FilterInput.Position()
+	l.Model.SetFilterText(l.Model.FilterValue())
+	l.Model.SetFilterState(list.Filtering)
+	l.Model.FilterInput.SetCursor(caret)
+	l.applyFilterHint()
+}
+
 // IndexAt maps a 0-based visible row (from the top of the rendered list) to the
 // absolute item index, or -1 if the row is past the last visible item. It
 // accounts for the delegate's item height + spacing and the current page.

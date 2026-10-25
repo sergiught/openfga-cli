@@ -104,6 +104,20 @@ func TestSetValuesSanitizesTerminalControls(t *testing.T) {
 	}
 }
 
+// TestInsertSanitizesTerminalControls guards the same invariant as
+// TestSetValuesSanitizesTerminalControls, but for Insert's own write path:
+// Field.insert must run text through style.SanitizeTerminal rather than
+// writing it straight into the textinput, or a Unicode bidi-override rune
+// (invisible on screen, reordering what is displayed) and CSI residue that
+// bubbles' own textinput leaves behind would both survive a paste.
+func TestInsertSanitizesTerminalControls(t *testing.T) {
+	f := NewForm(New("Name", ""))
+	f.Insert(0, "doc\u202egnp")
+	if got := f.Values()[0]; got != "docgnp" {
+		t.Fatalf("field retained a bidi-override rune: %q", got)
+	}
+}
+
 func TestFocusedInputStartsAtCursor(t *testing.T) {
 	f := NewForm(New("User", "user:anne"), New("Relation", "viewer"))
 	f.SetWidth(40)
@@ -211,5 +225,70 @@ func TestFormViewportFollowsFocusAndValidationError(t *testing.T) {
 	view = ansi.Strip(f.View())
 	if len(strings.Split(view, "\n")) > 2 || !strings.Contains(view, "Three") || !strings.Contains(view, "three is invalid") {
 		t.Fatalf("validation should focus and reveal the first error:\n%s", view)
+	}
+}
+
+// A12: the tuple form hides its last field unless a condition is written, and
+// moveFocus wraps past hidden fields, so enter measured from the last field
+// alone went round and round and never submitted.
+func TestEnterOnTheLastVisibleFieldSubmits(t *testing.T) {
+	f := NewForm(New("a", ""), New("b", ""), New("c", ""))
+	f.SetVisible(2, false)
+	f.Init()
+	f.Update(key("tab"))
+	f.Update(key("enter"))
+	if !f.Completed() {
+		t.Fatalf("focus = %d, want the form submitted from the last visible field", f.FocusedIndex())
+	}
+}
+
+// A hidden field does not apply, so its value cannot hold the form back: a
+// failing validator there sent focus to a field nobody could see, and enter
+// never got out.
+func TestAHiddenInvalidFieldDoesNotBlockTheSubmit(t *testing.T) {
+	f := NewForm(
+		New("a", ""),
+		New("b", ""),
+		New("c", "").WithValidate(func(string) error { return errors.New("c is invalid") }),
+	)
+	f.SetVisible(2, false)
+	f.Init()
+	f.Update(key("tab"))
+	f.Update(key("enter"))
+	if !f.Completed() {
+		t.Fatalf("focus = %d, want the form submitted past the hidden invalid field", f.FocusedIndex())
+	}
+}
+
+// textinput works out which part of a long value is on screen when its caret
+// moves, not when its width changes, so a value set before the form had a
+// width, or one windowed for a wider form, drew past the edge after a resize.
+func TestAResizeRewindowsALongValue(t *testing.T) {
+	long := "organization:" + strings.Repeat("x", 300)
+	for _, c := range []struct {
+		name  string
+		first int // the width the value was set at; 0 is none yet
+	}{{"filled before it had a width", 0}, {"shrunk from 120", 120}} {
+		t.Run(c.name, func(t *testing.T) {
+			f := NewForm(New("Object", ""))
+			f.Init()
+			if c.first > 0 {
+				f.SetWidth(c.first)
+			}
+			f.SetValues([]string{long})
+			f.SetCursor(0, 20)
+			f.SetWidth(40)
+			for i, line := range strings.Split(f.View(), "\n") {
+				if w := lipgloss.Width(line); w > 40 {
+					t.Fatalf("line %d is %d cells wide at width 40", i, w)
+				}
+			}
+			if got := f.Cursor(0); got != 20 {
+				t.Fatalf("caret = %d, want it left at 20", got)
+			}
+			if got := f.Values()[0]; got != long {
+				t.Fatalf("the value changed: %d bytes, want %d", len(got), len(long))
+			}
+		})
 	}
 }

@@ -165,6 +165,29 @@ func (f *Field) setValue(s string) {
 		return
 	}
 	f.in.SetValue(style.SanitizeTerminal(s))
+	// SetValue leaves the caret at the end, which scrolls a value wider than the
+	// field so only its tail is on screen — and the input marks no ellipsis, so
+	// "organization:{{ input.data.object.organization.id }}" is drawn as
+	// "ization:{{ input.data.object.organization.id }}" and reads as a corrupted
+	// value rather than a scrolled one. Every caller sets a value to show the
+	// user what is already there, so start where reading starts.
+	f.in.SetCursor(0)
+}
+
+// setWidth resizes the input and re-windows its value. textinput works out
+// which part of a value wider than itself is on screen when its caret moves,
+// not when its width changes, so a value set before the field had a width, or
+// windowed for a wider one, would draw past the edge. Moving the caret to the
+// end and back makes it measure again; the caret and the value stay as they
+// were.
+func (f *Field) setWidth(w int) {
+	if f.kind != kindText || f.in.Width() == w {
+		return
+	}
+	pos := f.in.Position()
+	f.in.SetWidth(w)
+	f.in.CursorEnd()
+	f.in.SetCursor(pos)
 }
 
 // setCursor moves the caret within the field's text. No-op on non-text fields.
@@ -183,10 +206,17 @@ func (f *Field) cursor() int {
 	return f.in.Position()
 }
 
-func (f *Field) setWidth(w int) {
-	if f.kind == kindText {
-		f.in.SetWidth(w)
+// insert splices text into the field's value at its caret, leaving the caret
+// after the inserted text. No-op on non-text fields.
+func (f *Field) insert(text string) {
+	if f.kind != kindText {
+		return
 	}
+	clean := []rune(style.SanitizeTerminal(text))
+	pos := f.in.Position()
+	val := []rune(f.in.Value())
+	f.in.SetValue(string(val[:pos]) + string(clean) + string(val[pos:]))
+	f.in.SetCursor(pos + len(clean))
 }
 
 // inputView renders the field's input line (no label), honoring focus and the
@@ -234,6 +264,7 @@ type Form struct {
 	width     int         // content width, for the focused row's full-width highlight
 	height    int         // maximum rendered rows; 0 means unconstrained
 	highlight color.Color // focused-row background; nil disables highlighting
+	visible   []bool      // per-field visibility; nil means every field is visible
 }
 
 // NewForm builds a form; the first field takes focus on Init.
@@ -301,8 +332,15 @@ func (f *Form) Update(msg tea.Msg) tea.Cmd {
 		case "shift+tab", "up":
 			return f.moveFocus(-1)
 		case "enter":
-			// Enter advances to the next field; on the last field it submits.
-			if f.focus >= len(f.fields)-1 {
+			// Enter advances to the next field; on the last visible field it
+			// submits. The last field can be hidden, and moveFocus wraps past
+			// hidden fields, so measuring from the last field alone never
+			// submitted.
+			last := len(f.fields) - 1
+			for last > 0 && !f.Visible(last) {
+				last--
+			}
+			if f.focus >= last {
 				f.submit()
 				return nil
 			}
@@ -320,7 +358,14 @@ func (f *Form) Update(msg tea.Msg) tea.Cmd {
 
 func (f *Form) moveFocus(d int) tea.Cmd {
 	f.fields[f.focus].blur()
-	f.focus = (f.focus + d + len(f.fields)) % len(f.fields)
+	next := f.focus
+	for i := 0; i < len(f.fields); i++ {
+		next = (next + d + len(f.fields)) % len(f.fields)
+		if f.Visible(next) {
+			break
+		}
+	}
+	f.focus = next
 	return f.fields[f.focus].focus()
 }
 
@@ -345,11 +390,95 @@ func (f *Form) FocusIndex(i int) tea.Cmd {
 // capture focus before a form rebuild so it can be restored via FocusIndex.
 func (f *Form) FocusedIndex() int { return f.focus }
 
+// FocusedLabel returns the label of the focused field.
+func (f *Form) FocusedLabel() string { return f.fields[f.focus].label }
+
+// SetVisible shows or hides a field. Hidden fields are skipped by focus
+// movement and omitted from View, but keep their value so unhiding restores it.
+func (f *Form) SetVisible(i int, visible bool) {
+	if i < 0 || i >= len(f.fields) {
+		return
+	}
+	f.ensureVisible()
+	f.visible[i] = visible
+}
+
+// Visible reports whether a field is shown.
+func (f *Form) Visible(i int) bool {
+	if i < 0 || i >= len(f.fields) || f.visible == nil {
+		return i >= 0 && i < len(f.fields)
+	}
+	return f.visible[i]
+}
+
+// SetCursor moves the caret within a field's text.
+func (f *Form) SetCursor(i, pos int) {
+	if i < 0 || i >= len(f.fields) {
+		return
+	}
+	f.fields[i].setCursor(pos)
+}
+
+// Cursor reports the caret's rune offset within field i, so a caller can see
+// what it is about to Insert into. Non-text fields have no caret and report 0.
+func (f *Form) Cursor(i int) int {
+	if i < 0 || i >= len(f.fields) {
+		return 0
+	}
+	return f.fields[i].cursor()
+}
+
+// Insert splices text into field i at its caret, leaving the caret after the
+// inserted text so the user can keep typing where they left off.
+func (f *Form) Insert(i int, text string) {
+	if i < 0 || i >= len(f.fields) {
+		return
+	}
+	f.fields[i].insert(text)
+}
+
+// Carets reports every field's caret, in field order; non-text fields have no
+// caret and report 0. Pair it with SetCarets to carry carets across a rebuild:
+// a form built from scratch starts every caret at 0.
+func (f *Form) Carets() []int {
+	out := make([]int, len(f.fields))
+	for i, fl := range f.fields {
+		out[i] = fl.cursor()
+	}
+	return out
+}
+
+// SetCarets restores carets saved by Carets, in field order. Each one is
+// clamped to its field's current value; extra entries are ignored and missing
+// ones leave the field's caret where it is.
+func (f *Form) SetCarets(carets []int) {
+	for i, fl := range f.fields {
+		if i < len(carets) {
+			fl.setCursor(carets[i])
+		}
+	}
+}
+
+func (f *Form) ensureVisible() {
+	if f.visible == nil {
+		f.visible = make([]bool, len(f.fields))
+		for i := range f.visible {
+			f.visible[i] = true
+		}
+	}
+}
+
 func (f *Form) submit() {
 	ok := true
 	firstInvalid := -1
 	for i, fl := range f.fields {
 		fl.err = ""
+		// A hidden field does not apply, so it cannot fail the submit: focus
+		// would move to a field nobody can see, and every enter after it would
+		// fail the same way.
+		if !f.Visible(i) {
+			continue
+		}
 		if fl.validate != nil {
 			if err := fl.validate(fl.value()); err != nil {
 				fl.err = err.Error()
@@ -403,28 +532,6 @@ func (f *Form) SetValues(vals []string) {
 	}
 }
 
-// Carets reports every field's caret, in field order; non-text fields have no
-// caret and report 0. Pair it with SetCarets to carry carets across a rebuild:
-// a form built from scratch starts every caret at 0.
-func (f *Form) Carets() []int {
-	out := make([]int, len(f.fields))
-	for i, fl := range f.fields {
-		out[i] = fl.cursor()
-	}
-	return out
-}
-
-// SetCarets restores carets saved by Carets, in field order. Each one is
-// clamped to its field's current value; extra entries are ignored and missing
-// ones leave the field's caret where it is.
-func (f *Form) SetCarets(carets []int) {
-	for i, fl := range f.fields {
-		if i < len(carets) {
-			fl.setCursor(carets[i])
-		}
-	}
-}
-
 // Reset clears values, errors, and completion, refocusing the first field.
 func (f *Form) Reset() {
 	for _, fl := range f.fields {
@@ -447,6 +554,10 @@ func (f *Form) View() string {
 	starts := make([]int, len(f.fields))
 	var lines []string
 	for i, fl := range f.fields {
+		if !f.Visible(i) {
+			starts[i] = len(lines)
+			continue
+		}
 		focused := i == f.focus && !f.completed
 		var b strings.Builder
 		if focused && f.highlight != nil {
@@ -454,7 +565,11 @@ func (f *Form) View() string {
 			label := hl.Bold(true).Foreground(style.Primary).Width(f.width).Render(fl.label)
 			b.WriteString(label + "\n" + hl.Width(f.width).Render(fl.inputView(true, f.highlight)))
 		} else {
-			label := lipgloss.NewStyle().Foreground(style.Muted).Render(fl.label)
+			// Width, like the focused branch above: a label longer than the form's
+			// width otherwise renders at its natural size and pushes whatever the
+			// caller draws around the form — a frame, a neighbouring pane — wider
+			// than the space the form was given.
+			label := lipgloss.NewStyle().Foreground(style.Muted).Width(f.width).Render(fl.label)
 			b.WriteString(label + "\n" + fl.inputView(false, nil))
 		}
 		if fl.err != "" {
@@ -463,13 +578,13 @@ func (f *Form) View() string {
 		block := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
 		blocks[i] = block
 		starts[i] = len(lines)
-		if i > 0 {
+		if len(lines) > 0 {
 			lines = append(lines, "")
 			starts[i]++
 		}
 		lines = append(lines, block...)
 	}
-	if f.height > 0 && len(lines) > f.height {
+	if f.height > 0 && len(lines) > f.height && blocks[f.focus] != nil {
 		focusBlock := blocks[f.focus]
 		if f.fields[f.focus].err != "" && len(focusBlock) > f.height {
 			if f.height == 1 {

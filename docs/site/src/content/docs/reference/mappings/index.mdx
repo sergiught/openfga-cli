@@ -1,11 +1,13 @@
 ---
 title: "ofga mappings"
-description: "Validate, test and apply mapping files"
+description: "Open the mapping workspace, or validate, test and apply mapping files"
 sidebar:
   order: 6
 ---
 
 Work with openfga/mapper mapping files: YAML rules that turn events from an identity provider into OpenFGA relationship tuples.
+
+With no subcommand this opens the interactive workspace, which needs a terminal. There you edit the rules against sample events with the resulting tuples shown live, check them against a model, run the tests, and apply events to the store. Give it a mapping file to edit that file, or a path that does not exist yet to start a new mapping there; without one it shows a start screen with the mapping files in this directory, the ones you opened recently, and two ways to start a new one: from Auth0 events, or blank. In scripts use the subcommands.
 
 | Command | Description |
 | --- | --- |
