@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/openfga/mapper"
@@ -14,7 +15,8 @@ import (
 // renders to; EvalExpr strips it again before decoding.
 const evalPrefix = "x:"
 
-// evalProbe names the variable EvalExpr declares for the expression.
+// evalProbe names the variable EvalExpr declares for the expression, unless
+// vars already declares it.
 const evalProbe = "ofga_eval_probe"
 
 // EvalExpr evaluates expr against event the way mapper evaluates an iterator
@@ -33,12 +35,16 @@ func EvalExpr(ctx context.Context, vars []Variable, expr string, event map[strin
 	if strings.TrimSpace(expr) == "" {
 		return nil, errors.New("empty expression")
 	}
+	name := evalProbe
+	for slices.ContainsFunc(vars, func(v Variable) bool { return v.Name == name }) {
+		name += "_"
+	}
 	probe := Rule{
 		Name:      "eval",
 		When:      "true",
-		Variables: append(append([]Variable(nil), vars...), Variable{Name: evalProbe, Expr: expr}),
+		Variables: append(append([]Variable(nil), vars...), Variable{Name: name, Expr: expr}),
 		Iterator: &Iterator{
-			Source: "[variables." + evalProbe + "]",
+			Source: "[variables." + name + "]",
 			As:     "item",
 			Tuples: []Tuple{{User: evalPrefix + "{{ toJSON(item) }}", Relation: "r", Object: "o:o"}},
 		},
@@ -61,11 +67,16 @@ func EvalExpr(ctx context.Context, vars []Variable, expr string, event map[strin
 	if len(res.Tuples) != 1 {
 		return nil, fmt.Errorf("%s is not one value", expr)
 	}
+	// Numbers decode as DecodeEvent decodes them, so an integer id above 2^53
+	// comes back exact. DecodeEvent refused any number too large to fit.
+	dec := json.NewDecoder(strings.NewReader(strings.TrimPrefix(res.Tuples[0].User, evalPrefix)))
+	dec.UseNumber()
 	var v any
-	if err := json.Unmarshal([]byte(strings.TrimPrefix(res.Tuples[0].User, evalPrefix)), &v); err != nil {
+	if err := dec.Decode(&v); err != nil {
 		return nil, err
 	}
-	return v, nil
+	fits := true
+	return exactNumbers(v, &fits), nil
 }
 
 // IteratorItem is the first element r's iterator walks in event: the value its

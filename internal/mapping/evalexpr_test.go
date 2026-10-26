@@ -39,7 +39,7 @@ func TestEvalExprEvaluatesWhatMapperEvaluates(t *testing.T) {
 			t.Fatalf("%s = %#v, want %#v", expr, got, want)
 		}
 	}
-	if got, err := mapping.EvalExpr(context.Background(), nil, `len(input.data.object.identities)`, ev); err != nil || got != float64(2) {
+	if got, err := mapping.EvalExpr(context.Background(), nil, `len(input.data.object.identities)`, ev); err != nil || got != 2 {
 		t.Fatalf("len(...) = %#v, %v; want 2", got, err)
 	}
 	if got, err := mapping.EvalExpr(context.Background(), nil, `input.missing`, ev); err != nil || got != nil {
@@ -114,5 +114,31 @@ func TestEvalExprCompilesTheExpressionOnItsOwn(t *testing.T) {
 		if got, err := mapping.EvalExpr(context.Background(), nil, expr, ev); err == nil {
 			t.Fatalf("%q = %#v, want an error", expr, got)
 		}
+	}
+}
+
+// The probe declares one more variable after the rule's own, so it must not
+// take a name the rule already uses.
+func TestEvalExprLeavesTheRulesVariableNamesAlone(t *testing.T) {
+	vars := []mapping.Variable{{Name: "ofga_eval_probe", Expr: `"taken"`}}
+	if got, err := mapping.EvalExpr(context.Background(), vars, `variables.ofga_eval_probe + "!"`, identitiesEvent()); err != nil || got != "taken!" {
+		t.Fatalf("got %#v, %v; want \"taken!\"", got, err)
+	}
+}
+
+// An integer id above 2^53 is exact in the decoded event, and stays exact
+// through EvalExpr and IteratorItem.
+func TestEvalExprKeepsLargeIntegersExact(t *testing.T) {
+	ev, err := mapping.DecodeEvent([]byte(`{"type":"x","ids":[{"id":9007199254740993}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := mapping.EvalExpr(context.Background(), nil, "input.ids[0].id", ev); err != nil || got != 9007199254740993 {
+		t.Fatalf("got %#v, %v; want 9007199254740993", got, err)
+	}
+	item, ok := mapping.IteratorItem(context.Background(),
+		mapping.Rule{Iterator: &mapping.Iterator{Source: "input.ids", As: "i"}}, ev)
+	if want := map[string]any{"id": 9007199254740993}; !ok || !reflect.DeepEqual(item, want) {
+		t.Fatalf("item = %#v, %v; want %#v", item, ok, want)
 	}
 }
