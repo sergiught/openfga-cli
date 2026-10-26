@@ -46,7 +46,13 @@ func (c *Command) loadModelIndex(ctx context.Context, f modelFlags) (*mapping.Mo
 		if err != nil {
 			return nil, "", fmt.Errorf("%s: %w", f.file, err)
 		}
-		return mapping.IndexModel(loaded.SDK), f.file, nil
+		// A JSON model with no type definitions loads, but checking against
+		// it would pass any mapping while claiming the model was checked.
+		ix := mapping.IndexModel(loaded.SDK)
+		if ix.Empty() {
+			return nil, "", fmt.Errorf("model file %s defines no types", f.file)
+		}
+		return ix, f.file, nil
 	case f.fromStore:
 		model, err := c.storeModel(ctx)
 		if err != nil {

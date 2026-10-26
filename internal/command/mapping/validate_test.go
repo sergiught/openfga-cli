@@ -91,6 +91,19 @@ func TestValidateModelFileSuccessLine(t *testing.T) {
 	}
 }
 
+func TestValidateRefusesAModelFileWithNoTypes(t *testing.T) {
+	configtest.Isolate(t)
+	for _, model := range []string{`{}`, `{"schema_version":"1.1","type_definitions":[]}`} {
+		dir := t.TempDir()
+		p := writeFile(t, dir, "mapping.yaml", validMapping)
+		m := writeFile(t, dir, "model.json", model)
+		_, err := run(t, cli.New(log.New(io.Discard), config.New(), "test"), "validate", p, "--model-file", m)
+		if err == nil || !strings.Contains(err.Error(), "defines no types") {
+			t.Errorf("%s: err = %v", model, err)
+		}
+	}
+}
+
 func TestValidateFlagsAreExclusive(t *testing.T) {
 	configtest.Isolate(t)
 	_, err := run(t, cli.New(log.New(io.Discard), config.New(), "test"), "validate", "x.yaml", "--model-file", "m.fga", "--model-from-store")
