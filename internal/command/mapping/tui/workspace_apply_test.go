@@ -1047,7 +1047,8 @@ func TestTheResumeCommandNamesTheEventsFile(t *testing.T) {
 	if gotEvents != events || gotFrom != 2 {
 		t.Fatalf("resume names %q from %d, want %q from 2", gotEvents, gotFrom, events)
 	}
-	if body := h.applyBody(); !strings.Contains(body, flat("resume with "+events)) || strings.Contains(body, "putthe") {
+	// A long path wraps with "\" continuations, which the shell drops.
+	if body := h.applyBody(); !strings.Contains(strings.ReplaceAll(body, `\`, ""), flat("resume with "+events)) || strings.Contains(body, "putthe") {
 		t.Fatalf("the report:\n%s", body)
 	}
 

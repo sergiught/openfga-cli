@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -51,6 +52,13 @@ type start struct {
 	// recent is what the list was built from, so a missing file can be dropped
 	// from the screen without re-reading the list.
 	recent []string
+	// rules and found are what scan read off the disk, so a resize can
+	// re-title the rows without reading it again. rules has a recent file's
+	// rule count, or no entry for a file that is not a mapping.
+	rules map[string]int
+	found []foundFile
+	// width is what the recent rows were last fitted to.
+	width int
 }
 
 func newStart(s *Session, opts Options) *start {
@@ -65,12 +73,25 @@ func newStart(s *Session, opts Options) *start {
 	l.SetFilterPlaceholder("filter files")
 	l.SetCompact(true)
 	c := &start{s: s, opts: opts, dir: dir, list: l, recent: loadRecent(opts.RecentFile)}
+	c.scan()
 	c.fill()
 	return c
 }
 
-// fill builds the rows. Everything that came off the disk is sanitized for
-// display; Item.ID keeps the real path.
+// scan reads the recent files' rule counts and the mapping files in the
+// working folder.
+func (c *start) scan() {
+	c.rules = map[string]int{}
+	for _, p := range c.recent {
+		if n, ok := mappingRules(p); ok {
+			c.rules[p] = n
+		}
+	}
+	c.found = findMappings(c.dir)
+}
+
+// fill builds the rows from what scan read. Everything that came off the disk
+// is sanitized for display; Item.ID keeps the real path.
 func (c *start) fill() {
 	var items []uilist.Item
 	heading := func(text string) {
@@ -80,17 +101,25 @@ func (c *start) fill() {
 		items = append(items, uilist.Item{TitleText: title, Filter: title, ID: id})
 	}
 
+	home, _ := os.UserHomeDir()
 	seen := map[string]bool{}
 	if len(c.recent) > 0 {
 		heading("RECENT")
 	}
 	for _, p := range c.recent {
 		seen[p] = true
-		add(fileRow(style.SanitizeTerminal(p), p), p)
+		n, ok := c.rules[p]
+		shown := recentPath(p, c.dir, home)
+		// The filter matches the whole path, not the folders a narrow row drops.
+		items = append(items, uilist.Item{
+			TitleText: recentRow(shown, n, ok, c.width-rowChrome),
+			Filter:    shown,
+			ID:        p,
+		})
 	}
 
 	var found []foundFile
-	for _, f := range findMappings(c.dir) {
+	for _, f := range c.found {
 		if abs := filepath.Join(c.dir, f.path); !seen[abs] {
 			found = append(found, f)
 		}
@@ -113,13 +142,38 @@ func (c *start) fill() {
 	c.skipHeading(1)
 }
 
-// fileRow is "path · N rules", or the path alone for a file that is not a
-// mapping (it still opens, in load-error mode, which says why).
-func fileRow(shown, path string) string {
-	if n, ok := mappingRules(path); ok {
-		return fmt.Sprintf("%s · %s", shown, mapping.Plural(n, "rule"))
+// rowChrome is the cells a list row spends on its left border and padding.
+const rowChrome = 2
+
+// recentPath is how a recent file is shown: from the working folder when it is
+// inside it, from ~ when it is under the home folder, and absolute otherwise.
+func recentPath(path, dir, home string) string {
+	shown := path
+	if rel, err := filepath.Rel(dir, path); err == nil && filepath.IsLocal(rel) {
+		shown = rel
+	} else if home != "" {
+		if rel, err := filepath.Rel(home, path); err == nil && filepath.IsLocal(rel) {
+			shown = filepath.Join("~", rel)
+		}
 	}
-	return shown
+	return style.SanitizeTerminal(shown)
+}
+
+// recentRow is "path · N rules", or the path alone for a file that is not a
+// mapping (it still opens, in load-error mode, which says why). A row wider
+// than w drops the path's leading folders for "…", so the file's name and
+// rule count stay on screen; w < 1 is no limit.
+func recentRow(shown string, rules int, mapped bool, w int) string {
+	suffix := ""
+	if mapped {
+		suffix = " · " + mapping.Plural(rules, "rule")
+	}
+	sep := string(filepath.Separator)
+	segs := strings.Split(shown, sep)
+	for i := 1; w > 0 && lipgloss.Width(shown+suffix) > w && i < len(segs); i++ {
+		shown = "…" + sep + strings.Join(segs[i:], sep)
+	}
+	return shown + suffix
 }
 
 // skipHeading moves the cursor off a heading row, in direction dir, or the
@@ -206,6 +260,7 @@ func (c *start) open(path string) {
 		c.s.post(toastMsg{text: style.SanitizeTerminal(text), err: true})
 		if errors.Is(err, fs.ErrNotExist) {
 			c.recent = slices.DeleteFunc(c.recent, func(p string) bool { return p == path })
+			c.scan()
 			c.fill()
 		}
 		return
@@ -243,6 +298,16 @@ func (c *start) childClosed(result any) {
 }
 
 func (c *start) View(width, height int) string {
+	if width != c.width {
+		// The recent rows are fitted to the width, so a new one re-titles
+		// them, keeping the cursor on its row.
+		c.width = width
+		it, ok := c.list.Selected()
+		c.fill()
+		if ok && it.ID != "" {
+			c.list.SelectID(it.ID)
+		}
+	}
 	c.list.SetSize(width, max(height, 1))
 	return fitHeight(c.list.View(), max(height, 1))
 }

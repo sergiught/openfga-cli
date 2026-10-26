@@ -117,6 +117,67 @@ func TestStartListsSections(t *testing.T) {
 	}
 }
 
+func TestRecentPath(t *testing.T) {
+	dir, home := filepath.FromSlash("/work/proj"), filepath.FromSlash("/home/me")
+	for _, tc := range []struct{ path, want string }{
+		{"/work/proj/sub/m.yaml", "sub/m.yaml"},
+		{"/home/me/maps/m.yaml", "~/maps/m.yaml"},
+		{"/work/proj2/m.yaml", "/work/proj2/m.yaml"},
+		{"/srv/m.yaml", "/srv/m.yaml"},
+		{"/srv/m\x1b[2J.yaml", "/srv/m.yaml"},
+	} {
+		if got := recentPath(filepath.FromSlash(tc.path), dir, home); got != filepath.FromSlash(tc.want) {
+			t.Errorf("recentPath(%q) = %q, want %q", tc.path, got, tc.want)
+		}
+	}
+	if got := recentPath(filepath.FromSlash("/home/me/m.yaml"), dir, ""); got != filepath.FromSlash("/home/me/m.yaml") {
+		t.Errorf("without a home folder: %q", got)
+	}
+}
+
+func TestRecentRowKeepsTheNameAndCount(t *testing.T) {
+	shown := filepath.FromSlash("/var/folders/n6/T/proj/m.yaml")
+	for _, tc := range []struct {
+		w      int
+		mapped bool
+		want   string
+	}{
+		{0, true, "/var/folders/n6/T/proj/m.yaml · 2 rules"},
+		{80, true, "/var/folders/n6/T/proj/m.yaml · 2 rules"},
+		{24, true, "…/proj/m.yaml · 2 rules"},
+		{5, true, "…/m.yaml · 2 rules"},
+		{14, false, "…/proj/m.yaml"},
+	} {
+		if got := recentRow(shown, 2, tc.mapped, tc.w); got != filepath.FromSlash(tc.want) {
+			t.Errorf("recentRow(w=%d, mapped=%v) = %q, want %q", tc.w, tc.mapped, got, tc.want)
+		}
+	}
+}
+
+// A recent file deep in another folder keeps its name and rule count on screen,
+// at the first width and after a resize, and the cursor stays on it.
+func TestStartFitsALongRecentPath(t *testing.T) {
+	h := newStartHarness(t, nil)
+	deep := filepath.Join(t.TempDir(), strings.Repeat("a-rather-long-folder-name/", 6), "deep.yaml")
+	if err := os.MkdirAll(filepath.Dir(deep), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, deep, miniMapping)
+	if err := rememberRecent(h.rec, deep); err != nil {
+		t.Fatal(err)
+	}
+	h.s = newStartScreen(context.Background(), Options{Dir: h.dir, RecentFile: h.rec})
+	for _, w := range []int{120, 90} {
+		h.send(tea.WindowSizeMsg{Width: w, Height: 40})
+		if v := h.view(); !strings.Contains(v, "┃ …") || !strings.Contains(v, string(filepath.Separator)+"deep.yaml · 2 rules") {
+			t.Fatalf("at width %d the row lost its name or count:\n%s", w, v)
+		}
+		if !strings.Contains(h.selected(), "deep.yaml") {
+			t.Fatalf("at width %d the cursor is on %q", w, h.selected())
+		}
+	}
+}
+
 func TestStartOpensAFile(t *testing.T) {
 	h := newStartHarness(t, map[string]string{"a.yaml": miniMapping})
 	h.press("enter")
