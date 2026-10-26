@@ -139,6 +139,21 @@ func TestCheckPlacesAnIteratorTuplesGap(t *testing.T) {
 	}
 }
 
+// An aliased tuples list counts the tuples it stands for, so an iterator tuple
+// after it is still placed in the iterator.
+func TestCheckPlacesAGapAfterAnAliasedTuplesList(t *testing.T) {
+	src := []byte("version: \"1\"\nrules:\n  - name: a\n    when: \"true\"\n    tuples: &own\n      - user: \"user:1\"\n        relation: member\n        object: \"team:1\"\n  - name: r\n    when: \"true\"\n    tuples: *own\n    iterator:\n      source: input.ids\n      as: id\n      tuples:\n        - user: \"user:{{ id }}\"\n          relation: memebr\n          object: \"team:1\"\n")
+	f, err := LoadBytes("f.yaml", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ix := &ModelIndex{Types: map[string][]string{"user": nil, "team": {"member"}}}
+	got := Check(f, ix)
+	if len(got) != 1 || got[0].Line != 17 || got[0].Column != 21 {
+		t.Fatalf("findings: %+v", got)
+	}
+}
+
 // ruleSrc is a one-tuple rule with the given lines spliced in after its when.
 func ruleSrc(name, when, extra string) string {
 	head := "  - name: " + name + "\n"

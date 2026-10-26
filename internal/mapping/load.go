@@ -298,6 +298,7 @@ func sectionItem(rule *yaml.Node, section string, i int) *yaml.Node {
 }
 
 func seqItem(seq *yaml.Node, i int) *yaml.Node {
+	seq = deref(seq)
 	if seq == nil || seq.Kind != yaml.SequenceNode || i < 0 || i >= len(seq.Content) {
 		return nil
 	}
@@ -314,13 +315,23 @@ func mappingValue(root *yaml.Node, key string) *yaml.Node {
 
 // mapValue is key's value in the mapping m, or nil.
 func mapValue(m *yaml.Node, key string) *yaml.Node {
+	m = deref(m)
 	if m == nil || m.Kind != yaml.MappingNode {
 		return nil
 	}
 	for j := 0; j+1 < len(m.Content); j += 2 {
 		if m.Content[j].Value == key {
-			return m.Content[j+1]
+			return deref(m.Content[j+1])
 		}
 	}
 	return nil
+}
+
+// deref is the node an alias stands for, or n itself: an alias has no content
+// of its own, so counting or walking it would find none.
+func deref(n *yaml.Node) *yaml.Node {
+	if n != nil && n.Kind == yaml.AliasNode {
+		return n.Alias
+	}
+	return n
 }

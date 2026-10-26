@@ -12,7 +12,8 @@ func TestDocsURLPointsAtTheCommandsReferencePage(t *testing.T) {
 	test := &cobra.Command{Use: "test [file]"}
 	initCmd := &cobra.Command{Use: "init"}
 	version := &cobra.Command{Use: "version"}
-	root.AddCommand(model, version)
+	help := &cobra.Command{Use: "help [command]"}
+	root.AddCommand(model, version, help)
 	model.AddCommand(test)
 	test.AddCommand(initCmd)
 
@@ -21,6 +22,7 @@ func TestDocsURLPointsAtTheCommandsReferencePage(t *testing.T) {
 		want string
 	}{
 		{root, "https://sergiught.github.io/openfga-cli/"},
+		{help, "https://sergiught.github.io/openfga-cli/"},
 		{version, "https://sergiught.github.io/openfga-cli/reference/version/"},
 		{model, "https://sergiught.github.io/openfga-cli/reference/model/"},
 		{test, "https://sergiught.github.io/openfga-cli/reference/model/test/"},

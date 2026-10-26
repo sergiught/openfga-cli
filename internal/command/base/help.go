@@ -94,12 +94,13 @@ func (c *Command) helpFunc(cmd *cobra.Command, _ []string) {
 // docsSite is the documentation site, whose reference has a page per command.
 const docsSite = "https://sergiught.github.io/openfga-cli/"
 
-// docsURL is cmd's page in the reference, or the site itself for the root. The
-// reference stops two levels down, so a deeper command (ofga model test init)
-// links the page of its ancestor there, which covers it.
+// docsURL is cmd's page in the reference, or the site itself for the root and
+// for help, which the reference has no page for. The reference stops two levels
+// down, so a deeper command (ofga model test init) links the page of its
+// ancestor there, which covers it.
 func docsURL(cmd *cobra.Command) string {
 	path := strings.Fields(cmd.CommandPath())[1:]
-	if len(path) == 0 {
+	if len(path) == 0 || path[0] == "help" {
 		return docsSite
 	}
 	return docsSite + "reference/" + strings.Join(path[:min(len(path), 2)], "/") + "/"
