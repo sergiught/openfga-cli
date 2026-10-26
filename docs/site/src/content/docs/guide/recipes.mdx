@@ -143,8 +143,8 @@ retrying the whole file.
 
 `--failed-file` writes just the rejected tuples, in the same format as the
 input and with the reasons stripped, so the file can be fixed and re-run
-directly. Because a rejected request fails its whole chunk, re-run with
-`--max-tuples-per-write 1` when you need per-tuple attribution:
+directly. When the server rejects a chunk, the CLI bisects it with extra
+requests, so only the tuples it actually refused are reported:
 
 ```bash
 ofga tuples write --file tuples.csv --failed-file failed.csv

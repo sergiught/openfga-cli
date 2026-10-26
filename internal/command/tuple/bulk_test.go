@@ -66,6 +66,9 @@ type writeRecorder struct {
 	fail func(n int, body string) bool
 	// delay holds each request open long enough for concurrency to be visible.
 	delay time.Duration
+	// status is the HTTP status of a rejected request; zero means 400. A
+	// non-400 status is answered with a store_id_not_found body.
+	status int
 }
 
 func newWriteRecorder(t *testing.T) (*writeRecorder, string) {
@@ -95,6 +98,7 @@ func newWriteRecorder(t *testing.T) (*writeRecorder, string) {
 		}
 		fail := rec.fail != nil && rec.fail(n, string(body))
 		delay := rec.delay
+		status := rec.status
 		rec.mu.Unlock()
 
 		time.Sleep(delay)
@@ -104,6 +108,10 @@ func newWriteRecorder(t *testing.T) (*writeRecorder, string) {
 		rec.mu.Unlock()
 
 		if fail {
+			if status != 0 && status != http.StatusBadRequest {
+				http.Error(w, `{"code":"store_id_not_found","message":"store not found"}`, status)
+				return
+			}
 			http.Error(w, `{"code":"write_failed_due_to_invalid_input","message":"tuple already exists"}`, http.StatusBadRequest)
 			return
 		}
@@ -884,5 +892,169 @@ func TestBulkOnlyFlagsAreAcceptedWithFile(t *testing.T) {
 	silenced(cmd)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("bulk flags with --file should be accepted, got %v", err)
+	}
+}
+
+// isolationResult is the machine output of a bulk run, decoded.
+type isolationResult struct {
+	Written    int                `json:"written"`
+	Deleted    int                `json:"deleted"`
+	Total      int                `json:"total"`
+	Complete   bool               `json:"complete"`
+	Successful []openfga.TupleKey `json:"successful"`
+	Failed     []struct {
+		Tuple  openfga.TupleKey `json:"tuple"`
+		Reason string           `json:"reason"`
+	} `json:"failed"`
+}
+
+func runIsolation(t *testing.T, rec *writeRecorder, apiURL string, n int, del bool, extra ...string) (isolationResult, string, string, error) {
+	t.Helper()
+	p := bulkFileOf(t, n, formatJSON)
+	failedPath := filepath.Join(t.TempDir(), "failed.json")
+	a := newHumanTupleCLI(t, apiURL)
+	a.JSON = true
+	var cmd *cobra.Command
+	args := []string{"--file", p, "--failed-file", failedPath}
+	if del {
+		cmd = New(a).deleteCmd()
+		args = append(args, "--force")
+	} else {
+		cmd = New(a).writeCmd()
+	}
+	cmd.SetArgs(append(args, extra...))
+	out, errOut := silenced(cmd)
+	err := cmd.Execute()
+	var got isolationResult
+	if jerr := json.Unmarshal([]byte(out.String()), &got); jerr != nil {
+		t.Fatalf("decode %q: %v", out.String(), jerr)
+	}
+	return got, failedPath, errOut.String(), err
+}
+
+func checkOnlyUser1Failed(t *testing.T, got isolationResult, done int, failedPath string, err error) {
+	t.Helper()
+	if err == nil || clierr.Code(err) != clierr.CodeError {
+		t.Fatalf("err = %v, want CodeError", err)
+	}
+	if done != 2 || got.Total != 3 || got.Complete {
+		t.Errorf("done/total/complete = %d/%d/%v, want 2/3/false", done, got.Total, got.Complete)
+	}
+	users := map[string]bool{}
+	for _, k := range got.Successful {
+		users[k.User] = true
+	}
+	if len(got.Successful) != 2 || !users["user:0"] || !users["user:2"] {
+		t.Errorf("successful = %+v, want user:0 and user:2", got.Successful)
+	}
+	if len(got.Failed) != 1 || got.Failed[0].Tuple.User != "user:1" || !strings.Contains(got.Failed[0].Reason, "tuple already exists") {
+		t.Fatalf("failed = %+v, want only user:1 with the server's reason", got.Failed)
+	}
+	data, rerr := os.ReadFile(failedPath)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	in, perr := parseTupleFile(data, formatJSON, failedPath)
+	if perr != nil || len(in) != 1 || in[0].User != "user:1" {
+		t.Errorf("failed file = %+v (%v), want exactly user:1", in, perr)
+	}
+}
+
+func TestBulkWriteIsolatesRejectedTupleInChunk(t *testing.T) {
+	rec, apiURL := newWriteRecorder(t)
+	rec.fail = func(_ int, body string) bool { return strings.Contains(body, `"user:1"`) }
+	got, failedPath, _, err := runIsolation(t, rec, apiURL, 3, false)
+	checkOnlyUser1Failed(t, got, got.Written, failedPath, err)
+	// [0 1 2] x, [0] ok, [1 2] x, [1] x, [2] ok
+	if n := len(rec.requests()); n != 5 {
+		t.Errorf("requests = %d, want 5: %v", n, rec.requests())
+	}
+}
+
+func TestBulkDeleteIsolatesRejectedTupleInChunk(t *testing.T) {
+	rec, apiURL := newWriteRecorder(t)
+	rec.fail = func(_ int, body string) bool { return strings.Contains(body, `"user:1"`) }
+	got, failedPath, _, err := runIsolation(t, rec, apiURL, 3, true)
+	checkOnlyUser1Failed(t, got, got.Deleted, failedPath, err)
+}
+
+func TestBulkWriteDoesNotBisectNonValidationRejection(t *testing.T) {
+	rec, apiURL := newWriteRecorder(t)
+	rec.status = http.StatusNotFound
+	rec.fail = func(int, string) bool { return true }
+	got, _, _, err := runIsolation(t, rec, apiURL, 3, false)
+	if err == nil {
+		t.Fatal("want an error")
+	}
+	if n := len(rec.requests()); n != 1 {
+		t.Errorf("requests = %d, want 1", n)
+	}
+	if len(got.Failed) != 3 {
+		t.Fatalf("failed = %d, want 3", len(got.Failed))
+	}
+	for _, f := range got.Failed {
+		if f.Reason != got.Failed[0].Reason {
+			t.Errorf("reasons differ: %q vs %q", f.Reason, got.Failed[0].Reason)
+		}
+	}
+}
+
+func TestBulkWriteIsolationCapLabelsUnisolated(t *testing.T) {
+	old := maxIsolationRequests
+	maxIsolationRequests = 2
+	t.Cleanup(func() { maxIsolationRequests = old })
+	rec, apiURL := newWriteRecorder(t)
+	rec.fail = func(_ int, body string) bool {
+		return strings.Contains(body, `"user:1"`) || strings.Contains(body, `"user:6"`)
+	}
+	p := bulkFileOf(t, 8, formatJSON)
+	a := newHumanTupleCLI(t, apiURL)
+	a.JSON = true
+	cmd := New(a).writeCmd()
+	cmd.SetArgs([]string{"--file", p})
+	out, _ := silenced(cmd)
+	_ = cmd.Execute()
+	var got isolationResult
+	if err := json.Unmarshal([]byte(out.String()), &got); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(rec.requests()); n != 3 {
+		t.Errorf("requests = %d, want 3", n)
+	}
+	if got.Written+len(got.Failed) != 8 {
+		t.Errorf("written %d + failed %d != 8", got.Written, len(got.Failed))
+	}
+	found := false
+	for _, f := range got.Failed {
+		found = found || strings.HasPrefix(f.Reason, "unisolated: ")
+	}
+	if !found {
+		t.Errorf("no unisolated reason in %+v", got.Failed)
+	}
+
+	// Human mode shows the retry-budget hint.
+	rec2, apiURL2 := newWriteRecorder(t)
+	rec2.fail = rec.fail
+	cmd2 := New(newHumanTupleCLI(t, apiURL2)).writeCmd()
+	cmd2.SetArgs([]string{"--file", p})
+	_, errOut := silenced(cmd2)
+	_ = cmd2.Execute()
+	if !strings.Contains(errOut.String(), "could not be isolated within the retry budget") {
+		t.Errorf("stderr missing budget hint: %q", errOut.String())
+	}
+}
+
+func TestBulkWriteIsolationHonoursOnDuplicateIgnore(t *testing.T) {
+	rec, apiURL := newWriteRecorder(t)
+	rec.fail = func(_ int, body string) bool { return strings.Contains(body, `"user:1"`) }
+	_, _, _, _ = runIsolation(t, rec, apiURL, 3, false, "--on-duplicate", "ignore")
+	bodies := rec.requests()
+	if len(bodies) < 2 {
+		t.Fatalf("expected isolation requests, got %v", bodies)
+	}
+	for _, b := range bodies {
+		if !strings.Contains(b, `"on_duplicate":"ignore"`) {
+			t.Errorf("request lost on_duplicate: %s", b)
+		}
 	}
 }

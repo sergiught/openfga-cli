@@ -2,8 +2,10 @@ package tuple
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -153,6 +155,7 @@ func runBulk(cmd *cobra.Command, c *cli.CLI, cl *openfga.Client, keys []openfga.
 // the outcome as a network failure rather than a tuple rejection.
 func bulkApply(cmd *cobra.Command, cl *openfga.Client, keys []openfga.TupleKey, del bool, o bulkOpts, verb string) ([]openfga.TupleKey, []bulkFailure, error) {
 	opts := o.requestOptions(del)
+	budget := maxIsolationRequests
 	succeeded := make([]openfga.TupleKey, 0, len(keys))
 	failures := make([]bulkFailure, 0)
 
@@ -184,15 +187,44 @@ func bulkApply(cmd *cobra.Command, cl *openfga.Client, keys []openfga.TupleKey, 
 			results = res.Deletes
 		}
 		var connErr error
-		for _, r := range results {
+		// suspects are the tuples a 400 rejected, grouped by the chunk the SDK
+		// put them in (it chunks in input order, one result per key).
+		suspects := map[int][]int{}
+		for i, r := range results {
 			if r.Status == openfga.WriteStatusFailure {
-				failures = append(failures, bulkFailure{Tuple: r.TupleKey, Reason: failureReason(r.Err)})
+				var verr *openfga.ValidationError
+				if o.maxPerChunk > 1 && errors.As(r.Err, &verr) {
+					suspects[i/o.maxPerChunk] = append(suspects[i/o.maxPerChunk], i)
+				} else {
+					failures = append(failures, bulkFailure{Tuple: r.TupleKey, Reason: failureReason(r.Err)})
+				}
 				if connErr == nil && clierr.IsConnErr(r.Err) {
 					connErr = r.Err
 				}
 				continue
 			}
 			succeeded = append(succeeded, r.TupleKey)
+		}
+		for chunk := 0; chunk*o.maxPerChunk < len(results); chunk++ {
+			idx := suspects[chunk]
+			if len(idx) == 0 {
+				continue
+			}
+			if len(idx) == 1 {
+				r := results[idx[0]]
+				failures = append(failures, bulkFailure{Tuple: r.TupleKey, Reason: failureReason(r.Err)})
+				continue
+			}
+			ks := make([]openfga.TupleKey, len(idx))
+			for j, i := range idx {
+				ks[j] = results[i].TupleKey
+			}
+			ok, bad, cerr := isolateRejected(cmd, cl, ks, del, o, &budget, failureReason(results[idx[0]].Err))
+			succeeded = append(succeeded, ok...)
+			failures = append(failures, bad...)
+			if cerr != nil {
+				return succeeded, append(failures, notAttempted(keys[end:], "not attempted: stopped after the server became unreachable")...), cerr
+			}
 		}
 		if connErr != nil {
 			// The server is unreachable, not merely unhappy with these tuples.
@@ -204,6 +236,81 @@ func bulkApply(cmd *cobra.Command, cl *openfga.Client, keys []openfga.TupleKey, 
 		output.Progressf(cmd.ErrOrStderr(), "%s %d/%d tuples", verb, len(succeeded), len(keys))
 	}
 	return succeeded, failures, nil
+}
+
+// maxIsolationRequests bounds the extra requests spent, across a whole run,
+// pinning a rejected chunk down to the tuples the server actually refused. It
+// is a var so tests can lower it.
+var maxIsolationRequests = 1000
+
+// isolateRejected bisects keys, which a chunk request rejected with a 400, to
+// find which tuples the server actually refused. A rejected write is
+// transactional (nothing was applied), so resending halves is safe. Requests
+// are sequential and each half goes out as a single request. chunkReason is
+// the rejection of the whole chunk, kept for tuples the budget could not
+// settle. A connection error stops the bisection and is returned.
+func isolateRejected(cmd *cobra.Command, cl *openfga.Client, keys []openfga.TupleKey, del bool, o bulkOpts, budget *int, chunkReason string) (ok []openfga.TupleKey, failed []bulkFailure, connErr error) {
+	if len(keys) == 1 {
+		return nil, []bulkFailure{{Tuple: keys[0], Reason: chunkReason}}, nil
+	}
+	mid := len(keys) / 2
+	halves := [][]openfga.TupleKey{keys[:mid], keys[mid:]}
+	for h, half := range halves {
+		if *budget <= 0 {
+			for _, rest := range halves[h:] {
+				failed = append(failed, notAttempted(rest, "unisolated: "+chunkReason)...)
+			}
+			return ok, failed, nil
+		}
+		*budget--
+		opts := o
+		opts.maxPerChunk, opts.maxParallel = len(half), 1
+		var res *openfga.WriteTuplesResponse
+		var err error
+		if del {
+			res, err = cl.Tuples.DeleteTuples(cmd.Context(), half, opts.requestOptions(del)...)
+		} else {
+			res, err = cl.Tuples.WriteTuples(cmd.Context(), half, opts.requestOptions(del)...)
+		}
+		var halfErr error
+		if err != nil {
+			halfErr = err
+		} else {
+			results := res.Writes
+			if del {
+				results = res.Deletes
+			}
+			for _, r := range results {
+				if r.Status == openfga.WriteStatusFailure {
+					halfErr = r.Err
+					break
+				}
+			}
+		}
+		var verr *openfga.ValidationError
+		switch {
+		case halfErr == nil:
+			ok = append(ok, half...)
+		case errors.As(halfErr, &verr):
+			o2, f2, c2 := isolateRejected(cmd, cl, half, del, o, budget, failureReason(halfErr))
+			ok, failed = append(ok, o2...), append(failed, f2...)
+			if c2 != nil {
+				for _, rest := range halves[h+1:] {
+					failed = append(failed, notAttempted(rest, "not attempted: stopped after the server became unreachable")...)
+				}
+				return ok, failed, c2
+			}
+		case clierr.IsConnErr(halfErr):
+			failed = append(failed, notAttempted(half, "not attempted: stopped after the server became unreachable")...)
+			for _, rest := range halves[h+1:] {
+				failed = append(failed, notAttempted(rest, "not attempted: stopped after the server became unreachable")...)
+			}
+			return ok, failed, halfErr
+		default:
+			failed = append(failed, notAttempted(half, failureReason(halfErr))...)
+		}
+	}
+	return ok, failed, nil
 }
 
 // notAttempted records keys that never reached the server, so the failure count
@@ -244,12 +351,24 @@ func reportFailures(cmd *cobra.Command, summary string, failures []bulkFailure, 
 		// Printed once, not once per tuple, and instead of the chunk hint:
 		// nothing about the chunk size is what went wrong here.
 		output.Hintf(w, "%s", clierr.Friendly(connErr))
-	case o.maxPerChunk > 1:
-		output.Hintf(w, "a rejected request fails its whole chunk; re-run with --max-tuples-per-write 1 to pin down the exact tuples")
+	default:
+		if n := countUnisolated(failures); n > 0 {
+			output.Hintf(w, "%d tuple(s) could not be isolated within the retry budget; re-run the failed tuples with --max-tuples-per-write 1", n)
+		}
 	}
 	if o.failedFile != "" {
 		output.Hintf(w, "the failed tuples were written to %s and can be re-run with --file", o.failedFile)
 	}
+}
+
+func countUnisolated(failures []bulkFailure) int {
+	n := 0
+	for _, f := range failures {
+		if strings.HasPrefix(f.Reason, "unisolated: ") {
+			n++
+		}
+	}
+	return n
 }
 
 // emitBulkResult renders the machine-readable bulk outcome. The legacy
