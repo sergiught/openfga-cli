@@ -63,7 +63,8 @@ func TestRuleRefUsesNameOrIndex(t *testing.T) {
 }
 
 func TestCheckIgnoresFiltersThatAreNotLiteralBareTypes(t *testing.T) {
-	for _, object := range []string{"{{ input.obj }}", "team:{{ input.x }}", "team:t1"} {
+	// team:t1: is one object whose id ends in a colon, not a whole type.
+	for _, object := range []string{"{{ input.obj }}", "team:{{ input.x }}", "team:t1", "team:t1:"} {
 		src := []byte("version: \"1\"\nrules:\n  - name: r\n    when: \"true\"\n    tuple_filters:\n      - relation: member\n        object: \"" + object + "\"\n    tuples:\n      - user: \"user:1\"\n        relation: member\n        object: \"team:1\"\n")
 		f, err := LoadBytes("f.yaml", src)
 		if err != nil {
@@ -207,5 +208,20 @@ func TestValidateJSONIsUnchanged(t *testing.T) {
 	}
 	if s := string(b); s != `{"line":1,"message":"m"}` {
 		t.Fatalf("json = %s", s)
+	}
+}
+
+// mapper accepts a filter object with an empty type, but the read at apply
+// refuses it, so the rule would fail each time it fires.
+func TestCheckFlagsAFilterObjectWithAnEmptyType(t *testing.T) {
+	for _, object := range []string{":", ":t1"} {
+		src := []byte("version: \"1\"\nrules:\n  - name: r\n    when: \"true\"\n    tuple_filters:\n      - user: \"user:1\"\n        object: \"" + object + "\"\n    tuples:\n      - user: \"user:1\"\n        relation: member\n        object: \"team:1\"\n")
+		f, err := LoadBytes("f.yaml", src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := Check(f, nil); len(got) != 1 || !strings.Contains(got[0].Message, "needs a type before the colon") {
+			t.Fatalf("object %q: findings: %+v", object, got)
+		}
 	}
 }

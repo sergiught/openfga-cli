@@ -44,15 +44,19 @@ func Check(f *File, ix *ModelIndex) []Finding {
 	for i, r := range f.Doc.Rules {
 		for _, fl := range r.Filters {
 			msg := ""
-			switch typ, bare := strings.CutSuffix(fl.Object, ":"); {
+			switch {
 			case strings.Contains(fl.Object, "{{"): // known only at evaluation time
-			case bare && typ != "" && fl.User == "":
+			case isTypePrefix(fl.Object) && fl.User == "":
 				msg = fmt.Sprintf("the filter on %q needs a user: OpenFGA cannot read a whole type without one", fl.Object)
 			case fl.Object != "" && !strings.Contains(fl.Object, ":"):
 				// Neither a type nor an object: the filter covers no tuple, so a
 				// patch fails at apply and a delete changes nothing.
 				msg = fmt.Sprintf("the filter object %q needs a type: use %q for every %s, or %q",
 					fl.Object, fl.Object+":", fl.Object, fl.Object+":<id>")
+			case strings.HasPrefix(fl.Object, ":"):
+				// mapper takes it, but the read at apply refuses an empty type.
+				msg = fmt.Sprintf("the filter object %q needs a type before the colon, as in %q or %q",
+					fl.Object, "team:", "team:<id>")
 			}
 			if msg != "" {
 				line, col := f.RuleLine(i)
