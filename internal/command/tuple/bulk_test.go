@@ -69,6 +69,11 @@ type writeRecorder struct {
 	// status is the HTTP status of a rejected request; zero means 400. A
 	// non-400 status is answered with a store_id_not_found body.
 	status int
+	// drop makes the server close the connection without replying to request
+	// n, which the client sees as an unreachable server.
+	drop func(n int) bool
+	// failCode, when set, replaces the API code of a 400 rejection.
+	failCode string
 }
 
 func newWriteRecorder(t *testing.T) (*writeRecorder, string) {
@@ -96,11 +101,21 @@ func newWriteRecorder(t *testing.T) (*writeRecorder, string) {
 		if rec.inFlight > rec.maxInFlight {
 			rec.maxInFlight = rec.inFlight
 		}
+		drop := rec.drop != nil && rec.drop(n)
 		fail := rec.fail != nil && rec.fail(n, string(body))
 		delay := rec.delay
 		status := rec.status
+		failCode := rec.failCode
 		rec.mu.Unlock()
 
+		if drop {
+			if hj, ok := w.(http.Hijacker); ok {
+				if conn, _, err := hj.Hijack(); err == nil {
+					_ = conn.Close()
+				}
+			}
+			return
+		}
 		time.Sleep(delay)
 
 		rec.mu.Lock()
@@ -112,7 +127,11 @@ func newWriteRecorder(t *testing.T) (*writeRecorder, string) {
 				http.Error(w, `{"code":"store_id_not_found","message":"store not found"}`, status)
 				return
 			}
-			http.Error(w, `{"code":"write_failed_due_to_invalid_input","message":"tuple already exists"}`, http.StatusBadRequest)
+			code := "write_failed_due_to_invalid_input"
+			if failCode != "" {
+				code = failCode
+			}
+			http.Error(w, `{"code":"`+code+`","message":"tuple already exists"}`, http.StatusBadRequest)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -1055,6 +1074,64 @@ func TestBulkWriteIsolationHonoursOnDuplicateIgnore(t *testing.T) {
 	for _, b := range bodies {
 		if !strings.Contains(b, `"on_duplicate":"ignore"`) {
 			t.Errorf("request lost on_duplicate: %s", b)
+		}
+	}
+}
+
+func TestBulkWriteIsolationConnLossAccountsForEveryTuple(t *testing.T) {
+	rec, apiURL := newWriteRecorder(t)
+	rec.fail = func(_ int, body string) bool {
+		return strings.Contains(body, `"user:1"`) || strings.Contains(body, `"user:4"`)
+	}
+	rec.drop = func(n int) bool { return n >= 3 }
+	got, failedPath, _, err := runIsolation(t, rec, apiURL, 6, false, "--max-tuples-per-write", "3", "--max-parallel-requests", "2")
+	if err == nil {
+		t.Fatal("want an error")
+	}
+	if got.Written+len(got.Failed) != 6 {
+		t.Fatalf("written %d + failed %d != 6", got.Written, len(got.Failed))
+	}
+	data, rerr := os.ReadFile(failedPath)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	in, perr := parseTupleFile(data, formatJSON, failedPath)
+	if perr != nil || len(in) != len(got.Failed) {
+		t.Fatalf("failed file has %d tuples (%v), want %d", len(in), perr, len(got.Failed))
+	}
+	written := map[string]bool{}
+	for _, k := range got.Successful {
+		written[k.User] = true
+	}
+	inFile := map[string]bool{}
+	for _, k := range in {
+		inFile[k.User] = true
+	}
+	for i := range 6 {
+		u := fmt.Sprintf("user:%d", i)
+		if written[u] == inFile[u] {
+			t.Errorf("%s: written=%v inFailedFile=%v, want exactly one", u, written[u], inFile[u])
+		}
+	}
+}
+
+func TestBulkWriteDoesNotBisectRequestLevelValidationError(t *testing.T) {
+	rec, apiURL := newWriteRecorder(t)
+	rec.failCode = "authorization_model_not_found"
+	rec.fail = func(int, string) bool { return true }
+	got, _, _, err := runIsolation(t, rec, apiURL, 3, false)
+	if err == nil {
+		t.Fatal("want an error")
+	}
+	if n := len(rec.requests()); n != 1 {
+		t.Errorf("requests = %d, want 1", n)
+	}
+	if len(got.Failed) != 3 {
+		t.Fatalf("failed = %d, want 3", len(got.Failed))
+	}
+	for _, f := range got.Failed {
+		if f.Reason != got.Failed[0].Reason || !strings.Contains(f.Reason, "authorization_model_not_found") {
+			t.Errorf("reason = %q", f.Reason)
 		}
 	}
 }

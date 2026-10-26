@@ -192,8 +192,10 @@ func bulkApply(cmd *cobra.Command, cl *openfga.Client, keys []openfga.TupleKey, 
 		suspects := map[int][]int{}
 		for i, r := range results {
 			if r.Status == openfga.WriteStatusFailure {
-				var verr *openfga.ValidationError
-				if o.maxPerChunk > 1 && errors.As(r.Err, &verr) {
+				// The SDK returns one result per key, in input order, and chunks
+				// in input order (go-openfga tuples.go bulkWrite), so result i
+				// belongs to chunk i/maxPerChunk.
+				if o.maxPerChunk > 1 && isTupleRejection(r.Err) {
 					suspects[i/o.maxPerChunk] = append(suspects[i/o.maxPerChunk], i)
 				} else {
 					failures = append(failures, bulkFailure{Tuple: r.TupleKey, Reason: failureReason(r.Err)})
@@ -223,19 +225,41 @@ func bulkApply(cmd *cobra.Command, cl *openfga.Client, keys []openfga.TupleKey, 
 			succeeded = append(succeeded, ok...)
 			failures = append(failures, bad...)
 			if cerr != nil {
-				return succeeded, append(failures, notAttempted(keys[end:], "not attempted: stopped after the server became unreachable")...), cerr
+				// Suspects in later chunks of this window were taken out of
+				// the result loop above, so account for them here.
+				for later := chunk + 1; later*o.maxPerChunk < len(results); later++ {
+					for _, i := range suspects[later] {
+						failures = append(failures, notAttempted([]openfga.TupleKey{results[i].TupleKey}, reasonUnreachable)...)
+					}
+				}
+				return succeeded, append(failures, notAttempted(keys[end:], reasonUnreachable)...), cerr
 			}
 		}
 		if connErr != nil {
 			// The server is unreachable, not merely unhappy with these tuples.
 			// Hammering it with the remaining windows would only repeat the
 			// failure, so stop and account for what was never attempted.
-			failures = append(failures, notAttempted(keys[end:], "not attempted: stopped after the server became unreachable")...)
+			failures = append(failures, notAttempted(keys[end:], reasonUnreachable)...)
 			return succeeded, failures, connErr
 		}
 		output.Progressf(cmd.ErrOrStderr(), "%s %d/%d tuples", verb, len(succeeded), len(keys))
 	}
 	return succeeded, failures, nil
+}
+
+const reasonUnreachable = "not attempted: stopped after the server became unreachable"
+
+// isTupleRejection reports whether err is a 400 whose API code says a tuple in
+// the request was bad. Other 400s (for example authorization_model_not_found)
+// are request-level problems that every half of a bisection would hit too, so
+// bisecting them would burn the whole budget for nothing; they keep the
+// chunk-wide marking.
+func isTupleRejection(err error) bool {
+	var verr *openfga.ValidationError
+	if !errors.As(err, &verr) {
+		return false
+	}
+	return verr.Code == "write_failed_due_to_invalid_input" || verr.Code == openfga.CodeValidationError
 }
 
 // maxIsolationRequests bounds the extra requests spent, across a whole run,
@@ -287,23 +311,22 @@ func isolateRejected(cmd *cobra.Command, cl *openfga.Client, keys []openfga.Tupl
 				}
 			}
 		}
-		var verr *openfga.ValidationError
 		switch {
 		case halfErr == nil:
 			ok = append(ok, half...)
-		case errors.As(halfErr, &verr):
+		case isTupleRejection(halfErr):
 			o2, f2, c2 := isolateRejected(cmd, cl, half, del, o, budget, failureReason(halfErr))
 			ok, failed = append(ok, o2...), append(failed, f2...)
 			if c2 != nil {
 				for _, rest := range halves[h+1:] {
-					failed = append(failed, notAttempted(rest, "not attempted: stopped after the server became unreachable")...)
+					failed = append(failed, notAttempted(rest, reasonUnreachable)...)
 				}
 				return ok, failed, c2
 			}
 		case clierr.IsConnErr(halfErr):
-			failed = append(failed, notAttempted(half, "not attempted: stopped after the server became unreachable")...)
+			failed = append(failed, notAttempted(half, reasonUnreachable)...)
 			for _, rest := range halves[h+1:] {
-				failed = append(failed, notAttempted(rest, "not attempted: stopped after the server became unreachable")...)
+				failed = append(failed, notAttempted(rest, reasonUnreachable)...)
 			}
 			return ok, failed, halfErr
 		default:
