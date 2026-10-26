@@ -29,6 +29,9 @@ var (
 	// redirected), Table drops its box-drawing frame so the rows stay
 	// grep/awk-friendly, mirroring how color is stripped for non-TTY output.
 	Interactive bool
+	// JSONL renders JSON as one compact value per line (-o jsonl): a top-level
+	// array becomes one line per element.
+	JSONL bool
 )
 
 // JSON writes v as indented JSON to w. A typed nil slice (e.g. `var x []T` with
@@ -39,10 +42,48 @@ func JSON(w io.Writer, v any) error {
 	if rv := reflect.ValueOf(v); rv.Kind() == reflect.Slice && rv.IsNil() {
 		v = reflect.MakeSlice(rv.Type(), 0, 0).Interface()
 	}
+	if JSONL {
+		return jsonLines(w, v)
+	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	enc.SetEscapeHTML(false)
 	return enc.Encode(v)
+}
+
+// jsonLines writes v compactly: each element of a top-level array on its own
+// line (nothing for an empty or nil array), anything else as a single line.
+func jsonLines(w io.Writer, v any) error {
+	var enc bytes.Buffer
+	e := json.NewEncoder(&enc)
+	e.SetEscapeHTML(false)
+	if err := e.Encode(v); err != nil {
+		return err
+	}
+	raw := bytes.TrimSpace(enc.Bytes())
+	if len(raw) > 0 && raw[0] == '[' {
+		var elems []json.RawMessage
+		if err := json.Unmarshal(raw, &elems); err != nil {
+			return err
+		}
+		for _, e := range elems {
+			if err := compactLine(w, e); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return compactLine(w, raw)
+}
+
+func compactLine(w io.Writer, raw []byte) error {
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, raw); err != nil {
+		return err
+	}
+	buf.WriteByte('\n')
+	_, err := w.Write(buf.Bytes())
+	return err
 }
 
 // YAML writes v as YAML to w. v is round-tripped through JSON first so field

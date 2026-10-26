@@ -101,3 +101,22 @@ func TestPlainRowMatchesPlainTable(t *testing.T) {
 		t.Errorf("PlainRow emitted more than one record: %q", got.String())
 	}
 }
+
+func TestJSONLStreamerWritesEachValueOnItsOwnLine(t *testing.T) {
+	JSONL = true
+	t.Cleanup(func() { JSONL = false })
+	var buf bytes.Buffer
+	s := NewStreamer(&buf, false)
+	if err := s.Write(map[string]int{"a": 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Write(map[string]int{"a": 2}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := buf.String(), "{\"a\":1}\n{\"a\":2}\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

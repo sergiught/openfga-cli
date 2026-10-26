@@ -8,6 +8,13 @@ sidebar:
 `ofga` is built to compose:
 
 - `--json` emits clean, machine-readable JSON (secrets omitted) for `jq`.
+- `-o jsonl` emits compact JSON Lines: a list result becomes one object per line (nothing at all when it is empty) and any other result is a single line. It streams, so it suits `while read` loops, and `tuples read -o jsonl` writes a file that `tuples write --file` takes back as is:
+
+  ```bash
+  ofga tuples read -o jsonl > tuples.jsonl
+  ofga tuples write --file tuples.jsonl
+  ```
+
 - `--yaml` (or `-o yaml` / `--output yaml`) emits the same structured data as YAML, for tools that prefer it (e.g. diffing against a YAML-based config).
 - `--plain` emits unstyled TSV for both reads and mutations; embedded tabs,
   newlines, and control characters are normalized to spaces so every item
@@ -44,7 +51,7 @@ already committed.
 
 ## Errors as JSON
 
-With `--json`, `--yaml` or `--jq` (or `-o json|yaml`), a command that fails
+With `--json`, `--yaml` or `--jq` (or `-o json|jsonl|yaml`), a command that fails
 writes exactly one line of compact JSON to stderr, always JSON even under
 `--yaml`, and nothing else from the error path: no `●` line and no hints. The
 exit code is unchanged. `--quiet` does not suppress it.

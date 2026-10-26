@@ -35,6 +35,9 @@ func NewStreamer(w io.Writer, asYAML bool) Streamer {
 	if asYAML {
 		return &yamlStream{w: w}
 	}
+	if JSONL {
+		return &jsonlStream{w: w}
+	}
 	return &jsonStream{w: w}
 }
 
@@ -110,6 +113,13 @@ func (s *jsonStream) fail(err error) error {
 	s.errer = err
 	return err
 }
+
+// jsonlStream writes each value as one compact line; there is no framing, so
+// Close has nothing to write.
+type jsonlStream struct{ w io.Writer }
+
+func (s *jsonlStream) Write(v any) error { return jsonLines(s.w, v) }
+func (s *jsonlStream) Close() error      { return nil }
 
 // yamlStream writes a YAML sequence one item at a time. Items are rendered
 // through YAML so field names and shapes match --json exactly, then re-indented
