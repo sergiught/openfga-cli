@@ -1,0 +1,74 @@
+---
+title: Using ofga with AI agents
+description: Run ofga from a coding agent - agent mode, machine-readable errors, command discovery, JSONL streaming, output schemas, docs search and the installable agent skill.
+sidebar:
+  order: 11
+---
+
+`ofga` is built to be driven by coding agents such as Claude Code or Gemini CLI as well as by people. This page collects what an agent needs; the [scripting guide](/guide/scripting/) has the full detail on each piece.
+
+## Agent mode
+
+Agent mode makes `ofga` default to compact one-line JSON, turns off prompts and color, and drops success messages, so an agent never waits on a human. It turns on when you pass `--agent`, set `OPENFGA_AGENT_MODE=1`, or run inside a detected agent (`CLAUDECODE=1`, `GEMINI_CLI=1`). See [Agent mode](/guide/scripting/#agent-mode) for the exact rules and how to opt out.
+
+```bash
+ofga stores list --agent
+```
+
+Without agent mode, the same behavior is `--json --no-input`.
+
+## Errors an agent can branch on
+
+With `--json`, `-o json|jsonl|yaml` or agent mode, a failing command writes exactly one line of JSON to stderr:
+
+```json
+{"error":{"code":"not_found","message":"...","status":404,"hint":"...","details":[]}}
+```
+
+Branch on `code`, which is stable. The [error codes table](/guide/scripting/#errors-as-json) lists every code, when it appears and its exit code. Exit codes keep their meaning: 0 success, 1 error, 2 usage, 3 test failure, 4 network, 130 canceled. A destructive command run without `--force` fails with `confirmation_required` rather than waiting for an answer.
+
+## Discovering commands
+
+`ofga commands --json` lists every command with its flags, whether it mutates state, what it needs (a store, a model) and the URL of its output schema, so an agent can learn the CLI from the binary instead of guessing.
+
+```bash
+ofga commands --json | jq '.commands[] | select(.path | startswith("ofga tuples"))'
+```
+
+## Streaming large reads
+
+`-o jsonl` prints one JSON value per line instead of one big document, so a large read can be streamed:
+
+```bash
+ofga tuples read -o jsonl --max-results 10000
+```
+
+## Output schemas
+
+Every machine-readable command has a published JSON Schema, linked from `ofga commands`. See [Output schemas](/guide/output-schemas/).
+
+## Searching the OpenFGA docs
+
+Agents can look up OpenFGA concepts without leaving the terminal:
+
+```bash
+ofga docs search "contextual tuples" --max-results 3 --json
+ofga docs show /docs/modeling/conditions
+```
+
+## The ofga agent skill
+
+`ofga` ships a skill, a `SKILL.md` that teaches an agent the workflow above: agent mode, error codes, `--dry-run` before writes, `--force`, `--failed-file` re-runs, `-o jsonl`, `model test` and docs search. It is embedded in the binary, so it always matches the version you run.
+
+```bash
+ofga agent skill show      # print it
+ofga agent skill install   # ~/.claude/skills/ofga/SKILL.md (Claude Code)
+```
+
+| Flag | Installs to |
+| --- | --- |
+| (none) | `~/.claude/skills/ofga/SKILL.md` |
+| `--project` | `./.claude/skills/ofga/SKILL.md`, for one repository |
+| `--dir <path>` | `<path>/ofga/SKILL.md`, for any other agent that reads skill folders |
+
+`--project` and `--dir` cannot be combined. Installing again over an identical file does nothing. If the installed file differs, `install` asks before replacing it; pass `--force` to replace without asking, which is required in agent mode and with `--no-input`. Re-run `ofga agent skill install` after upgrading `ofga` to refresh it.
