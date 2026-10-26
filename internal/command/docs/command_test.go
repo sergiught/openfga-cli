@@ -138,6 +138,9 @@ func TestDocsSearchMaxResults(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &got); err != nil || len(got) != 1 {
 		t.Fatalf("got %d results, err=%v", len(got), err)
 	}
+	if got[0].Title != "Conditions" {
+		t.Errorf("kept %q, want the first hit %q", got[0].Title, "Conditions")
+	}
 	var m atomic.Int32
 	_, _, err = run(t, fakeDocs(t, twoHits, &m), false, "search", "x", "--max-results", "0")
 	if clierr.Code(err) != clierr.CodeUsage {
@@ -194,6 +197,9 @@ func TestDocsShowRejectsOtherHost(t *testing.T) {
 	_, _, err := run(t, fakeDocs(t, nil, &n), false, "show", "https://evil.com/docs/x")
 	if err == nil {
 		t.Fatal("want error")
+	}
+	if clierr.Code(err) != clierr.CodeUsage {
+		t.Errorf("code = %d, want %d", clierr.Code(err), clierr.CodeUsage)
 	}
 	if n.Load() != 0 {
 		t.Errorf("server got %d requests, want 0", n.Load())

@@ -161,7 +161,7 @@ func PageURL(ref string) (string, error) {
 func (c *Client) Page(ctx context.Context, ref string) (Page, error) {
 	canonical, err := PageURL(ref)
 	if err != nil {
-		return Page{}, clierr.WithKind(clierr.KindUsage, err)
+		return Page{}, clierr.WithCode(clierr.CodeUsage, clierr.WithKind(clierr.KindUsage, err))
 	}
 	// Re-derive the fetch URL from the validated path so only /docs/... is ever requested.
 	cu, _ := url.Parse(canonical)
