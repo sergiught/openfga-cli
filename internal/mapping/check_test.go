@@ -214,7 +214,7 @@ func TestValidateJSONIsUnchanged(t *testing.T) {
 // mapper accepts a filter object with an empty type, but the read at apply
 // refuses it, so the rule would fail each time it fires.
 func TestCheckFlagsAFilterObjectWithAnEmptyType(t *testing.T) {
-	for _, object := range []string{":", ":t1"} {
+	for _, object := range []string{":", ":t1", ":{{ input.id }}"} {
 		src := []byte("version: \"1\"\nrules:\n  - name: r\n    when: \"true\"\n    tuple_filters:\n      - user: \"user:1\"\n        object: \"" + object + "\"\n    tuples:\n      - user: \"user:1\"\n        relation: member\n        object: \"team:1\"\n")
 		f, err := LoadBytes("f.yaml", src)
 		if err != nil {
