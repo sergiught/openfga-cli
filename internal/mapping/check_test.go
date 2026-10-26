@@ -14,11 +14,13 @@ func TestCheckPassesAValidFile(t *testing.T) {
 	}
 }
 
-func TestCheckReportsModelGapsAtTheRule(t *testing.T) {
+// A model gap is reported at the value that names what the model lacks, not at
+// the rule around it.
+func TestCheckReportsModelGapsAtTheValue(t *testing.T) {
 	f, _ := Load("testdata/load/commented.yaml")
 	ix := &ModelIndex{Types: map[string][]string{"user": nil}} // no organization type
 	got := Check(f, ix)
-	if len(got) == 0 || got[0].Line != 5 || !strings.Contains(got[0].Message, "organization") {
+	if len(got) == 0 || got[0].Line != 7 || got[0].Column != 17 || !strings.Contains(got[0].Message, "organization") {
 		t.Fatalf("findings: %+v", got)
 	}
 	if got[0].Field != `rules["member-added"]` {
@@ -100,7 +102,7 @@ func TestCheckFlagsAFilterObjectWithoutAType(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := Check(f, nil)
-	want := Finding{Line: 3, Column: 5, Field: `rules["r"].tuple_filters`,
+	want := Finding{Line: 7, Column: 17, Field: `rules["r"].tuple_filters`,
 		Message: `the filter object "team" needs a type: use "team:" for every team, or "team:<id>"`,
 		Rule:    0, Section: "filters"}
 	if len(got) != 1 || got[0] != want {
@@ -116,8 +118,38 @@ func TestCheckReportsFilterModelGaps(t *testing.T) {
 	}
 	ix := &ModelIndex{Types: map[string][]string{"user": nil, "organization": {"member"}}}
 	got := Check(f, ix)
-	if len(got) != 1 || got[0].Message != `type "organization" has no relation "memebr"` || got[0].Line != 3 ||
+	if len(got) != 1 || got[0].Message != `type "organization" has no relation "memebr"` || got[0].Line != 7 ||
 		got[0].Field != `rules["r"].tuple_filters` {
+		t.Fatalf("findings: %+v", got)
+	}
+}
+
+// The iterator's tuples count after the rule's own, so a gap in one is placed
+// in the iterator, not on the rule's tuple of the same index.
+func TestCheckPlacesAnIteratorTuplesGap(t *testing.T) {
+	src := []byte("version: \"1\"\nrules:\n  - name: r\n    when: \"true\"\n    tuples:\n      - user: \"user:1\"\n        relation: member\n        object: \"team:1\"\n    iterator:\n      source: input.ids\n      as: id\n      tuples:\n        - user: \"user:{{ id }}\"\n          relation: memebr\n          object: \"team:1\"\n")
+	f, err := LoadBytes("f.yaml", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ix := &ModelIndex{Types: map[string][]string{"user": nil, "team": {"member"}}}
+	got := Check(f, ix)
+	if len(got) != 1 || got[0].Line != 14 || got[0].Column != 21 || got[0].Message != `type "team" has no relation "memebr"` {
+		t.Fatalf("findings: %+v", got)
+	}
+}
+
+// An aliased tuples list counts the tuples it stands for, so an iterator tuple
+// after it is still placed in the iterator.
+func TestCheckPlacesAGapAfterAnAliasedTuplesList(t *testing.T) {
+	src := []byte("version: \"1\"\nrules:\n  - name: a\n    when: \"true\"\n    tuples: &own\n      - user: \"user:1\"\n        relation: member\n        object: \"team:1\"\n  - name: r\n    when: \"true\"\n    tuples: *own\n    iterator:\n      source: input.ids\n      as: id\n      tuples:\n        - user: \"user:{{ id }}\"\n          relation: memebr\n          object: \"team:1\"\n")
+	f, err := LoadBytes("f.yaml", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ix := &ModelIndex{Types: map[string][]string{"user": nil, "team": {"member"}}}
+	got := Check(f, ix)
+	if len(got) != 1 || got[0].Line != 17 || got[0].Column != 21 {
 		t.Fatalf("findings: %+v", got)
 	}
 }

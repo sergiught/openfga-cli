@@ -108,13 +108,27 @@ func (w *workspace) saveReformatted(then func() tea.Cmd) tea.Cmd {
 	return cmd
 }
 
+// shownPath is the file's path as the start screen shows it, from the working
+// folder or ~ when it can be: the absolute one wraps a toast to several lines.
+func (w *workspace) shownPath() string {
+	dir := w.opts.Dir
+	if dir == "" {
+		dir = "."
+	}
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	home, _ := os.UserHomeDir()
+	return recentPath(w.path, dir, home)
+}
+
 // wrote is what follows a write: the Apply pane's plan dropped and its events,
 // the recent list, the starting model of an Auth0-built file, and the toasts.
 func (w *workspace) wrote(doc *mapping.Document, first bool) tea.Cmd {
 	cmds := []tea.Cmd{
 		w.dropPlan("the file was saved"),
 		w.syncApply(),
-		w.toast(fmt.Sprintf("saved %s (%s, %s)", w.path,
+		w.toast(fmt.Sprintf("saved %s (%s, %s)", w.shownPath(),
 			mapping.Plural(len(doc.Rules), "rule"), mapping.Plural(len(doc.Tests), "test")), false),
 	}
 	// A list that cannot be written must not make the save look failed.

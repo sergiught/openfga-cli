@@ -200,7 +200,12 @@ func (c *Command) runApply(cmd *cobra.Command, path, eventsPath string, fromEven
 		if eerr := emitApply(out, c.cli, res); eerr != nil {
 			return eerr
 		}
-		resume := resumeHint(cmd, eventsPath, resumeCommand(cmd, path, eventsPath, plan.Events[applied].Index, force))
+		// A run from the start that got nothing through resumes by running it
+		// again, so a --from-event line would only be noise.
+		resume := ""
+		if applied > 0 || fromEvent > 1 {
+			resume = resumeHint(cmd, eventsPath, resumeCommand(cmd, path, eventsPath, plan.Events[applied].Index, force))
+		}
 		return reportApplyFailure(ctx, errw, plan, applied, err, resume)
 	}
 	if err := emitApply(out, c.cli, res); err != nil {
@@ -321,11 +326,11 @@ func stdinIsTerminal(cmd *cobra.Command) bool {
 	return ok && term.IsTerminal(f.Fd())
 }
 
-// reportApplyFailure says how far apply got, ending with the resume command,
-// and returns the error to exit with. applied counts the plan's events that
-// landed; event numbers are the file's. A cancellation hands its report to
-// main (which prints "canceled" and the report as a hint); any other failure
-// is printed here, once.
+// reportApplyFailure says how far apply got, ending with the resume command
+// when there is one, and returns the error to exit with. applied counts the
+// plan's events that landed; event numbers are the file's. A cancellation
+// hands its report to main (which prints "canceled" and the report as a hint);
+// any other failure is printed here, once.
 func reportApplyFailure(ctx context.Context, w io.Writer, plan *mapping.Plan, applied int, err error, resume string) error {
 	failed := plan.Events[applied].Index
 	msg := strings.TrimPrefix(err.Error(), fmt.Sprintf("event %d: ", failed))
@@ -338,7 +343,10 @@ func reportApplyFailure(ctx context.Context, w io.Writer, plan *mapping.Plan, ap
 		if split {
 			text += " (it may be partly written)"
 		}
-		return clierr.WithPartialResult(canceledReport{text + "\n  " + resume})
+		if resume != "" {
+			text += "\n  " + resume
+		}
+		return clierr.WithPartialResult(canceledReport{text})
 	}
 	output.Errorf(w, "%s; event %d failed: %s", done, failed, msg)
 	if split {
@@ -347,7 +355,9 @@ func reportApplyFailure(ctx context.Context, w io.Writer, plan *mapping.Plan, ap
 	for _, h := range applyHints(err) {
 		output.Hintf(w, "%s", h)
 	}
-	output.Hintf(w, "%s", resume)
+	if resume != "" {
+		output.Hintf(w, "%s", resume)
+	}
 	return clierr.Silent(clierr.Code(err))
 }
 

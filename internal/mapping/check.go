@@ -42,7 +42,7 @@ func Check(f *File, ix *ModelIndex) []Finding {
 		return out
 	}
 	for i, r := range f.Doc.Rules {
-		for _, fl := range r.Filters {
+		for j, fl := range r.Filters {
 			msg := ""
 			switch {
 			case strings.HasPrefix(fl.Object, ":"):
@@ -60,7 +60,7 @@ func Check(f *File, ix *ModelIndex) []Finding {
 					fl.Object, fl.Object+":", fl.Object, fl.Object+":<id>")
 			}
 			if msg != "" {
-				line, col := f.RuleLine(i)
+				line, col := f.ProblemPos(Problem{Rule: i, Section: "filters", Item: j + 1, Field: "object"})
 				out = append(out, Finding{Line: line, Column: col, Field: ruleRef(i, r) + ".tuple_filters",
 					Message: msg, Rule: i, Section: "filters"})
 			}
@@ -68,7 +68,7 @@ func Check(f *File, ix *ModelIndex) []Finding {
 	}
 	if ix != nil {
 		for _, p := range Warnings(Lint(f.Doc, ix)) {
-			line, col := f.RuleLine(p.Rule)
+			line, col := f.ProblemPos(p)
 			field := ""
 			if p.Rule >= 0 && p.Rule < len(f.Doc.Rules) {
 				field = ruleRef(p.Rule, f.Doc.Rules[p.Rule])

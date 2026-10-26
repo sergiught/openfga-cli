@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -135,12 +136,16 @@ func (c *Preview) View(w, rows int) string {
 	if c.payload != c.payloadShown {
 		c.payloadShown, c.payloadOff = c.payload, 0
 	}
-	title, body := c.title, yamlRows(string(c.p.YAML), w)
+	body := yamlRows(string(c.p.YAML), w)
 	if c.showsPayload() {
-		title, body = c.label, jsonRows(c.payload, w)
+		body = jsonRows(c.payload, w)
 	}
 	other, _ := c.Switch()
 	window, notes := c.window(body, rows-lipgloss.Height(eval)-3, other)
+	title := c.label
+	if !c.showsPayload() {
+		title = c.pathTitle(w, other, notes)
+	}
 
 	var b strings.Builder
 	if window != "" {
@@ -153,6 +158,29 @@ func (c *Preview) View(w, rows int) string {
 	b.WriteString("\n")
 	b.WriteString(eval)
 	return b.String()
+}
+
+// pathTitle is the file's path fitted to the header beside its notes. A long
+// path gives way from the front, keeping the file's name, to the room the
+// switch leaves (or the shortest note, with no switch to keep); when even the
+// name does not fit there, the name wins and the header drops the note.
+func (c *Preview) pathTitle(w int, other string, notes []string) string {
+	keep := ""
+	if other != "" {
+		keep = "ctrl+t " + other
+	} else if len(notes) > 0 {
+		keep = notes[len(notes)-1]
+	}
+	room := w
+	if keep != "" {
+		// The rule between the title and the note, and the cells around it.
+		room = w - lipgloss.Width(keep) - 5
+	}
+	name := "…/" + filepath.Base(c.title)
+	if lipgloss.Width(c.title) > room && lipgloss.Width(name) > room {
+		room = w
+	}
+	return pathTail(c.title, room)
 }
 
 // window is the slice of the section scrolled to, and the notes its header may
