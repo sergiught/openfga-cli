@@ -86,6 +86,33 @@ exit code is unchanged. `--quiet` does not suppress it.
 | `canceled` | Interrupted by Ctrl-C or SIGTERM | 130 |
 | `error` | Anything else, including a config file that will not load | 1 |
 
+## Agent mode
+
+When a coding agent drives `ofga`, it defaults to output that is cheap to parse
+and never waits on a human. Agent mode turns on when any of these holds, checked
+in this order:
+
+1. `--agent` (or `--agent=false` to force it off).
+2. `OPENFGA_AGENT_MODE=1` (or `=0` to force it off).
+3. A detector variable set to `1`: `CLAUDECODE` (Claude Code) or `GEMINI_CLI` (Gemini CLI).
+
+While it is on:
+
+- Output defaults to compact one-line JSON. An explicit `--plain`, `--yaml` or
+  `-o table|plain` still wins, and `--json` stays compact.
+- Prompts are off (`--no-input`) and color is off.
+- Success messages (`created store …`) are dropped; warnings and errors are kept.
+- Failures print the [JSON error envelope](#errors-as-json) on stderr.
+- The TUI and the playground refuse to start, with a usage error (exit code 2),
+  so a bare `ofga` never hangs an agent.
+
+Set `OPENFGA_AGENT_MODE=0` to opt out. This matters for one known trade-off:
+a command you run yourself through an agent's `!` shell escape inherits the
+detector variable too, so it gets JSON output unless you opt out.
+
+To see what was decided and why, run `ofga version --json` and read
+`agent_mode` (`enabled` and `reason`).
+
 ## Extracting fields without jq
 
 `--jq` filters machine-readable output through a built-in jq engine, so a

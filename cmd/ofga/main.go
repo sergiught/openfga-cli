@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/sergiught/openfga-cli/internal/agentmode"
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/command/base"
@@ -49,11 +50,12 @@ func main() {
 
 	// Config loads before cobra parses flags, so --config is read from argv here
 	// (env OPENFGA_CONFIG is honored by LoadFrom when no flag is given).
-	noColor := noColorFromArgs(os.Args[1:], "")
+	agent := agentmode.Resolve(boolFlagState(os.Args[1:], "--agent"), os.Getenv)
+	noColor := agent.Enabled || noColorFromArgs(os.Args[1:], "")
 	cfg, err := config.LoadFrom(configPathFromArgs(os.Args[1:]))
 	if err != nil {
 		hint := configLoadHint(os.Args[1:])
-		if machineOutputFromArgs(scanRoot(), os.Args[1:]) {
+		if machineOutputFromArgs(scanRoot(), os.Args[1:], agent.Enabled) {
 			reportMachineError(os.Stderr, clierr.WithHint(hint, err), clierr.CodeError, "ofga", false)
 			os.Exit(clierr.CodeError)
 		}
@@ -85,6 +87,7 @@ func main() {
 
 	c := cli.New(logger, cfg, version.Resolved())
 	c.NoColor = boolFlagFromArgs(os.Args[1:], "--no-color")
+	c.Agent = agent
 	c.Plain = boolFlagFromArgs(os.Args[1:], "--plain")
 	c.ThemeName = valueFlagFromArgs(os.Args[1:], "--theme")
 
@@ -106,7 +109,7 @@ func main() {
 			}
 		}
 		logger.Debugf("command failed: %+v", err)
-		machine := machineOutputFromArgs(rootCmd, os.Args[1:])
+		machine := machineOutputFromArgs(rootCmd, os.Args[1:], agent.Enabled)
 		if root.OutputResolved() {
 			machine = c.JSON || c.YAML
 		}
@@ -262,6 +265,28 @@ func boolFlagFromArgs(args []string, name string, shorthands ...byte) bool {
 	return enabled
 }
 
+// boolFlagState is boolFlagFromArgs for a long flag whose absence matters:
+// it returns nil when the flag is not given, otherwise its final value.
+func boolFlagState(args []string, name string) *bool {
+	var state *bool
+	for _, arg := range args {
+		if arg == "--" {
+			break
+		}
+		if arg == name {
+			v := true
+			state = &v
+			continue
+		}
+		if value, ok := strings.CutPrefix(arg, name+"="); ok {
+			if parsed, err := strconv.ParseBool(value); err == nil {
+				state = &parsed
+			}
+		}
+	}
+	return state
+}
+
 func valueFlagFromArgs(args []string, name string) string {
 	var value string
 	for i, arg := range args {
@@ -325,13 +350,14 @@ func logLevel(args []string) log.Level {
 // (--json, --yaml, --jq, or -o/--output json|jsonl|yaml). It is the fallback for
 // failures that happen before cobra has resolved the output flags: a mistyped
 // command, an unknown flag, a config that will not load. The last -o wins and
-// is authoritative over --plain, as it is in resolveOutput.
+// is authoritative over --plain, as it is in resolveOutput. With agent set,
+// machine output is the default when none of those is given.
 //
 // argv is parsed against the flags of the command it names (root when it names
 // none), so a flag takes a value exactly when cobra's would: `mappings apply
 // -fojson` is --force -o json, and in `--jq -otable` the -otable is the jq
 // expression.
-func machineOutputFromArgs(root *cobra.Command, args []string) bool {
+func machineOutputFromArgs(root *cobra.Command, args []string, agent bool) bool {
 	cmd := root
 	if found, _, err := root.Find(args); err == nil {
 		cmd = found
@@ -374,7 +400,7 @@ func machineOutputFromArgs(root *cobra.Command, args []string) bool {
 	// A bare --jq with no value still asked for machine output.
 	var missing *pflag.ValueRequiredError
 	jq := fs.Changed("jq") || errors.As(err, &missing) && missing.GetFlag().Name == "jq"
-	return jq || on("json") || on("yaml")
+	return agent || jq || on("json") || on("yaml")
 }
 
 // scanRoot builds a command tree only to read flag arity from, for a failure

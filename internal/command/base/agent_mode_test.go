@@ -14,6 +14,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/configtest"
+	"github.com/sergiught/openfga-cli/internal/output"
 )
 
 func agentMockServer(t *testing.T) []string {
@@ -40,6 +41,14 @@ func agentMockServer(t *testing.T) []string {
 	}))
 	t.Cleanup(srv.Close)
 	return []string{"OPENFGA_API_URL=" + srv.URL}
+}
+
+// restoreOutputGlobals puts back the package-level output switches that an
+// in-process agent-mode run flips, so later tests start from the defaults.
+func restoreOutputGlobals(t *testing.T) {
+	t.Helper()
+	compact, terse := output.Compact, output.Terse
+	t.Cleanup(func() { output.Compact, output.Terse = compact, terse })
 }
 
 func oneLine(s string) bool {
@@ -95,6 +104,7 @@ func TestAgentModeDropsSuccessKeepsWarnings(t *testing.T) {
 
 func TestAgentModeImpliesNoInput(t *testing.T) {
 	configtest.Isolate(t)
+	restoreOutputGlobals(t)
 	t.Setenv("CLAUDECODE", "1")
 	c := New(cli.New(log.New(io.Discard), config.New(), "test"))
 	root := c.Command()
@@ -148,6 +158,7 @@ func TestVersionReportsAgentMode(t *testing.T) {
 
 func TestPlaygroundRefusesInAgentMode(t *testing.T) {
 	configtest.Isolate(t)
+	restoreOutputGlobals(t)
 	t.Setenv("CLAUDECODE", "1")
 	for _, args := range [][]string{{"playground"}, {}} {
 		c := New(cli.New(log.New(io.Discard), config.New(), "test"))
@@ -160,5 +171,52 @@ func TestPlaygroundRefusesInAgentMode(t *testing.T) {
 		if err == nil || clierr.Code(err) != clierr.CodeUsage || !strings.Contains(err.Error(), "agent mode is on") {
 			t.Fatalf("args=%v code=%d err=%v", args, clierr.Code(err), err)
 		}
+	}
+}
+
+// TestAgentModeEndToEnd drives the early (pre-cobra) path: an unknown command
+// fails before any output format is resolved, so only main.go's own argv/env
+// scan decides whether the error is a JSON envelope or human text.
+func TestAgentModeEndToEnd(t *testing.T) {
+	tests := []struct {
+		name     string
+		env      []string
+		args     []string
+		envelope bool
+	}{
+		{"CLAUDECODE", []string{"CLAUDECODE=1"}, []string{"nosuchcmd"}, true},
+		{"CLAUDECODE with --plain", []string{"CLAUDECODE=1"}, []string{"nosuchcmd", "--plain"}, false},
+		{"OPENFGA_AGENT_MODE=1", []string{"OPENFGA_AGENT_MODE=1"}, []string{"nosuchcmd"}, true},
+		{"--agent flag", nil, []string{"--agent", "nosuchcmd"}, true},
+		{"opt-out beats detection", []string{"CLAUDECODE=1", "OPENFGA_AGENT_MODE=0"}, []string{"nosuchcmd"}, false},
+		{"--agent=false beats detection", []string{"CLAUDECODE=1"}, []string{"--agent=false", "nosuchcmd"}, false},
+		{"no agent", nil, []string{"nosuchcmd"}, false},
+		{"CLAUDECODE with forced color", []string{"CLAUDECODE=1", "CLICOLOR_FORCE=1"}, []string{"nosuchcmd"}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home := t.TempDir()
+			_, errb, code := runOfga(t, home, "", tt.env, tt.args...)
+			if code != clierr.CodeUsage {
+				t.Fatalf("unknown command must be a usage error, got %d: %q", code, errb)
+			}
+			if strings.Contains(errb, "\x1b[") {
+				t.Errorf("agent output must carry no ANSI: %q", errb)
+			}
+			var env struct {
+				Error struct{ Code, Message string } `json:"error"`
+			}
+			isEnvelope := json.Unmarshal([]byte(strings.TrimSpace(errb)), &env) == nil && env.Error.Message != ""
+			if isEnvelope != tt.envelope {
+				t.Errorf("envelope = %v, want %v: %q", isEnvelope, tt.envelope, errb)
+			}
+		})
+	}
+}
+
+func TestBareOfgaRefusesInAgentModeEnvelope(t *testing.T) {
+	_, errb, code := runOfga(t, t.TempDir(), "", []string{"CLAUDECODE=1"})
+	if code != clierr.CodeUsage || !strings.Contains(errb, "agent mode is on") || !json.Valid([]byte(errb)) {
+		t.Fatalf("code=%d err=%q", code, errb)
 	}
 }

@@ -165,8 +165,40 @@ func TestMachineOutputFromArgs(t *testing.T) {
 	}
 	root := scanRoot()
 	for _, tt := range tests {
-		if got := machineOutputFromArgs(root, tt.args); got != tt.want {
+		if got := machineOutputFromArgs(root, tt.args, false); got != tt.want {
 			t.Errorf("machineOutputFromArgs(%q) = %v, want %v", tt.args, got, tt.want)
+		}
+	}
+	// Agent mode makes machine output the default; --plain and -o table still win.
+	agentTests := []struct {
+		args []string
+		want bool
+	}{
+		{[]string{"stores", "list"}, true}, {[]string{"--plain"}, false}, {[]string{"-o", "table"}, false},
+	}
+	for _, tt := range agentTests {
+		if got := machineOutputFromArgs(root, tt.args, true); got != tt.want {
+			t.Errorf("machineOutputFromArgs(%q, agent) = %v, want %v", tt.args, got, tt.want)
+		}
+	}
+}
+
+func TestBoolFlagState(t *testing.T) {
+	yes, no := true, false
+	tests := []struct {
+		args []string
+		want *bool
+	}{
+		{[]string{"stores", "list"}, nil},
+		{[]string{"--agent"}, &yes},
+		{[]string{"--agent=false"}, &no},
+		{[]string{"--agent", "--"}, &yes},
+		{[]string{"--", "--agent"}, nil},
+	}
+	for _, tt := range tests {
+		got := boolFlagState(tt.args, "--agent")
+		if (got == nil) != (tt.want == nil) || (got != nil && *got != *tt.want) {
+			t.Errorf("boolFlagState(%q) = %v, want %v", tt.args, got, tt.want)
 		}
 	}
 }
