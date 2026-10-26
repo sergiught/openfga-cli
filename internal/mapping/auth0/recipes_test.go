@@ -350,7 +350,7 @@ func TestRecipesSurviveTheBranchesTheirSamplesDoNotShow(t *testing.T) {
 			"organization":{"id":"org_1234567890abcdef"},
 			"user":{"user_id":"auth0|507f1f77bcf86cd799439020"},
 			"role":{"id":"rol_1234567890abcdef","name":"Billing Manager"}}}}`,
-		want: []string{"user:auth0|507f1f77bcf86cd799439020 assignee role:org_1234567890abcdef|rol_1234567890abcdef write"},
+		want: []string{"membership:org_1234567890abcdef|auth0|507f1f77bcf86cd799439020#holder assignee role:org_1234567890abcdef|rol_1234567890abcdef write"},
 	}, {
 		name: "a user created with no app_metadata still joins the tenant",
 		typ:  "user.created",
@@ -447,6 +447,51 @@ func TestRecipesSurviveTheBranchesTheirSamplesDoNotShow(t *testing.T) {
 				t.Errorf("got %d filters, want %d", filters, tc.filters)
 			}
 		})
+	}
+}
+
+// Auth0 sends no organization.member.role.deleted when someone leaves, so the
+// sweep in organization.member.deleted has to cover exactly what
+// organization.member.role.assigned wrote. Both are rendered from the same
+// organization and user, then the sweep's user is compared with the tuple's.
+func TestLeavingAnOrganizationSweepsTheRolesAssignedThere(t *testing.T) {
+	events := map[string]Event{}
+	for _, e := range Catalog() {
+		events[e.Type] = e
+	}
+	left, assigned := events["organization.member.deleted"], events["organization.member.role.assigned"]
+
+	// Same organization and user in both payloads, whatever the samples carry.
+	left.Sample = map[string]any{
+		"type": "organization.member.deleted", "a0tenant": "acme",
+		"data": map[string]any{"object": map[string]any{
+			"organization": map[string]any{"id": "org_1"},
+			"user":         map[string]any{"user_id": "auth0|u1"},
+		}},
+	}
+	assigned.Sample = map[string]any{
+		"type": "organization.member.role.assigned", "a0tenant": "acme",
+		"data": map[string]any{"object": map[string]any{
+			"organization": map[string]any{"id": "org_1"},
+			"user":         map[string]any{"user_id": "auth0|u1"},
+			"role":         map[string]any{"id": "rol_1"},
+		}},
+	}
+
+	written := renderRecipe(t, assigned).Tuples
+	if len(written) != 1 {
+		t.Fatalf("role.assigned wrote %d tuples, want 1", len(written))
+	}
+	var found bool
+	for _, op := range renderRecipe(t, left).Filters {
+		for _, f := range op.Filters {
+			if f.User == written[0].User && f.Relation == written[0].Relation && f.Object == "role:" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Errorf("no filter in organization.member.deleted sweeps %s %s on role:", written[0].User, written[0].Relation)
 	}
 }
 

@@ -46,6 +46,15 @@ type plan
     # user.created, when the user has a plan. Users without one write nothing.
     define assignee: [user]
 
+# One object per user per organization, so a role assignment can hang from the
+# membership instead of the bare user. Leaving the organization then removes the
+# holder and the roles together: organization.member.deleted can name this one
+# user's membership exactly, which it cannot do for role:org_…|rol_… objects.
+type membership
+  relations
+    # organization.member.added / .deleted
+    define holder: [user]
+
 # One object per role per organization, keyed org_…|rol_… — the same role in two
 # organizations is two objects, because Auth0 scopes the assignment that way and
 # a role that leaked across organizations would grant more than the event said.
@@ -57,8 +66,9 @@ type plan
 # one "Billing Manager" — a relation name cannot contain a space.
 type role
   relations
-    # organization.member.role.assigned / .deleted
-    define assignee: [user]
+    # organization.member.role.assigned / .deleted. The assignee is the user's
+    # membership in the organization, not the user.
+    define assignee: [membership#holder]
 
 type connection
   relations
@@ -107,19 +117,11 @@ type organization
     # [user] is for the first admin, who exists before any role does.
     define role_admin: [user, role#assignee]
 
-    # ...but only while they are still a member, and that `and` is load-bearing.
-    #
-    # Auth0 never emits organization.member.role.deleted when someone leaves an
-    # organization, or when the organization itself is deleted — only
-    # organization.member.deleted. So the assignee tuple outlives the
-    # membership, and no mapping can clean it up: a tuple filter matches an
-    # exact object or a bare `type:` prefix, and this catalog keys roles
-    # org_…|rol_… precisely so they cannot leak across organizations. There is
-    # no filter that says "this user's roles in this one organization".
-    #
-    # Requiring membership makes the orphan inert instead of dangerous. The
-    # stale tuple still sits in the store until you reconcile, but it grants
-    # nothing the moment the membership goes.
+    # ...but only while they are still a member. organization.member.deleted
+    # removes the member tuple and every role assignment the user held in the
+    # organization together, so a user who rejoins starts with no roles. The
+    # `and member` stays as defence in depth: events can arrive out of order, and
+    # it means a role grants nothing in the window before that sweep runs.
     define admin: role_admin and member
 
 # ── what you replace ──────────────────────────────────────────────────────

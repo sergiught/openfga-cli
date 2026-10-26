@@ -55,7 +55,8 @@ const (
 	dslUser        = "type user"
 	dslConnection  = "type connection"
 	dslOrgMember   = "type organization\n  relations\n    define member: [user, group#member]"
-	dslOrgRole     = "type role\n  relations\n    define assignee: [user]"
+	dslMembership  = "type membership\n  relations\n    define holder: [user]"
+	dslOrgRole     = "type role\n  relations\n    define assignee: [membership#holder]"
 	dslOrgConn     = "type organization\n  relations\n    define connection: [connection]"
 	dslGroupMember = "type group\n  relations\n    define member: [user, group#member, connection#identity]"
 	dslGroupConn   = "type group\n  relations\n    define connection: [connection]"
@@ -85,6 +86,12 @@ const (
 	// provider's own subject, carries no provider prefix, and the schema types
 	// it as string *or* integer, so it can arrive as a JSON number.
 	tmplUserID = "user:{{ fga_escape(input.data.object.user_id) }}"
+
+	// One membership object per user per organization: the thing a role
+	// assignment hangs from, so that leaving the organization can remove
+	// the roles with it. fga_escape leaves | alone, as in tmplRoleID.
+	tmplMembership       = "membership:{{ input.data.object.organization.id }}|{{ fga_escape(input.data.object.user.user_id) }}"
+	tmplMembershipHolder = tmplMembership + "#holder"
 
 	// One role object per role per organization. fga_escape leaves | alone,
 	// which is what makes a compound key like this legal in the first place.
@@ -218,21 +225,16 @@ var lifecycleWarnings = map[string]string{
 		"remove them. Use one key everywhere.\n\n" +
 		"If identities becomes empty the rule is skipped: a filter with nothing to keep fails the event.",
 
-	"user.deleted": "mapper allows three filters per rule, so a user's role, plan and group tuples stay. " +
-		"Roles and plans grant nothing alone (admin needs member; can_export needs can_edit). Groups may " +
+	"user.deleted": "mapper allows three filters per rule, so a user's membership-holder, role, plan and group tuples stay. " +
+		"These grant nothing alone (admin needs member, and the user's member tuples are gone; can_export needs can_edit). Groups may " +
 		"key members by email rather than user_id (see group.member.added). To remove plans, and groups " +
 		"if yours use the user_id, add a second rule with the same when and filters on \"plan:\" and " +
 		"\"group:\".",
 
-	"organization.deleted": "Two kinds of tuple stay. Role assignments (role:org_…|rol_…) can't be " +
-		"matched, because a filter can't match part of an id; they grant nothing once the memberships " +
-		"are gone. Tuples where the organization is the user, such as a document's organization, need " +
+	"organization.deleted": "Two kinds of tuple stay. Membership holders and role assignments (membership:org_…|user, " +
+		"role:org_…|rol_…) can't be matched, because a filter can't match part of an id; they grant nothing " +
+		"once the organization's own tuples are gone. Tuples where the organization is the user, such as a document's organization, need " +
 		"a filter for each of your types, e.g. {user: organization:…, object: \"document:\"}.",
-
-	"organization.member.deleted": "Auth0 sends no organization.member.role.deleted when someone leaves, " +
-		"and no filter can reach their role tuples: a filter can't match part of an id like " +
-		"org_…|rol_…. They grant nothing, since admin requires member, but stay in the store until you " +
-		"clean them up.",
 
 	"group.deleted": "Tuples that give the group access elsewhere stay: a document shared with " +
 		"group:…#member, or a group nested in another group (no Auth0 event writes those, but the model " +
@@ -262,32 +264,54 @@ func recipeBody(typ string) Recipe {
 	// --- relationship recipes ---
 
 	case "organization.member.added":
-		return membership(typ,
-			"A user joined an organization. This writes one tuple making them a member. A group can be a member too (group#member): group.created writes that for organization groups, so their members need no tuple of their own.",
-			tmplOrgUser, "member", tmplOrgID, true,
-			[]mapping.Requirement{{Type: "organization", Relation: "member", UserTypes: []string{"user"},
-				DSL: dslUser + "\n\n" + dslOrgMember}})
+		return Recipe{
+			Explain: "A user joined an organization. This writes two tuples. The first makes them a member. The second makes them the holder of their membership object (membership:org_…|user), which is what organization.member.role.assigned hangs their roles from, so that leaving can remove them. A group can be a member too (group#member): group.created writes that for organization groups, so their members need no tuple of their own.",
+			Rule: mapping.Rule{
+				Name: typ,
+				When: when(typ),
+				Tuples: []mapping.Tuple{
+					{User: tmplOrgUser, Relation: "member", Object: tmplOrgID},
+					{User: tmplOrgUser, Relation: "holder", Object: tmplMembership},
+				},
+			},
+			Requires: []mapping.Requirement{
+				{Type: "organization", Relation: "member", UserTypes: []string{"user"},
+					DSL: dslUser + "\n\n" + dslOrgMember},
+				{Type: "membership", Relation: "holder", UserTypes: []string{"user"},
+					DSL: dslUser + "\n\n" + dslMembership},
+			},
+		}
 
 	case "organization.member.deleted":
-		return membership(typ,
-			"A user left an organization. This deletes their membership tuple.",
-			tmplOrgUser, "member", tmplOrgID, false,
-			[]mapping.Requirement{{Type: "organization", Relation: "member", UserTypes: []string{"user"},
-				DSL: dslUser + "\n\n" + dslOrgMember}})
+		return cleanup(typ,
+			"A user left an organization. This removes their membership, the holder of their membership object, and every role they held in the organization, so that if they rejoin they start with no roles. Auth0 sends no organization.member.role.deleted when someone leaves, which is why the roles are swept here.",
+			[]mapping.TupleFilter{
+				{User: tmplOrgUser, Relation: "member", Object: tmplOrgID, Action: "delete"},
+				{User: tmplOrgUser, Relation: "holder", Object: tmplMembership, Action: "delete"},
+				{User: tmplMembershipHolder, Relation: "assignee", Object: "role:", Action: "delete"},
+			},
+			[]mapping.Requirement{
+				{Type: "organization", Relation: "member", UserTypes: []string{"user"},
+					DSL: dslUser + "\n\n" + dslOrgMember},
+				{Type: "membership", Relation: "holder", UserTypes: []string{"user"},
+					DSL: dslUser + "\n\n" + dslMembership},
+				{Type: "role", Relation: "assignee", UserTypes: []string{"membership#holder"},
+					DSL: dslMembership + "\n\n" + dslOrgRole},
+			})
 
 	case "organization.member.role.assigned":
 		return membership(typ,
-			"A member was given a role in an organization. Roles are objects, not relations: users create them at runtime, and a relation name can't contain a space. Each is keyed org_…|rol_…, so the same role in two organizations stays separate.\n\nAuth0 never says what a role allows. Write that once, by hand:\n\n  role:org_…|rol_admin#assignee  role_admin  organization:org_…\n\nAfter that, this rule and organization.member.role.deleted keep it up to date.",
-			tmplOrgUser, "assignee", tmplRoleID, true,
-			[]mapping.Requirement{{Type: "role", Relation: "assignee", UserTypes: []string{"user"},
-				DSL: dslUser + "\n\n" + dslOrgRole}})
+			"A member was given a role in an organization. Roles are objects, not relations: users create them at runtime, and a relation name can't contain a space. Each is keyed org_…|rol_…, so the same role in two organizations stays separate. The assignee is the user's membership object, not the user, so that organization.member.deleted can remove the role when they leave.\n\nAuth0 never says what a role allows. Write that once, by hand:\n\n  role:org_…|rol_admin#assignee  role_admin  organization:org_…\n\nAfter that, this rule and organization.member.role.deleted keep it up to date.",
+			tmplMembershipHolder, "assignee", tmplRoleID, true,
+			[]mapping.Requirement{{Type: "role", Relation: "assignee", UserTypes: []string{"membership#holder"},
+				DSL: dslMembership + "\n\n" + dslOrgRole}})
 
 	case "organization.member.role.deleted":
 		return membership(typ,
 			"A role was removed from a member. This deletes the tuple organization.member.role.assigned wrote. The tuple you wrote by hand to say what the role allows is untouched.",
-			tmplOrgUser, "assignee", tmplRoleID, false,
-			[]mapping.Requirement{{Type: "role", Relation: "assignee", UserTypes: []string{"user"},
-				DSL: dslUser + "\n\n" + dslOrgRole}})
+			tmplMembershipHolder, "assignee", tmplRoleID, false,
+			[]mapping.Requirement{{Type: "role", Relation: "assignee", UserTypes: []string{"membership#holder"},
+				DSL: dslMembership + "\n\n" + dslOrgRole}})
 
 	case "group.member.added":
 		return union(typ,
