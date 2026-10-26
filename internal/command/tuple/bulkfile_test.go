@@ -2,10 +2,16 @@ package tuple
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/sergiught/go-openfga/openfga"
+	"github.com/sergiught/openfga-cli/internal/clierr"
 )
 
 // wantTuple asserts one parsed entry's triple and condition name.
@@ -294,5 +300,30 @@ func TestEncodeTupleFileRoundTrips(t *testing.T) {
 				t.Errorf("condition context lost through %s: %#v", format, got[1].Condition.Context)
 			}
 		})
+	}
+}
+
+func TestLoadTupleFileMatchesWriteFile(t *testing.T) {
+	const fixture = `[{"user":"user:a","relation":"viewer","object":"doc:1"},` +
+		`{"user":"user:b","relation":"editor","object":"doc:2","condition":{"name":"c","context":{"x":1}}}]`
+	path := filepath.Join(t.TempDir(), "t.json")
+	if err := os.WriteFile(path, []byte(fixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadTupleFile(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := bulkTuples(&cobra.Command{}, path, formatJSON, nil, "", "", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("LoadTupleFile = %+v, write path = %+v", got, want)
+	}
+
+	_, err = LoadTupleFile(filepath.Join(t.TempDir(), "missing.json"), nil)
+	if clierr.Classify(err) != clierr.KindValidation {
+		t.Fatalf("kind = %q, want validation; err=%v", clierr.Classify(err), err)
 	}
 }

@@ -5,6 +5,7 @@ package tuple
 import (
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -580,10 +581,17 @@ func bulkTuples(cmd *cobra.Command, file string, format bulkFormat, args []strin
 		return nil, clierr.WithCode(clierr.CodeUsage,
 			fmt.Errorf("--file cannot be combined with positional args or --user/--relation/--object"))
 	}
+	return loadTuples(cmd.InOrStdin(), file, format, forDelete)
+}
+
+// loadTuples is the single tuple-file reader behind `tuples write|delete --file`
+// and LoadTupleFile: it reads file (or stdin for "-"), decodes it in format and
+// validates every entry.
+func loadTuples(stdin io.Reader, file string, format bulkFormat, forDelete bool) ([]openfga.TupleKey, error) {
 	var data []byte
 	var err error
 	if file == "-" {
-		data, err = readlimit.All(cmd.InOrStdin(), readlimit.Document, "tuples from stdin")
+		data, err = readlimit.All(stdin, readlimit.Document, "tuples from stdin")
 	} else {
 		data, err = readlimit.File(file, readlimit.Document, "tuples file")
 	}

@@ -32,6 +32,7 @@ ofga query batch-check --check user,relation,object [...] [flags]
 | `--consistency` | read consistency: HIGHER_CONSISTENCY, MINIMIZE_LATENCY, UNSPECIFIED (default HIGHER_CONSISTENCY) |   |
 | `--context` | JSON object of condition context, applied to every check |   |
 | `--contextual-tuple` | contextual tuple as user,relation,object (repeatable), applied to every check | `[]` |
+| `--contextual-tuples-file` | read contextual tuples from a JSON, JSONL, YAML or CSV file (same shape as tuples write --file); "-" reads stdin |   |
 
 <details>
 <summary>Global flags</summary>

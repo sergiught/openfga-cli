@@ -31,6 +31,7 @@ ofga query list-users [object] [relation] --type <user-type> [flags]
 | `--consistency` | read consistency: HIGHER_CONSISTENCY, MINIMIZE_LATENCY, UNSPECIFIED (default HIGHER_CONSISTENCY) |   |
 | `--context` | JSON object of condition context |   |
 | `--contextual-tuple` | contextual tuple as user,relation,object (repeatable) | `[]` |
+| `--contextual-tuples-file` | read contextual tuples from a JSON, JSONL, YAML or CSV file (same shape as tuples write --file); "-" reads stdin |   |
 | `--object` | object |   |
 | `--relation` | relation |   |
 | `--type` | user type filter, optionally type#relation (repeatable) | `[]` |
