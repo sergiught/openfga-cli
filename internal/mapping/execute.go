@@ -16,7 +16,9 @@ type TupleWriter interface {
 // cancellation. An atomic event goes out as one Write request. A non-atomic
 // event (a tuple is both deleted and written) sends its deletes, then its
 // writes, each in chunks of maxChangesPerWrite. It returns how many events
-// were fully applied.
+// were fully applied. Cancellation is checked before each request, so one
+// that lands after the last change still returns success: the plan is fully
+// applied, and a resume would have nothing left to send.
 func Execute(ctx context.Context, p *Plan, w TupleWriter, progress func(done, total int)) (int, error) {
 	for i, ep := range p.Events {
 		if err := applyEvent(ctx, w, ep); err != nil {
