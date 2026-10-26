@@ -578,7 +578,7 @@ func (c *Command) playgroundCmd() *cobra.Command {
 }
 
 func (c *Command) runPlayground(cmd *cobra.Command, _ []string) error {
-	if c.cli.Agent.Enabled && cmd.Name() == "playground" {
+	if c.cli.Agent.Enabled {
 		return c.cli.Agent.Refuse("the playground")
 	}
 	// The TUI needs an interactive terminal; without one (piped, CI, no TTY)

@@ -149,7 +149,7 @@ func TestVersionReportsAgentMode(t *testing.T) {
 func TestPlaygroundRefusesInAgentMode(t *testing.T) {
 	configtest.Isolate(t)
 	t.Setenv("CLAUDECODE", "1")
-	for _, args := range [][]string{{"playground"}} {
+	for _, args := range [][]string{{"playground"}, {}} {
 		c := New(cli.New(log.New(io.Discard), config.New(), "test"))
 		root := c.Command()
 		root.SetOut(io.Discard)
