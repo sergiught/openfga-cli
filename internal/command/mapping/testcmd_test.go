@@ -400,21 +400,21 @@ tests:
 	p := writeFile(t, t.TempDir(), "mapping.yaml", wrongContext)
 	out, _ := run(t, newCLI(), "test", p)
 	for _, want := range []string{
-		"missing: user:1 member team:1 (in_region region=eu, tier=gold)\n",
-		"unexpected: user:1 member team:1 (in_region region=us, tier=gold)\n",
+		`missing: user:1 member team:1 (in_region region="eu", tier="gold")` + "\n",
+		`unexpected: user:1 member team:1 (in_region region="us", tier="gold")` + "\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}
 	}
 	report, _ := run(t, newCLI(), "test", p, "--report", "json")
-	if !strings.Contains(report, `"user:1 member team:1 (in_region region=us, tier=gold)"`) {
+	if !strings.Contains(report, `"user:1 member team:1 (in_region region=\"us\", tier=\"gold\")"`) {
 		t.Errorf("the JSON report drops the context:\n%s", report)
 	}
 	// The context is the file's own text, escaped like every other field.
 	hostile := strings.Replace(wrongContext, "{tier: gold, region: eu}", `{tier: gold, region: "e\u001b[31mu"}`, 1)
 	out, _ = run(t, newCLI(), "test", writeFile(t, t.TempDir(), "mapping.yaml", hostile))
-	if strings.Contains(out, "\x1b[31m") || !strings.Contains(out, "missing: user:1 member team:1 (in_region region=e") {
+	if strings.Contains(out, "\x1b[31m") || !strings.Contains(out, `missing: user:1 member team:1 (in_region region="e`) {
 		t.Errorf("out = %q", out)
 	}
 }

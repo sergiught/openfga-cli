@@ -163,27 +163,32 @@ func TestRunTestsWithTimeoutCapsEachEvaluation(t *testing.T) {
 }
 
 // TupleText shows everything that tells two tuples apart to mapper's runner:
-// the condition, its context sorted by key, and a delete.
+// the condition, its context sorted by key with each value as JSON, and a delete.
 func TestTupleTextShowsWhatTellsTwoTuplesApart(t *testing.T) {
 	base := language.Tuple{User: "user:1", Relation: "member", Object: "team:1", Action: language.ActionWrite}
 	cond := base
 	cond.Condition = "in_region"
 	withContext := cond
 	withContext.Context = map[string]any{"tier": "gold", "region": "eu"}
+	number, numeral := cond, cond
+	number.Context = map[string]any{"level": 2}
+	numeral.Context = map[string]any{"level": "2"}
 	del := base
 	del.Action = language.ActionDelete
 	for want, tu := range map[string]language.Tuple{
-		"user:1 member team:1":                                  base,
-		"user:1 member team:1 (in_region)":                      cond,
-		"user:1 member team:1 (in_region region=eu, tier=gold)": withContext,
-		"user:1 member team:1 (delete)":                         del,
+		"user:1 member team:1":                                      base,
+		"user:1 member team:1 (in_region)":                          cond,
+		`user:1 member team:1 (in_region region="eu", tier="gold")`: withContext,
+		"user:1 member team:1 (in_region level=2)":                  number,
+		`user:1 member team:1 (in_region level="2")`:                numeral,
+		"user:1 member team:1 (delete)":                             del,
 	} {
 		if got := TupleText(tu, nil); got != want {
 			t.Errorf("TupleText(%+v) = %q, want %q", tu, got, want)
 		}
 	}
 	// field sees every value the tuple carries, context keys included.
-	if got := TupleText(withContext, strings.ToUpper); got != "USER:1 MEMBER TEAM:1 (IN_REGION REGION=EU, TIER=GOLD)" {
+	if got := TupleText(withContext, strings.ToUpper); got != `USER:1 MEMBER TEAM:1 (IN_REGION REGION="EU", TIER="GOLD")` {
 		t.Errorf("escaped = %q", got)
 	}
 }

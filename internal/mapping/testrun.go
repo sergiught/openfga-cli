@@ -2,7 +2,6 @@ package mapping
 
 import (
 	"context"
-	"fmt"
 	"maps"
 	"slices"
 	"strings"
@@ -102,8 +101,8 @@ func RunTestsWithTimeout(ctx context.Context, f *File, filter string, failFast b
 }
 
 // TupleText is a test's tuple, expected or actual, on one line: user relation
-// object, then its condition with the context sorted by key, then a delete
-// marked as one. mapper's runner tells two tuples apart by every one of these,
+// object, then its condition with the context sorted by key and each value as
+// JSON (so 2 and "2" differ), then a delete marked as one. mapper's runner tells two tuples apart by every one of these,
 // so a failure that left one out could print a missing and an unexpected line
 // that read the same. field escapes each value taken from the tuple, for a
 // caller writing straight to a terminal; nil leaves them as they are.
@@ -117,7 +116,7 @@ func TupleText(t language.Tuple, field func(string) string) string {
 		if len(t.Context) > 0 {
 			pairs := make([]string, 0, len(t.Context))
 			for _, k := range slices.Sorted(maps.Keys(t.Context)) {
-				pairs = append(pairs, field(k)+"="+field(fmt.Sprint(t.Context[k])))
+				pairs = append(pairs, field(k)+"="+field(compactJSON(t.Context[k])))
 			}
 			cond += " " + strings.Join(pairs, ", ")
 		}
