@@ -572,6 +572,7 @@ func (c *Command) RegisterSubCommands() {
 		configcmd.NewTheme(c.cli),
 		c.playgroundCmd(),
 		c.versionCmd(),
+		c.commandsCmd(),
 	)
 }
 

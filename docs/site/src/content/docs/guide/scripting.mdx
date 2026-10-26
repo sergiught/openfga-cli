@@ -133,6 +133,18 @@ Because a filter such as `length` or `sort_by(.x)` has to see the whole
 document, `--jq` buffers output that would otherwise stream — worth remembering
 when filtering a very large `tuples read`.
 
+## Discovering commands
+
+`ofga commands` prints a catalog of every runnable command: its path, usage,
+flags, examples, and whether it needs a store or model, mutates state, supports
+`--dry-run` or only runs interactively. Global flags are listed once. It works
+offline and needs no profile.
+
+```sh
+# Every command that changes state
+ofga commands --json | jq -r '.commands[] | select(.mutates) | .path'
+```
+
 ## Sending extra request headers
 
 Deployments that put OpenFGA behind a gateway with its own header-based

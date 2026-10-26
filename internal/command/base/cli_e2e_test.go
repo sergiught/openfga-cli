@@ -601,3 +601,14 @@ func TestHumanErrorsUnchanged(t *testing.T) {
 		}
 	}
 }
+
+func TestCommandsWorksOffline(t *testing.T) {
+	home := t.TempDir()
+	out, errb, code := runOfga(t, home, "", nil, "commands", "--json")
+	if code != 0 {
+		t.Fatalf("commands failed: code=%d stderr=%q", code, errb)
+	}
+	if !json.Valid([]byte(out)) {
+		t.Fatalf("commands output is not valid JSON: %q", out)
+	}
+}
