@@ -391,3 +391,35 @@ func TestJSONLObjectIsOneLine(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+func TestCompactJSONIsOneLine(t *testing.T) {
+	Compact = true
+	t.Cleanup(func() { Compact = false })
+	var b bytes.Buffer
+	if err := JSON(&b, map[string]any{"a": 1, "b": []int{1, 2}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := b.String(); got != "{\"a\":1,\"b\":[1,2]}\n" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestTerseSilencesChatterButNotWarnings(t *testing.T) {
+	Terse = true
+	t.Cleanup(func() { Terse = false })
+	var b bytes.Buffer
+	Successf(&b, "ok")
+	Infof(&b, "info")
+	Notef(&b, "note")
+	Interactive = true
+	t.Cleanup(func() { Interactive = false })
+	Progressf(&b, "working")
+	if b.Len() != 0 {
+		t.Fatalf("Terse leaked output: %q", b.String())
+	}
+	Warnf(&b, "careful")
+	Errorf(&b, "bad")
+	if !strings.Contains(b.String(), "careful") || !strings.Contains(b.String(), "bad") {
+		t.Fatalf("warnings/errors must survive Terse: %q", b.String())
+	}
+}

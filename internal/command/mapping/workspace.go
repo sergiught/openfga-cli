@@ -26,6 +26,9 @@ func (c *Command) runWorkspace(cmd *cobra.Command, args []string) error {
 	if len(args) == 1 && c.looksLikeTypo(args[0]) {
 		return c.cli.GroupRunE(cmd, args)
 	}
+	if c.cli.Agent.Enabled {
+		return c.cli.Agent.Refuse("the mappings workspace")
+	}
 	if !interactive(cmd, c.cli) {
 		return clierr.WithCode(clierr.CodeUsage, errors.New(
 			"ofga mappings opens an interactive workspace and needs a terminal; "+

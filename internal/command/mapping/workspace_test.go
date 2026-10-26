@@ -14,6 +14,7 @@ import (
 	"charm.land/log/v2"
 	"github.com/spf13/cobra"
 
+	"github.com/sergiught/openfga-cli/internal/agentmode"
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/config"
@@ -201,5 +202,15 @@ func TestWorkspaceOptionsSayWhyTheConfigDoesNotResolve(t *testing.T) {
 	}
 	if !strings.Contains(opts.ApplyErr, "typo") {
 		t.Fatalf("ApplyErr = %q, want it to name the unknown profile", opts.ApplyErr)
+	}
+}
+
+func TestTheWorkspaceRefusesInAgentMode(t *testing.T) {
+	configtest.Isolate(t)
+	c := cli.New(log.New(io.Discard), config.New(), "test")
+	c.Agent = agentmode.State{Enabled: true, Reason: "CLAUDECODE=1"}
+	_, err := run(t, c)
+	if err == nil || clierr.Code(err) != clierr.CodeUsage || !strings.Contains(err.Error(), "agent mode is on") {
+		t.Fatalf("code=%d err=%v", clierr.Code(err), err)
 	}
 }

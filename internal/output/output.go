@@ -32,6 +32,12 @@ var (
 	// JSONL renders JSON as one compact value per line (-o jsonl): a top-level
 	// array becomes one line per element.
 	JSONL bool
+	// Compact makes JSON write one compact line instead of indented output
+	// (agent mode). JSONL keeps its own per-element behavior.
+	Compact bool
+	// Terse makes Successf, Infof, Notef and Progressf no-ops (agent mode).
+	// Warnf, Errorf and Hintf are unaffected.
+	Terse bool
 )
 
 // JSON writes v as indented JSON to w. A typed nil slice (e.g. `var x []T` with
@@ -46,7 +52,9 @@ func JSON(w io.Writer, v any) error {
 		return jsonLines(w, v)
 	}
 	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
+	if !Compact {
+		enc.SetIndent("", "  ")
+	}
 	enc.SetEscapeHTML(false)
 	return enc.Encode(v)
 }
@@ -384,7 +392,7 @@ func HumanBlankLine(w io.Writer) error {
 
 // Successf prints a success line with a green dot (suppressed in Quiet/Plain).
 func Successf(w io.Writer, format string, a ...any) {
-	if Quiet || Plain {
+	if Quiet || Plain || Terse {
 		return
 	}
 	dot := lipgloss.NewStyle().Foreground(style.Green).Render(style.IconDot)
@@ -394,7 +402,7 @@ func Successf(w io.Writer, format string, a ...any) {
 // Infof prints a muted informational line with a primary-colored dot
 // (suppressed in Quiet/Plain).
 func Infof(w io.Writer, format string, a ...any) {
-	if Quiet || Plain {
+	if Quiet || Plain || Terse {
 		return
 	}
 	dot := lipgloss.NewStyle().Foreground(style.Primary).Render(style.IconDot)
@@ -413,7 +421,7 @@ func Warnf(w io.Writer, format string, a ...any) {
 // Notef prints a neutral, faint note line with a faint dot (suppressed in
 // Quiet/Plain).
 func Notef(w io.Writer, format string, a ...any) {
-	if Quiet || Plain {
+	if Quiet || Plain || Terse {
 		return
 	}
 	dot := lipgloss.NewStyle().Foreground(style.Faintc).Render(style.IconDot)
@@ -423,7 +431,7 @@ func Notef(w io.Writer, format string, a ...any) {
 // Progressf prints transient progress only for an interactive human session,
 // keeping redirected and machine-readable command output quiet.
 func Progressf(w io.Writer, format string, a ...any) {
-	if Quiet || Plain || !Interactive {
+	if Quiet || Plain || Terse || !Interactive {
 		return
 	}
 	Infof(w, format, a...)

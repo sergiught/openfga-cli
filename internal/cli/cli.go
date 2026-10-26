@@ -14,6 +14,7 @@ import (
 
 	"charm.land/log/v2"
 	"github.com/sergiught/go-openfga/openfga"
+	"github.com/sergiught/openfga-cli/internal/agentmode"
 	"github.com/sergiught/openfga-cli/internal/apilog"
 	"github.com/sergiught/openfga-cli/internal/client"
 	"github.com/sergiught/openfga-cli/internal/clierr"
@@ -36,6 +37,8 @@ type CLI struct {
 	YAML bool
 	// Quiet suppresses incidental success/info output.
 	Quiet bool
+	// Agent is the resolved agent-mode decision (set in PersistentPreRunE).
+	Agent agentmode.State
 	// NoInput prevents prompts and the interactive TUI.
 	NoInput bool
 	// Plain renders unstyled, tab-separated tables.

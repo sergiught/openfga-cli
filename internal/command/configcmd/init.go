@@ -41,6 +41,12 @@ func NewInit(c *cli.CLI) *cobra.Command {
 			if len(args) == 1 {
 				name = args[0]
 			}
+			// A flagless init is the guided tour (or a chain of defaulted
+			// prompts under --no-input), which an agent cannot drive. With
+			// --api-url it stays the headless path, safe for agents.
+			if c.Agent.Enabled && apiURL == "" {
+				return c.Agent.Refuse("the init wizard")
+			}
 			// Refuse a token passed literally on argv: it leaks to `ps` and
 			// shell history. Consistent with `profiles set token`.
 			if token != "" {
