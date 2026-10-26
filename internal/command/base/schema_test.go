@@ -13,12 +13,6 @@ import (
 	"github.com/sergiught/openfga-cli/internal/outputschema/outputschematest"
 )
 
-// noJSONOutput lists machine-capable leaves that print no JSON document, so
-// they have no output schema. Keep it short and justified.
-var noJSONOutput = map[string]string{
-	"ofga model test init": "scaffolds files and prints progress text; --json changes nothing",
-}
-
 func TestEveryMachineLeafHasOutputType(t *testing.T) {
 	root := metaRoot(t).Command()
 	types := OutputTypes()
@@ -27,9 +21,6 @@ func TestEveryMachineLeafHasOutputType(t *testing.T) {
 	for _, c := range cmdmeta.Leaves(root) {
 		meta, _ := cmdmeta.Get(c)
 		if meta.InteractiveOnly {
-			continue
-		}
-		if _, skip := noJSONOutput[c.CommandPath()]; skip {
 			continue
 		}
 		want[c.CommandPath()] = true
@@ -64,11 +55,6 @@ func TestCommandsLinksOutputSchema(t *testing.T) {
 	}
 	if v, ok := got["ofga playground"]; !ok || v != "" {
 		t.Errorf("playground output_schema = %q (present %v), want none", v, ok)
-	}
-	for p := range noJSONOutput {
-		if got[p] != "" {
-			t.Errorf("%s output_schema = %q, want none", p, got[p])
-		}
 	}
 }
 

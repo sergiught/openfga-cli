@@ -145,3 +145,31 @@ func TestSchemaAcceptsNullAssertionsFromUnexecutableTest(t *testing.T) {
 	}
 	outputschematest.Validate(t, "ofga model test", out.Bytes())
 }
+
+// TestSchemaValidatesTestInitOutput runs `model test init --json` in a temp
+// dir and checks stdout against the schema; human lines must stay off stdout.
+func TestSchemaValidatesTestInitOutput(t *testing.T) {
+	configtest.Isolate(t)
+	dir := t.TempDir()
+	a := runTestCLI(t, "http://127.0.0.1:1")
+	cmd := New(a).testInitCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{dir})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	outputschematest.Validate(t, "ofga model test init", out.Bytes())
+	var got struct {
+		Dir     string   `json:"dir"`
+		Created []string `json:"created"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"ofga.yaml", "workspace.schema.json", "model.fga", "fixtures/example.yaml", "tests/example.test.yaml"}
+	if got.Dir != dir || strings.Join(got.Created, ",") != strings.Join(want, ",") {
+		t.Errorf("got %+v, want dir %q created %v", got, dir, want)
+	}
+}

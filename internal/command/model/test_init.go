@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -9,6 +10,7 @@ import (
 
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/modeltest"
+	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/style"
 )
 
@@ -97,6 +99,13 @@ func (c *Command) testInitCmd() *cobra.Command {
 			if len(args) == 1 {
 				dir = args[0]
 			}
+			if c.cli.JSON || c.cli.YAML {
+				created, err := writeScaffold(io.Discard, dir, force)
+				if err != nil {
+					return err
+				}
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, scaffoldResult{Dir: dir, Created: created})
+			}
 			return scaffoldWorkspace(cmd, dir, force)
 		},
 	}
@@ -108,44 +117,8 @@ func (c *Command) testInitCmd() *cobra.Command {
 // existing file unless force is set.
 func scaffoldWorkspace(cmd *cobra.Command, dir string, force bool) error {
 	out := cmd.OutOrStdout()
-	if !force {
-		for _, f := range scaffoldFiles {
-			dest := filepath.Join(dir, f.path)
-			if _, err := os.Stat(dest); err == nil {
-				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("%s already exists; use --force to overwrite", dest))
-			} else if !os.IsNotExist(err) {
-				return fmt.Errorf("inspect %s: %w", dest, err)
-			}
-		}
-	}
-	for _, f := range scaffoldFiles {
-		dest := filepath.Join(dir, f.path)
-		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-			return fmt.Errorf("create %s: %w", filepath.Dir(dest), err)
-		}
-		tmp, err := os.CreateTemp(filepath.Dir(dest), "."+filepath.Base(dest)+".tmp-*")
-		if err != nil {
-			return fmt.Errorf("stage %s: %w", dest, err)
-		}
-		tmpName := tmp.Name()
-		if _, err := tmp.WriteString(f.content); err != nil {
-			_ = tmp.Close()
-			_ = os.Remove(tmpName)
-			return fmt.Errorf("write %s: %w", dest, err)
-		}
-		if err := tmp.Close(); err != nil {
-			_ = os.Remove(tmpName)
-			return fmt.Errorf("write %s: %w", dest, err)
-		}
-		if err := os.Chmod(tmpName, 0o644); err != nil {
-			_ = os.Remove(tmpName)
-			return fmt.Errorf("chmod %s: %w", dest, err)
-		}
-		if err := os.Rename(tmpName, dest); err != nil {
-			_ = os.Remove(tmpName)
-			return fmt.Errorf("install %s: %w", dest, err)
-		}
-		_, _ = fmt.Fprintf(out, "  %s %s\n", style.Success.Render("created"), dest)
+	if _, err := writeScaffold(out, dir, force); err != nil {
+		return err
 	}
 	next := "ofga model test"
 	if filepath.Clean(dir) != "." {
@@ -153,4 +126,59 @@ func scaffoldWorkspace(cmd *cobra.Command, dir string, force bool) error {
 	}
 	_, _ = fmt.Fprintf(out, "\n%s\n", style.Faint.Render(fmt.Sprintf("Scaffolded a model-test workspace. Run `%s` to try it.", next)))
 	return nil
+}
+
+// scaffoldResult is what `model test init` prints under --json/--yaml.
+type scaffoldResult struct {
+	// Dir is the workspace directory as given (default ".").
+	Dir string `json:"dir" yaml:"dir"`
+	// Created lists the files written, relative to Dir, in creation order.
+	Created []string `json:"created" yaml:"created"`
+}
+
+// writeScaffold writes the scaffold files, reporting each to out, and returns
+// their paths relative to dir.
+func writeScaffold(out io.Writer, dir string, force bool) ([]string, error) {
+	created := []string{}
+	if !force {
+		for _, f := range scaffoldFiles {
+			dest := filepath.Join(dir, f.path)
+			if _, err := os.Stat(dest); err == nil {
+				return nil, clierr.WithCode(clierr.CodeUsage, fmt.Errorf("%s already exists; use --force to overwrite", dest))
+			} else if !os.IsNotExist(err) {
+				return nil, fmt.Errorf("inspect %s: %w", dest, err)
+			}
+		}
+	}
+	for _, f := range scaffoldFiles {
+		dest := filepath.Join(dir, f.path)
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			return nil, fmt.Errorf("create %s: %w", filepath.Dir(dest), err)
+		}
+		tmp, err := os.CreateTemp(filepath.Dir(dest), "."+filepath.Base(dest)+".tmp-*")
+		if err != nil {
+			return nil, fmt.Errorf("stage %s: %w", dest, err)
+		}
+		tmpName := tmp.Name()
+		if _, err := tmp.WriteString(f.content); err != nil {
+			_ = tmp.Close()
+			_ = os.Remove(tmpName)
+			return nil, fmt.Errorf("write %s: %w", dest, err)
+		}
+		if err := tmp.Close(); err != nil {
+			_ = os.Remove(tmpName)
+			return nil, fmt.Errorf("write %s: %w", dest, err)
+		}
+		if err := os.Chmod(tmpName, 0o644); err != nil {
+			_ = os.Remove(tmpName)
+			return nil, fmt.Errorf("chmod %s: %w", dest, err)
+		}
+		if err := os.Rename(tmpName, dest); err != nil {
+			_ = os.Remove(tmpName)
+			return nil, fmt.Errorf("install %s: %w", dest, err)
+		}
+		_, _ = fmt.Fprintf(out, "  %s %s\n", style.Success.Render("created"), dest)
+		created = append(created, f.path)
+	}
+	return created, nil
 }

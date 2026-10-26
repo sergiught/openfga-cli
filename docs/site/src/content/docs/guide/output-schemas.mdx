@@ -46,9 +46,9 @@ A schema describes the JSON **document** that `--json` prints. Some commands pri
 With `-o jsonl`, a command whose JSON output is an array prints one element per line. Each line validates against the array schema's `items`, not against the schema itself. A command whose output is a single object prints one line that validates against the whole schema.
 
 ```bash
-ofga stores list -o jsonl | jq -c . | while read -r line; do
-  # each $line is one element: validate it against .items of stores-list.v1.json
-  :
+ofga stores list -o jsonl | while read -r line; do
+  # each $line is one store: it validates against .items of stores-list.v1.json
+  printf '%s\n' "$line" | jq -r .name
 done
 ```
 
