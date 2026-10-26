@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"reflect"
 
 	"github.com/itchyny/gojq"
 )
@@ -107,11 +108,17 @@ func writeJQResult(w io.Writer, result any) error {
 // toGeneric converts v to the map/slice/number shapes gojq operates on, via the
 // same JSON encoding --json would emit.
 func toGeneric(v any) (any, error) {
-	var buf bytes.Buffer
-	if err := JSON(&buf, v); err != nil {
+	// Marshal directly rather than through JSON(), which renders per -o and
+	// would split a top-level array into lines under jsonl. A nil slice is
+	// still coerced to [] so a filter sees the same document --json prints.
+	if rv := reflect.ValueOf(v); rv.Kind() == reflect.Slice && rv.IsNil() {
+		v = reflect.MakeSlice(rv.Type(), 0, 0).Interface()
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
 		return nil, err
 	}
-	dec := json.NewDecoder(&buf)
+	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	var generic any
 	if err := dec.Decode(&generic); err != nil {

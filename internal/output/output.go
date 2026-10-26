@@ -60,29 +60,21 @@ func jsonLines(w io.Writer, v any) error {
 	if err := e.Encode(v); err != nil {
 		return err
 	}
+	// The encoder's output is already compact, so elements go out as-is.
 	raw := bytes.TrimSpace(enc.Bytes())
+	lines := []json.RawMessage{raw}
 	if len(raw) > 0 && raw[0] == '[' {
-		var elems []json.RawMessage
-		if err := json.Unmarshal(raw, &elems); err != nil {
+		lines = nil
+		if err := json.Unmarshal(raw, &lines); err != nil {
 			return err
 		}
-		for _, e := range elems {
-			if err := compactLine(w, e); err != nil {
-				return err
-			}
-		}
-		return nil
 	}
-	return compactLine(w, raw)
-}
-
-func compactLine(w io.Writer, raw []byte) error {
-	var buf bytes.Buffer
-	if err := json.Compact(&buf, raw); err != nil {
-		return err
+	var out bytes.Buffer
+	for _, l := range lines {
+		out.Write(l)
+		out.WriteByte('\n')
 	}
-	buf.WriteByte('\n')
-	_, err := w.Write(buf.Bytes())
+	_, err := w.Write(out.Bytes())
 	return err
 }
 
