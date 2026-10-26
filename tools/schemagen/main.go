@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 
 	"github.com/invopop/jsonschema"
 
@@ -81,6 +82,9 @@ func generate(types map[string]any) (map[string][]byte, error) {
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", path, err)
 			}
+			if raw, err = allowNull(raw, reflect.TypeOf(types[path])); err != nil {
+				return nil, fmt.Errorf("%s: %w", path, err)
+			}
 		}
 		if files[name], err = canonical(raw); err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
@@ -124,6 +128,8 @@ func envelopeSchema() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// No allowNull here: the envelope contract is that details is always an
+	// array and never null (NewEnvelope guarantees it).
 	return canonical(raw)
 }
 
@@ -163,4 +169,91 @@ func write(dir string, files map[string][]byte) error {
 		}
 	}
 	return nil
+}
+
+// nullableFields walks t and records, per struct (keyed by the name invopop
+// gives its $defs entry), every JSON property whose Go type is a slice, map or
+// pointer and is not omitempty/omitzero: encoding/json writes null for a nil
+// value there, so the schema must accept it.
+func nullableFields(t reflect.Type, seen map[reflect.Type]bool, out map[string]map[string]bool) {
+	for t.Kind() == reflect.Pointer || t.Kind() == reflect.Slice || t.Kind() == reflect.Array || t.Kind() == reflect.Map {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct || seen[t] {
+		return
+	}
+	seen[t] = true
+	fields := out[t.Name()]
+	if fields == nil {
+		fields = map[string]bool{}
+		out[t.Name()] = fields
+	}
+	var walk func(st reflect.Type)
+	walk = func(st reflect.Type) {
+		for i := range st.NumField() {
+			f := st.Field(i)
+			tag, hasTag := f.Tag.Lookup("json")
+			if tag == "-" {
+				continue
+			}
+			name, opts, _ := strings.Cut(tag, ",")
+			if f.Anonymous && name == "" {
+				ft := f.Type
+				if ft.Kind() == reflect.Pointer {
+					ft = ft.Elem()
+				}
+				if ft.Kind() == reflect.Struct {
+					walk(ft)
+					continue
+				}
+			}
+			if !f.IsExported() {
+				continue
+			}
+			if !hasTag || name == "" {
+				name = f.Name
+			}
+			switch f.Type.Kind() {
+			case reflect.Slice, reflect.Map, reflect.Pointer:
+				if !strings.Contains(","+opts+",", ",omitempty,") && !strings.Contains(","+opts+",", ",omitzero,") {
+					fields[name] = true
+				}
+			}
+			nullableFields(f.Type, seen, out)
+		}
+	}
+	walk(t)
+}
+
+// allowNull rewrites the reflected schema so every property recorded by
+// nullableFields also accepts null: "type": "x" becomes ["x","null"], and a
+// $ref becomes anyOf [$ref, null].
+func allowNull(raw []byte, root reflect.Type) ([]byte, error) {
+	nl := map[string]map[string]bool{}
+	nullableFields(root, map[reflect.Type]bool{}, nl)
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, err
+	}
+	defs, _ := doc["$defs"].(map[string]any)
+	for name, props := range nl {
+		def, _ := defs[name].(map[string]any)
+		properties, _ := def["properties"].(map[string]any)
+		for prop := range props {
+			ps, ok := properties[prop].(map[string]any)
+			if !ok {
+				continue
+			}
+			switch typ := ps["type"].(type) {
+			case string:
+				ps["type"] = []any{typ, "null"}
+			case nil:
+				if ref, ok := ps["$ref"]; ok {
+					delete(ps, "$ref")
+					ps["anyOf"] = []any{map[string]any{"$ref": ref}, map[string]any{"type": "null"}}
+				}
+			}
+		}
+	}
+	return json.Marshal(doc)
 }

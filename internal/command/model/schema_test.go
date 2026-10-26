@@ -112,3 +112,35 @@ func runTestCLI(t *testing.T, apiURL string) *cli.CLI {
 	a.JSON = true
 	return a
 }
+
+// TestSchemaAcceptsNullAssertionsFromUnexecutableTest: a test that cannot run
+// (here: an assertion on an undefined relation) is reported with
+// "assertions": null, and the published schema must accept that.
+func TestSchemaAcceptsNullAssertionsFromUnexecutableTest(t *testing.T) {
+	configtest.Isolate(t)
+	dir := t.TempDir()
+	write := func(rel, content string) {
+		p := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("model.fga", "model\n  schema 1.1\n\ntype user\n\ntype document\n  relations\n    define viewer: [user]\n")
+	write("ofga.yaml", "version: 1\nmodel: ./model.fga\ntests:\n  - \"tests/**/*.test.yaml\"\n")
+	write("tests/a.test.yaml", "tests:\n  - name: bad-relation\n    tuples:\n      - user: user:anne\n        relation: viewer\n        object: document:1\n    check:\n      - user: user:anne\n        object: document:1\n        assertions: {nosuchrel: true}\n")
+
+	cmd := New(runTestCLI(t, "http://127.0.0.1:1")).testCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	cmd.SetArgs([]string{"--file", filepath.Join(dir, "ofga.yaml")})
+	_ = cmd.Execute() // the run fails; stdout still carries the result
+	if !strings.Contains(out.String(), `"assertions": null`) {
+		t.Fatalf("workspace did not produce a null assertions list:\n%s", out.String())
+	}
+	outputschematest.Validate(t, "ofga model test", out.Bytes())
+}

@@ -31,7 +31,10 @@
           "items": {
             "$ref": "#/$defs/DiagramEdge"
           },
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "schema_version": {
           "type": "string"
@@ -40,7 +43,10 @@
           "items": {
             "$ref": "#/$defs/TypeNode"
           },
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         }
       },
       "required": [
@@ -57,7 +63,10 @@
           "items": {
             "$ref": "#/$defs/RelationEdge"
           },
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "name": {
           "type": "string"
@@ -103,7 +112,10 @@
           "items": {
             "$ref": "#/$defs/Relation"
           },
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         }
       },
       "required": [

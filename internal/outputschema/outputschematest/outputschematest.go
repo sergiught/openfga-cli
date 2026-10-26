@@ -15,7 +15,7 @@ import (
 )
 
 // schemaDir walks up from the test's working directory to the module root.
-func schemaDir(t *testing.T) string {
+func schemaDir(t testing.TB) string {
 	t.Helper()
 	dir, err := os.Getwd()
 	if err != nil {
@@ -35,7 +35,7 @@ func schemaDir(t *testing.T) string {
 
 // Validate fails t unless doc (one JSON document) satisfies the schema for the
 // command at path, e.g. "ofga stores list".
-func Validate(t *testing.T, path string, doc []byte) {
+func Validate(t testing.TB, path string, doc []byte) {
 	t.Helper()
 	file := filepath.Join(schemaDir(t), outputschema.FileName(path))
 	raw, err := os.ReadFile(file)

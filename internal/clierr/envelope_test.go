@@ -5,6 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -145,5 +148,47 @@ func TestEnvelopeWriteLine(t *testing.T) {
 	want := `{"error":{"code":"error","message":"a","details":[]}}` + "\n"
 	if buf.String() != want {
 		t.Errorf("got %q, want %q", buf.String(), want)
+	}
+}
+
+// TestKindsListsEveryKindConstant fails when a Kind constant is added to
+// envelope.go without being added to Kinds(), which feeds the published schema.
+func TestKindsListsEveryKindConstant(t *testing.T) {
+	f, err := parser.ParseFile(token.NewFileSet(), "envelope.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{}
+	for _, d := range f.Decls {
+		gd, ok := d.(*ast.GenDecl)
+		if !ok || gd.Tok != token.CONST {
+			continue
+		}
+		for _, sp := range gd.Specs {
+			vs := sp.(*ast.ValueSpec)
+			if id, ok := vs.Type.(*ast.Ident); !ok || id.Name != "Kind" {
+				continue
+			}
+			for _, v := range vs.Values {
+				want[strings.Trim(v.(*ast.BasicLit).Value, `"`)] = true
+			}
+		}
+	}
+	got := map[string]bool{}
+	for _, k := range Kinds() {
+		got[string(k)] = true
+	}
+	if len(want) == 0 || len(got) != len(Kinds()) {
+		t.Fatalf("parsed %d constants, Kinds() has %d unique of %d", len(want), len(got), len(Kinds()))
+	}
+	for k := range want {
+		if !got[k] {
+			t.Errorf("Kind %q is missing from Kinds()", k)
+		}
+	}
+	for k := range got {
+		if !want[k] {
+			t.Errorf("Kinds() lists %q, which is not a Kind constant", k)
+		}
 	}
 }

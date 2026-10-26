@@ -3,6 +3,7 @@ package outputschema_test
 import (
 	"encoding/json"
 	"errors"
+	"runtime"
 	"testing"
 
 	"github.com/sergiught/openfga-cli/internal/clierr"
@@ -36,5 +37,30 @@ func TestEnvelopeSchemaValidatesEnvelope(t *testing.T) {
 			t.Fatal(mErr)
 		}
 		outputschematest.Validate(t, outputschema.EnvelopePath, raw)
+	}
+}
+
+// fakeT records a Fatalf so the negative test can observe it.
+type recordingT struct {
+	testing.TB
+	failed bool
+}
+
+func (r *recordingT) Helper() {}
+func (r *recordingT) Fatalf(string, ...any) {
+	r.failed = true
+	runtime.Goexit()
+}
+
+func TestValidateFailsOnViolatingDocument(t *testing.T) {
+	r := &recordingT{TB: t}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		outputschematest.Validate(r, "ofga stores get", []byte(`{"id":1}`))
+	}()
+	<-done
+	if !r.failed {
+		t.Fatal("Validate accepted a document that violates the schema")
 	}
 }

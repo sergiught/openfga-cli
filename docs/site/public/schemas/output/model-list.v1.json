@@ -19,7 +19,10 @@
           "items": {
             "$ref": "#/$defs/TypeDefinition"
           },
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         }
       },
       "required": [
@@ -251,7 +254,10 @@
           "items": {
             "$ref": "#/$defs/Userset"
           },
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         }
       },
       "required": [

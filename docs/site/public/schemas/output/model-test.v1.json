@@ -72,7 +72,10 @@
           "items": {
             "$ref": "#/$defs/TypeCov"
           },
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "unreachable": {
           "items": {
@@ -97,7 +100,10 @@
           "items": {
             "$ref": "#/$defs/DiffBranch"
           },
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "base": {
           "type": "string"
@@ -249,7 +255,10 @@
           "items": {
             "$ref": "#/$defs/TestResult"
           },
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         }
       },
       "required": [
@@ -319,7 +328,10 @@
           "items": {
             "$ref": "#/$defs/AssertionResult"
           },
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "column": {
           "type": "integer"
@@ -364,7 +376,10 @@
           "items": {
             "$ref": "#/$defs/RelCov"
           },
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "total": {
           "type": "integer"
