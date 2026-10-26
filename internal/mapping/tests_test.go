@@ -583,6 +583,7 @@ func TestEventsListsTestInputsThenNewSamplesOnce(t *testing.T) {
 			{Name: "first", Input: a},
 			{Name: "again", Input: map[string]any{"type": "a", "n": 1}}, // equal to first's, another map
 			{Name: "empty"},
+			{Name: "blank", Input: map[string]any{}},
 		},
 		Rules: []mapping.Rule{
 			{Name: "ra", Sample: &mapping.Sample{Event: a}}, // already a test input
@@ -590,11 +591,13 @@ func TestEventsListsTestInputsThenNewSamplesOnce(t *testing.T) {
 			{Name: "rb2", Sample: &mapping.Sample{Event: b}}, // same as rb's
 			{Name: "none"},
 			{Sample: &mapping.Sample{Event: c}}, // unnamed
+			{Name: "rblank", Sample: &mapping.Sample{Event: map[string]any{}}}, // same as blank's
 		},
 	}
 	got := mapping.Events(d)
 	want := []mapping.Event{
 		{Label: "test first", Payload: a},
+		{Label: "test blank", Payload: map[string]any{}},
 		{Label: "rule rb sample", Payload: b},
 		{Label: "rule 5 sample", Payload: c},
 	}

@@ -144,12 +144,13 @@ type Event struct {
 
 // Events lists d's test inputs, then its rules' samples that are not already
 // among them, deduplicated by content. An unnamed rule is named by its
-// position, and empty events are left out: they have nothing to map.
+// position. A test or sample without an event is left out, but {} is kept: a
+// rule that matches every event maps it.
 func Events(d *Document) []Event {
 	var out []Event
 	seen := map[string]bool{}
 	add := func(label string, event map[string]any) {
-		if len(event) == 0 {
+		if event == nil {
 			return
 		}
 		key, err := SampleKey(event)
