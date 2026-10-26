@@ -8,6 +8,7 @@ import (
 
 	"github.com/sergiught/openfga-cli/internal/cmdmeta"
 	"github.com/sergiught/openfga-cli/internal/output"
+	"github.com/sergiught/openfga-cli/internal/outputschema"
 )
 
 // catalog is the machine-readable description of the whole CLI.
@@ -28,6 +29,9 @@ type commandInfo struct {
 	Mutates         bool       `json:"mutates"          yaml:"mutates"`
 	SupportsDryRun  bool       `json:"supports_dry_run" yaml:"supports_dry_run"`
 	InteractiveOnly bool       `json:"interactive_only" yaml:"interactive_only"`
+	// OutputSchema is the URL of the JSON Schema for what --json prints; empty
+	// when the command has no JSON output.
+	OutputSchema string `json:"output_schema,omitempty" yaml:"output_schema,omitempty"`
 }
 
 type flagInfo struct {
@@ -64,6 +68,7 @@ func buildCatalog(root *cobra.Command) catalog {
 		}
 	})
 
+	types := OutputTypes()
 	for _, cmd := range cmdmeta.Leaves(root) {
 		meta, _ := cmdmeta.Get(cmd)
 		info := commandInfo{
@@ -77,6 +82,9 @@ func buildCatalog(root *cobra.Command) catalog {
 			RequiresModel:   meta.RequiresModel,
 			Mutates:         meta.Mutates,
 			InteractiveOnly: meta.InteractiveOnly,
+		}
+		if _, ok := types[info.Path]; ok {
+			info.OutputSchema = outputschema.URL(info.Path)
 		}
 		for _, line := range strings.Split(cmd.Example, "\n") {
 			if line = strings.TrimSpace(line); line != "" {

@@ -1,0 +1,50 @@
+{
+  "$defs": {
+    "agentMode": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "enabled",
+        "reason"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/version.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Version and build information, and how agent mode was decided.",
+  "properties": {
+    "agent_mode": {
+      "$ref": "#/$defs/agentMode"
+    },
+    "built": {
+      "type": "string"
+    },
+    "commit": {
+      "type": "string"
+    },
+    "embedded_openfga_server": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "agent_mode",
+    "built",
+    "commit",
+    "embedded_openfga_server",
+    "version"
+  ],
+  "title": "ofga version --json",
+  "type": "object"
+}

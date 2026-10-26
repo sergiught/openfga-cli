@@ -138,6 +138,7 @@ Every command has a generated reference page with a live demo recording:
 - [Configuration](https://sergiught.github.io/openfga-cli/guide/configuration/): config file, profiles, env vars
 - [Authentication](https://sergiught.github.io/openfga-cli/guide/authentication/): auth methods, secret files, keyring
 - [Scripting & automation](https://sergiught.github.io/openfga-cli/guide/scripting/): output formats, exit codes, pagination, `ofga commands` catalog; with `--json` a failure also prints a one-line JSON error with a stable `code` on stderr
+- [Output schemas](https://sergiught.github.io/openfga-cli/guide/output-schemas/): JSON Schemas for what every command prints under `--json`, linked from `ofga commands`
 - [Recipes](https://sergiught.github.io/openfga-cli/guide/recipes/): common end-to-end flows
 - [Troubleshooting](https://sergiught.github.io/openfga-cli/guide/troubleshooting/): common issues, `ofga docs search`/`show` for the OpenFGA docs, shell completion
 

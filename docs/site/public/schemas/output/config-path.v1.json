@@ -1,0 +1,16 @@
+{
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/config-path.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The path of the config file.",
+  "properties": {
+    "path": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "path"
+  ],
+  "title": "ofga config path --json",
+  "type": "object"
+}

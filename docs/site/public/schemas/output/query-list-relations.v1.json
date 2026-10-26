@@ -1,0 +1,8 @@
+{
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/query-list-relations.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "type": "string"
+  },
+  "type": "array"
+}

@@ -1,0 +1,60 @@
+{
+  "$defs": {
+    "result": {
+      "additionalProperties": false,
+      "properties": {
+        "assertion": {
+          "type": "string"
+        },
+        "expected": {
+          "type": "boolean"
+        },
+        "got": {
+          "type": "boolean"
+        },
+        "pass": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "assertion",
+        "expected",
+        "got",
+        "pass"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/assertions-test.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Per-assertion outcomes of a live check run. The command exits 3 when any expectation failed; the document is printed either way.",
+  "properties": {
+    "authorization_model_id": {
+      "type": "string"
+    },
+    "passed": {
+      "type": "integer"
+    },
+    "results": {
+      "items": {
+        "$ref": "#/$defs/result"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "total": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "authorization_model_id",
+    "passed",
+    "results",
+    "total"
+  ],
+  "title": "ofga assertions test --json",
+  "type": "object"
+}

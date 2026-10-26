@@ -1,0 +1,90 @@
+{
+  "$defs": {
+    "auth": {
+      "additionalProperties": false,
+      "properties": {
+        "api_audience": {
+          "type": "string"
+        },
+        "audience": {
+          "type": "string"
+        },
+        "client_id": {
+          "type": "string"
+        },
+        "key_file": {
+          "type": "string"
+        },
+        "key_id": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "signing_method": {
+          "type": "string"
+        },
+        "token_url": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "profile": {
+      "additionalProperties": false,
+      "properties": {
+        "api_url": {
+          "type": "string"
+        },
+        "auth": {
+          "$ref": "#/$defs/auth"
+        },
+        "headers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "model_id": {
+          "type": "string"
+        },
+        "store_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "api_url",
+        "auth"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/profiles-list.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The active profile name and every profile, keyed by name. Secrets are never included.",
+  "properties": {
+    "active": {
+      "type": "string"
+    },
+    "profiles": {
+      "additionalProperties": {
+        "$ref": "#/$defs/profile"
+      },
+      "type": "object"
+    }
+  },
+  "required": [
+    "active",
+    "profiles"
+  ],
+  "title": "ofga profiles list --json",
+  "type": "object"
+}

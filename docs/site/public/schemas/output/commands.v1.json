@@ -1,0 +1,149 @@
+{
+  "$defs": {
+    "catalog": {
+      "additionalProperties": false,
+      "properties": {
+        "commands": {
+          "items": {
+            "$ref": "#/$defs/commandInfo"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "global_flags": {
+          "items": {
+            "$ref": "#/$defs/flagInfo"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "global_flags",
+        "commands"
+      ],
+      "type": "object"
+    },
+    "commandInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "aliases": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "examples": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "flags": {
+          "items": {
+            "$ref": "#/$defs/flagInfo"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "interactive_only": {
+          "type": "boolean"
+        },
+        "mutates": {
+          "type": "boolean"
+        },
+        "output_schema": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "requires_model": {
+          "type": "boolean"
+        },
+        "requires_store": {
+          "type": "boolean"
+        },
+        "short": {
+          "type": "string"
+        },
+        "supports_dry_run": {
+          "type": "boolean"
+        },
+        "usage": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "short",
+        "usage",
+        "aliases",
+        "flags",
+        "examples",
+        "requires_store",
+        "requires_model",
+        "mutates",
+        "supports_dry_run",
+        "interactive_only"
+      ],
+      "type": "object"
+    },
+    "flagInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "default": {
+          "type": "string"
+        },
+        "enum": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "type": "string"
+        },
+        "repeatable": {
+          "type": "boolean"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "shorthand": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "usage": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "default",
+        "usage",
+        "required",
+        "repeatable"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/commands.v1.json",
+  "$ref": "#/$defs/catalog",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

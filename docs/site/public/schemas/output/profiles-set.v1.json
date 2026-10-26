@@ -1,0 +1,20 @@
+{
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/profiles-set.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The profile and the field that was set.",
+  "properties": {
+    "profile": {
+      "type": "string"
+    },
+    "set": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "profile",
+    "set"
+  ],
+  "title": "ofga profiles set --json",
+  "type": "object"
+}

@@ -1,0 +1,16 @@
+{
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/profiles-use.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The profile that is now active.",
+  "properties": {
+    "active": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "active"
+  ],
+  "title": "ofga profiles use --json",
+  "type": "object"
+}

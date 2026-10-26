@@ -1,0 +1,22 @@
+{
+  "$defs": {
+    "CheckResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed": {
+          "type": "boolean"
+        },
+        "resolution": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "allowed"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/query-check.v1.json",
+  "$ref": "#/$defs/CheckResponse",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

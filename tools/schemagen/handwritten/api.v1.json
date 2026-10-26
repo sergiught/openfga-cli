@@ -1,0 +1,6 @@
+{
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/api.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Whatever the server answered, passed through unchanged: any JSON value. A non-2xx response prints the server's error object ({code, message}) on stdout and exits non-zero.",
+  "title": "ofga api --json"
+}

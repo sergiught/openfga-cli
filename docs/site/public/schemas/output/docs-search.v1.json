@@ -1,0 +1,38 @@
+{
+  "$defs": {
+    "Result": {
+      "additionalProperties": false,
+      "properties": {
+        "markdown_url": {
+          "type": "string"
+        },
+        "page": {
+          "type": "string"
+        },
+        "snippet": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "url",
+        "markdown_url",
+        "page",
+        "snippet"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/docs-search.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "$ref": "#/$defs/Result"
+  },
+  "type": "array"
+}

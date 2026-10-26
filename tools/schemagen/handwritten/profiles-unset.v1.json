@@ -1,0 +1,20 @@
+{
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/profiles-unset.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The profile and the field that was cleared.",
+  "properties": {
+    "profile": {
+      "type": "string"
+    },
+    "unset": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "profile",
+    "unset"
+  ],
+  "title": "ofga profiles unset --json",
+  "type": "object"
+}
