@@ -291,12 +291,24 @@ func TestApplyReportsHowFarItGot(t *testing.T) {
 	if clierr.Code(err) != clierr.CodeError || !clierr.IsSilent(err) {
 		t.Fatalf("code = %d err = %v", clierr.Code(err), err)
 	}
+	if got := clierr.SilentSummary(err); !strings.HasPrefix(got, "no events applied; event 1 failed: ") || clierr.Classify(err) != clierr.KindValidation {
+		t.Errorf("summary=%q kind=%v", got, clierr.Classify(err))
+	}
 	if !strings.Contains(stderr, "no events applied; event 1 failed: ") || !strings.Contains(stderr, "type not found") {
 		t.Errorf("stderr:\n%s", stderr)
 	}
 	if strings.Contains(stderr, "event 1: ") {
 		t.Errorf("event prefix doubled:\n%s", stderr)
 	}
+	t.Run("machine output keeps stderr clean", func(t *testing.T) {
+		c := fs.cli()
+		c.JSON = true
+		_, stderr, err := runApply(t, context.Background(), c, nil, mp, "--events", ep, "--force")
+		// The pre-apply plan summary is progress, not the failure report.
+		if !clierr.IsSilent(err) || strings.Contains(stderr, "failed") {
+			t.Fatalf("err=%v stderr=%q", err, stderr)
+		}
+	})
 	// Nothing got through, so running the same command again is the resume.
 	if strings.Contains(stderr, "resume") {
 		t.Errorf("a run that applied nothing offers a resume:\n%s", stderr)
@@ -627,8 +639,12 @@ func TestMachineModeKeepsProblemLinesOffStdout(t *testing.T) {
 		root.SetArgs(args)
 		root.SilenceUsage, root.SilenceErrors = true, true
 		err := root.Execute()
-		if clierr.Code(err) != clierr.CodeError || out.Len() != 0 || !strings.Contains(errb.String(), "mapping.yaml:2:8") {
-			t.Errorf("%v: err=%v stdout=%q stderr=%q", args, err, out.String(), errb.String())
+		// The error envelope is the only thing main writes to stderr under
+		// machine output, so the problem lines move into its details.
+		env := clierr.NewEnvelope(err).Error
+		if clierr.Code(err) != clierr.CodeError || out.Len() != 0 || errb.Len() != 0 ||
+			env.Code != clierr.KindValidation || len(env.Details) == 0 || env.Details[0]["line"] != 2 {
+			t.Errorf("%v: err=%v stdout=%q stderr=%q envelope=%+v", args, err, out.String(), errb.String(), env)
 		}
 	}
 }

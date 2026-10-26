@@ -176,6 +176,12 @@ func TestModelTestFailuresPrintSingleSummary(t *testing.T) {
 	if clierr.Code(err) != clierr.CodeTestFailed {
 		t.Fatalf("clierr.Code(err) = %d, want %d", clierr.Code(err), clierr.CodeTestFailed)
 	}
+	if got := clierr.SilentSummary(err); got != "1/1 test(s) failed" {
+		t.Fatalf("SilentSummary = %q", got)
+	}
+	if got := clierr.Classify(err); got != clierr.KindTestFailed {
+		t.Fatalf("Classify = %v, want test_failed", got)
+	}
 	combined := ansi.Strip(out + errOut)
 	if n := strings.Count(combined, "test(s) failed"); n != 1 {
 		t.Fatalf("want exactly one summary line, got %d\nstdout=%q\nstderr=%q", n, out, errOut)
@@ -939,5 +945,18 @@ func TestModelTestReportJSONHumanSummaryOnStderr(t *testing.T) {
 	}
 	if !strings.Contains(ansi.Strip(errOut), "test(s) passed") {
 		t.Fatalf("human summary should be on stderr, got stderr=%q", errOut)
+	}
+}
+
+// Under machine output the error envelope is the only thing on stderr for a
+// failing run, so the human summary line must not be printed there too.
+func TestModelTestFailureJSONKeepsStderrClean(t *testing.T) {
+	manifestPath := writeFailingWorkspace(t)
+	_, errOut, err := runTestCmd(t, []string{"--file", manifestPath}, func(a *cli.CLI) { a.JSON = true })
+	if !clierr.IsSilent(err) {
+		t.Fatalf("err = %v", err)
+	}
+	if errOut != "" {
+		t.Fatalf("stderr = %q, want empty", errOut)
 	}
 }

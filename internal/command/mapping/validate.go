@@ -78,7 +78,7 @@ func (c *Command) runValidate(cmd *cobra.Command, path string, mf modelFlags) er
 		return err
 	}
 	if !res.Valid {
-		return clierr.Silent(clierr.CodeError)
+		return clierr.WithKind(clierr.KindValidation, clierr.Silent(clierr.CodeError, problemsSummary(res.File, len(res.Problems))))
 	}
 	return nil
 }
@@ -102,7 +102,7 @@ func (c *Command) printValidate(cmd *cobra.Command, res validateResult) error {
 		})
 	}
 	if !res.Valid {
-		output.Errorf(errw, "%s: %s", res.File, mapping.Plural(len(res.Problems), "problem"))
+		output.Errorf(errw, "%s", problemsSummary(res.File, len(res.Problems)))
 		return nil
 	}
 	note := "model not checked (pass --model-file or --model-from-store)"

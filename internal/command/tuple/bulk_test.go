@@ -727,6 +727,15 @@ func TestBulkWriteUnreachableServerExitsNetwork(t *testing.T) {
 	if got := failedTuplesIn(t, failedPath); len(got) != 4 {
 		t.Errorf("--failed-file holds %d tuples, want all 4 so the run is re-runnable", len(got))
 	}
+	if got := clierr.SilentSummary(err); got != "wrote 0, failed 4 of 4 tuple(s)" {
+		t.Errorf("SilentSummary = %q", got)
+	}
+	if got := clierr.Classify(err); got != clierr.KindNetwork {
+		t.Errorf("Classify = %q, want network", got)
+	}
+	if h := clierr.NewEnvelope(err).Error.Hint; h != "re-run the failed tuples with --file "+failedPath {
+		t.Errorf("hint = %q", h)
+	}
 }
 
 func TestBulkWriteMaxParallelRequestsIsHonoured(t *testing.T) {

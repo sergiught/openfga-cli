@@ -132,15 +132,19 @@ func runBulk(cmd *cobra.Command, c *cli.CLI, cl *openfga.Client, keys []openfga.
 	// A transport failure keeps CodeNetwork: `ofga tuples write --file` is a
 	// scripting entry point, and "the server was unreachable" is a retry, while
 	// "the server rejected these tuples" is not.
-	code := clierr.CodeError
+	code, kind := clierr.CodeError, clierr.KindPartialFailure
 	if connErr != nil {
-		code = clierr.CodeNetwork
+		code, kind = clierr.CodeNetwork, clierr.KindNetwork
+	}
+	hint := "pass --failed-file <path> to save the failed tuples for a re-run"
+	if o.failedFile != "" {
+		hint = "re-run the failed tuples with --file " + o.failedFile
 	}
 	// The summary and the per-tuple reasons (or the machine payload) have
 	// already reached the user, so the error is Silent: main honors the exit
 	// code without printing a second, redundant message. It still carries a
 	// PartialResult so a cancellation racing this return keeps its reporting.
-	return clierr.WithPartialResult(clierr.Silent(code))
+	return clierr.WithPartialResult(clierr.WithHint(hint, clierr.WithKind(kind, clierr.Silent(code, summary))))
 }
 
 // bulkApply feeds keys to the SDK a window at a time and splits the per-tuple
