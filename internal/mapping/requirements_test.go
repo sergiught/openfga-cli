@@ -194,3 +194,28 @@ condition in_hours(hour: int) {
 		}
 	})
 }
+
+// OpenFGA refuses a tuple on a relation the model computes from others.
+func TestLintFlagsAComputedRelation(t *testing.T) {
+	ix := idx(t, `model
+  schema 1.1
+
+type user
+
+type organization
+  relations
+    define member: [user]
+    define admin: member
+`)
+	for relation, want := range map[string]bool{"admin": true, "member": false} {
+		ps := lintAgainstModel(0, Tuple{User: "user:1", Relation: relation, Object: "organization:1"}, ix)
+		if got := len(ps) > 0; got != want {
+			t.Errorf("%s: warned = %v, want %v: %+v", relation, got, want, ps)
+		}
+	}
+	// A model without metadata lists no user types for any relation.
+	bare := &ModelIndex{Types: map[string][]string{"user": nil, "organization": {"admin"}}}
+	if ps := lintAgainstModel(0, Tuple{User: "user:1", Relation: "admin", Object: "organization:1"}, bare); len(ps) > 0 {
+		t.Errorf("no metadata: %+v", ps)
+	}
+}

@@ -250,8 +250,14 @@ func lintTarget(i int, section, user, relation, object string, ix *ModelIndex) (
 		}
 	}
 	if relationKnown {
-		if userTyp, literalUser := modelUserType(user); literalUser {
-			if userTypes := ix.UserTypesFor(typ, relation); len(userTypes) > 0 && !contains(userTypes, userTyp) {
+		// A relation the model indexed with no user types is computed from
+		// others, so no tuple can name it. One it never indexed (a model
+		// without metadata) says nothing either way.
+		if userTypes, indexed := ix.UserTypes[typ+"#"+relation]; indexed && len(userTypes) == 0 {
+			ps = append(ps, Problem{Rule: i, Section: section, Field: "relation", Warning: true,
+				Message: fmt.Sprintf("relation %q on type %q accepts no user directly: the model computes it", relation, typ)})
+		} else if userTyp, literalUser := modelUserType(user); literalUser {
+			if len(userTypes) > 0 && !contains(userTypes, userTyp) {
 				ps = append(ps, Problem{Rule: i, Section: section, Field: "user", Warning: true,
 					Message: fmt.Sprintf("relation %q on type %q does not accept user type %q", relation, typ, userTyp)})
 			}
