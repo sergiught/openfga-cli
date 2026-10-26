@@ -225,7 +225,12 @@ func lintTarget(i int, section, user, relation, object string, ix *ModelIndex) (
 	}
 	if relationKnown {
 		if userTyp, literalUser := literalUserType(user); literalUser {
-			if userTypes := ix.UserTypesFor(typ, relation); len(userTypes) > 0 && !userTypeAllowed(userTypes, userTyp) {
+			// The model names a wildcard as "user:*", and accepts it only
+			// where it says so.
+			if user == userTyp+":*" {
+				userTyp = user
+			}
+			if userTypes := ix.UserTypesFor(typ, relation); len(userTypes) > 0 && !contains(userTypes, userTyp) {
 				ps = append(ps, Problem{Rule: i, Section: section, Field: "user", Warning: true,
 					Message: fmt.Sprintf("relation %q on type %q does not accept user type %q", relation, typ, userTyp)})
 			}
@@ -288,16 +293,6 @@ func literalUserType(user string) (string, bool) {
 		return typ + "#" + relation, true
 	}
 	return typ, true
-}
-
-// userTypeAllowed reports whether userTyp is one of the reference strings a
-// relation accepts. A "type:*" wildcard entry also permits a direct user of
-// that type.
-func userTypeAllowed(userTypes []string, userTyp string) bool {
-	if contains(userTypes, userTyp) {
-		return true
-	}
-	return !strings.Contains(userTyp, "#") && contains(userTypes, userTyp+":*")
 }
 
 // identPattern is mapper's own rule for a variable name.

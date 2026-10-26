@@ -30,6 +30,7 @@ type user
 type organization
   relations
     define member: [user]
+    define public: [user:*]
 `
 	ix := idx(t, dsl)
 
@@ -57,6 +58,16 @@ type organization
 			name: "user type not accepted by the relation",
 			req:  Requirement{Type: "organization", Relation: "member", UserTypes: []string{"group"}},
 			want: RequirementStatus{TypeOK: true, RelationOK: true, UserTypesOK: false, Checked: true},
+		},
+		{
+			name: "a wildcard-only relation does not accept a direct user",
+			req:  Requirement{Type: "organization", Relation: "public", UserTypes: []string{"user"}},
+			want: RequirementStatus{TypeOK: true, RelationOK: true, UserTypesOK: false, Checked: true},
+		},
+		{
+			name: "a wildcard-only relation accepts the wildcard",
+			req:  Requirement{Type: "organization", Relation: "public", UserTypes: []string{"user:*"}},
+			want: RequirementStatus{TypeOK: true, RelationOK: true, UserTypesOK: true, Checked: true},
 		},
 		{
 			name: "type only, no relation asked about",
@@ -91,5 +102,37 @@ func TestCheckRequirementsWithNoModelReportsUnchecked(t *testing.T) {
 	}
 	if got[0].Satisfied() {
 		t.Fatal("an unchecked status must not claim to be satisfied")
+	}
+}
+
+// [user:*] accepts only the wildcard user:*, so a concrete user written to such
+// a relation is rejected by the server; [user] likewise rejects user:*.
+func TestLintMatchesWildcardReferencesExactly(t *testing.T) {
+	ix := idx(t, `model
+  schema 1.1
+
+type user
+
+type organization
+  relations
+    define member: [user]
+    define public: [user:*]
+`)
+	tests := []struct {
+		user, relation string
+		wantWarning    bool
+	}{
+		{"user:1", "public", true},
+		{"user:*", "public", false},
+		{"user:1", "member", false},
+		{"user:*", "member", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.user+" "+tc.relation, func(t *testing.T) {
+			ps := lintAgainstModel(0, Tuple{User: tc.user, Relation: tc.relation, Object: "organization:acme"}, ix)
+			if got := len(ps) > 0; got != tc.wantWarning {
+				t.Fatalf("warned = %v, want %v: %+v", got, tc.wantWarning, ps)
+			}
+		})
 	}
 }

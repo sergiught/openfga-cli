@@ -65,7 +65,7 @@ func CheckRequirements(ix *ModelIndex, reqs []Requirement) []RequirementStatus {
 		s.UserTypesOK = true
 		allowed := ix.UserTypesFor(r.Type, r.Relation)
 		for _, ut := range r.UserTypes {
-			if !userTypeAllowed(allowed, ut) {
+			if !contains(allowed, ut) {
 				s.UserTypesOK = false
 				break
 			}
