@@ -135,7 +135,9 @@ func (c *Preview) View(w, rows int) string {
 	if c.payload != c.payloadShown {
 		c.payloadShown, c.payloadOff = c.payload, 0
 	}
-	title, body := c.title, yamlRows(string(c.p.YAML), w)
+	// A long path gives way from the front, keeping the file's name, and to
+	// half the header, leaving the other half for the notes.
+	title, body := pathTail(c.title, w/2), yamlRows(string(c.p.YAML), w)
 	if c.showsPayload() {
 		title, body = c.label, jsonRows(c.payload, w)
 	}

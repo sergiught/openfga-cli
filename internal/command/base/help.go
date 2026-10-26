@@ -77,7 +77,7 @@ func (c *Command) helpFunc(cmd *cobra.Command, _ []string) {
 		b.WriteString(envList())
 	}
 	b.WriteString(sectionHead("Documentation"))
-	b.WriteString("    https://github.com/sergiught/openfga-cli#readme\n")
+	b.WriteString("    " + docsURL(cmd) + "\n")
 	if !cmd.HasParent() {
 		b.WriteString(sectionHead("Support"))
 		b.WriteString("    https://github.com/sergiught/openfga-cli/issues\n")
@@ -89,6 +89,20 @@ func (c *Command) helpFunc(cmd *cobra.Command, _ []string) {
 	}
 
 	_, _ = fmt.Fprint(cmd.OutOrStdout(), b.String())
+}
+
+// docsSite is the documentation site, whose reference has a page per command.
+const docsSite = "https://sergiught.github.io/openfga-cli/"
+
+// docsURL is cmd's page in the reference, or the site itself for the root. The
+// reference stops two levels down, so a deeper command (ofga model test init)
+// links the page of its ancestor there, which covers it.
+func docsURL(cmd *cobra.Command) string {
+	path := strings.Fields(cmd.CommandPath())[1:]
+	if len(path) == 0 {
+		return docsSite
+	}
+	return docsSite + "reference/" + strings.Join(path[:min(len(path), 2)], "/") + "/"
 }
 
 // envList renders the environment variables ofga honors, aligned like the flag

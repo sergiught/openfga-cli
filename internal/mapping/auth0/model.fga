@@ -1,13 +1,14 @@
 model
   schema 1.1
 
-# This model has two halves.
+# A starting model for a mapping built from Auth0 events, written beside it on
+# its first save. It has two halves.
 #
-# Everything down to the line marked "what you replace" is written by a recipe
-# in this catalog. The type and relation names are Auth0's, so the mapping reads
-# plainly against the payloads, and recipes_test.go holds the two together: a
-# relation an event writes that is missing here fails, and a directly assignable
-# relation here that no event writes fails too.
+# Everything down to the line marked "what you replace" holds the types and
+# relations the Auth0 events write. The names are Auth0's, so the mapping reads
+# plainly against the payloads. Keep this half in step with the mapping:
+# `ofga mappings validate --model-file model.fga` names any relation the
+# mapping writes that is missing here.
 #
 # Everything after that line is yours. A directory nobody can ask a question of
 # is just a second copy of Auth0, so the file ends with the smallest example of
@@ -88,7 +89,7 @@ type group
     # kind is said: everyone with an identity in that connection is a member.
     #
     # group#member is here for parity with Auth0's own suggested model, which
-    # lists it. No event in this catalog writes it: the member_type in
+    # lists it. No Auth0 event writes it: the member_type in
     # group.member.added is a closed union of "user" and "connection", so a
     # nested group can only arrive from your own writes — in which case
     # group.deleted needs a third filter, which its warning describes.

@@ -164,6 +164,24 @@ func TestRenderGroupIndex(t *testing.T) {
 			t.Errorf("group index missing %q\n---\n%s", want, page)
 		}
 	}
+	if strings.Contains(page, "## Usage") {
+		t.Errorf("a group that only holds commands got a usage section\n---\n%s", page)
+	}
+}
+
+// A group that also runs on its own (ofga mappings [file]) keeps the usage and
+// examples of that form, which no child page shows.
+func TestRenderRunnableGroupIndex(t *testing.T) {
+	group := &cobra.Command{Use: "mappings [file]", Short: "Open the workspace", Example: "  ofga mappings auth0.yaml",
+		RunE: func(*cobra.Command, []string) error { return nil }}
+	group.AddCommand(&cobra.Command{Use: "validate", Short: "Check a file", RunE: func(*cobra.Command, []string) error { return nil }})
+	(&cobra.Command{Use: "ofga"}).AddCommand(group)
+	page := string(renderGroupIndex(group, 6))
+	for _, want := range []string{"## Usage", "ofga mappings [file]", "## Examples", "ofga mappings auth0.yaml", "[validate](validate/)"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("runnable group index missing %q\n---\n%s", want, page)
+		}
+	}
 }
 
 func TestRunGeneratesRealTree(t *testing.T) {

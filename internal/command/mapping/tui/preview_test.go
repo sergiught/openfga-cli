@@ -353,6 +353,19 @@ func TestTheHeaderOffersTheSwitchBothWays(t *testing.T) {
 	}
 }
 
+// The workspace titles the file with its absolute path, which in a deep
+// directory is wider than the header; what has to stay is the file's name.
+func TestALongPathKeepsTheFileName(t *testing.T) {
+	p := NewPreview(NewSession(t.Context(), recipeDoc(t, "organization.member.added"), nil),
+		"/home/someone/work/projects/identity/sync/configuration/auth0/mapping.yaml")
+	p.Refresh(Focus{})
+	header, _, _ := strings.Cut(plain(p.View(80, 60)), "\n")
+	if !strings.HasPrefix(header, "…/") || !strings.Contains(header, "/auth0/mapping.yaml ") ||
+		!strings.Contains(header, "ctrl+t input payload") {
+		t.Fatalf("the header lost the file's name or the switch: %q", header)
+	}
+}
+
 // A header with room for one note keeps the switch: the rows show where the
 // section is, and nothing else on screen leads to the payload.
 func TestANarrowHeaderKeepsTheSwitch(t *testing.T) {

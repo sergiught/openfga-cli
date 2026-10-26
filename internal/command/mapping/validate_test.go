@@ -75,7 +75,7 @@ func TestValidateModelGapFails(t *testing.T) {
 	p := writeFile(t, dir, "mapping.yaml", validMapping)
 	m := writeFile(t, dir, "model.fga", "model\n  schema 1.1\n\ntype user\n")
 	out, err := run(t, cli.New(log.New(io.Discard), config.New(), "test"), "validate", p, "--model-file", m)
-	if clierr.Code(err) != clierr.CodeError || !strings.Contains(out, "mapping.yaml:5:") || !strings.Contains(out, "organization") {
+	if clierr.Code(err) != clierr.CodeError || !strings.Contains(out, "mapping.yaml:7:17:") || !strings.Contains(out, "organization") {
 		t.Fatalf("code=%d out=%s", clierr.Code(err), out)
 	}
 }
@@ -217,7 +217,7 @@ rules:
 `)
 	m := writeFile(t, dir, "model.fga", "model\n  schema 1.1\n\ntype user\n\ntype organization\n  relations\n    define member: [user]\n")
 	out, err := run(t, cli.New(log.New(io.Discard), config.New(), "test"), "validate", p, "--model-file", m)
-	want := p + `:3:5: rules["removed"].tuple_filters: type "organization" has no relation "memebr"`
+	want := p + `:7:19: rules["removed"].tuple_filters: type "organization" has no relation "memebr"`
 	if clierr.Code(err) != clierr.CodeError || !strings.Contains(out, want) {
 		t.Fatalf("code=%d out=%s", clierr.Code(err), out)
 	}

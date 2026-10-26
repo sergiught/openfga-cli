@@ -9,6 +9,31 @@ Work with openfga/mapper mapping files: YAML rules that turn events from an iden
 
 With no subcommand this opens the interactive workspace, which needs a terminal. There you edit the rules against sample events with the resulting tuples shown live, check them against a model, run the tests, and apply events to the store. Give it a mapping file to edit that file, or a path that does not exist yet to start a new mapping there; without one it shows a start screen with the mapping files in this directory, the ones you opened recently, and two ways to start a new one: from Auth0 events, or blank. In scripts use the subcommands.
 
+## Usage
+
+```sh
+ofga mappings [file]
+ofga mappings [command]
+```
+
+## Examples
+
+```sh
+# Pick a file from the start screen
+ofga mappings
+
+# Edit a mapping file
+ofga mappings auth0.yaml
+
+# Start a new mapping file
+ofga mappings sync/new.yaml
+
+# Check a mapping file in a script
+ofga mappings validate auth0.yaml
+```
+
+## Commands
+
 | Command | Description |
 | --- | --- |
 | [apply](apply/) | Evaluate events and write the resulting tuples to the store |

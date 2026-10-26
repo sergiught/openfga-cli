@@ -15,6 +15,10 @@ import (
 type Problem struct {
 	Rule    int
 	Section string
+	// Item is the 1-based tuple or filter in Section the problem is about,
+	// counting the iterator's tuples after the rule's own; 0 when it is about
+	// the rule or the section as a whole.
+	Item    int
 	Field   string
 	Message string
 	Warning bool
@@ -131,7 +135,8 @@ func lintTuples(i int, r Rule, ix *ModelIndex) []Problem {
 		return append(ps, Problem{Rule: i, Section: "tuple",
 			Message: "rule has no tuples yet"})
 	}
-	for _, t := range all {
+	for j, t := range all {
+		from := len(ps)
 		for _, f := range []struct{ name, val string }{
 			{"user", t.User}, {"relation", t.Relation}, {"object", t.Object},
 		} {
@@ -148,6 +153,7 @@ func lintTuples(i int, r Rule, ix *ModelIndex) []Problem {
 			t.Action = r.Action
 		}
 		ps = append(ps, lintAgainstModel(i, t, ix)...)
+		setItem(ps[from:], j+1)
 	}
 	return ps
 }
@@ -382,7 +388,8 @@ func lintIterator(i int, r Rule) []Problem {
 
 func lintFilters(i int, r Rule, ix *ModelIndex) []Problem {
 	var ps []Problem
-	for _, f := range r.Filters {
+	for j, f := range r.Filters {
+		from := len(ps)
 		ps = append(ps, lintFilterAgainstModel(i, f, ix)...)
 		if strings.TrimSpace(f.Object) == "" {
 			ps = append(ps, Problem{Rule: i, Section: "filters", Field: "object",
@@ -406,8 +413,16 @@ func lintFilters(i int, r Rule, ix *ModelIndex) []Problem {
 				Message: "this filter names a single tuple, but a filter is for a range of them: " +
 					"leave one field blank or templated, or use a tuple with action delete"})
 		}
+		setItem(ps[from:], j+1)
 	}
 	return append(ps, lintFilterActions(i, r)...)
+}
+
+// setItem marks ps as being about the item-th tuple or filter of their section.
+func setItem(ps []Problem, item int) {
+	for k := range ps {
+		ps[k].Item = item
+	}
 }
 
 // fixed reports whether a filter field is a concrete value rather than blank or

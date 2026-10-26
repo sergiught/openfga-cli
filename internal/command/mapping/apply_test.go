@@ -297,6 +297,25 @@ func TestApplyReportsHowFarItGot(t *testing.T) {
 	if strings.Contains(stderr, "event 1: ") {
 		t.Errorf("event prefix doubled:\n%s", stderr)
 	}
+	// Nothing got through, so running the same command again is the resume.
+	if strings.Contains(stderr, "resume") {
+		t.Errorf("a run that applied nothing offers a resume:\n%s", stderr)
+	}
+}
+
+// A resumed run that fails at once still needs its --from-event: running it
+// again without one would replay the events before it.
+func TestAResumedRunThatAppliesNothingKeepsItsResume(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t)
+	fs.failWrite = `{"code":"validation_error","message":"type not found"}`
+	mp, ep := applyFiles(t, membership, `{"type":"added","user":"u1","team":"t1"}
+{"type":"added","user":"u2","team":"t1"}
+`)
+	_, stderr, _ := runApply(t, context.Background(), fs.cli(), nil, mp, "--events", ep, "--from-event", "2", "--force")
+	if want := "resume with: ofga mappings apply " + mp + " --events " + ep + " --from-event 2 --force"; !strings.Contains(stderr, want) {
+		t.Errorf("stderr lacks %q:\n%s", want, stderr)
+	}
 }
 
 func TestApplyReportsTheAppliedRangeOnAFailureLaterOn(t *testing.T) {

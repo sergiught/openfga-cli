@@ -170,9 +170,7 @@ func renderLeafPage(cmd *cobra.Command, recording bool, ups, order int) []byte {
 
 	b.WriteString("\n## Usage\n\n```sh\n" + cmd.UseLine() + "\n```\n")
 
-	if cmd.Example != "" {
-		b.WriteString("\n## Examples\n\n```sh\n" + strings.TrimRight(cmd.Example, "\n") + "\n```\n")
-	}
+	b.WriteString(examples(cmd))
 
 	if rows := flagRows(cmd.NonInheritedFlags()); len(rows) > 0 {
 		b.WriteString("\n## Flags\n\n| Flag | Description | Default |\n| --- | --- | --- |\n")
@@ -200,6 +198,14 @@ func renderLeafPage(cmd *cobra.Command, recording bool, ups, order int) []byte {
 		}
 	}
 	return []byte(b.String())
+}
+
+// examples is the Examples section, or nothing for a command without any.
+func examples(cmd *cobra.Command) string {
+	if cmd.Example == "" {
+		return ""
+	}
+	return "\n## Examples\n\n```sh\n" + strings.TrimRight(cmd.Example, "\n") + "\n```\n"
 }
 
 func flagRows(fs *pflag.FlagSet) []string {
@@ -233,6 +239,14 @@ func renderGroupIndex(cmd *cobra.Command, order int) []byte {
 		desc = cmd.Short
 	}
 	b.WriteString(escapeMDX(strings.TrimSpace(desc)) + "\n")
+	// A group that also runs on its own with an argument (ofga mappings [file])
+	// shows that form here, since no child page does. The other groups only
+	// print their help when run bare.
+	if cmd.Runnable() && cmd.Use != cmd.Name() {
+		b.WriteString("\n## Usage\n\n```sh\n" + cmd.UseLine() + "\n" + cmd.CommandPath() + " [command]\n```\n")
+		b.WriteString(examples(cmd))
+		b.WriteString("\n## Commands\n")
+	}
 	b.WriteString("\n| Command | Description |\n| --- | --- |\n")
 	for _, child := range visibleCommands(cmd) {
 		fmt.Fprintf(&b, "| [%s](%s/) | %s |\n", child.Name(), child.Name(), escapeCell(child.Short))

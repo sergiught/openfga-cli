@@ -43,6 +43,17 @@ func (h *wsHarness) toastText() string { return flat(plain(h.w.toasts.View())) }
 
 func flat(s string) string { return strings.Join(strings.Fields(s), "") }
 
+// The toast names the file from the working folder, so it fits on a line.
+func TestTheSaveToastShowsTheFileFromTheWorkingFolder(t *testing.T) {
+	h := loadedWs(t, twoRules)
+	h.w.opts.Dir = filepath.Dir(h.w.path)
+	h.rename(0, "renamed")
+	h.press("ctrl+s")
+	if got := h.toastText(); !strings.Contains(got, flat("saved mapping.yaml (2 rules, 1 test)")) {
+		t.Fatalf("toast = %q", got)
+	}
+}
+
 func TestSaveWritesKeepsCommentsAndToasts(t *testing.T) {
 	h := loadedWs(t, twoRules)
 	h.rename(0, "renamed")

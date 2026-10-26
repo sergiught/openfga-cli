@@ -260,12 +260,63 @@ func (f *File) itemPos(key string, i int) (int, int) {
 	return seq.Content[i].Line, seq.Content[i].Column
 }
 
+// ProblemPos is the 1-based position of what p is about: the field of the tuple
+// or filter it names, or as much of that as the file has, down to its rule.
+// It is 0, 0 for a problem about no rule.
+func (f *File) ProblemPos(p Problem) (line, col int) {
+	rule := seqItem(mappingValue(f.root, "rules"), p.Rule)
+	if rule == nil {
+		return 0, 0
+	}
+	at := rule
+	if item := sectionItem(rule, p.Section, p.Item-1); item != nil {
+		at = item
+		if v := mapValue(item, p.Field); v != nil {
+			at = v
+		}
+	}
+	return at.Line, at.Column
+}
+
+// sectionItem is the i-th tuple or filter of a rule's section, the iterator's
+// tuples counting after the rule's own, or nil.
+func sectionItem(rule *yaml.Node, section string, i int) *yaml.Node {
+	switch section {
+	case "filters":
+		return seqItem(mapValue(rule, "tuple_filters"), i)
+	case "tuple":
+		own := mapValue(rule, "tuples")
+		if own != nil && i < len(own.Content) {
+			return seqItem(own, i)
+		}
+		if own != nil {
+			i -= len(own.Content)
+		}
+		return seqItem(mapValue(mapValue(rule, "iterator"), "tuples"), i)
+	}
+	return nil
+}
+
+func seqItem(seq *yaml.Node, i int) *yaml.Node {
+	if seq == nil || seq.Kind != yaml.SequenceNode || i < 0 || i >= len(seq.Content) {
+		return nil
+	}
+	return seq.Content[i]
+}
+
 // mappingValue finds key in the document's top-level mapping.
 func mappingValue(root *yaml.Node, key string) *yaml.Node {
 	if root == nil || root.Kind != yaml.DocumentNode || len(root.Content) == 0 {
 		return nil
 	}
-	m := root.Content[0]
+	return mapValue(root.Content[0], key)
+}
+
+// mapValue is key's value in the mapping m, or nil.
+func mapValue(m *yaml.Node, key string) *yaml.Node {
+	if m == nil || m.Kind != yaml.MappingNode {
+		return nil
+	}
 	for j := 0; j+1 < len(m.Content); j += 2 {
 		if m.Content[j].Value == key {
 			return m.Content[j+1]
