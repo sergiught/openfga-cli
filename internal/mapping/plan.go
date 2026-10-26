@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/openfga/mapper"
 	"github.com/openfga/mapper/apply"
@@ -70,7 +71,8 @@ type Plan struct {
 // are skipped entirely (a resumed apply), and every event keeps its number in
 // events.
 func PlanEvents(ctx context.Context, m *mapper.Mapping, events []map[string]any, from int, store TupleReader, progress func(done, total int)) (*Plan, error) {
-	rec := &recorder{store: store, cache: map[language.TupleFilter][]language.Tuple{}}
+	rec := &recorder{store: store, cache: map[language.TupleFilter][]language.Tuple{},
+		planned: map[string]map[string]language.Tuple{}}
 	written := map[string]plannedWrite{}
 	p := &Plan{}
 	from = max(from, 1)
@@ -98,7 +100,7 @@ func PlanEvents(ctx context.Context, m *mapper.Mapping, events []map[string]any,
 		if err := trackWrites(ep, written); err != nil {
 			return nil, err
 		}
-		rec.planned = append(rec.planned, ep.Changes...)
+		rec.plan(ep.Changes)
 		for _, c := range ep.Changes {
 			if c.Action == language.ActionDelete {
 				p.Deletes++
@@ -176,8 +178,21 @@ func trackWrites(ep EventPlan, written map[string]plannedWrite) error {
 type recorder struct {
 	store   TupleReader
 	cache   map[language.TupleFilter][]language.Tuple // store reads; the store does not change while planning
-	planned []language.Tuple
+	planned map[string]map[string]language.Tuple      // the last change planned for each tuple, by object type
 	got     []language.Tuple
+}
+
+// plan records changes as the state the tuples they touch will have. A read
+// needs only that state, not every change that led to it, and only for the
+// object type it names.
+func (r *recorder) plan(changes []language.Tuple) {
+	for _, c := range changes {
+		typ, _, _ := strings.Cut(c.Object, ":")
+		if r.planned[typ] == nil {
+			r.planned[typ] = map[string]language.Tuple{}
+		}
+		r.planned[typ][uro(c)] = c
+	}
 }
 
 func (r *recorder) ReadTuples(ctx context.Context, f language.TupleFilter) ([]language.Tuple, error) {
@@ -194,16 +209,25 @@ func (r *recorder) ReadTuples(ctx context.Context, f language.TupleFilter) ([]la
 	for _, t := range base {
 		byURO[uro(t)] = t
 	}
-	for _, t := range r.planned {
-		if !matchesFilter(t, key) {
-			continue
+	overlay := func(planned map[string]language.Tuple) {
+		for k, t := range planned {
+			if !matchesFilter(t, key) {
+				continue
+			}
+			if t.Action == language.ActionDelete {
+				delete(byURO, k)
+			} else {
+				t.Action = ""
+				byURO[k] = t
+			}
 		}
-		if t.Action == language.ActionDelete {
-			delete(byURO, uro(t))
-		} else {
-			w := t
-			w.Action = ""
-			byURO[uro(t)] = w
+	}
+	if key.Object != "" {
+		typ, _, _ := strings.Cut(key.Object, ":")
+		overlay(r.planned[typ])
+	} else {
+		for _, planned := range r.planned {
+			overlay(planned)
 		}
 	}
 	out := make([]language.Tuple, 0, len(byURO))

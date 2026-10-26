@@ -374,3 +374,44 @@ rules:
 		t.Fatalf("plan = %+v", p.Events[0])
 	}
 }
+
+// A read sees the last change planned for each tuple, however many writes and
+// deletes of it came before, whichever object type the read names or none.
+func TestRecorderReadsTheLastPlannedState(t *testing.T) {
+	w := func(user, object string) language.Tuple {
+		return language.Tuple{User: user, Relation: "member", Object: object}
+	}
+	d := func(user, object string) language.Tuple {
+		t := w(user, object)
+		t.Action = language.ActionDelete
+		return t
+	}
+	rec := &recorder{
+		store:   &memStore{tuples: []language.Tuple{w("user:x", "team:a")}},
+		cache:   map[language.TupleFilter][]language.Tuple{},
+		planned: map[string]map[string]language.Tuple{},
+	}
+	rec.plan([]language.Tuple{w("user:u1", "team:a"), w("user:u1", "organization:o")})
+	rec.plan([]language.Tuple{d("user:u1", "team:a")})
+	rec.plan([]language.Tuple{d("user:x", "team:a"), w("user:u1", "team:a")})
+	rec.plan([]language.Tuple{d("user:u1", "team:b"), w("user:u2", "team:b")})
+
+	tests := []struct {
+		filter language.TupleFilter
+		want   []language.Tuple
+	}{
+		{language.TupleFilter{Object: "team:"}, []language.Tuple{w("user:u1", "team:a"), w("user:u2", "team:b")}},
+		{language.TupleFilter{Object: "team:a"}, []language.Tuple{w("user:u1", "team:a")}},
+		{language.TupleFilter{User: "user:u1"}, []language.Tuple{w("user:u1", "organization:o"), w("user:u1", "team:a")}},
+		{language.TupleFilter{User: "user:x"}, []language.Tuple{}},
+	}
+	for _, tc := range tests {
+		got, err := rec.ReadTuples(context.Background(), tc.filter)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fmt.Sprint(got) != fmt.Sprint(tc.want) {
+			t.Errorf("ReadTuples(%+v) = %v, want %v", tc.filter, got, tc.want)
+		}
+	}
+}
