@@ -188,20 +188,8 @@ func lintAgainstModel(i int, t Tuple, ix *ModelIndex) []Problem {
 			ps = append(ps, Problem{Rule: i, Section: "tuple", Field: "condition", Warning: true,
 				Message: fmt.Sprintf("the model has no condition %q", t.Condition)})
 		} else {
-			set := map[string]bool{}
-			for _, e := range t.Context {
-				set[e.Key] = true
-			}
-			var missing []string
-			for _, p := range params {
-				if !set[p] {
-					missing = append(missing, p)
-				}
-			}
-			if len(missing) > 0 {
-				ps = append(ps, Problem{Rule: i, Section: "tuple", Field: "context", Warning: true,
-					Message: fmt.Sprintf("condition %q has no value for %s", t.Condition, strings.Join(missing, ", "))})
-			}
+			// A parameter the tuple leaves out is not a problem: a Check
+			// request can supply the rest of the context.
 			for _, e := range t.Context {
 				if !contains(params, e.Key) {
 					ps = append(ps, Problem{Rule: i, Section: "tuple", Field: "context", Warning: true,

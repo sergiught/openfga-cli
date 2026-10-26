@@ -162,9 +162,10 @@ func TestLintUnknownConditionAndParams(t *testing.T) {
 	if got := problemsMatching(ps, `condition "no_such_condition"`); len(got) != 1 || !got[0].Warning {
 		t.Fatalf("expected an unknown-condition warning: %+v", ps)
 	}
-	// end_time and grace_min are unset.
-	if got := problemsMatching(ps, "end_time"); len(got) != 1 || !got[0].Warning {
-		t.Fatalf("expected a missing-parameter warning: %+v", ps)
+	// end_time and grace_min are unset, which is fine: a Check request can
+	// supply the rest of the context.
+	if got := problemsMatching(ps, "end_time"); len(got) != 0 {
+		t.Fatalf("a partial context must not warn: %+v", got)
 	}
 	// "bogus" is not a declared parameter of in_business_hours.
 	if got := problemsMatching(ps, `has no parameter "bogus"`); len(got) != 1 || !got[0].Warning {
