@@ -1,0 +1,28 @@
+{
+  "specversion": "1.0",
+  "type": "group.member.added",
+  "source": "urn:auth0:example.auth0app.com",
+  "id": "evt_vjFVP5pVdfvsfRKatshkVV",
+  "time": "2025-02-01T12:34:56Z",
+  "data": {
+    "object": {
+      "group": {
+        "id": "grp_01949dad80fc7d56",
+        "type": "connection",
+        "connection_id": "con_kFOHQUeaCSC1Kjqz",
+        "external_id": "my-external-id"
+      },
+      "member": {
+        "member_type": "user",
+        "id": "user@example.com"
+      }
+    },
+    "context": {
+      "tenant": {
+        "id": "my-tenant"
+      }
+    }
+  },
+  "a0tenant": "my-tenant",
+  "a0stream": "est_vjFVP5pVdfvsfRKatshkVV"
+}

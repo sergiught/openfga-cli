@@ -1,0 +1,4 @@
+version: 1
+model: ./model.fga
+tests:
+  - "tests/**/*.test.yaml"

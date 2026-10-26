@@ -18,6 +18,8 @@ type Results struct {
 	// tests themselves still ran. Empty on the successful (Coverage populated)
 	// path.
 	CoverageError string `json:"coverage_error,omitempty"`
+	// Label prefixes GitHub annotation titles; empty means "model test".
+	Label string `json:"-"`
 }
 
 // Summary aggregates counts across all matched tests.

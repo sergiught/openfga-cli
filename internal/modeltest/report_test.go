@@ -371,9 +371,28 @@ func TestGitHubAnnotationFileUsesRepositoryRelativeSource(t *testing.T) {
 	}
 }
 
-// GitHub shows an annotation as text: a bidi override in a test's name or
-// message reorders what the reviewer reads. The lines of a multi-line message
-// survive.
+func TestWriteGitHubReportTitleLabel(t *testing.T) {
+	res := &Results{Tests: []TestResult{{Name: "t", Error: "boom"}}}
+	var buf bytes.Buffer
+	if err := WriteReport("github", &buf, res); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "title=model test%3A t") {
+		t.Fatalf("default title: %s", buf.String())
+	}
+	res.Label = "mapping test"
+	buf.Reset()
+	if err := WriteReport("github", &buf, res); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "title=mapping test%3A t") {
+		t.Fatalf("labelled title: %s", buf.String())
+	}
+}
+
+// A mapping test's name and tuples come from event payloads, and GitHub shows
+// an annotation as text: a bidi override there reorders what the reviewer reads.
+// The lines of a multi-line message survive.
 func TestWriteGitHubReportStripsHiddenControls(t *testing.T) {
 	res := &Results{Tests: []TestResult{{
 		Name:  "evil\u202etset\u009b31m",
@@ -391,5 +410,21 @@ func TestWriteGitHubReportStripsHiddenControls(t *testing.T) {
 	}
 	if !strings.Contains(out, "title=model test%3A eviltset31m::line one%0Aline two\n") {
 		t.Fatalf("want the visible text kept, lines included:\n%q", out)
+	}
+}
+
+func TestRepoPathIsRelativeToTheRepositoryRoot(t *testing.T) {
+	repo := t.TempDir()
+	t.Setenv("GITHUB_WORKSPACE", repo)
+	if got := RepoPath(filepath.Join(repo, "sync", "auth0.yaml")); got != "sync/auth0.yaml" {
+		t.Fatalf("inside the root: %q", got)
+	}
+	outside := filepath.Join(t.TempDir(), "m.yaml")
+	if got := RepoPath(outside); got != outside {
+		t.Fatalf("outside the root: %q", got)
+	}
+	t.Setenv("GITHUB_WORKSPACE", "")
+	if got := RepoPath("sub/m.yaml"); got != "sub/m.yaml" {
+		t.Fatalf("relative to the working directory: %q", got)
 	}
 }

@@ -17,6 +17,10 @@ import (
 // ErrAborted is returned when the user declines a confirmation.
 var ErrAborted = errors.New("aborted")
 
+// ErrNeedsForce is returned when a confirmation cannot be asked (no TTY) and
+// --force was not given.
+var ErrNeedsForce = errors.New("refusing to proceed without confirmation; pass --force to skip the prompt")
+
 // interactive reports whether cmd's stdin is a terminal we can prompt on.
 func interactive(cmd *cobra.Command) bool {
 	if noInput, err := cmd.Flags().GetBool("no-input"); err == nil && noInput {
@@ -34,7 +38,7 @@ func Confirm(cmd *cobra.Command, question string, force bool) error {
 		return nil
 	}
 	if !interactive(cmd) {
-		return errors.New("refusing to proceed without confirmation; pass --force to skip the prompt")
+		return ErrNeedsForce
 	}
 	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s [y/N]: ", question)
 	switch readLine(cmd) {
@@ -53,7 +57,7 @@ func ConfirmName(cmd *cobra.Command, action, expected string, force bool) error 
 		return nil
 	}
 	if !interactive(cmd) {
-		return errors.New("refusing to proceed without confirmation; pass --force to skip the prompt")
+		return ErrNeedsForce
 	}
 	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s\n  type %q to confirm: ", action, expected)
 	line, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')

@@ -1,0 +1,26 @@
+# Org membership sync. Owned by the identity team.
+version: "1"
+rules:
+  # Someone joined.
+  - name: joined
+    tuples: # one per membership
+      - object: 'organization:{{ input.data.object.organization.id }}'
+        relation: member
+        user: "user:{{ fga_escape(input.data.object.user.user_id) }}"
+    when: input.type == "organization.member.added"
+  - name: member-removed
+    when: input.type == "organization.member.deleted"
+    action: delete
+    tuples:
+      - user: "user:{{ fga_escape(input.data.object.user.user_id) }}"
+        relation: member
+        object: "organization:{{ input.data.object.organization.id }}"
+tests:
+  - name: added
+    input: {type: organization.member.added, data: {object: {organization: {id: o1}, user: {user_id: u1}}}}
+    expect_tuples:
+      - user: "user:u1"
+        relation: member
+        object: "organization:o1"
+        action: write
+# end of file

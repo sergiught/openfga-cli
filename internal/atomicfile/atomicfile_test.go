@@ -1,8 +1,11 @@
 package atomicfile
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -134,4 +137,125 @@ func assertOnlyFile(t *testing.T, dir, name string) {
 		}
 		t.Errorf("directory contains %v, want only %q", got, name)
 	}
+}
+
+func TestCommitNewRefusesAnExistingDestination(t *testing.T) {
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "out.yaml")
+	if err := os.WriteFile(dest, []byte("theirs"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := Create(dest, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte("mine")); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.CommitNew(); !errors.Is(err, fs.ErrExist) {
+		t.Fatalf("CommitNew = %v, want fs.ErrExist", err)
+	}
+
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "theirs" {
+		t.Errorf("contents = %q, want %q", got, "theirs")
+	}
+	assertOnlyFile(t, dir, "out.yaml")
+}
+
+func TestCommitNewWritesAFreeDestination(t *testing.T) {
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "out.yaml")
+
+	f, err := Create(dest, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte("mine")); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.CommitNew(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "mine" {
+		t.Errorf("contents = %q, want %q", got, "mine")
+	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(dest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o644 {
+			t.Errorf("perm = %v, want 0644", info.Mode().Perm())
+		}
+	}
+	assertOnlyFile(t, dir, "out.yaml")
+}
+
+// Without hard links, CommitNew still writes a free destination and still
+// refuses one that exists, including one created as the link failed.
+func TestCommitNewWithoutHardLinks(t *testing.T) {
+	commit := func(t *testing.T, dest string, onLink func()) error {
+		t.Helper()
+		link = func(string, string) error {
+			if onLink != nil {
+				onLink()
+			}
+			return &os.LinkError{Op: "link", Err: errors.ErrUnsupported}
+		}
+		t.Cleanup(func() { link = os.Link })
+		f, err := Create(dest, 0o644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.Write([]byte("mine")); err != nil {
+			t.Fatal(err)
+		}
+		return f.CommitNew()
+	}
+	read := func(t *testing.T, dest string) string {
+		t.Helper()
+		got, err := os.ReadFile(dest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(got)
+	}
+
+	t.Run("free", func(t *testing.T) {
+		dir := t.TempDir()
+		dest := filepath.Join(dir, "out.yaml")
+		if err := commit(t, dest, nil); err != nil {
+			t.Fatal(err)
+		}
+		if got := read(t, dest); got != "mine" {
+			t.Errorf("contents = %q, want %q", got, "mine")
+		}
+		assertOnlyFile(t, dir, "out.yaml")
+	})
+	t.Run("taken", func(t *testing.T) {
+		dir := t.TempDir()
+		dest := filepath.Join(dir, "out.yaml")
+		theirs := func() {
+			if err := os.WriteFile(dest, []byte("theirs"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := commit(t, dest, theirs); !errors.Is(err, fs.ErrExist) {
+			t.Fatalf("CommitNew = %v, want fs.ErrExist", err)
+		}
+		if got := read(t, dest); got != "theirs" {
+			t.Errorf("contents = %q, want %q", got, "theirs")
+		}
+		assertOnlyFile(t, dir, "out.yaml")
+	})
 }

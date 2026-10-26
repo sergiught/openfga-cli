@@ -1,0 +1,55 @@
+version: "1"
+rules:
+  - name: sync-members
+    when: input.type == "organization.member.synced"
+    variables:
+      org: input.data.object.organization.id
+      region: input.data.object.region
+    iterator:
+      source: input.data.object.members
+      as: member
+      tuples:
+        - user: "user:{{ fga_escape(member.user_id) }}"
+          relation: "member"
+          object: "organization:{{ org }}"
+          when: member.user_id != ""
+          action: write
+          condition: in_business_hours
+          context:
+            region: "{{ region }}"
+            tier: "{{ input.data.object.tier }}"
+    tuple_filters:
+      - object: "organization:{{ org }}"
+        relation: "member"
+        action: patch
+      - object: "organization:{{ org }}"
+        relation: "pending"
+        action: delete
+tests:
+  - name: sync
+    input:
+      data:
+        object:
+          members:
+            - user_id: u1
+          organization:
+            id: o1
+          region: eu
+          tier: gold
+      type: organization.member.synced
+    expect_tuples:
+      - user: "user:u1"
+        relation: "member"
+        object: "organization:o1"
+        condition: in_business_hours
+        context:
+          region: eu
+          tier: gold
+    expect_tuple_filters:
+      - relation: "member"
+        object: "organization:o1"
+        action: patch
+      - relation: "pending"
+        object: "organization:o1"
+        action: delete
+    assert_writes_covered_by_filter: true

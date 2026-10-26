@@ -1,0 +1,149 @@
+model
+  schema 1.1
+
+# This model has two halves.
+#
+# Everything down to the line marked "what you replace" is written by a recipe
+# in this catalog. The type and relation names are Auth0's, so the mapping reads
+# plainly against the payloads, and recipes_test.go holds the two together: a
+# relation an event writes that is missing here fails, and a directly assignable
+# relation here that no event writes fails too.
+#
+# Everything after that line is yours. A directory nobody can ask a question of
+# is just a second copy of Auth0, so the file ends with the smallest example of
+# what the first half is *for* — one resource whose permissions come from the
+# organization, group and role memberships above it. Replace it with the types
+# you actually have.
+
+# ── what Auth0 tells you ──────────────────────────────────────────────────
+
+type user
+
+# An Auth0 application. connection.created lists the ones a connection is
+# enabled for, by client id.
+type client
+
+# The Auth0 tenant, carried on every event at the top level as a0tenant. It is
+# the root the other objects hang from, and the reason the creation events have
+# anything to write at all: a new organization relates to nothing else at the
+# moment it exists.
+type tenant
+  relations
+    # user.created. The first thing true of anyone who has just signed up, and
+    # the one a resource open to every signed-in user checks.
+    define member: [user]
+
+# Your own plans or tiers, named by app_metadata.plan. Auth0 does not define
+# these — app_metadata is the part of a user it keeps for you — but it is the
+# one thing a creation event says about what a user may do rather than who they
+# are, so it is worth a type.
+#
+# A type rather than a relation on user, for the reason role is a type: your
+# tiers are yours to invent at runtime, and a relation per tier would mean a
+# model change every time marketing adds one.
+type plan
+  relations
+    # user.created, when the user has a plan. Users without one write nothing.
+    define assignee: [user]
+
+# One object per user per organization, so a role assignment can hang from the
+# membership instead of the bare user. Leaving the organization then removes the
+# holder and the roles together: organization.member.deleted can name this one
+# user's membership exactly, which it cannot do for role:org_…|rol_… objects.
+type membership
+  relations
+    # organization.member.added / .deleted
+    define holder: [user]
+
+# One object per role per organization, keyed org_…|rol_… — the same role in two
+# organizations is two objects, because Auth0 scopes the assignment that way and
+# a role that leaked across organizations would grant more than the event said.
+#
+# Roles are a type rather than a relation because your users invent them at
+# runtime. OpenFGA's rule of thumb: if end-users can define it, it goes in
+# tuples; if it is built into your application, it goes in the model. A relation
+# named from role.name would also break outright the first time somebody names
+# one "Billing Manager" — a relation name cannot contain a space.
+type role
+  relations
+    # organization.member.role.assigned / .deleted. The assignee is the user's
+    # membership in the organization, not the user.
+    define assignee: [membership#holder]
+
+type connection
+  relations
+    # connection.created
+    define tenant: [tenant]
+    # user.updated, one per entry in the user's identities
+    define identity: [user]
+    # connection.created / connection.updated, one per enabled client
+    define enabled_client: [client]
+
+type group
+  relations
+    # group.created and group.updated, for a connection-scoped group
+    define connection: [connection]
+    # group.member.added / .deleted. A group member is a user or a whole
+    # connection — Auth0 allows both — and connection#identity is how the second
+    # kind is said: everyone with an identity in that connection is a member.
+    #
+    # group#member is here for parity with Auth0's own suggested model, which
+    # lists it. No event in this catalog writes it: the member_type in
+    # group.member.added is a closed union of "user" and "connection", so a
+    # nested group can only arrive from your own writes — in which case
+    # group.deleted needs a third filter, which its warning describes.
+    define member: [user, group#member, connection#identity]
+
+type organization
+  relations
+    # organization.created
+    define tenant: [tenant]
+    # organization.connection.added / .removed / .updated, and connection.deleted
+    define connection: [connection]
+    # organization.member.added / .deleted. group#member is the other way in:
+    # group.created writes it for an organization-scoped group, so the whole
+    # group counts as a member without a tuple per person.
+    define member: [user, group#member]
+
+    # The join, and the one relation here you write yourself. Auth0's event says
+    # a user was given a role; it never says what the role permits — that is
+    # yours to decide, and this is where you say it. One tuple per role that
+    # should mean admin, not one per user:
+    #
+    #   role:org_1234567890abcdef|rol_admin#assignee  role_admin  organization:org_1234567890abcdef
+    #
+    # After that, everyone Auth0 puts in the role is an admin, and every later
+    # assignment and revocation keeps it true with no further tuples of yours.
+    # [user] is for the first admin, who exists before any role does.
+    define role_admin: [user, role#assignee]
+
+    # ...but only while they are still a member. organization.member.deleted
+    # removes the member tuple and every role assignment the user held in the
+    # organization together, so a user who rejoins starts with no roles. The
+    # `and member` stays as defence in depth: events can arrive out of order, and
+    # it means a role grants nothing in the window before that sweep runs.
+    define admin: role_admin and member
+
+# ── what you replace ──────────────────────────────────────────────────────
+#
+# Six ways to reach a permission: granted to one person, granted to a group,
+# inherited from the organization, derived from an Auth0 role, open to everyone
+# in the tenant, and gated on the plan the user is on. Everything above this
+# line feeds them.
+
+type document
+  relations
+    define organization: [organization]
+    define editor: [user, group#member]
+    define viewer: [user, group#member]
+
+    # What makes the two tuples user.created writes worth writing. tenant is for
+    # the documents open to anyone signed in — a help page, a template gallery —
+    # and plan is what a paid feature hangs off: the user needs the permission
+    # *and* the tier.
+    define tenant: [tenant]
+    define plan: [plan]
+
+    define can_view: viewer or editor or member from organization or member from tenant
+    define can_edit: editor or admin from organization
+    define can_export: can_edit and assignee from plan

@@ -1,0 +1,25 @@
+{
+  "specversion": "1.0",
+  "type": "organization.connection.removed",
+  "source": "urn:auth0:example.auth0app.com",
+  "id": "evt_vjFVP5pVdfvsfRKatshkVV",
+  "time": "2025-02-01T12:34:56Z",
+  "data": {
+    "object": {
+      "organization": {
+        "id": "org_1234567890abcdef",
+        "name": "my-organization"
+      },
+      "connection": {
+        "id": "con_kFOHQUeaCSC1Kjqz"
+      }
+    },
+    "context": {
+      "tenant": {
+        "id": "my-tenant"
+      }
+    }
+  },
+  "a0tenant": "my-tenant",
+  "a0stream": "est_vjFVP5pVdfvsfRKatshkVV"
+}
