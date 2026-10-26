@@ -469,3 +469,14 @@ func TestAUserPickNarrowsToTheChosenRelation(t *testing.T) {
 		t.Fatalf("user types for lead = %v, want %v", got, want)
 	}
 }
+
+// A multi-line when, from a block scalar that ends in a newline, survives
+// opening the tuple and leaving it.
+func TestTabbingThroughAMultilineTupleWhenChangesNothing(t *testing.T) {
+	assertOnlyEditsChangeTheDocument(t, func() *mapping.Document {
+		return tuplesDoc(mapping.Tuple{
+			User: "user:1", Relation: "member", Object: "organization:1",
+			When: "input.a != \"\"\n&& input.b // both\n",
+		})
+	}, openForm)
+}

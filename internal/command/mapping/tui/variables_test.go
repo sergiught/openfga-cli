@@ -98,3 +98,19 @@ func TestTabbingThroughAVariableChangesNothing(t *testing.T) {
 		return varsDoc(mapping.Variable{Name: "org", Expr: "input.a"})
 	}, func(s *Session) component { return newVarForm(s, Focus{}, 0) })
 }
+
+// A block scalar ends in a newline and an expression can span lines; opening
+// the variable and leaving must keep both.
+func TestAMultilineVariableKeepsItsLines(t *testing.T) {
+	assertOnlyEditsChangeTheDocument(t, func() *mapping.Document {
+		return varsDoc(mapping.Variable{Name: "org", Expr: "input.a // first\n?? input.b\n"})
+	}, func(s *Session) component { return newVarForm(s, Focus{}, 0) })
+	h := newHarness(t, varsDoc(mapping.Variable{Name: "org"}), nil, func(s *Session) component { return newVarForm(s, Focus{}, 0) })
+	h.press("tab")
+	h.typeText("a")
+	h.press("alt+enter")
+	h.typeText("b")
+	if got := h.s.Doc.Rules[0].Variables[0].Expr; got != "a\nb" {
+		t.Fatalf("expr = %q, want two lines", got)
+	}
+}

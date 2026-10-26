@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	binding "charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
@@ -21,14 +23,19 @@ const (
 	kindText fieldKind = iota
 	kindToggle
 	kindSelect
+	kindArea
 )
 
-// Field is one labeled input: a text entry, a two-choice toggle, or a
-// cycle-through select.
+// areaMaxRows caps how tall an area grows before it scrolls.
+const areaMaxRows = 6
+
+// Field is one labeled input: a text entry, a multi-line text area, a
+// two-choice toggle, or a cycle-through select.
 type Field struct {
 	kind     fieldKind
 	label    string
 	in       textinput.Model // kindText
+	area     textarea.Model  // kindArea
 	on       bool            // kindToggle value
 	onLabel  string          // kindToggle labels for the two choices
 	offLabel string
@@ -53,6 +60,44 @@ func New(label, placeholder string) *Field {
 	st.Cursor.Color = style.Primary
 	in.SetStyles(st)
 	return &Field{kind: kindText, label: label, in: in}
+}
+
+// NewArea returns a multi-line text field, for values such as expressions whose
+// line breaks are part of what was written: a text field would join the lines.
+// alt+enter (or shift+enter, ctrl+j) starts a new line; enter moves on, as in
+// every other field. It grows with its value, up to areaMaxRows rows.
+func NewArea(label, placeholder string) *Field {
+	a := textarea.New()
+	a.Placeholder = placeholder
+	a.Prompt = ""
+	a.ShowLineNumbers = false
+	a.DynamicHeight = true
+	a.MaxHeight = areaMaxRows
+	// Without it the area refuses a line past MaxHeight, so a longer value
+	// would be cut short; MaxHeight should only bound what is on screen.
+	a.MaxContentHeight = 10000
+	a.KeyMap.InsertNewline = binding.NewBinding(binding.WithKeys("alt+enter", "shift+enter", "ctrl+j"))
+	f := &Field{kind: kindArea, label: label, area: a}
+	f.styleArea(nil)
+	return f
+}
+
+// styleArea themes an area like New themes a text input, with bg behind the
+// focused text when it is set.
+func (f *Field) styleArea(bg color.Color) {
+	text := lipgloss.NewStyle().Foreground(style.Fg)
+	placeholder := lipgloss.NewStyle().Foreground(style.Faintc)
+	focused := lipgloss.NewStyle()
+	if bg != nil {
+		text, placeholder, focused = text.Background(bg), placeholder.Background(bg), focused.Background(bg)
+	}
+	st := f.area.Styles()
+	st.Focused = textarea.StyleState{Base: focused, Text: text, CursorLine: text, Placeholder: placeholder, EndOfBuffer: focused}
+	plain := lipgloss.NewStyle().Foreground(style.Fg)
+	faint := lipgloss.NewStyle().Foreground(style.Faintc)
+	st.Blurred = textarea.StyleState{Text: plain, CursorLine: plain, Placeholder: faint}
+	st.Cursor.Color = style.Primary
+	f.area.SetStyles(st)
 }
 
 // NewToggle returns a two-choice toggle field (◉ on / ○ off). Space or ←→ flip
@@ -91,15 +136,21 @@ func (f *Field) Secret() *Field {
 
 func (f *Field) focus() tea.Cmd {
 	f.err = "" // clear any inline error while the user edits; re-checked on blur
-	if f.kind != kindText {
-		return nil
+	switch f.kind {
+	case kindText:
+		return f.in.Focus()
+	case kindArea:
+		return f.area.Focus()
 	}
-	return f.in.Focus()
+	return nil
 }
 
 func (f *Field) blur() {
-	if f.kind == kindText {
+	switch f.kind {
+	case kindText:
 		f.in.Blur()
+	case kindArea:
+		f.area.Blur()
 	}
 	// Validate on tab-off so a bad value is flagged inline before submit.
 	if f.validate != nil {
@@ -131,10 +182,26 @@ func (f *Field) update(msg tea.Msg) tea.Cmd {
 			}
 		}
 		return nil
+	case kindArea:
+		var cmd tea.Cmd
+		f.area, cmd = f.area.Update(msg)
+		return cmd
 	}
 	var cmd tea.Cmd
 	f.in, cmd = f.in.Update(msg)
 	return cmd
+}
+
+// leaves reports whether moving the caret by d lines (±1) leaves the field:
+// always for a one-line field, and from an area's first or last line only.
+func (f *Field) leaves(d int) bool {
+	if f.kind != kindArea {
+		return true
+	}
+	if d < 0 {
+		return f.area.Line() == 0
+	}
+	return f.area.Line() >= f.area.LineCount()-1
 }
 
 func (f *Field) value() string {
@@ -146,8 +213,20 @@ func (f *Field) value() string {
 			return ""
 		}
 		return f.options[f.sel]
+	case kindArea:
+		return f.area.Value()
 	}
 	return f.in.Value()
+}
+
+// sanitizeLines is style.SanitizeTerminal for each line of s: it keeps the
+// line breaks an area shows and drops every other control.
+func sanitizeLines(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		lines[i] = style.SanitizeTerminal(l)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (f *Field) setValue(s string) {
@@ -162,6 +241,10 @@ func (f *Field) setValue(s string) {
 				return
 			}
 		}
+		return
+	case kindArea:
+		f.area.SetValue(sanitizeLines(s))
+		f.area.MoveToBegin() // as below: start where reading starts
 		return
 	}
 	f.in.SetValue(style.SanitizeTerminal(s))
@@ -181,6 +264,10 @@ func (f *Field) setValue(s string) {
 // end and back makes it measure again; the caret and the value stay as they
 // were.
 func (f *Field) setWidth(w int) {
+	if f.kind == kindArea {
+		f.area.SetWidth(w)
+		return
+	}
 	if f.kind != kindText || f.in.Width() == w {
 		return
 	}
@@ -192,23 +279,52 @@ func (f *Field) setWidth(w int) {
 
 // setCursor moves the caret within the field's text. No-op on non-text fields.
 func (f *Field) setCursor(pos int) {
-	if f.kind == kindText {
+	switch f.kind {
+	case kindText:
 		f.in.SetCursor(pos)
+	case kindArea:
+		// The area moves by row and column, so find pos's line. CursorDown
+		// steps through wrapped rows too, so it goes until the line is reached.
+		row, col := 0, max(pos, 0)
+		for _, l := range strings.Split(f.area.Value(), "\n") {
+			n := len([]rune(l))
+			if col <= n || row == f.area.LineCount()-1 {
+				break
+			}
+			col -= n + 1
+			row++
+		}
+		f.area.MoveToBegin()
+		for f.area.Line() < row {
+			f.area.CursorDown()
+		}
+		f.area.SetCursorColumn(col)
 	}
 }
 
 // cursor is the caret's rune offset within the field's text. Non-text fields
 // have no caret and report 0.
 func (f *Field) cursor() int {
-	if f.kind != kindText {
-		return 0
+	switch f.kind {
+	case kindText:
+		return f.in.Position()
+	case kindArea:
+		pos := f.area.Column()
+		for _, l := range strings.Split(f.area.Value(), "\n")[:f.area.Line()] {
+			pos += len([]rune(l)) + 1
+		}
+		return pos
 	}
-	return f.in.Position()
+	return 0
 }
 
 // insert splices text into the field's value at its caret, leaving the caret
 // after the inserted text. No-op on non-text fields.
 func (f *Field) insert(text string) {
+	if f.kind == kindArea {
+		f.area.InsertString(sanitizeLines(text))
+		return
+	}
 	if f.kind != kindText {
 		return
 	}
@@ -222,8 +338,11 @@ func (f *Field) insert(text string) {
 // inputView renders the field's input line (no label), honoring focus and the
 // optional highlight background.
 func (f *Field) inputView(focused bool, hl color.Color) string {
-	if f.kind == kindText {
+	switch f.kind {
+	case kindText:
 		return f.in.View()
+	case kindArea:
+		return f.area.View()
 	}
 	base := lipgloss.NewStyle()
 	if hl != nil && focused {
@@ -277,6 +396,10 @@ func NewForm(fields ...*Field) *Form { return &Form{fields: fields} }
 func (f *Form) SetHighlight(c color.Color) {
 	f.highlight = c
 	for _, fl := range f.fields {
+		if fl.kind == kindArea {
+			fl.styleArea(c)
+			continue
+		}
 		if fl.kind != kindText {
 			continue // toggles carry the highlight via inputView
 		}
@@ -327,9 +450,17 @@ func (f *Form) Update(msg tea.Msg) tea.Cmd {
 	}
 	if k, ok := msg.(tea.KeyPressMsg); ok {
 		switch k.String() {
-		case "tab", "down":
+		case "down":
+			if f.fields[f.focus].leaves(1) {
+				return f.moveFocus(1)
+			}
+		case "up":
+			if f.fields[f.focus].leaves(-1) {
+				return f.moveFocus(-1)
+			}
+		case "tab":
 			return f.moveFocus(1)
-		case "shift+tab", "up":
+		case "shift+tab":
 			return f.moveFocus(-1)
 		case "enter":
 			// Enter advances to the next field; on the last visible field it
@@ -493,8 +624,11 @@ func (f *Form) submit() {
 	if !ok && firstInvalid >= 0 && firstInvalid != f.focus {
 		f.fields[f.focus].blur()
 		f.focus = firstInvalid
-		if f.fields[f.focus].kind == kindText {
+		switch f.fields[f.focus].kind {
+		case kindText:
 			f.fields[f.focus].in.Focus()
+		case kindArea:
+			f.fields[f.focus].area.Focus()
 		}
 	}
 }

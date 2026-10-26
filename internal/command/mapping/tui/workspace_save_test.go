@@ -688,3 +688,25 @@ func TestQuitAsksAboutAPasteOnAnyPaneThenAboutTheEdits(t *testing.T) {
 		t.Fatal("d did not quit")
 	}
 }
+
+// Apply has a paste box of its own, and its text is as easy to lose.
+func TestQuitAsksAboutAnApplyPasteOnAnotherPane(t *testing.T) {
+	h := applyWs(t, teamRules, &fakeStore{})
+	h.press("4", "v")
+	h.typeText("{")
+	if p, ok := h.topOf(paneApply).(*applyPaste); !ok || p.area.Value() != "{" {
+		t.Fatalf("fixture: top of Apply is %T, holding no text", h.topOf(paneApply))
+	}
+	h.cmds = append(h.cmds, h.w.switchTo(paneRules))
+	h.run()
+	h.press("ctrl+c")
+	h.run()
+	if h.quit || !strings.Contains(plain(h.view()), "Discard the pasted text?") {
+		t.Fatalf("quit = %v, no paste question:\n%s", h.quit, h.view())
+	}
+	h.press("y")
+	h.run()
+	if !h.quit {
+		t.Fatal("y on an unchanged document did not quit")
+	}
+}

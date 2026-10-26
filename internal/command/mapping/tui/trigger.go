@@ -40,7 +40,7 @@ func applyEventType(r *mapping.Rule, typ string) {
 func buildTriggerForm() *field.Form {
 	return field.NewForm(
 		field.New("Rule name", "organization.member.added"),
-		field.New("When (expression)", `input.type == "organization.member.added"`),
+		field.NewArea("When (expression)", `input.type == "organization.member.added"`),
 	)
 }
 
@@ -145,7 +145,7 @@ func (c *triggerForm) View(width, height int) string {
 }
 
 func (c *triggerForm) Keys() []string {
-	return []string{"tab next", "ctrl+e pick event", "ctrl+p insert path", "esc done"}
+	return []string{"tab next", "ctrl+e pick event", "ctrl+p insert path", "alt+↵ new line", "esc done"}
 }
 
 func (c *triggerForm) heading() (string, string) {

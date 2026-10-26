@@ -41,7 +41,7 @@ func buildTupleForm() *field.Form {
 		field.New("User", "user:{{ fga_escape(input.data.object.user.user_id) }}").WithValidate(vUserRef),
 		field.New("Relation", "member").WithValidate(vTemplate),
 		field.New("Object", "organization:{{ input.data.object.organization.id }}").WithValidate(vObjectRef),
-		field.New("When (optional)", `input.data.object.user.user_id != ""`),
+		field.NewArea("When (optional)", `input.data.object.user.user_id != ""`),
 		field.NewSelect("Action", tupleActions, 0),
 		field.New("Condition (optional)", "in_region").WithValidate(vIdent),
 		field.New("Context (key=template, comma separated)", "region={{ input.data.object.region }}").WithValidate(vContextPairs),
@@ -160,7 +160,11 @@ func (c *tupleForm) commit() {
 		Condition: v(fieldCondition),
 		Context:   splitContext(v(fieldContext)),
 	}
-	if sameTuple((*ts)[c.idx], next) {
+	// The form trims, and a when from a block scalar ends in a newline:
+	// compare it trimmed, or leaving the form would rewrite it.
+	had := (*ts)[c.idx]
+	had.When = strings.TrimSpace(had.When)
+	if sameTuple(had, next) {
 		return
 	}
 	(*ts)[c.idx] = next
@@ -264,9 +268,9 @@ func (c *tupleForm) View(width, height int) string {
 // reads as the one affordance that is broken.
 func (c *tupleForm) Keys() []string {
 	if c.s.Index.Empty() {
-		return []string{"tab next", "ctrl+p insert path", "esc done"}
+		return []string{"tab next", "ctrl+p insert path", "alt+↵ new line", "esc done"}
 	}
-	return []string{"tab next", "ctrl+o pick from model", "ctrl+p insert path", "esc done"}
+	return []string{"tab next", "ctrl+o pick from model", "ctrl+p insert path", "alt+↵ new line", "esc done"}
 }
 
 func (c *tupleForm) heading() (string, string) {

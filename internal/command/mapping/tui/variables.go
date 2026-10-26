@@ -125,7 +125,7 @@ func (c *varList) filtering() bool { return c.list.SettingFilter() }
 func buildVarForm() *field.Form {
 	return field.NewForm(
 		field.New("Name", "org").WithValidate(vIdent),
-		field.New("Expression", "input.data.object.organization.id"),
+		field.NewArea("Expression", "input.data.object.organization.id"),
 	)
 }
 
@@ -200,7 +200,9 @@ func (c *varForm) commit() {
 	}
 	v := c.form.Values()
 	next := mapping.Variable{Name: strings.TrimSpace(v[0]), Expr: strings.TrimSpace(v[1])}
-	if r.Variables[c.idx] == next {
+	// Compare trimmed: a block scalar ends in a newline the form trims, and
+	// leaving the form must not rewrite what nobody edited.
+	if cur := r.Variables[c.idx]; strings.TrimSpace(cur.Name) == next.Name && strings.TrimSpace(cur.Expr) == next.Expr {
 		return
 	}
 	r.Variables[c.idx] = next
@@ -213,7 +215,9 @@ func (c *varForm) View(width, height int) string {
 	return c.form.View()
 }
 
-func (c *varForm) Keys() []string { return []string{"tab next", "ctrl+p insert path", "esc done"} }
+func (c *varForm) Keys() []string {
+	return []string{"tab next", "ctrl+p insert path", "alt+↵ new line", "esc done"}
+}
 
 func (c *varForm) heading() (string, string) {
 	return "Variable", "A name, and the expression it stands for."

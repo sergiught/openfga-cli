@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sergiught/openfga-cli/internal/mapping"
 	"github.com/sergiught/openfga-cli/internal/style"
@@ -106,9 +107,15 @@ func middleCut(s string, w int) string {
 	if w <= 1 {
 		return "…"
 	}
-	r := []rune(s)
+	// Cut by columns, not runes: a wide character takes two. Truncate drops
+	// one its cut would split; TruncateLeft keeps it, so it cuts once more.
 	head, tail := w/2, (w-1)/2 // head + tail + 1 = w
-	return string(r[:head]) + "…" + string(r[len(r)-tail:])
+	sw := lipgloss.Width(s)
+	end := ansi.TruncateLeft(s, sw-tail, "")
+	for cut := sw - tail + 1; lipgloss.Width(end) > tail; cut++ {
+		end = ansi.TruncateLeft(s, cut, "")
+	}
+	return ansi.Truncate(s, head, "") + "…" + end
 }
 
 func (c *checkView) ruleName(i int) string {

@@ -132,7 +132,7 @@ func (c *iterHub) focus() Focus { return c.at }
 // buildIterForm builds the source-and-name form.
 func buildIterForm() *field.Form {
 	return field.NewForm(
-		field.New("Source (expression)", "input.data.object.identities"),
+		field.NewArea("Source (expression)", "input.data.object.identities"),
 		field.New("As", "identity").WithValidate(vIdent),
 	)
 }
@@ -223,7 +223,8 @@ func (c *iterForm) commit() {
 			return
 		}
 		r.Iterator = nil
-	case r.Iterator != nil && r.Iterator.Source == src && r.Iterator.As == as:
+	// Trimmed, like the form's: a source from a block scalar ends in a newline.
+	case r.Iterator != nil && strings.TrimSpace(r.Iterator.Source) == src && r.Iterator.As == as:
 		return
 	default:
 		if r.Iterator == nil {
@@ -249,7 +250,9 @@ func (c *iterForm) View(width, height int) string {
 	return c.form.View()
 }
 
-func (c *iterForm) Keys() []string { return []string{"tab next", "ctrl+p insert path", "esc done"} }
+func (c *iterForm) Keys() []string {
+	return []string{"tab next", "ctrl+p insert path", "alt+↵ new line", "esc done"}
+}
 
 func (c *iterForm) heading() (string, string) {
 	return "Iterator", "What to walk, and what to call each item."

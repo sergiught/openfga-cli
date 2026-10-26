@@ -16,6 +16,12 @@ func key(s string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyEnter}
 	case "tab":
 		return tea.KeyPressMsg{Code: tea.KeyTab}
+	case "up":
+		return tea.KeyPressMsg{Code: tea.KeyUp}
+	case "down":
+		return tea.KeyPressMsg{Code: tea.KeyDown}
+	case "alt+enter":
+		return tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModAlt}
 	default:
 		r := []rune(s)[0]
 		return tea.KeyPressMsg{Code: r, Text: s}
@@ -290,5 +296,49 @@ func TestAResizeRewindowsALongValue(t *testing.T) {
 				t.Fatalf("the value changed: %d bytes, want %d", len(got), len(long))
 			}
 		})
+	}
+}
+
+// An area keeps its line breaks, and its caret is a rune offset into the
+// whole value, newlines included, like a text field's.
+func TestAnAreaKeepsLinesAndInsertsAtTheCaret(t *testing.T) {
+	f := NewForm(NewArea("When", ""))
+	f.Init()
+	f.SetValues([]string{"ab\ncd\x1b[2J"})
+	if got := f.Values()[0]; got != "ab\ncd" {
+		t.Fatalf("value = %q, want the lines kept and the control dropped", got)
+	}
+	f.SetCursor(0, 4)
+	if got := f.Cursor(0); got != 4 {
+		t.Fatalf("cursor = %d, want 4", got)
+	}
+	f.Insert(0, "X\u202e")
+	if got := f.Values()[0]; got != "ab\ncXd" || f.Cursor(0) != 5 {
+		t.Fatalf("value = %q, cursor = %d", got, f.Cursor(0))
+	}
+	f.Update(key("alt+enter"))
+	f.Update(key("y"))
+	if got := f.Values()[0]; got != "ab\ncX\nyd" {
+		t.Fatalf("value = %q, want alt+enter to start a line", got)
+	}
+}
+
+// Up and down move between an area's lines, and leave it only from its first
+// or last line.
+func TestUpAndDownLeaveAnAreaOnlyFromItsEdges(t *testing.T) {
+	f := NewForm(New("Name", ""), NewArea("When", ""), New("After", ""))
+	f.Init()
+	f.SetValues([]string{"", "one\ntwo"})
+	f.Update(key("down"))
+	if f.FocusedIndex() != 1 {
+		t.Fatalf("focus = %d, want the area", f.FocusedIndex())
+	}
+	f.Update(key("down"))
+	if f.FocusedIndex() != 1 || f.Cursor(1) < len("one\n") {
+		t.Fatalf("focus = %d, cursor = %d; want the area's second line", f.FocusedIndex(), f.Cursor(1))
+	}
+	f.Update(key("down"))
+	if f.FocusedIndex() != 2 {
+		t.Fatalf("focus = %d, want the field after the area", f.FocusedIndex())
 	}
 }

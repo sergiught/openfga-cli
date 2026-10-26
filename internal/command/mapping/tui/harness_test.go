@@ -24,6 +24,8 @@ func key(s string) tea.KeyPressMsg {
 	switch s {
 	case "enter":
 		return tea.KeyPressMsg{Code: tea.KeyEnter}
+	case "alt+enter":
+		return tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModAlt}
 	case "down":
 		return tea.KeyPressMsg{Code: tea.KeyDown}
 	case "up":

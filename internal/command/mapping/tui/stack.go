@@ -256,8 +256,15 @@ func (st *Stack) holdsNewRule() bool {
 // stack would lose what was typed, whether or not a rule is being added.
 func (st *Stack) holdsPaste() bool {
 	for _, c := range st.items {
-		if p, ok := c.(*eventPaste); ok && p.area.Value() != "" {
-			return true
+		switch p := c.(type) {
+		case *eventPaste:
+			if p.area.Value() != "" {
+				return true
+			}
+		case *applyPaste:
+			if p.area.Value() != "" {
+				return true
+			}
 		}
 	}
 	return false

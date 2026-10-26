@@ -147,3 +147,13 @@ func TestTabbingThroughAnIteratorChangesNothing(t *testing.T) {
 	assertOnlyEditsChangeTheDocument(t, identitiesDoc,
 		func(s *Session) component { return newIterForm(s, Focus{}, 0) })
 }
+
+// A multi-line source, from a block scalar that ends in a newline, survives
+// opening the iterator and leaving it.
+func TestTabbingThroughAMultilineIteratorSourceChangesNothing(t *testing.T) {
+	assertOnlyEditsChangeTheDocument(t, func() *mapping.Document {
+		d := identitiesDoc()
+		d.Rules[0].Iterator.Source = "input.data.object.identities\n?? []\n"
+		return d
+	}, func(s *Session) component { return newIterForm(s, Focus{}, 0) })
+}

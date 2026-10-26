@@ -101,3 +101,19 @@ func TestEnterOnTheLastFieldCommitsAndLeavesTheForm(t *testing.T) {
 		t.Fatalf("closed = %v, rule = %+v; want the trigger committed and the form gone", h.closed, r)
 	}
 }
+
+// A when can span lines. Opening one and leaving must keep every line, and
+// alt+enter starts a new one.
+func TestAMultilineWhenKeepsItsLines(t *testing.T) {
+	assertOnlyEditsChangeTheDocument(t, func() *mapping.Document {
+		return &mapping.Document{Rules: []mapping.Rule{{Name: "r", When: "input.enabled // gate\nand input.admin"}}}
+	}, openTrigger)
+	h := newHarness(t, freshRule(), nil, openTrigger)
+	h.press("tab")
+	h.typeText("a")
+	h.press("alt+enter")
+	h.typeText("b")
+	if got := h.s.Doc.Rules[0].When; got != "a\nb" {
+		t.Fatalf("when = %q, want two lines", got)
+	}
+}

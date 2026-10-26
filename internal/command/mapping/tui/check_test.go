@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	lipgloss "charm.land/lipgloss/v2"
+
 	"github.com/sergiught/openfga-cli/internal/mapping"
 )
 
@@ -195,5 +197,26 @@ func TestANarrowCheckRowKeepsItsMessage(t *testing.T) {
 	// Narrower than the rule name needs, that is cut too.
 	if row := rowAt(40); !strings.Contains(row, "… — "+msg[:20]) {
 		t.Fatalf("40 columns: %q", row)
+	}
+}
+
+// A row is cut by columns, not runes: a wide-character name cut by runes
+// keeps twice the columns it was given and pushes the message off the row.
+func TestAWideCharacterRowKeepsItsMessage(t *testing.T) {
+	const msg = "unknown type team" // within minMessage, so the row keeps all of it
+	wide := strings.Repeat("界", 30)
+	for _, c := range []struct{ rule, field string }{{wide, ""}, {"r", wide}, {wide, wide}} {
+		got := fitRow(c.rule, c.field, msg, 50)
+		if w := lipgloss.Width(got); w > 50-3 || !strings.HasSuffix(got, " — "+msg) {
+			t.Fatalf("rule %d runes, field %d runes: %d columns, want <= 47 ending in the message: %q",
+				len([]rune(c.rule)), len([]rune(c.field)), w, got)
+		}
+	}
+	for _, s := range []string{strings.Repeat("界", 10) + "b", "e\u0301" + strings.Repeat("👍🏽", 8)} {
+		for w := 1; w < lipgloss.Width(s); w++ {
+			if got := middleCut(s, w); lipgloss.Width(got) > w {
+				t.Fatalf("middleCut(%q, %d) = %q, %d columns", s, w, got, lipgloss.Width(got))
+			}
+		}
 	}
 }

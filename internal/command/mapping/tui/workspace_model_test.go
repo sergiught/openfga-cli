@@ -90,6 +90,19 @@ func TestABadModelFileFallsBackToNone(t *testing.T) {
 	}
 }
 
+// A model with no types loads, but checking against it would pass every
+// mapping while claiming the model was checked, as the CLI refuses it too.
+func TestAModelFileWithNoTypesFallsBackToNone(t *testing.T) {
+	h := modelWs(t, "{}", Options{})
+	h.press("enter")
+	if h.w.sess.Index != nil || h.w.model.label != noModel || h.w.model.path != "" {
+		t.Fatalf("model = %+v", h.w.model)
+	}
+	if !strings.Contains(h.toastText(), flat("defines no types")) {
+		t.Fatalf("toast = %q", h.toastText())
+	}
+}
+
 func TestTheStoreModelLoadsInTheBackground(t *testing.T) {
 	h := modelWs(t, twoTypeModel, storeOpts(func(context.Context) (*openfga.AuthorizationModel, error) {
 		return testModel(), nil

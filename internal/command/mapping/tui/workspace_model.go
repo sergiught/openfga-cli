@@ -68,6 +68,10 @@ func (w *workspace) useModel(c modelChoice) tea.Cmd {
 			return w.modelFailed("could not read the model: " + err.Error())
 		}
 		ix := mapping.IndexModel(lm.SDK)
+		if ix.Empty() {
+			// Checking against no types would pass every mapping; the CLI refuses it too.
+			return w.modelFailed("could not read the model: " + c.path + " defines no types")
+		}
 		return w.modelChanged(ix, w.fileLabel(c.path, ix), c.path)
 	case modelStore:
 		if w.opts.LoadStoreModel == nil {
