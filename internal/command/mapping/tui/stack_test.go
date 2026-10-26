@@ -161,7 +161,7 @@ func TestOpeningAComponentStartsIt(t *testing.T) {
 	st := newStack(s, root)
 
 	cmd, _ := st.Update(press("o"))
-	if cmd == nil || cmd() != "started" {
+	if got := cmdMsgs(cmd); !reflect.DeepEqual(got, []tea.Msg{"started"}) {
 		t.Fatal("the child's Init command did not come back from Update")
 	}
 }
@@ -197,19 +197,14 @@ func TestResumeReturnsTheCommandsItCauses(t *testing.T) {
 }
 
 // cmdMsgs runs cmd and every command a batch of it carries, in order, and
-// collects what they produce.
+// collects what they produce, unbound from the component that issued them.
 func cmdMsgs(cmd tea.Cmd) []tea.Msg {
-	if cmd == nil {
-		return nil
-	}
-	msg := cmd()
-	batch, ok := msg.(tea.BatchMsg)
-	if !ok {
-		return []tea.Msg{msg}
-	}
 	var out []tea.Msg
-	for _, c := range batch {
-		out = append(out, cmdMsgs(c)...)
+	for _, msg := range deliveries(cmd) {
+		if b, ok := msg.(boundMsg); ok {
+			msg = b.msg
+		}
+		out = append(out, msg)
 	}
 	return out
 }
@@ -345,4 +340,57 @@ func TestTypingIsTrueOnFormsAndFilters(t *testing.T) {
 	if !h.st.Typing() {
 		t.Fatal("a filter being set is not typing")
 	}
+}
+
+// A command's result belongs to the component that issued it. One that comes
+// back after that component closed must not reach the one under it: a list's
+// late filter matches would replace the other list's rows, and enter or d
+// would act on the wrong one. It reaches the issuer while it is on top, batched
+// or not.
+func TestALateResultReachesOnlyTheComponentThatAskedForIt(t *testing.T) {
+	s := testSession()
+	root, child := newScripted(s, "root"), newScripted(s, "child")
+	root.onKey["o"] = []tea.Msg{openMsg{c: child}}
+	child.onKey["x"] = []tea.Msg{doneMsg{}}
+	st := newStack(s, root)
+	st.Update(press("o"))
+
+	child.ret = tea.Batch(func() tea.Msg { return "first" }, tea.Batch(func() tea.Msg { return "nested" }))
+	cmd, _ := st.Resume()
+	results := deliveries(cmd)
+	for _, m := range results {
+		st.Update(m)
+	}
+	if got := child.got[len(child.got)-2:]; !reflect.DeepEqual(got, []tea.Msg{"first", "nested"}) {
+		t.Fatalf("the child got %v, want its own results", got)
+	}
+
+	cmd, _ = st.Resume()
+	late := deliveries(cmd)
+	st.Update(press("x"))
+	before := len(root.got)
+	for _, m := range late {
+		st.Update(m)
+	}
+	if got := root.got[before:]; len(got) != 0 {
+		t.Fatalf("the root got the closed child's results: %v", got)
+	}
+}
+
+// deliveries runs cmd and every command a batch of it carries, and returns
+// the messages the runtime would hand back to Update.
+func deliveries(cmd tea.Cmd) []tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		return []tea.Msg{msg}
+	}
+	var out []tea.Msg
+	for _, c := range batch {
+		out = append(out, deliveries(c)...)
+	}
+	return out
 }

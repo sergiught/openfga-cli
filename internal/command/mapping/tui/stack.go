@@ -7,6 +7,19 @@ import tea "charm.land/bubbletea/v2"
 type Stack struct {
 	s     *Session
 	items []component
+	// gen changes whenever the top does, so a command's result can tell
+	// whether the component that issued it is still the one on top.
+	gen int
+}
+
+// boundMsg is what a command a component returned produced, bound to the
+// stack and the generation it was issued in. It reaches that component while
+// it is still on top, and nothing else: a list's late filter matches handed
+// to the list under it would replace that list's rows.
+type boundMsg struct {
+	st  *Stack
+	gen int
+	msg tea.Msg
 }
 
 // Toast is a line a component asked the host to show.
@@ -39,6 +52,12 @@ func newStack(s *Session, root component) *Stack {
 // it ran — including what handling those posts posts in turn — before
 // returning, so the next key always reaches the component now on top.
 func (st *Stack) Update(msg tea.Msg) (tea.Cmd, Outcome) {
+	if b, ok := msg.(boundMsg); ok {
+		if b.st != st || b.gen != st.gen {
+			return nil, Outcome{} // its component has closed or been covered
+		}
+		msg = b.msg
+	}
 	cmd := st.send(msg)
 	var out Outcome
 	// settle fills out, so it runs before out is read: a return statement
@@ -64,7 +83,7 @@ func (st *Stack) Resume() (tea.Cmd, Outcome) {
 func (st *Stack) Init() tea.Cmd {
 	var cmd tea.Cmd
 	if c, ok := st.items[0].(initer); ok {
-		cmd = c.Init()
+		cmd = st.bind(c.Init())
 	}
 	var out Outcome
 	return tea.Batch(cmd, st.settle(&out))
@@ -74,7 +93,31 @@ func (st *Stack) send(msg tea.Msg) tea.Cmd {
 	top := len(st.items) - 1
 	c, cmd := st.items[top].Update(msg)
 	st.items[top] = c
-	return cmd
+	return st.bind(cmd)
+}
+
+// bind wraps cmd so what it produces comes back as a boundMsg for the
+// component on top now. Like tagged, it opens a batch and lets quit through.
+func (st *Stack) bind(cmd tea.Cmd) tea.Cmd { return bindAt(st, st.gen, cmd) }
+
+func bindAt(st *Stack, gen int, cmd tea.Cmd) tea.Cmd {
+	if cmd == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		switch msg := cmd().(type) {
+		case nil, tea.QuitMsg:
+			return msg
+		case tea.BatchMsg:
+			out := make(tea.BatchMsg, len(msg))
+			for i, c := range msg {
+				out[i] = bindAt(st, gen, c)
+			}
+			return out
+		default:
+			return boundMsg{st: st, gen: gen, msg: msg}
+		}
+	}
 }
 
 func (st *Stack) settle(out *Outcome) tea.Cmd {
@@ -97,6 +140,7 @@ func (st *Stack) settle(out *Outcome) tea.Cmd {
 				continue
 			}
 			st.items = st.items[:len(st.items)-1]
+			st.gen++
 			cmds = append(cmds, st.send(closedMsg(m)))
 		}
 	}
@@ -107,8 +151,9 @@ func (st *Stack) settle(out *Outcome) tea.Cmd {
 // inside would, and returns c's Init when it has one.
 func (st *Stack) push(c component) tea.Cmd {
 	st.items = append(st.items, c)
+	st.gen++
 	if i, ok := c.(initer); ok {
-		return i.Init()
+		return st.bind(i.Init())
 	}
 	return nil
 }
