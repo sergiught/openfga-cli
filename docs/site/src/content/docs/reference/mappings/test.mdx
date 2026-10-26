@@ -5,6 +5,10 @@ sidebar:
   order: 101
 ---
 
+import CommandDemo from '../../../../components/CommandDemo.astro';
+
+<CommandDemo slug="mappings-test" />
+
 Run a mapping file's tests: block with openfga/mapper's runner. Each test evaluates its input and compares the tuples (and tuple filters) produced with the ones it expects. With no file argument it uses ./mapping.yaml.
 
 Exit codes: 0 all passed · 3 a test failed · 1 the file does not compile, has no tests, or --run matched none · 2 usage.
