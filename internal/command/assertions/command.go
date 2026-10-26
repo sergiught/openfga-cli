@@ -11,6 +11,7 @@ import (
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/cmdmeta"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/prompt"
@@ -42,7 +43,11 @@ func (c *Command) Command() *cobra.Command { return c.cmd }
 
 // RegisterSubCommands wires the assertions sub-commands.
 func (c *Command) RegisterSubCommands() {
-	c.cmd.AddCommand(c.readCmd(), c.writeCmd(), c.testCmd())
+	c.cmd.AddCommand(
+		cmdmeta.Set(c.readCmd(), cmdmeta.Meta{RequiresStore: true}),
+		cmdmeta.Set(c.writeCmd(), cmdmeta.Meta{RequiresStore: true, Mutates: true}),
+		cmdmeta.Set(c.testCmd(), cmdmeta.Meta{RequiresStore: true}),
+	)
 }
 
 // resolveModelID returns the explicit id or the latest model's id.

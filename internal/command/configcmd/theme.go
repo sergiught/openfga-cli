@@ -8,6 +8,7 @@ import (
 
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/cmdmeta"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/theme"
@@ -16,7 +17,7 @@ import (
 // NewTheme builds the top-level `ofga theme` command. The theme is a global
 // setting (not per-profile), so it lives here rather than under `profiles`.
 func NewTheme(c *cli.CLI) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:       "theme [name]",
 		Short:     "Show or set the color theme",
 		Long:      "With no argument, lists available themes and marks the current one. With a name, sets and saves the global theme.",
@@ -64,4 +65,5 @@ func NewTheme(c *cli.CLI) *cobra.Command {
 			return nil
 		},
 	}
+	return cmdmeta.Set(cmd, cmdmeta.Meta{Mutates: true})
 }

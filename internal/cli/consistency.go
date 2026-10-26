@@ -9,6 +9,7 @@ import (
 	"github.com/sergiught/go-openfga/openfga"
 
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/cmdmeta"
 )
 
 // consistencyValues are the read-consistency preferences the API accepts, in
@@ -34,6 +35,7 @@ func RegisterConsistencyFlag(cmd *cobra.Command, target *string) {
 		"read consistency: %s (default %s)", consistencyNames(), openfga.ConsistencyHigherConsistency))
 	_ = cmd.RegisterFlagCompletionFunc("consistency",
 		cobra.FixedCompletions(ConsistencyValues(), cobra.ShellCompDirectiveNoFileComp))
+	cmdmeta.SetEnum(cmd, "consistency", ConsistencyValues()...)
 }
 
 // ConsistencyValues lists the accepted --consistency values.

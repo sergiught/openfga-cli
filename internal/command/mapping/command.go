@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/openfga-cli/internal/cli"
+	"github.com/sergiught/openfga-cli/internal/cmdmeta"
 )
 
 // Command is the `mappings` group.
@@ -44,6 +45,8 @@ ofga mappings validate auth0.yaml`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: g.runWorkspace,
 	}
+	// The workspace needs a terminal (see playgroundMeta in package base).
+	cmdmeta.Set(cmd, cmdmeta.Meta{InteractiveOnly: true})
 	g.cmd = cmd
 	// The root's threshold: a direct SuggestionsFor (looksLikeTypo) otherwise
 	// uses 0 and misses distance-1 typos.
@@ -54,7 +57,11 @@ ofga mappings validate auth0.yaml`,
 
 // RegisterSubCommands attaches every `mappings` subcommand.
 func (c *Command) RegisterSubCommands() {
-	c.cmd.AddCommand(c.newValidateCmd(), c.newTestCmd(), c.newApplyCmd())
+	c.cmd.AddCommand(
+		cmdmeta.Set(c.newValidateCmd(), cmdmeta.Meta{}),
+		cmdmeta.Set(c.newTestCmd(), cmdmeta.Meta{Mutates: true}),
+		cmdmeta.Set(c.newApplyCmd(), cmdmeta.Meta{RequiresStore: true, Mutates: true}),
+	)
 }
 
 // Command returns the cobra command for registration on the root.

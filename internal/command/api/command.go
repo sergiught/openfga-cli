@@ -17,6 +17,7 @@ import (
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/cmdmeta"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/readlimit"
 )
@@ -48,6 +49,8 @@ func New(cli *cli.CLI) *Command {
 		Args: cobra.RangeArgs(2, 3),
 		RunE: c.run,
 	}
+	// The method is the caller's choice, so any request may change server state.
+	cmdmeta.Set(c.cmd, cmdmeta.Meta{Mutates: true})
 	return c
 }
 

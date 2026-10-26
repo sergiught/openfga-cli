@@ -15,6 +15,7 @@ import (
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/cmdmeta"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/readlimit"
@@ -50,12 +51,12 @@ func (c *Command) Command() *cobra.Command { return c.cmd }
 // RegisterSubCommands wires the model sub-commands.
 func (c *Command) RegisterSubCommands() {
 	c.cmd.AddCommand(
-		c.writeCmd(),
-		c.listCmd(),
-		c.getCmd(),
-		c.latestCmd(),
-		c.graphCmd(),
-		c.testCmd(),
+		cmdmeta.Set(c.writeCmd(), cmdmeta.Meta{RequiresStore: true, Mutates: true}),
+		cmdmeta.Set(c.listCmd(), cmdmeta.Meta{RequiresStore: true}),
+		cmdmeta.Set(c.getCmd(), cmdmeta.Meta{RequiresStore: true}),
+		cmdmeta.Set(c.latestCmd(), cmdmeta.Meta{RequiresStore: true}),
+		cmdmeta.Set(c.graphCmd(), cmdmeta.Meta{RequiresStore: true}),
+		cmdmeta.Set(c.testCmd(), cmdmeta.Meta{Mutates: true}),
 	)
 }
 

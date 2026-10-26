@@ -13,6 +13,7 @@ import (
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/cmdmeta"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/prompt"
@@ -49,10 +50,10 @@ func (c *Command) Command() *cobra.Command { return c.cmd }
 // RegisterSubCommands wires the tuple sub-commands.
 func (c *Command) RegisterSubCommands() {
 	c.cmd.AddCommand(
-		c.writeCmd(),
-		c.deleteCmd(),
-		c.readCmd(),
-		c.changesCmd(),
+		cmdmeta.Set(c.writeCmd(), cmdmeta.Meta{RequiresStore: true, Mutates: true}),
+		cmdmeta.Set(c.deleteCmd(), cmdmeta.Meta{RequiresStore: true, Mutates: true}),
+		cmdmeta.Set(c.readCmd(), cmdmeta.Meta{RequiresStore: true}),
+		cmdmeta.Set(c.changesCmd(), cmdmeta.Meta{RequiresStore: true}),
 	)
 }
 
@@ -174,6 +175,7 @@ func (c *Command) writeCmd() *cobra.Command {
 	_ = cmd.RegisterFlagCompletionFunc("on-duplicate", cobra.FixedCompletions(
 		[]string{string(openfga.OnDuplicateError), string(openfga.OnDuplicateIgnore)},
 		cobra.ShellCompDirectiveNoFileComp))
+	cmdmeta.SetEnum(cmd, "on-duplicate", string(openfga.OnDuplicateError), string(openfga.OnDuplicateIgnore))
 	return cmd
 }
 
@@ -202,6 +204,7 @@ func registerBulkFormatCompletion(cmd *cobra.Command) {
 	_ = cmd.RegisterFlagCompletionFunc("file-format", cobra.FixedCompletions(
 		[]string{string(formatJSON), string(formatJSONL), string(formatYAML), string(formatCSV)},
 		cobra.ShellCompDirectiveNoFileComp))
+	cmdmeta.SetEnum(cmd, "file-format", string(formatJSON), string(formatJSONL), string(formatYAML), string(formatCSV))
 }
 
 // registerBulkThroughputFlags adds the --file execution flags shared by write
@@ -324,6 +327,7 @@ func (c *Command) deleteCmd() *cobra.Command {
 	_ = cmd.RegisterFlagCompletionFunc("on-missing", cobra.FixedCompletions(
 		[]string{string(openfga.OnMissingError), string(openfga.OnMissingIgnore)},
 		cobra.ShellCompDirectiveNoFileComp))
+	cmdmeta.SetEnum(cmd, "on-missing", string(openfga.OnMissingError), string(openfga.OnMissingIgnore))
 	return cmd
 }
 
