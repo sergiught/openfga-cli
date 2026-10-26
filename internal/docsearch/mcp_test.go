@@ -1,0 +1,160 @@
+package docsearch_test
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/docsearch"
+)
+
+const twoResults = "Title: Contextual Tuples\nLink: https://openfga.dev/docs/interacting/contextual-tuples\nPage: Interacting\nContent: line one\nline two"
+const second = "Title: Other\nLink: https://openfga.dev/docs/other\nPage: Other page\nContent: body"
+
+type rpcReq struct {
+	ID     *int   `json:"id"`
+	Method string `json:"method"`
+	Params struct {
+		Name      string         `json:"name"`
+		Arguments map[string]any `json:"arguments"`
+	} `json:"params"`
+}
+
+// mcpServer serves the three-step handshake. toolResult is the JSON for the tools/call "result" (or full body override).
+func mcpServer(t *testing.T, sse bool, sessionID string, callBody func(id int) string, sessions *[]string) *httptest.Server {
+	var mu sync.Mutex
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/docs/mcp" || r.Method != http.MethodPost {
+			http.NotFound(w, r)
+			return
+		}
+		if !strings.Contains(r.Header.Get("Accept"), "text/event-stream") || r.Header.Get("Content-Type") != "application/json" {
+			t.Errorf("bad headers: %v", r.Header)
+		}
+		b, _ := io.ReadAll(r.Body)
+		var req rpcReq
+		_ = json.Unmarshal(b, &req)
+		mu.Lock()
+		if sessions != nil {
+			*sessions = append(*sessions, req.Method+"="+r.Header.Get("Mcp-Session-Id"))
+		}
+		mu.Unlock()
+		var body string
+		switch req.Method {
+		case "initialize":
+			if sessionID != "" {
+				w.Header().Set("Mcp-Session-Id", sessionID)
+			}
+			body = fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"result":{"protocolVersion":"2025-06-18"}}`, *req.ID)
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusAccepted)
+			return
+		case "tools/call":
+			if req.Params.Name != "search_open_fga" || req.Params.Arguments["query"] != "q" {
+				t.Errorf("bad call: %+v", req)
+			}
+			body = callBody(*req.ID)
+		}
+		if sse {
+			w.Header().Set("Content-Type", "text/event-stream")
+			// an unrelated message first, then the matching one split across data lines
+			_, _ = fmt.Fprint(w, "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":999,\"result\":{}}\n\n")
+			_, _ = fmt.Fprintf(w, "event: message\ndata: %s\n\n", body)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, body)
+	}))
+}
+
+func textResult(id int, texts ...string) string {
+	var items []string
+	for _, s := range texts {
+		j, _ := json.Marshal(s)
+		items = append(items, fmt.Sprintf(`{"type":"text","text":%s}`, j))
+	}
+	return fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"result":{"content":[%s]}}`, id, strings.Join(items, ","))
+}
+
+func checkTwo(t *testing.T, sse bool) {
+	srv := mcpServer(t, sse, "", func(id int) string { return textResult(id, twoResults, second) }, nil)
+	defer srv.Close()
+	res, err := docsearch.NewForTest(srv.URL, srv.Client()).Search(context.Background(), "q")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 2 {
+		t.Fatalf("got %d results", len(res))
+	}
+	r := res[0]
+	if r.Title != "Contextual Tuples" || r.URL != "https://openfga.dev/docs/interacting/contextual-tuples" ||
+		r.MarkdownURL != r.URL+".md" || r.Page != "Interacting" || r.Snippet != "line one\nline two" {
+		t.Errorf("result = %+v", r)
+	}
+	if res[1].MarkdownURL != "https://openfga.dev/docs/other.md" {
+		t.Errorf("second = %+v", res[1])
+	}
+}
+
+func TestSearchJSONResponse(t *testing.T) { checkTwo(t, false) }
+func TestSearchSSEResponse(t *testing.T)  { checkTwo(t, true) }
+
+func TestSearchEchoesSessionID(t *testing.T) {
+	var seen []string
+	srv := mcpServer(t, false, "sess-1", func(id int) string { return textResult(id, twoResults) }, &seen)
+	defer srv.Close()
+	if _, err := docsearch.NewForTest(srv.URL, srv.Client()).Search(context.Background(), "q"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"initialize=", "notifications/initialized=sess-1", "tools/call=sess-1"}
+	if strings.Join(seen, ",") != strings.Join(want, ",") {
+		t.Errorf("seen = %v", seen)
+	}
+}
+
+func TestSearchUnrecognizedShape(t *testing.T) {
+	srv := mcpServer(t, false, "", func(id int) string { return textResult(id, "just some prose") }, nil)
+	defer srv.Close()
+	_, err := docsearch.NewForTest(srv.URL, srv.Client()).Search(context.Background(), "q")
+	if err == nil || !strings.Contains(err.Error(), "format may have changed") || clierr.Classify(err) != clierr.KindError {
+		t.Errorf("err = %v kind=%v", err, clierr.Classify(err))
+	}
+}
+
+func TestSearchToolError(t *testing.T) {
+	srv := mcpServer(t, false, "", func(id int) string {
+		return fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"result":{"isError":true,"content":[{"type":"text","text":"boom tool"}]}}`, id)
+	}, nil)
+	defer srv.Close()
+	_, err := docsearch.NewForTest(srv.URL, srv.Client()).Search(context.Background(), "q")
+	if err == nil || !strings.Contains(err.Error(), "boom tool") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestSearchRPCError(t *testing.T) {
+	srv := mcpServer(t, true, "", func(id int) string {
+		return fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"error":{"code":-32000,"message":"rpc bad"}}`, id)
+	}, nil)
+	defer srv.Close()
+	_, err := docsearch.NewForTest(srv.URL, srv.Client()).Search(context.Background(), "q")
+	if err == nil || !strings.Contains(err.Error(), "rpc bad") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestSearchServerStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(503) }))
+	defer srv.Close()
+	_, err := docsearch.NewForTest(srv.URL, srv.Client()).Search(context.Background(), "q")
+	if err == nil || clierr.Classify(err) != clierr.KindServer || !strings.Contains(err.Error(), "openfga.dev returned") {
+		t.Errorf("err = %v kind=%v", err, clierr.Classify(err))
+	}
+}
