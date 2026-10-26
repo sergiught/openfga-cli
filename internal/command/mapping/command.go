@@ -1,5 +1,5 @@
-// Package mapping implements the `ofga mappings` command group, which checks,
-// tests and applies openfga/mapper mapping files.
+// Package mapping implements the `ofga mappings` command group, which authors
+// openfga/mapper mapping files.
 package mapping
 
 import (
@@ -17,20 +17,37 @@ type Command struct {
 // New builds the group and registers its subcommands.
 func New(c *cli.CLI) *Command {
 	g := &Command{cli: c}
-	g.cmd = &cobra.Command{
-		Use:     "mappings",
+	cmd := &cobra.Command{
+		Use:     "mappings [file]",
 		Aliases: []string{"mapping"},
-		RunE:    c.GroupRunE,
-		Short:   "Validate, test and apply mapping files",
+		Short:   "Open the mapping workspace, or validate, test and apply mapping files",
 		Long: "Work with openfga/mapper mapping files: YAML rules that turn events from an " +
-			"identity provider into OpenFGA relationship tuples.",
-		Example: `# Check a mapping file
+			"identity provider into OpenFGA relationship tuples.\n\n" +
+			"With no subcommand this opens the interactive workspace, which needs a terminal. " +
+			"There you edit the rules against sample events with the resulting tuples shown live, " +
+			"check them against a model, run the tests, and apply events to the store. " +
+			"Give it a mapping file to edit that file, or a path that does not exist yet to start a " +
+			"new mapping there; without one it shows a start screen " +
+			"with the mapping files in this directory, the ones you opened recently, and two ways " +
+			"to start a new one: from Auth0 events, or blank. In scripts use the subcommands.",
+		Example: `# Pick a file from the start screen
+ofga mappings
+
+# Edit a mapping file
+ofga mappings auth0.yaml
+
+# Start a new mapping file
+ofga mappings sync/new.yaml
+
+# Check a mapping file in a script
 ofga mappings validate auth0.yaml`,
-		// The group itself takes no flags; let unknown ones pass through so a
-		// typo'd subcommand carrying a flag reports "unknown command" rather
-		// than "unknown flag".
-		FParseErrWhitelist: cobra.FParseErrWhitelist{UnknownFlags: true},
+		Args: cobra.MaximumNArgs(1),
+		RunE: g.runWorkspace,
 	}
+	g.cmd = cmd
+	// The root's threshold: a direct SuggestionsFor (looksLikeTypo) otherwise
+	// uses 0 and misses distance-1 typos.
+	cmd.SuggestionsMinimumDistance = 2
 	g.RegisterSubCommands()
 	return g
 }

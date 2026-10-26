@@ -16,6 +16,12 @@ func key(s string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyEnter}
 	case "tab":
 		return tea.KeyPressMsg{Code: tea.KeyTab}
+	case "up":
+		return tea.KeyPressMsg{Code: tea.KeyUp}
+	case "down":
+		return tea.KeyPressMsg{Code: tea.KeyDown}
+	case "alt+enter":
+		return tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModAlt}
 	default:
 		r := []rune(s)[0]
 		return tea.KeyPressMsg{Code: r, Text: s}
@@ -101,6 +107,20 @@ func TestSetValuesSanitizesTerminalControls(t *testing.T) {
 	got := f.Values()[0]
 	if strings.Contains(got, attack) || strings.ContainsAny(got, "\x1b\x07") {
 		t.Fatalf("field retained terminal controls: %q", got)
+	}
+}
+
+// TestInsertSanitizesTerminalControls guards the same invariant as
+// TestSetValuesSanitizesTerminalControls, but for Insert's own write path:
+// Field.insert must run text through style.SanitizeTerminal rather than
+// writing it straight into the textinput, or a Unicode bidi-override rune
+// (invisible on screen, reordering what is displayed) and CSI residue that
+// bubbles' own textinput leaves behind would both survive a paste.
+func TestInsertSanitizesTerminalControls(t *testing.T) {
+	f := NewForm(New("Name", ""))
+	f.Insert(0, "doc\u202egnp")
+	if got := f.Values()[0]; got != "docgnp" {
+		t.Fatalf("field retained a bidi-override rune: %q", got)
 	}
 }
 
@@ -211,5 +231,143 @@ func TestFormViewportFollowsFocusAndValidationError(t *testing.T) {
 	view = ansi.Strip(f.View())
 	if len(strings.Split(view, "\n")) > 2 || !strings.Contains(view, "Three") || !strings.Contains(view, "three is invalid") {
 		t.Fatalf("validation should focus and reveal the first error:\n%s", view)
+	}
+}
+
+// A12: the tuple form hides its last field unless a condition is written, and
+// moveFocus wraps past hidden fields, so enter measured from the last field
+// alone went round and round and never submitted.
+func TestEnterOnTheLastVisibleFieldSubmits(t *testing.T) {
+	f := NewForm(New("a", ""), New("b", ""), New("c", ""))
+	f.SetVisible(2, false)
+	f.Init()
+	f.Update(key("tab"))
+	f.Update(key("enter"))
+	if !f.Completed() {
+		t.Fatalf("focus = %d, want the form submitted from the last visible field", f.FocusedIndex())
+	}
+}
+
+// A hidden field does not apply, so its value cannot hold the form back: a
+// failing validator there sent focus to a field nobody could see, and enter
+// never got out.
+func TestAHiddenInvalidFieldDoesNotBlockTheSubmit(t *testing.T) {
+	f := NewForm(
+		New("a", ""),
+		New("b", ""),
+		New("c", "").WithValidate(func(string) error { return errors.New("c is invalid") }),
+	)
+	f.SetVisible(2, false)
+	f.Init()
+	f.Update(key("tab"))
+	f.Update(key("enter"))
+	if !f.Completed() {
+		t.Fatalf("focus = %d, want the form submitted past the hidden invalid field", f.FocusedIndex())
+	}
+}
+
+// textinput works out which part of a long value is on screen when its caret
+// moves, not when its width changes, so a value set before the form had a
+// width, or one windowed for a wider form, drew past the edge after a resize.
+func TestAResizeRewindowsALongValue(t *testing.T) {
+	long := "organization:" + strings.Repeat("x", 300)
+	for _, c := range []struct {
+		name  string
+		first int // the width the value was set at; 0 is none yet
+	}{{"filled before it had a width", 0}, {"shrunk from 120", 120}} {
+		t.Run(c.name, func(t *testing.T) {
+			f := NewForm(New("Object", ""))
+			f.Init()
+			if c.first > 0 {
+				f.SetWidth(c.first)
+			}
+			f.SetValues([]string{long})
+			f.SetCursor(0, 20)
+			f.SetWidth(40)
+			for i, line := range strings.Split(f.View(), "\n") {
+				if w := lipgloss.Width(line); w > 40 {
+					t.Fatalf("line %d is %d cells wide at width 40", i, w)
+				}
+			}
+			if got := f.Cursor(0); got != 20 {
+				t.Fatalf("caret = %d, want it left at 20", got)
+			}
+			if got := f.Values()[0]; got != long {
+				t.Fatalf("the value changed: %d bytes, want %d", len(got), len(long))
+			}
+		})
+	}
+}
+
+// A tab shows as a space, so the words it separates stay apart, and Source
+// gives back the value as set until the user edits it.
+func TestAnAreaShowsATabAsASpaceAndGivesBackItsSource(t *testing.T) {
+	const when = "input.enabled\tand\tinput.admin"
+	f := NewForm(NewArea("When", ""), New("Name", ""))
+	f.Init()
+	f.SetValues([]string{when, "r\x1b[2J"})
+	if got := f.Values()[0]; got != "input.enabled and input.admin" {
+		t.Fatalf("value = %q, want the tabs shown as spaces", got)
+	}
+	if f.Source(0) != when || f.Source(1) != "r\x1b[2J" {
+		t.Fatalf("source = %q, %q; want the values as set", f.Source(0), f.Source(1))
+	}
+	f.Insert(0, "x")
+	if got := f.Source(0); got != "xinput.enabled and input.admin" {
+		t.Fatalf("source = %q, want the edit", got)
+	}
+	// Undoing the edit gives the value as set back, not the text shown.
+	f.SetCursor(0, 1)
+	f.Update(key("backspace"))
+	if got := f.Source(0); got != when {
+		t.Fatalf("source = %q after the undo, want %q", got, when)
+	}
+	f.Reset()
+	if got := f.Source(0); got != "" {
+		t.Fatalf("source = %q after Reset", got)
+	}
+}
+
+// An area keeps its line breaks, and its caret is a rune offset into the
+// whole value, newlines included, like a text field's.
+func TestAnAreaKeepsLinesAndInsertsAtTheCaret(t *testing.T) {
+	f := NewForm(NewArea("When", ""))
+	f.Init()
+	f.SetValues([]string{"ab\ncd\x1b[2J"})
+	if got := f.Values()[0]; got != "ab\ncd" {
+		t.Fatalf("value = %q, want the lines kept and the control dropped", got)
+	}
+	f.SetCursor(0, 4)
+	if got := f.Cursor(0); got != 4 {
+		t.Fatalf("cursor = %d, want 4", got)
+	}
+	f.Insert(0, "X\u202e")
+	if got := f.Values()[0]; got != "ab\ncXd" || f.Cursor(0) != 5 {
+		t.Fatalf("value = %q, cursor = %d", got, f.Cursor(0))
+	}
+	f.Update(key("alt+enter"))
+	f.Update(key("y"))
+	if got := f.Values()[0]; got != "ab\ncX\nyd" {
+		t.Fatalf("value = %q, want alt+enter to start a line", got)
+	}
+}
+
+// Up and down move between an area's lines, and leave it only from its first
+// or last line.
+func TestUpAndDownLeaveAnAreaOnlyFromItsEdges(t *testing.T) {
+	f := NewForm(New("Name", ""), NewArea("When", ""), New("After", ""))
+	f.Init()
+	f.SetValues([]string{"", "one\ntwo"})
+	f.Update(key("down"))
+	if f.FocusedIndex() != 1 {
+		t.Fatalf("focus = %d, want the area", f.FocusedIndex())
+	}
+	f.Update(key("down"))
+	if f.FocusedIndex() != 1 || f.Cursor(1) < len("one\n") {
+		t.Fatalf("focus = %d, cursor = %d; want the area's second line", f.FocusedIndex(), f.Cursor(1))
+	}
+	f.Update(key("down"))
+	if f.FocusedIndex() != 2 {
+		t.Fatalf("focus = %d, want the field after the area", f.FocusedIndex())
 	}
 }

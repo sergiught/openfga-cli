@@ -16,6 +16,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/field"
+	"github.com/sergiught/openfga-cli/internal/ui/picker"
 )
 
 // Probe caps: the wizard fetches at most this many stores/models to fill its
@@ -98,10 +99,10 @@ type wizardModel struct {
 	width, height int
 	values        wizardValues
 
-	connForm *field.Form // API URL
-	method   string      // chosen auth method
-	authPick *picker     // auth method chooser
-	authForm *field.Form // secret fields for the chosen method (nil for none)
+	connForm *field.Form    // API URL
+	method   string         // chosen auth method
+	authPick *picker.Picker // auth method chooser
+	authForm *field.Form    // secret fields for the chosen method (nil for none)
 
 	spin spinner.Model
 
@@ -112,7 +113,7 @@ type wizardModel struct {
 	connErr error
 
 	// store step
-	storePick   *picker
+	storePick   *picker.Picker
 	storeManual bool
 	storeForm   *field.Form
 
@@ -120,7 +121,7 @@ type wizardModel struct {
 	modelLoading bool
 	models       []openfga.AuthorizationModel
 	modelErr     error
-	modelPick    *picker
+	modelPick    *picker.Picker
 	modelManual  bool
 	modelForm    *field.Form
 
@@ -217,7 +218,7 @@ func (m *wizardModel) onKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if !done {
 			return m, cmd
 		}
-		m.method = m.authPick.selected().value
+		m.method = m.authPick.Selected().Value
 		if m.method == config.AuthNone {
 			m.values.auth = config.Auth{}
 			return m, m.enter(stepProbe)
@@ -260,7 +261,7 @@ func (m *wizardModel) onStoreKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if !done {
 		return m, cmd
 	}
-	switch sel := m.storePick.selected(); sel.value {
+	switch sel := m.storePick.Selected(); sel.Value {
 	case valManual:
 		m.storeManual = true
 		return m, m.storeForm.Init()
@@ -268,7 +269,7 @@ func (m *wizardModel) onStoreKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.values.storeID = ""
 		return m, m.enter(stepReview) // no store → nothing to pin a model against
 	default:
-		m.values.storeID = sel.value
+		m.values.storeID = sel.Value
 		return m, m.afterStore()
 	}
 }
@@ -289,13 +290,13 @@ func (m *wizardModel) onModelKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if !done {
 		return m, cmd
 	}
-	switch sel := m.modelPick.selected(); sel.value {
+	switch sel := m.modelPick.Selected(); sel.Value {
 	case valManual:
 		m.modelManual = true
 		return m, m.modelForm.Init()
 	default:
 		// valNone ("") means "always latest"; a concrete ID pins that model.
-		m.values.modelID = sel.value
+		m.values.modelID = sel.Value
 		return m, m.enter(stepReview)
 	}
 }
@@ -400,12 +401,12 @@ func (m *wizardModel) back() tea.Cmd {
 }
 
 // pickerKey routes a key to a picker, reporting whether it was selected.
-func (m *wizardModel) pickerKey(p *picker, k tea.KeyPressMsg) (tea.Cmd, bool) {
+func (m *wizardModel) pickerKey(p *picker.Picker, k tea.KeyPressMsg) (tea.Cmd, bool) {
 	switch k.String() {
 	case "up", "k":
-		p.move(-1)
+		p.Move(-1)
 	case "down", "j":
-		p.move(1)
+		p.Move(1)
 	case "enter", " ":
 		return nil, true
 	}
@@ -453,20 +454,20 @@ func (m *wizardModel) buildStoreStep() {
 		m.applyWidth()
 		return
 	}
-	items := make([]pickItem, 0, len(m.stores)+2)
+	items := make([]picker.Item, 0, len(m.stores)+2)
 	for _, s := range m.stores {
-		items = append(items, pickItem{title: s.Name, desc: s.ID, value: s.ID})
+		items = append(items, picker.Item{Title: s.Name, Desc: s.ID, Value: s.ID})
 	}
 	items = append(items,
-		pickItem{title: "Enter a store ID manually", value: valManual},
-		pickItem{title: "Skip — no store yet", value: valNone},
+		picker.Item{Title: "Enter a store ID manually", Value: valManual},
+		picker.Item{Title: "Skip — no store yet", Value: valNone},
 	)
-	m.storePick = newPicker(items)
+	m.storePick = picker.New(items)
 	// Pre-select a store matching a --store-id flag, if it was listed.
 	if m.seed.storeID != "" {
 		for i, it := range items {
-			if it.value == m.seed.storeID {
-				m.storePick.cursor = i
+			if it.Value == m.seed.storeID {
+				m.storePick.SetCursor(i)
 			}
 		}
 	}
@@ -474,22 +475,22 @@ func (m *wizardModel) buildStoreStep() {
 }
 
 func (m *wizardModel) buildModelPicker() {
-	items := []pickItem{
-		{title: "Always use the latest model", desc: "don't pin; follow the store's newest model", value: valNone},
+	items := []picker.Item{
+		{Title: "Always use the latest model", Desc: "don't pin; follow the store's newest model", Value: valNone},
 	}
 	for i, mod := range m.models {
 		desc := mod.SchemaVersion
 		if i == 0 {
 			desc = "latest · schema " + mod.SchemaVersion
 		}
-		items = append(items, pickItem{title: mod.ID, desc: desc, value: mod.ID})
+		items = append(items, picker.Item{Title: mod.ID, Desc: desc, Value: mod.ID})
 	}
-	items = append(items, pickItem{title: "Enter a model ID manually", value: valManual})
-	m.modelPick = newPicker(items)
+	items = append(items, picker.Item{Title: "Enter a model ID manually", Value: valManual})
+	m.modelPick = picker.New(items)
 	if m.seed.modelID != "" {
 		for i, it := range items {
-			if it.value == m.seed.modelID {
-				m.modelPick.cursor = i
+			if it.Value == m.seed.modelID {
+				m.modelPick.SetCursor(i)
 			}
 		}
 	}
@@ -577,12 +578,12 @@ func (p clientProber) models(ctx context.Context, storeID string) ([]openfga.Aut
 
 // --- auth form assembly ---
 
-func newAuthPicker() *picker {
-	return newPicker([]pickItem{
-		{title: "API token", desc: "a static bearer token (FGA_API_TOKEN)", value: config.AuthAPIToken},
-		{title: "OAuth2 client credentials", desc: "client id + secret exchanged for a token", value: config.AuthClientCredentials},
-		{title: "Private-key JWT", desc: "signed assertion (client id + PEM key)", value: config.AuthPrivateKeyJWT},
-		{title: "None", desc: "no authentication (local / dev servers)", value: config.AuthNone},
+func newAuthPicker() *picker.Picker {
+	return picker.New([]picker.Item{
+		{Title: "API token", Desc: "a static bearer token (FGA_API_TOKEN)", Value: config.AuthAPIToken},
+		{Title: "OAuth2 client credentials", Desc: "client id + secret exchanged for a token", Value: config.AuthClientCredentials},
+		{Title: "Private-key JWT", Desc: "signed assertion (client id + PEM key)", Value: config.AuthPrivateKeyJWT},
+		{Title: "None", Desc: "no authentication (local / dev servers)", Value: config.AuthNone},
 	})
 }
 

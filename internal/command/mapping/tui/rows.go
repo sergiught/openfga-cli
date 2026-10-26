@@ -1,0 +1,305 @@
+package tui
+
+import (
+	"regexp"
+	"strings"
+	"unicode/utf8"
+
+	lipgloss "charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/sergiught/openfga-cli/internal/style"
+)
+
+// hangIndent is how far a wrapped row sits past the indent of the row it
+// continues. Two columns is enough to read as "this is still the line above"
+// and not so much that a continued value looks like a field nested under it.
+const hangIndent = "  "
+
+// wrapLine lays one line out across as many rows as it needs, hanging every row
+// after the first past the original's own indent.
+//
+// It replaces a truncating clamp on the preview, where cutting took the worst
+// possible half: an evaluated tuple ends with its object, and the object is the
+// part that says which thing the rule touched — the one part the user cannot
+// reconstruct from the rule they just wrote. In the document it took the end of
+// every template, which is where the field path lives.
+//
+// The whole line is re-wrapped rather than the first row kept at full width,
+// because a line short enough to keep is returned untouched above: anything
+// reaching the wrap is overflowing already, and a uniform width costs at most
+// the two columns the hang occupies.
+func wrapLine(s string, w int) []string {
+	if w < 1 || lipgloss.Width(s) <= w {
+		return []string{s}
+	}
+	indent := s[:len(s)-len(strings.TrimLeft(s, " "))]
+	hang := indent + hangIndent
+	width := w - lipgloss.Width(hang)
+	if width < 8 {
+		// Narrower than this, the indent is costing more than it explains: a
+		// column that fits four characters of content per row has no shape left
+		// for the hang to clarify.
+		indent, hang, width = "", "", w
+	}
+
+	rows := strings.Split(ansi.Wrap(strings.TrimLeft(s, " "), width, ""), "\n")
+	for i := range rows {
+		if i == 0 {
+			rows[i] = indent + rows[i]
+			continue
+		}
+		rows[i] = hang + rows[i]
+	}
+	return rows
+}
+
+// wrapCommand lays a shell command out across rows of at most w cells, for a
+// user to copy. It breaks between words, never inside '…' quoting, and ends
+// every row but the last with " \", so a copy of only the first rows cannot
+// run. A word too wide for a row of its own breaks with a bare "\" and goes on
+// flush left, where the shell joins it back; inside '…' the break closes the
+// quote before the "\" and reopens it on the next row.
+func wrapCommand(s string, w int) []string {
+	if w < 1 || lipgloss.Width(s) <= w {
+		return []string{s}
+	}
+	var rows []string
+	row, lead := "", ""
+	for _, word := range commandWords(s) {
+		if row != "" {
+			if lipgloss.Width(lead+row+" "+word+" \\") <= w {
+				row += " " + word
+				continue
+			}
+			rows = append(rows, lead+row+" \\")
+			lead = hangIndent
+		}
+		row = word
+		for lipgloss.Width(lead+row+" \\") > w {
+			cut, inQuote := safeCut(lead, row, w)
+			if cut == 0 {
+				break // no safe cut fits: the row overflows
+			}
+			head, rest := row[:cut], row[cut:]
+			if inQuote {
+				// The shell keeps a "\" inside '…', so close the quote before
+				// it and reopen it on the next row.
+				head, rest = head+"'", "'"+rest
+			}
+			rows = append(rows, lead+head+`\`)
+			row, lead = rest, ""
+		}
+	}
+	return append(rows, lead+row)
+}
+
+// safeCut is where word, led by lead, can be broken so that the row, with the
+// "\" that ends it (and a closing ' if the cut falls inside '…'), fits in w
+// cells: the furthest such byte offset, and whether it is inside '…'. It is
+// never at the word's ends, nor after a lone backslash, which would escape the
+// break, nor leaving nothing of the word before it. 0 means no cut fits.
+func safeCut(lead, word string, w int) (cut int, inQuote bool) {
+	quoted, escaped := false, false
+	for i, r := range word {
+		n := i + utf8.RuneLen(r)
+		switch {
+		case escaped:
+			escaped = false
+		case quoted:
+			quoted = r != '\''
+		case r == '\\':
+			escaped = true
+		case r == '\'':
+			quoted = true
+		}
+		// A cut just past an opening quote would reopen it where it started,
+		// and one just before the closing quote leaves a row of only ''.
+		if escaped || n >= len(word) || quoted && (n < 2 || n == len(word)-1) {
+			continue
+		}
+		cost := lipgloss.Width(lead+word[:n]) + 1
+		if quoted {
+			cost++
+		}
+		if cost <= w {
+			cut, inQuote = n, quoted
+		}
+	}
+	return cut, inQuote
+}
+
+// commandWords splits a shell command at the spaces between its words: not
+// those escaped with \ or inside '…' (shellQuote's quoting).
+func commandWords(s string) []string {
+	var words []string
+	start, closer, escaped := 0, rune(0), false
+	for i, r := range s {
+		switch {
+		case escaped:
+			escaped = false
+		case closer != 0:
+			if r == closer {
+				closer = 0
+			}
+		case r == '\\':
+			escaped = true
+		case r == '\'':
+			closer = '\''
+		case r == ' ':
+			if i > start {
+				words = append(words, s[start:i])
+			}
+			start = i + 1
+		}
+	}
+	if start < len(s) {
+		words = append(words, s[start:])
+	}
+	return words
+}
+
+// wrapText wraps a block, keeping the lines it already has. mapper's compile
+// and evaluation errors arrive laid out across several lines, with a caret
+// under the offending column.
+func wrapText(s string, w int) string {
+	var out []string
+	for _, l := range strings.Split(s, "\n") {
+		out = append(out, wrapLine(l, w)...)
+	}
+	return strings.Join(out, "\n")
+}
+
+// jsonKey matches a field at the head of a line: indent, the quoted name, then
+// the colon and whatever follows. The quotes are what make this safe where the
+// YAML pattern needs a trailing space to be — a value carrying a colon of its
+// own cannot reach the front of a line unquoted.
+var jsonKey = regexp.MustCompile(`^(\s*)("(?:[^"\\]|\\.)*")(:.*)$`)
+
+// jsonRows is the payload half of the preview: the event the rule is evaluated
+// against, wrapped to the pane and coloured, as the rows it occupies.
+//
+// The rows come back whole rather than cut to a count, because the section
+// shows a scrolled window onto them and both the window's position and the
+// count on its header are measured in these rows.
+//
+// Only field names are picked out. The values are the reason to read this at
+// all — they are what a user checks a path against before writing it into a
+// template — so they keep the plain foreground rather than competing with a
+// second colour for it.
+//
+// Every line is sanitized before it is measured. The values are the user's
+// own payload, and encoding/json escapes only the C0 controls: C1 controls,
+// DEL and bidi overrides come through it raw.
+func jsonRows(s string, w int) []string {
+	if s == "" {
+		return nil
+	}
+	var out []string
+	for _, line := range strings.Split(strings.TrimRight(s, "\n"), "\n") {
+		for i, row := range wrapLine(style.SanitizeTerminal(line), w) {
+			if m := jsonKey.FindStringSubmatch(row); i == 0 && m != nil {
+				out = append(out, m[1]+style.Key.Render(m[2])+m[3])
+				continue
+			}
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
+// yamlKey matches a field at the head of a line: indent, an optional list
+// marker, the name, and the colon. The trailing space is required so that a
+// value carrying a colon of its own — `user:alice`, which is every tuple the
+// workspace writes — is not mistaken for a field.
+var yamlKey = regexp.MustCompile(`^(\s*)(- )?([\w.-]+:)( .*)?$`)
+
+// yamlRows is the document half of the preview: the file as it stands, wrapped
+// to the pane and coloured, as the rows it occupies.
+//
+// The rows come back whole rather than cut to a count, for the same reason
+// jsonRows' do: the section shows a scrolled window onto them, and both the
+// window's position and the count on its header are measured in these rows. It
+// used to truncate at the count instead, which always cut the bottom — where
+// the rule the user had just written had landed.
+//
+// Colour comes last, after the wrap, so that no escape sequence is ever cut
+// through the middle — the reason the old rune-based clamp could not have
+// stayed.
+func yamlRows(s string, w int) []string {
+	if s == "" {
+		return nil
+	}
+	var out []string
+	for _, line := range strings.Split(strings.TrimRight(s, "\n"), "\n") {
+		open := false
+		for i, row := range wrapLine(style.SanitizeTerminal(line), w) {
+			var coloured string
+			coloured, open = highlightYAML(row, i == 0, open)
+			out = append(out, coloured)
+		}
+	}
+	return out
+}
+
+// highlightYAML colours one rendered row. first says the row starts a line
+// rather than continuing one, which is what makes it safe to read a field name
+// off the front of it; open says the row begins inside a template that started
+// on an earlier row, and the returned flag says the same about the next.
+//
+// Colour is decoration only: stripping the escapes gives back exactly the row
+// that came in.
+func highlightYAML(row string, first, open bool) (string, bool) {
+	if !open {
+		if strings.HasPrefix(strings.TrimLeft(row, " "), "#") {
+			return style.Faint.Render(row), false
+		}
+		if m := yamlKey.FindStringSubmatch(row); first && m != nil {
+			rest, stillOpen := highlightTemplates(m[4], false)
+			return m[1] + faintly(m[2]) + style.Key.Render(m[3]) + rest, stillOpen
+		}
+	}
+	return highlightTemplates(row, open)
+}
+
+// highlightTemplates picks the {{ }} expressions out of the literal text around
+// them: they are the only part of the file that runs, and the only part whose
+// mistakes the preview beside it is reporting.
+//
+// A template long enough to wrap arrives here in halves, which is what open
+// carries — colouring only the half holding the braces would read as the
+// expression ending mid-row.
+func highlightTemplates(s string, open bool) (string, bool) {
+	var b strings.Builder
+	for s != "" {
+		if open {
+			i := strings.Index(s, "}}")
+			if i < 0 {
+				b.WriteString(templateStyle.Render(s))
+				return b.String(), true
+			}
+			b.WriteString(templateStyle.Render(s[:i+2]))
+			s, open = s[i+2:], false
+			continue
+		}
+		i := strings.Index(s, "{{")
+		if i < 0 {
+			break
+		}
+		b.WriteString(s[:i])
+		s, open = s[i:], true
+	}
+	b.WriteString(s)
+	return b.String(), open
+}
+
+var templateStyle = lipgloss.NewStyle().Foreground(style.Keyword)
+
+// faintly renders a fragment that is often empty — the list marker — without
+// wrapping nothing in escapes.
+func faintly(s string) string {
+	if s == "" {
+		return ""
+	}
+	return style.Faint.Render(s)
+}
