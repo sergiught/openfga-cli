@@ -127,3 +127,20 @@ func TestMainFileRunsStandalone(t *testing.T) {
 		t.Fatalf("standalone help missing usage:\n%s", out)
 	}
 }
+
+func TestMachineOutputFromArgs(t *testing.T) {
+	tests := []struct {
+		args []string
+		want bool
+	}{
+		{[]string{"stores", "list", "--json"}, true}, {[]string{"-o", "json"}, true}, {[]string{"-ojson"}, true},
+		{[]string{"--output=yaml"}, true}, {[]string{"-o=json"}, true}, {[]string{"--jq", ".a"}, true},
+		{[]string{"--jq=.a"}, true}, {[]string{"-o", "table"}, false}, {[]string{"--json", "--plain"}, false},
+		{[]string{"--", "--json"}, false}, {[]string{"stores", "list"}, false}, {nil, false},
+	}
+	for _, tt := range tests {
+		if got := machineOutputFromArgs(tt.args); got != tt.want {
+			t.Errorf("machineOutputFromArgs(%q) = %v, want %v", tt.args, got, tt.want)
+		}
+	}
+}

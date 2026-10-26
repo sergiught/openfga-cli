@@ -42,6 +42,43 @@ already committed.
 > a large store that can be a lot of output: cap it with `--max-results`
 > (alias `--limit`), or pipe through `head` or `--json | jq`.
 
+## Errors as JSON
+
+With `--json`, `--yaml` or `--jq` (or `-o json|yaml`), a command that fails
+writes exactly one line of compact JSON to stderr, always JSON even under
+`--yaml`, and nothing else from the error path: no `●` line and no hints. The
+exit code is unchanged. `--quiet` does not suppress it.
+
+```json
+{"error":{"code":"not_found","message":"GET /stores/01H…: 404 store_id_not_found store not found","status":404,"api_code":"store_id_not_found","hint":"…","details":[]}}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `code` | Stable category, see the table below. Branch on this, not on `message`. |
+| `message` | The human message, first line. |
+| `status` | HTTP status. Only present when the error came from an API response. |
+| `api_code` | OpenFGA's own error code. Only present when the server sent one. |
+| `hint` | The suggested remediation, when there is one. |
+| `details` | Array of objects, always present and possibly empty: unknown-command `suggestion`s, an underlying `cause`, and per-command extras. |
+
+| Code | When | Exit code |
+| --- | --- | --- |
+| `usage` | Unknown command or flag, wrong arguments, invalid `--jq` or `-o` | 2 |
+| `confirmation_required` | A destructive command ran non-interactively without `--force` | 1 |
+| `validation` | The server rejected the request as invalid (400) | 1 |
+| `already_exists` | A tuple write duplicated an existing tuple | 1 |
+| `unauthenticated` | Missing, invalid or rejected credentials (401) | 1 |
+| `forbidden` | Authenticated but not allowed (403) | 1 |
+| `not_found` | The store, model or other resource does not exist (404) | 1 |
+| `rate_limited` | The server throttled the request (429) | 1 |
+| `server` | The server failed (5xx) | 1 |
+| `network` | The server could not be reached | 4 |
+| `test_failed` | `model test`, `assertions test` or a coverage gate failed | 3 |
+| `partial_failure` | A bulk write/delete or `mappings apply` finished with some failures. When the server became unreachable partway, the code is `network` and the exit code 4 | 1 |
+| `canceled` | Interrupted by Ctrl-C or SIGTERM | 130 |
+| `error` | Anything else, including a config file that will not load | 1 |
+
 ## Extracting fields without jq
 
 `--jq` filters machine-readable output through a built-in jq engine, so a

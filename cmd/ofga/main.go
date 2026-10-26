@@ -50,6 +50,14 @@ func main() {
 	noColor := noColorFromArgs(os.Args[1:], "")
 	cfg, err := config.LoadFrom(configPathFromArgs(os.Args[1:]))
 	if err != nil {
+		if machineOutputFromArgs(os.Args[1:]) {
+			hint := ""
+			if path := config.DefaultPath(); path != "" {
+				hint = "fix or remove " + path + ", then try again"
+			}
+			reportMachineError(os.Stderr, clierr.WithHint(hint, err), clierr.CodeError, "ofga", false)
+			os.Exit(clierr.CodeError)
+		}
 		// base.New (which builds the profile-aware writers) hasn't run yet, so
 		// wrap stderr here too — otherwise this early error leaks ANSI to a pipe
 		// and ignores NO_COLOR.
@@ -99,6 +107,24 @@ func main() {
 			}
 		}
 		logger.Debugf("command failed: %+v", err)
+		machine := machineOutputFromArgs(os.Args[1:])
+		if root.OutputResolved() {
+			machine = c.JSON || c.YAML
+		}
+		if machine {
+			if lerr := cfg.LoadErr(); lerr != nil && errors.Is(err, lerr) {
+				err = clierr.WithHint("fix or remove "+cfg.Path()+", then try again", err)
+			}
+			code := clierr.Code(err)
+			canceled := ctx.Err() != nil
+			if canceled {
+				code = clierr.CodeCanceled
+			} else if !root.RanCommand() {
+				code = clierr.CodeUsage
+			}
+			reportMachineError(os.Stderr, err, code, cmd.CommandPath(), canceled)
+			os.Exit(code)
+		}
 		if ctx.Err() != nil {
 			// A signal (Ctrl-C or SIGTERM) cancelled the request context.
 			// signal.NotifyContext cancels with a signalError cause rather than
@@ -267,4 +293,67 @@ func logLevel(args []string) log.Level {
 		return log.DebugLevel
 	}
 	return log.WarnLevel
+}
+
+// machineOutputFromArgs reports whether raw argv selects machine output
+// (--json, --yaml, --jq, or -o/--output json|yaml). It is the fallback for
+// failures that happen before cobra has resolved the output flags: a mistyped
+// command, an unknown flag, a config that will not load. --plain and
+// -o plain|table always win, as they do in resolveOutput.
+func machineOutputFromArgs(args []string) bool {
+	if boolFlagFromArgs(args, "--plain") {
+		return false
+	}
+	machine := boolFlagFromArgs(args, "--json") || boolFlagFromArgs(args, "--yaml")
+	for i, arg := range args {
+		if arg == "--" {
+			break
+		}
+		var value string
+		switch {
+		case arg == "--jq" && i+1 < len(args), strings.HasPrefix(arg, "--jq="):
+			machine = true
+			continue
+		case arg == "-o" || arg == "--output":
+			if i+1 < len(args) {
+				value = args[i+1]
+			}
+		case strings.HasPrefix(arg, "--output="):
+			value = strings.TrimPrefix(arg, "--output=")
+		case strings.HasPrefix(arg, "-o") && !strings.HasPrefix(arg, "--"):
+			value = strings.TrimPrefix(strings.TrimPrefix(arg, "-o"), "=")
+		default:
+			continue
+		}
+		switch value {
+		case "json", "yaml":
+			machine = true
+		case "plain", "table":
+			return false
+		}
+	}
+	return machine
+}
+
+// reportMachineError writes err to w as the one-line JSON error envelope.
+// code is the process exit code main computed; cmdPath names the command for
+// the default usage hint.
+func reportMachineError(w io.Writer, err error, code int, cmdPath string, canceled bool) {
+	env := clierr.NewEnvelope(err)
+	body := &env.Error
+	switch {
+	case canceled:
+		body.Code = clierr.KindCanceled
+		body.Message = "canceled"
+		var partial *clierr.PartialResult
+		if errors.As(err, &partial) {
+			body.Message = "canceled: " + partial.Error()
+		}
+	case code == clierr.CodeUsage:
+		body.Code = clierr.KindUsage
+		if body.Hint == "" {
+			body.Hint = "run '" + cmdPath + " --help' for usage"
+		}
+	}
+	_ = env.WriteLine(w)
 }

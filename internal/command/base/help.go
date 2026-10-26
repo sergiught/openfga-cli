@@ -75,6 +75,8 @@ func (c *Command) helpFunc(cmd *cobra.Command, _ []string) {
 	if !cmd.HasParent() {
 		b.WriteString(sectionHead("Environment"))
 		b.WriteString(envList())
+		b.WriteString(sectionHead("Exit Codes"))
+		b.WriteString(exitCodeList())
 	}
 	b.WriteString(sectionHead("Documentation"))
 	b.WriteString("    " + docsURL(cmd) + "\n")
@@ -139,6 +141,26 @@ func envList() string {
 		gap := strings.Repeat(" ", width-len(r[0])+3)
 		b.WriteString("    " + name.Render(r[0]) + gap + style.Subtitle.Render(r[1]) + "\n")
 	}
+	return b.String()
+}
+
+// exitCodeList renders the process exit codes and the machine-readable error
+// line, aligned like envList.
+func exitCodeList() string {
+	rows := [][2]string{
+		{"0", "success"},
+		{"1", "error: API failure, invalid input, or refused without --force"},
+		{"2", "usage error"},
+		{"3", "tests or assertions failed"},
+		{"4", "cannot reach the server"},
+		{"130", "interrupted"},
+	}
+	name := lipgloss.NewStyle().Foreground(style.Accent)
+	var b strings.Builder
+	for _, r := range rows {
+		b.WriteString("    " + name.Render(r[0]) + strings.Repeat(" ", 5-len(r[0])) + style.Subtitle.Render(r[1]) + "\n")
+	}
+	b.WriteString("\n    " + style.Subtitle.Render(`with --json, --yaml or --jq, a failure also prints one JSON line {"error":{"code":…}} on stderr; codes are listed in the scripting guide`) + "\n")
 	return b.String()
 }
 
