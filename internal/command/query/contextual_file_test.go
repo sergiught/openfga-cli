@@ -113,20 +113,44 @@ func TestContextualTuplesFileOnEveryQueryCommand(t *testing.T) {
 
 func TestContextualTuplesFileFromStdin(t *testing.T) {
 	configtest.Isolate(t)
+	tests := []struct{ name, in string }{
+		{"jsonl", `{"user":"user:a","relation":"viewer","object":"doc:1"}` + "\n" +
+			`{"user":"user:b","relation":"viewer","object":"doc:2"}` + "\n"},
+		{"json tuples object", `{"tuples":[{"user":"user:a","relation":"viewer","object":"doc:1"},` +
+			`{"user":"user:b","relation":"viewer","object":"doc:2"}]}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := newBodyRecorder(t)
+			cmd := New(newQueryCLI(t, rec.srv.URL)).checkCmd()
+			cmd.SetIn(strings.NewReader(tt.in))
+			cmd.SetOut(io.Discard)
+			cmd.SetErr(io.Discard)
+			cmd.SetArgs([]string{"user:anne", "viewer", "doc:1", "--contextual-tuples-file", "-"})
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			if got := contextualUsers(t, rec.bodies[0]); len(got) != 2 {
+				t.Fatalf("contextual users = %v, want 2", got)
+			}
+		})
+	}
+}
+
+func TestContextualTuplesFileMalformedJSONLLineIsValidation(t *testing.T) {
+	configtest.Isolate(t)
 	rec := newBodyRecorder(t)
 	cmd := New(newQueryCLI(t, rec.srv.URL)).checkCmd()
-	cmd.SetIn(strings.NewReader(
-		`{"tuples":[{"user":"user:a","relation":"viewer","object":"doc:1"},` +
-			`{"user":"user:b","relation":"viewer","object":"doc:2"}]}`))
+	cmd.SetIn(strings.NewReader(`{"user":"user:a","relation":"viewer","object":"doc:1"}` + "\n" + `{"user":` + "\n"))
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
 	cmd.SetArgs([]string{"user:anne", "viewer", "doc:1", "--contextual-tuples-file", "-"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatal(err)
+	err := cmd.Execute()
+	if got := clierr.Classify(err); got != clierr.KindValidation {
+		t.Fatalf("kind = %q, want validation; err=%v", got, err)
 	}
-	// stdin has no extension, so it is always read as JSON (no format override).
-	if got := contextualUsers(t, rec.bodies[0]); len(got) != 2 {
-		t.Fatalf("contextual users = %v, want 2", got)
+	if n := rec.count(); n != 0 {
+		t.Fatalf("server received %d requests, want 0", n)
 	}
 }
 

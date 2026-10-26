@@ -17,6 +17,7 @@ import (
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/fga"
+	"github.com/sergiught/openfga-cli/internal/readlimit"
 )
 
 // bulkFormat is the on-disk encoding of a bulk --file payload.
@@ -575,14 +576,32 @@ func splitTypeID(s string) (typ, id string) {
 // inference, shapes and strict decoding as `tuples write --file`. Errors keep
 // their exit code and are tagged as validation errors naming the source.
 func LoadTupleFile(path string, stdin io.Reader) ([]openfga.TupleKey, error) {
-	format, err := resolveBulkFormat(path, "")
-	if err == nil {
-		var keys []openfga.TupleKey
-		keys, err = loadTuples(stdin, path, format, false)
-		if err == nil {
-			return keys, nil
-		}
+	keys, err := loadTupleFile(path, stdin)
+	if err != nil {
+		return nil, clierr.WithKind(clierr.KindValidation,
+			clierr.WithDetails(err, map[string]any{"source": path, "problem": err.Error()}))
 	}
-	return nil, clierr.WithKind(clierr.KindValidation,
-		clierr.WithDetails(err, map[string]any{"source": path, "problem": err.Error()}))
+	return keys, nil
+}
+
+func loadTupleFile(path string, stdin io.Reader) ([]openfga.TupleKey, error) {
+	format, err := resolveBulkFormat(path, "")
+	if err != nil {
+		return nil, err
+	}
+	if path == "-" {
+		// Stdin has no extension: buffer it and treat a stream holding more
+		// than one top-level JSON value as JSON Lines, anything else as JSON.
+		data, err := readlimit.All(stdin, readlimit.Document, "tuples from stdin")
+		if err != nil {
+			return nil, err
+		}
+		dec := json.NewDecoder(bytes.NewReader(data))
+		var first json.RawMessage
+		if dec.Decode(&first) == nil && dec.More() {
+			format = formatJSONL
+		}
+		stdin = bytes.NewReader(data)
+	}
+	return loadTuples(stdin, path, format, false)
 }
