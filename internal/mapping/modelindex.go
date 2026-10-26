@@ -11,21 +11,27 @@ import (
 // which types exist, which relations each has, which user types a relation
 // accepts, and which conditions can be attached.
 //
+// UserConditions keeps what UserTypes drops: for each relation and user type,
+// the conditions a tuple may carry, "" meaning none. The model may list one user
+// type more than once, as in [user, user with c].
+//
 // Every accessor tolerates a nil receiver, because "skip the model" is a first
 // class choice in the workspace and the editors should not each re-check.
 type ModelIndex struct {
-	Types      map[string][]string
-	UserTypes  map[string][]string
-	Conditions map[string][]string
+	Types          map[string][]string
+	UserTypes      map[string][]string
+	UserConditions map[string][]string // keyed by userConditionKey
+	Conditions     map[string][]string
 }
 
 // IndexModel builds an index from a fetched or loaded model. A nil model
 // indexes to an empty, still-usable index.
 func IndexModel(m *openfga.AuthorizationModel) *ModelIndex {
 	ix := &ModelIndex{
-		Types:      map[string][]string{},
-		UserTypes:  map[string][]string{},
-		Conditions: map[string][]string{},
+		Types:          map[string][]string{},
+		UserTypes:      map[string][]string{},
+		UserConditions: map[string][]string{},
+		Conditions:     map[string][]string{},
 	}
 	if m == nil {
 		return ix
@@ -47,7 +53,14 @@ func IndexModel(m *openfga.AuthorizationModel) *ModelIndex {
 			var users []string
 			for _, ref := range meta.DirectlyRelatedUserTypes {
 				u := renderUserRef(ref)
-				if u == "" || seen[u] {
+				if u == "" {
+					continue
+				}
+				k := userConditionKey(td.Type, rel, u)
+				if !contains(ix.UserConditions[k], ref.Condition) {
+					ix.UserConditions[k] = append(ix.UserConditions[k], ref.Condition)
+				}
+				if seen[u] {
 					continue
 				}
 				seen[u] = true
@@ -71,8 +84,8 @@ func IndexModel(m *openfga.AuthorizationModel) *ModelIndex {
 }
 
 // renderUserRef turns a relation reference into the user string a tuple would
-// carry: "user", "group#member" or "user:*". The reference's condition is
-// deliberately dropped — the workspace picks a tuple's condition separately, and
+// carry: "user", "group#member" or "user:*". The reference's condition is left
+// to UserConditions — the workspace picks a tuple's condition separately, and
 // folding it in here would offer "user (in_business_hours)" as a user type.
 func renderUserRef(ref openfga.RelationReference) string {
 	switch {
@@ -109,6 +122,20 @@ func (ix *ModelIndex) RelationsFor(typ string) []string {
 		return nil
 	}
 	return ix.Types[typ]
+}
+
+// UserConditionsFor returns the conditions a tuple from userType to
+// typ#relation may carry, "" meaning none.
+func (ix *ModelIndex) UserConditionsFor(typ, relation, userType string) []string {
+	if ix == nil {
+		return nil
+	}
+	return ix.UserConditions[userConditionKey(typ, relation, userType)]
+}
+
+// userConditionKey cannot collide: a type or relation name has no space.
+func userConditionKey(typ, relation, userType string) string {
+	return typ + "#" + relation + " " + userType
 }
 
 // UserTypesFor returns the user strings typ#relation directly accepts.

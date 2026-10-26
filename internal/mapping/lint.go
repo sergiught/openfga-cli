@@ -5,6 +5,7 @@ import (
 	"maps"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -180,11 +181,13 @@ func lintAgainstModel(i int, t Tuple, ix *ModelIndex) []Problem {
 	if ix.Empty() {
 		return nil
 	}
-	ps, _ := lintTarget(i, "tuple", t.User, t.Relation, t.Object, ix)
+	ps, relationKnown := lintTarget(i, "tuple", t.User, t.Relation, t.Object, ix)
 
+	knownCondition := true
 	if t.Condition != "" {
 		params := ix.ConditionParams(t.Condition)
 		if params == nil && !contains(ix.ConditionNames(), t.Condition) {
+			knownCondition = false
 			ps = append(ps, Problem{Rule: i, Section: "tuple", Field: "condition", Warning: true,
 				Message: fmt.Sprintf("the model has no condition %q", t.Condition)})
 		} else {
@@ -195,6 +198,24 @@ func lintAgainstModel(i int, t Tuple, ix *ModelIndex) []Problem {
 					ps = append(ps, Problem{Rule: i, Section: "tuple", Field: "context", Warning: true,
 						Message: fmt.Sprintf("condition %q has no parameter %q", t.Condition, e.Key)})
 				}
+			}
+		}
+	}
+
+	// The server takes a tuple only with a condition the model pairs with its
+	// user type: [user with c] refuses user:1 without c, and [user] refuses it
+	// with one. A user type the relation lacks was reported by lintTarget.
+	if relationKnown && knownCondition && !strings.Contains(t.Condition, "{{") {
+		typ, _ := literalObjectType(t.Object)
+		if userTyp, ok := modelUserType(t.User); ok && contains(ix.UserTypesFor(typ, t.Relation), userTyp) {
+			if conds := ix.UserConditionsFor(typ, t.Relation, userTyp); !contains(conds, t.Condition) {
+				msg := fmt.Sprintf("relation %q on type %q does not accept user type %q with condition %q",
+					t.Relation, typ, userTyp, t.Condition)
+				if t.Condition == "" {
+					msg = fmt.Sprintf("relation %q on type %q accepts user type %q only with condition %s",
+						t.Relation, typ, userTyp, quoteJoin(conds, " or "))
+				}
+				ps = append(ps, Problem{Rule: i, Section: "tuple", Field: "condition", Warning: true, Message: msg})
 			}
 		}
 	}
@@ -224,12 +245,7 @@ func lintTarget(i int, section, user, relation, object string, ix *ModelIndex) (
 		}
 	}
 	if relationKnown {
-		if userTyp, literalUser := literalUserType(user); literalUser {
-			// The model names a wildcard as "user:*", and accepts it only
-			// where it says so.
-			if user == userTyp+":*" {
-				userTyp = user
-			}
+		if userTyp, literalUser := modelUserType(user); literalUser {
 			if userTypes := ix.UserTypesFor(typ, relation); len(userTypes) > 0 && !contains(userTypes, userTyp) {
 				ps = append(ps, Problem{Rule: i, Section: section, Field: "user", Warning: true,
 					Message: fmt.Sprintf("relation %q on type %q does not accept user type %q", relation, typ, userTyp)})
@@ -269,6 +285,16 @@ func literalObjectType(object string) (string, bool) {
 		return "", false
 	}
 	return typ, true
+}
+
+// modelUserType is literalUserType as the model names it. The model names a
+// wildcard as "user:*", and accepts it only where it says so.
+func modelUserType(user string) (string, bool) {
+	userTyp, ok := literalUserType(user)
+	if ok && user == userTyp+":*" {
+		userTyp = user
+	}
+	return userTyp, ok
 }
 
 // literalUserType extracts the reference form a tuple's user contributes to a
@@ -416,6 +442,15 @@ func lintFilterActions(i int, r Rule) []Problem {
 		}
 	}
 	return nil
+}
+
+// quoteJoin quotes each of ss and joins them with sep.
+func quoteJoin(ss []string, sep string) string {
+	q := make([]string, len(ss))
+	for i, s := range ss {
+		q[i] = strconv.Quote(s)
+	}
+	return strings.Join(q, sep)
 }
 
 func contains(hay []string, needle string) bool {

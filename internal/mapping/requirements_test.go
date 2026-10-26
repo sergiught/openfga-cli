@@ -136,3 +136,53 @@ type organization
 		})
 	}
 }
+
+// A reference's condition is part of what the server accepts: [user with c]
+// refuses user:1 without c, and [user] refuses it with c.
+func TestModelChecksPairTheUserTypeWithItsCondition(t *testing.T) {
+	ix := idx(t, `model
+  schema 1.1
+
+type user
+
+type organization
+  relations
+    define member: [user]
+    define gated: [user with in_hours]
+    define either: [user, user with in_hours]
+
+condition in_hours(hour: int) {
+  hour >= 9
+}
+`)
+	t.Run("lint", func(t *testing.T) {
+		tests := []struct {
+			relation, condition string
+			wantWarning         bool
+		}{
+			{"gated", "", true},
+			{"gated", "in_hours", false},
+			{"member", "in_hours", true},
+			{"member", "", false},
+			{"either", "", false},
+			{"either", "in_hours", false},
+		}
+		for _, tc := range tests {
+			t.Run(tc.relation+" "+tc.condition, func(t *testing.T) {
+				ps := lintAgainstModel(0, Tuple{User: "user:1", Relation: tc.relation, Object: "organization:acme",
+					Condition: tc.condition}, ix)
+				if got := len(ps) > 0; got != tc.wantWarning {
+					t.Fatalf("warned = %v, want %v: %+v", got, tc.wantWarning, ps)
+				}
+			})
+		}
+	})
+	t.Run("requirements", func(t *testing.T) {
+		for relation, want := range map[string]bool{"gated": false, "either": true, "member": true} {
+			got := CheckRequirements(ix, []Requirement{{Type: "organization", Relation: relation, UserTypes: []string{"user"}}})
+			if got[0].UserTypesOK != want {
+				t.Errorf("%s: UserTypesOK = %v, want %v", relation, got[0].UserTypesOK, want)
+			}
+		}
+	})
+}

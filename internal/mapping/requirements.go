@@ -62,10 +62,11 @@ func CheckRequirements(ix *ModelIndex, reqs []Requirement) []RequirementStatus {
 			out = append(out, s)
 			continue
 		}
+		// A recipe writes its tuples without a condition, so a user type the
+		// model accepts only with one does not count.
 		s.UserTypesOK = true
-		allowed := ix.UserTypesFor(r.Type, r.Relation)
 		for _, ut := range r.UserTypes {
-			if !contains(allowed, ut) {
+			if !contains(ix.UserConditionsFor(r.Type, r.Relation, ut), "") {
 				s.UserTypesOK = false
 				break
 			}
