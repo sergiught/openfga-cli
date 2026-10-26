@@ -57,6 +57,21 @@ are your data.
 
 ---
 
+## Searching the OpenFGA docs
+
+`ofga docs` searches and reads the OpenFGA documentation from the terminal. It needs no profile, store or API URL. Queries are sent to openfga.dev.
+
+```bash
+# Find pages (table; add --json for machine output)
+ofga docs search contextual tuples --max-results 3
+
+# Print a page as markdown
+ofga docs show /docs/modeling/conditions
+ofga docs show https://openfga.dev/docs/interacting/relationship-queries --json
+```
+
+Only `https://openfga.dev/docs/...` pages are ever fetched.
+
 ## Shell completion
 
 ```bash

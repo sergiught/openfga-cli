@@ -55,6 +55,11 @@ func New(timeout time.Duration) *Client {
 	return newWithBaseURL(DefaultBaseURL, &http.Client{Timeout: timeout})
 }
 
+// NewWithBaseURL returns a Client for a different base URL. It exists so
+// other packages' tests can point a Client at an httptest server; production
+// code uses New.
+func NewWithBaseURL(base string, hc *http.Client) *Client { return newWithBaseURL(base, hc) }
+
 func newWithBaseURL(base string, hc *http.Client) *Client {
 	base = strings.TrimRight(base, "/")
 	// Never follow a redirect off the base host: it could carry the MCP

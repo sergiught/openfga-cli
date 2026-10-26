@@ -20,6 +20,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/command/api"
 	"github.com/sergiught/openfga-cli/internal/command/assertions"
 	"github.com/sergiught/openfga-cli/internal/command/configcmd"
+	"github.com/sergiught/openfga-cli/internal/command/docs"
 	"github.com/sergiught/openfga-cli/internal/command/mapping"
 	"github.com/sergiught/openfga-cli/internal/command/model"
 	"github.com/sergiught/openfga-cli/internal/command/playground"
@@ -560,6 +561,7 @@ var playgroundMeta = cmdmeta.Meta{Mutates: true, InteractiveOnly: true}
 func (c *Command) RegisterSubCommands() {
 	c.cmd.AddCommand(
 		profiles.New(c.cli).Command(),
+		docs.New(c.cli).Command(),
 		store.New(c.cli).Command(),
 		model.New(c.cli).Command(),
 		tuple.New(c.cli).Command(),
