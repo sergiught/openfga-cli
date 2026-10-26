@@ -66,16 +66,17 @@ func (f *File) Commit() error {
 // staged file into place, so a file that appears at dest after staging began is
 // never replaced. That case fails with an error wrapping fs.ErrExist and leaves
 // dest untouched. A filesystem that cannot hard link (any link error other than
-// fs.ErrExist) falls back to an Lstat of dest followed by a rename, which
-// keeps the check but not the guarantee: a file created between the two is
-// replaced. On failure the staged file is removed; after a successful link a
-// failed remove is ignored, because the destination is complete.
+// fs.ErrExist) instead reserves dest with an exclusive create, which fails the
+// same way if anything is there, and renames over the reservation: dest is
+// briefly empty, but never someone else's file. On failure the staged file is
+// removed; after a successful link a failed remove is ignored, because the
+// destination is complete.
 func (f *File) CommitNew() error {
 	name, err := f.seal()
 	if err != nil || name == "" {
 		return err
 	}
-	err = os.Link(name, f.dest)
+	err = link(name, f.dest)
 	if err == nil {
 		// dest now holds the inode, so a failure to drop the staged name
 		// leaves nothing wrong with the result.
@@ -86,16 +87,22 @@ func (f *File) CommitNew() error {
 		_ = os.Remove(name)
 		return fmt.Errorf("write %s: %w", f.dest, err)
 	}
-	if _, serr := os.Lstat(f.dest); serr == nil {
+	reserved, err := os.OpenFile(f.dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, f.perm)
+	if err != nil {
 		_ = os.Remove(name)
-		return fmt.Errorf("write %s: %w", f.dest, fs.ErrExist)
+		return fmt.Errorf("write %s: %w", f.dest, err)
 	}
+	_ = reserved.Close()
 	if err := os.Rename(name, f.dest); err != nil {
 		_ = os.Remove(name)
+		_ = os.Remove(f.dest) // the empty reservation
 		return fmt.Errorf("write %s: %w", f.dest, err)
 	}
 	return nil
 }
+
+// link is os.Link, swapped in tests for a filesystem that cannot hard link.
+var link = os.Link
 
 // seal syncs, closes and chmods the staged file and returns its name, which the
 // caller must move into place or remove. It returns "" when already committed
