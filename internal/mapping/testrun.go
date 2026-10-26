@@ -72,7 +72,15 @@ func RunTestsWithTimeout(ctx context.Context, f *File, filter string, failFast b
 	}
 	fr := m.RunTestsFiltered(ctx, filter, failFast)
 	run := &TestRun{Filtered: fr.Filtered, Skipped: fr.Skipped}
-	for _, r := range fr.Results {
+	// mapper runs the tests it selects in file order, so the k-th result is the
+	// k-th selected test. Two tests may share a name, so the name can't say which.
+	var selected []int
+	for i, t := range f.Doc.Tests {
+		if filter == "" || strings.Contains(t.Name, filter) {
+			selected = append(selected, i)
+		}
+	}
+	for k, r := range fr.Results {
 		o := TestOutcome{
 			Name: r.Name, Passed: r.Passed, Err: r.Error, Duration: r.Duration,
 			Expected: r.Expected, Actual: r.Actual,
@@ -84,7 +92,11 @@ func RunTestsWithTimeout(ctx context.Context, f *File, filter string, failFast b
 			o.MissingFilters = minusFilters(r.ExpectedTupleFilters, r.ActualTupleFilters)
 			o.UnexpectedFilters = minusFilters(r.ActualTupleFilters, r.ExpectedTupleFilters)
 		}
-		if f.assertsCoverage(r.Name) {
+		tc := -1
+		if k < len(selected) {
+			tc = selected[k]
+		}
+		if tc >= 0 && f.Doc.Tests[tc].AssertWritesCoveredByFilter {
 			o.Uncovered = uncoveredWrites(r.Actual, r.ActualTupleFilters)
 		}
 		if r.Trace != nil {
@@ -94,7 +106,9 @@ func RunTestsWithTimeout(ctx context.Context, f *File, filter string, failFast b
 				}
 			}
 		}
-		o.Line = f.testLineByName(r.Name)
+		if tc >= 0 {
+			o.Line, _ = f.TestLine(tc)
+		}
 		run.Tests = append(run.Tests, o)
 	}
 	return run, nil
@@ -126,25 +140,6 @@ func TupleText(t language.Tuple, field func(string) string) string {
 		s += " (delete)"
 	}
 	return s
-}
-
-func (f *File) testLineByName(name string) int {
-	for i, t := range f.Doc.Tests {
-		if t.Name == name {
-			line, _ := f.TestLine(i)
-			return line
-		}
-	}
-	return 0
-}
-
-func (f *File) assertsCoverage(name string) bool {
-	for _, t := range f.Doc.Tests {
-		if t.Name == name {
-			return t.AssertWritesCoveredByFilter
-		}
-	}
-	return false
 }
 
 // minusTuples returns a without the tuples in b, counting duplicates the way

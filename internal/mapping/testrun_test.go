@@ -135,6 +135,52 @@ tests:
 	}
 }
 
+// Two tests may share a name. Each outcome takes its coverage setting and its
+// line from its own test, not from the first test of that name.
+func TestRunTestsMatchesOutcomesToTestsByPosition(t *testing.T) {
+	src := `version: "1"
+rules:
+  - name: r
+    when: input.type == "x"
+    tuple_filters:
+      - {relation: member, object: "team:2"}
+    tuples:
+      - {user: "user:1", relation: member, object: "team:1"}
+tests:
+  - name: other
+    input: {type: y}
+  - name: same
+    input: {type: x}
+    expect_tuples:
+      - {user: "user:1", relation: member, object: "team:1", action: write}
+  - name: same
+    input: {type: x}
+    assert_writes_covered_by_filter: true
+    expect_tuples:
+      - {user: "user:1", relation: member, object: "team:1", action: write}
+`
+	f, err := LoadBytes("m.yaml", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := RunTests(context.Background(), f, "same", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(run.Tests) != 2 {
+		t.Fatalf("tests = %+v", run.Tests)
+	}
+	first, second := run.Tests[0], run.Tests[1]
+	if !first.Passed || len(first.Uncovered) != 0 || second.Passed || len(second.Uncovered) != 1 {
+		t.Fatalf("first = %+v\nsecond = %+v", first, second)
+	}
+	l1, _ := f.TestLine(1)
+	l2, _ := f.TestLine(2)
+	if first.Line != l1 || second.Line != l2 || l1 == l2 {
+		t.Fatalf("lines = %d, %d; want %d, %d", first.Line, second.Line, l1, l2)
+	}
+}
+
 func TestRunTestsCompileFailure(t *testing.T) {
 	f := &File{Path: "bad.yaml", Src: []byte("version: \"1\"\nrules:\n  - name: r\n")}
 	_, err := RunTests(context.Background(), f, "", false)
