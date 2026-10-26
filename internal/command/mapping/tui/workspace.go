@@ -434,15 +434,7 @@ func (w *workspace) jump(j Jump) tea.Cmd {
 	if w.loadErr != nil {
 		return nil // the findings are the file's, and nothing is loaded to show
 	}
-	rules := w.stacks[paneRules]
-	title, question, yes := "", "", ""
-	switch {
-	case rules.holdsNewRule():
-		title, question, yes = "Leave new rule", "Drop the rule you were adding?", "drop"
-	case rules.holdsPaste():
-		title, question, yes = "Discard paste", "Discard the pasted text?", "discard"
-	}
-	if title != "" {
+	if title, question, yes := heldInput(w.stacks[paneRules]); title != "" {
 		return w.openOverlay(newStack(w.sess, newConfirm(w.sess, title, question, yes)), func(result any) tea.Cmd {
 			if result != true {
 				return nil
@@ -451,6 +443,23 @@ func (w *workspace) jump(j Jump) tea.Cmd {
 		})
 	}
 	return w.goTo(j)
+}
+
+// heldInput is the question to ask before dropping stacks that hold input no
+// save keeps: a rule being added, or text in a paste box. An empty title is
+// nothing to ask about.
+func heldInput(stacks ...*Stack) (title, question, yes string) {
+	for _, st := range stacks {
+		if st != nil && st.holdsNewRule() {
+			return "Leave new rule", "Drop the rule you were adding?", "drop"
+		}
+	}
+	for _, st := range stacks {
+		if st != nil && st.holdsPaste() {
+			return "Discard paste", "Discard the pasted text?", "discard"
+		}
+	}
+	return "", "", ""
 }
 
 // goTo is jump past its questions.

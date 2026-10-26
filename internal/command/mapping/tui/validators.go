@@ -61,11 +61,25 @@ func vTemplate(s string) error {
 	return nil
 }
 
+// wholeTemplate reports whether s is nothing but one template. It has no
+// literal text to check a shape in: that is decided at evaluation time. It tests
+// the original rather than the stripped form: stripTemplates marks each template
+// with a "T" but does not record which "T"s it wrote, so a literal value of "TTT"
+// is indistinguishable from three placeholders once stripped.
+func wholeTemplate(s string) bool {
+	t := strings.TrimSpace(s)
+	return strings.HasPrefix(t, "{{") && strings.HasSuffix(t, "}}") && strings.Count(t, "{{") == 1
+}
+
 // splitRef checks the type:id shape shared by objects and users, returning the
-// literal id half so the caller can rule on what is allowed to appear in it.
+// literal id half so the caller can rule on what is allowed to appear in it. A
+// value that is one template supplies the whole reference, and has no id half.
 func splitRef(s string) (id string, err error) {
 	if err := vTemplate(s); err != nil {
 		return "", err
+	}
+	if wholeTemplate(s) {
+		return "", nil
 	}
 	typ, id, ok := strings.Cut(stripTemplates(s), ":")
 	if !ok || strings.TrimSpace(typ) == "" || strings.TrimSpace(id) == "" {
@@ -113,13 +127,7 @@ func vFilterObject(s string) error {
 	if strings.Contains(stripped, ":") {
 		return nil
 	}
-	// A value that is nothing but one template has no literal text to check the
-	// colon in at all — its shape is decided at evaluation time, not here. Test
-	// the original rather than the stripped form: stripTemplates marks each
-	// template with a "T" but does not record which "T"s it wrote, so a literal
-	// value of "TTT" is indistinguishable from three placeholders once stripped.
-	t := strings.TrimSpace(s)
-	if strings.HasPrefix(t, "{{") && strings.HasSuffix(t, "}}") && strings.Count(t, "{{") == 1 {
+	if wholeTemplate(s) {
 		return nil
 	}
 	return errors.New("needs a type prefix like organization: before the id")

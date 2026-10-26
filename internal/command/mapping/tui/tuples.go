@@ -47,11 +47,16 @@ func (c *tupleList) sync() {
 		c.list.SetItems(nil)
 		return
 	}
+	// A tuple with no action of its own takes the rule's, as mapper applies it.
+	inherited := "write"
+	if r := c.s.rule(c.at.Rule); r != nil && r.Action != "" {
+		inherited = r.Action
+	}
 	items := make([]uilist.Item, 0, len(*ts))
 	for i, t := range *ts {
 		action := t.Action
 		if action == "" {
-			action = "write"
+			action = inherited
 		}
 		// Templates come from the file or the user's event payloads.
 		title := style.SanitizeTerminal(fmt.Sprintf("%s %s %s", t.User, t.Relation, t.Object))

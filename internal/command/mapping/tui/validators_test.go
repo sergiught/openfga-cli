@@ -24,6 +24,11 @@ func TestValidatorsCheckShapeAndStayQuietOnEmpty(t *testing.T) {
 		{"user wildcard", vUserRef, "user:*", false},
 		{"user userset", vUserRef, "team:eng#member", false},
 		{"user missing id", vUserRef, "user", true},
+		{"object templated whole", vObjectRef, "{{ input.object }}", false},
+		{"user templated whole", vUserRef, " {{ input.user }} ", false},
+		{"user literal T", vUserRef, "T", true},
+		{"user two templates", vUserRef, "{{ a }}{{ b }}", true},
+		{"object whole template unclosed", vObjectRef, "{{ input.object", true},
 
 		{"unclosed template", vTemplate, "user:{{ input.id", true},
 		{"stray close", vTemplate, "user: input.id }}", true},

@@ -79,7 +79,10 @@ func pathItems(s *Session, at Focus) []uilist.Item {
 		if p.IsArray {
 			desc = "array · " + desc
 		}
-		items = append(items, uilist.Item{TitleText: p.Expr, DescText: desc, Filter: p.Expr, ID: p.Expr, Index: i})
+		// An iterator's alias comes from the file and starts every path; the ID
+		// keeps it as written, to insert.
+		shown := style.SanitizeTerminal(p.Expr)
+		items = append(items, uilist.Item{TitleText: shown, DescText: desc, Filter: shown, ID: p.Expr, Index: i})
 	}
 	return items
 }

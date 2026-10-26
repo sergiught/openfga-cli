@@ -85,6 +85,25 @@ func TestPathPickInIteratorScopeUsesTheAlias(t *testing.T) {
 	}
 }
 
+// The alias comes from the file and starts every path in the iterator, so the
+// rows show it sanitized; the ID keeps it as written, to insert.
+func TestIteratorAliasRowsCannotDriveTheTerminal(t *testing.T) {
+	d := iterDoc("input.data.object.identities")
+	d.Rules[0].Iterator.As = "id\x1b[2J"
+	items := pathItems(NewSession(context.Background(), d, nil), Focus{InIter: true})
+	if len(items) == 0 {
+		t.Fatal("fixture: no paths inside the iterator")
+	}
+	for _, it := range items {
+		if strings.Contains(it.TitleText, "\x1b") || strings.Contains(it.Filter, "\x1b") {
+			t.Fatalf("row %q shows the alias raw", it.TitleText)
+		}
+		if !strings.HasPrefix(it.ID, "id\x1b[2J") {
+			t.Fatalf("ID %q lost the alias", it.ID)
+		}
+	}
+}
+
 // A13: Lookup missed json_path and ?? sources that mapper evaluates; the
 // picker now asks mapper for the item.
 func TestPathPickResolvesEverySourceMapperDoes(t *testing.T) {

@@ -190,6 +190,35 @@ func TestEOpensTheEditorOnEveryPaneOfABrokenFile(t *testing.T) {
 	}
 }
 
+// A reload into load-error mode keeps the Rules stack, form and all. The form
+// is hidden, so it must not make the workspace's keys text.
+func TestAFormLeftOnAHiddenPaneDoesNotTakeTheKeys(t *testing.T) {
+	t.Setenv("VISUAL", "true")
+	h := loadedWs(t, twoRules)
+	openSelectedTuples(h)
+	h.press("enter") // the tuple form
+	if !h.w.typing() {
+		t.Fatal("fixture: the tuple form does not take text")
+	}
+	writeFile(t, h.w.path, "version: \"1\"\nrules: [\n")
+	h.rename(0, "mine")
+	h.press("ctrl+s", "r", "y")
+	if h.w.loadErr == nil {
+		t.Fatal("fixture: the reload did not enter load-error mode")
+	}
+	h.press("1")
+	if h.w.typing() {
+		t.Fatal("the hidden form still takes the keys")
+	}
+	if cmd := h.w.key(wsKey("e")); cmd == nil {
+		t.Fatal("e did not open the editor")
+	}
+	h.press("2")
+	if h.w.active != paneCheck {
+		t.Fatalf("2 left the active pane at %d", h.w.active)
+	}
+}
+
 func TestLoadErrorPanesGetNoKeysButTheWorkspaces(t *testing.T) {
 	t.Setenv("VISUAL", "true")
 	h := brokenWs(t)

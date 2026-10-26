@@ -105,13 +105,14 @@ func (w *workspace) planningShown() bool {
 	return w.active == paneApply && w.pending != nil && w.stacks[paneApply].Depth() == 1
 }
 
-// typing reports whether what has the keys takes text.
+// typing reports whether what has the keys takes text. A hidden pane has
+// none of them, whatever its stack still holds.
 func (w *workspace) typing() bool {
 	switch {
 	case w.overlay != nil:
 		return w.overlay.Typing()
 	case w.focus == shell.FocusPanel:
-		return w.stacks[w.active].Typing()
+		return !w.paneHidden() && w.stacks[w.active].Typing()
 	}
 	return false
 }

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/sergiught/openfga-cli/internal/mapping"
+	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
 )
 
 func openTuples(s *Session) component { return newTupleList(s, Focus{}) }
@@ -102,6 +103,30 @@ func TestTheIteratorsTupleListSaysSo(t *testing.T) {
 	title, sub := c.heading()
 	if title != "Iterator tuples" || !strings.Contains(sub, "input.data.object.identities") {
 		t.Fatalf("heading = %q, %q", title, sub)
+	}
+}
+
+// A tuple with no action of its own takes the rule's, in the rule's list and
+// the iterator's alike, as mapper applies it.
+func TestATupleWithoutAnActionShowsTheRules(t *testing.T) {
+	d := tuplesDoc(mapping.Tuple{User: "user:a", Relation: "member", Object: "organization:a"},
+		mapping.Tuple{User: "user:b", Relation: "member", Object: "organization:b", Action: "write"})
+	d.Rules[0].Action = "delete"
+	d.Rules[0].Iterator = &mapping.Iterator{Source: "input.data.object.identities", As: "identity",
+		Tuples: []mapping.Tuple{{User: "user:c", Relation: "member", Object: "organization:c"}}}
+	s := NewSession(t.Context(), d, nil)
+	for _, at := range []Focus{{}, {InIter: true}} {
+		var got []string
+		for _, it := range newTupleList(s, at).list.Model.Items() {
+			got = append(got, it.(uilist.Item).DescText)
+		}
+		want := "delete"
+		if !at.InIter {
+			want = "delete,write"
+		}
+		if strings.Join(got, ",") != want {
+			t.Fatalf("in iterator %v: actions = %v, want %s", at.InIter, got, want)
+		}
 	}
 }
 

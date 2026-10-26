@@ -632,3 +632,59 @@ func TestAJumpWithoutAForkGoesStraightThere(t *testing.T) {
 		t.Fatalf("top is %T, want the tuple editor", h.topOf(paneRules))
 	}
 }
+
+// No save keeps a rule being added, so quitting asks even when the document is
+// clean, and n leaves the fork where it was.
+func TestQuitAsksBeforeDroppingANewRule(t *testing.T) {
+	h := loadedWs(t, twoRules)
+	forkWithInput(t, h)
+	depth := h.w.stacks[paneRules].Depth()
+	for _, k := range []string{"n", "esc"} {
+		h.press("ctrl+c")
+		h.run()
+		if h.quit || h.w.overlay == nil || !strings.Contains(plain(h.view()), "Drop the rule you were adding?") {
+			t.Fatalf("quit = %v, no question:\n%s", h.quit, h.view())
+		}
+		h.press(k)
+		h.run()
+		if h.quit || h.w.overlay != nil || h.w.stacks[paneRules].Depth() != depth {
+			t.Fatalf("%s: quit = %v, overlay = %v, depth = %d", k, h.quit, h.w.overlay != nil, h.w.stacks[paneRules].Depth())
+		}
+	}
+	h.press("ctrl+c", "y")
+	h.run()
+	if !h.quit {
+		t.Fatal("y did not quit")
+	}
+}
+
+// A paste box on a pane not shown counts too, and on an edited document the
+// save question follows: saving the document does not keep the paste.
+func TestQuitAsksAboutAPasteOnAnyPaneThenAboutTheEdits(t *testing.T) {
+	h := loadedWs(t, twoRules)
+	h.rename(0, "mine")
+	h.press("3", "a")
+	pick, ok := h.topOf(paneTests).(*eventPick)
+	if !ok || !pick.list.SelectID(pasteID) {
+		t.Fatalf("top is %T, want the event pick with a paste row", h.topOf(paneTests))
+	}
+	h.press("enter")
+	h.typeText("{")
+	h.cmds = append(h.cmds, h.w.switchTo(paneRules))
+	h.run()
+	h.press("ctrl+c")
+	h.run()
+	if h.quit || !strings.Contains(plain(h.view()), "Discard the pasted text?") {
+		t.Fatalf("quit = %v, no paste question:\n%s", h.quit, h.view())
+	}
+	h.press("y")
+	h.run()
+	if h.quit || !strings.Contains(plain(h.view()), "Unsaved edits") {
+		t.Fatalf("quit = %v, no save question:\n%s", h.quit, h.view())
+	}
+	h.press("d")
+	h.run()
+	if !h.quit {
+		t.Fatal("d did not quit")
+	}
+}

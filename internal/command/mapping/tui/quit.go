@@ -9,14 +9,32 @@ import (
 	"github.com/sergiught/openfga-cli/internal/style"
 )
 
-// quit leaves, asking Save / Discard / Cancel first when there are unsaved
-// edits. An apply running is stopped instead, between requests: the
-// next quit, once the stop is reported, leaves. A plan being made is dropped
-// when the workspace leaves, and kept when the quit is cancelled.
+// quit leaves, asking first about input no save keeps (a rule being added,
+// text in a paste box) on any pane, then Save / Discard / Cancel when there
+// are unsaved edits. An apply running is stopped instead, between requests:
+// the next quit, once the stop is reported, leaves. A plan being made is
+// dropped when the workspace leaves, and kept when the quit is cancelled.
 func (w *workspace) quit() tea.Cmd {
 	if w.applying {
 		return w.stopApply()
 	}
+	// In load-error mode the panes are hidden: there is nothing on them to ask
+	// about, as in jump.
+	if w.loadErr == nil {
+		if title, question, yes := heldInput(w.stacks[:]...); title != "" {
+			return w.openOverlay(newStack(w.sess, newConfirm(w.sess, title, question, yes)), func(result any) tea.Cmd {
+				if result != true {
+					return nil
+				}
+				return w.quitEdits()
+			})
+		}
+	}
+	return w.quitEdits()
+}
+
+// quitEdits is the quit past the question about held input.
+func (w *workspace) quitEdits() tea.Cmd {
 	leave := func() tea.Cmd {
 		w.cancelPlanning()
 		w.cancelModelFetch()
