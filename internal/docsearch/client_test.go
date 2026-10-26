@@ -83,6 +83,13 @@ func TestPageURL(t *testing.T) {
 		"../../etc/passwd",
 		"https://openfga.dev/blog/x",
 		"",
+		"/docs/../blog/x",
+		"https://openfga.dev/docs/%2e%2e/blog/x",
+		"https://openfga.dev:8443/docs/x",
+		"https://openfga.dev./docs/x",
+		`docs\..\blog\x`,
+		"docs/x%3Fy",
+		"docs/x%23y",
 	} {
 		if got, err := docsearch.PageURL(in); err == nil {
 			t.Errorf("PageURL(%q) = %q, want error", in, got)
@@ -119,4 +126,54 @@ func TestLiveSearch(t *testing.T) {
 		t.Fatal("no results")
 	}
 	t.Logf("%d results, first: %+v", len(res), res[0])
+}
+
+func TestPageRejectsEncodedQueryChars(t *testing.T) {
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits++ }))
+	defer srv.Close()
+	for _, ref := range []string{"docs/x%3Fy", "docs/x%23y"} {
+		if _, err := docsearch.NewForTest(srv.URL, srv.Client()).Page(context.Background(), ref); err == nil {
+			t.Errorf("%s: want error", ref)
+		}
+	}
+	if hits != 0 {
+		t.Errorf("server got %d requests", hits)
+	}
+}
+
+func TestRedirectOffHostIsRefused(t *testing.T) {
+	other := 0
+	evil := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { other++ }))
+	defer evil.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, evil.URL+r.URL.Path, http.StatusFound)
+	}))
+	defer srv.Close()
+	c := docsearch.NewForTest(srv.URL, &http.Client{})
+	if _, err := c.Page(context.Background(), "docs/x"); err == nil {
+		t.Error("Page: want error")
+	}
+	if _, err := c.Search(context.Background(), "q"); err == nil {
+		t.Error("Search: want error")
+	}
+	if other != 0 {
+		t.Errorf("redirect target got %d requests", other)
+	}
+}
+
+func TestRedirectOnSameHostIsFollowed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/docs/x.md" {
+			http.Redirect(w, r, "/docs/y.md", http.StatusFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/markdown")
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+	p, err := docsearch.NewForTest(srv.URL, &http.Client{}).Page(context.Background(), "docs/x")
+	if err != nil || p.Markdown != "ok" {
+		t.Errorf("p=%+v err=%v", p, err)
+	}
 }

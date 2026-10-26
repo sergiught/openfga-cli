@@ -56,7 +56,21 @@ func New(timeout time.Duration) *Client {
 }
 
 func newWithBaseURL(base string, hc *http.Client) *Client {
-	return &Client{baseURL: strings.TrimRight(base, "/"), http: hc}
+	base = strings.TrimRight(base, "/")
+	// Never follow a redirect off the base host: it could carry the MCP
+	// session id (or the request) to another site.
+	bu, _ := url.Parse(base)
+	cp := *hc
+	cp.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if bu == nil || req.URL.Scheme != bu.Scheme || req.URL.Host != bu.Host {
+			return fmt.Errorf("refusing redirect to %s", req.URL.Redacted())
+		}
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		return nil
+	}
+	return &Client{baseURL: base, http: &cp}
 }
 
 // unreachable reports a transport failure. It deliberately has no Unwrap so
@@ -124,6 +138,11 @@ func PageURL(ref string) (string, error) {
 	}
 	if !strings.HasPrefix(p, "/") {
 		return "", fmt.Errorf("invalid docs page path %q", ref)
+	}
+	// A decoded ? or # (or a backslash) would change meaning once the path is
+	// put back into a request URL, so refuse them rather than guess.
+	if strings.ContainsAny(p, "?#\\") {
+		return "", fmt.Errorf("docs page path must not contain '?', '#' or '\\': %q", ref)
 	}
 	p = path.Clean(p)
 	p = strings.TrimSuffix(p, ".md")
