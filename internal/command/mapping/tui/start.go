@@ -253,9 +253,12 @@ func (c *start) key(k tea.KeyPressMsg) tea.Cmd {
 func (c *start) open(path string) {
 	o, err := openPath(c.s.Ctx, path)
 	if err != nil {
-		text := fmt.Sprintf("could not open %s: %v", path, err)
+		// Named as its row names it, so a deep path does not fill the toast.
+		home, _ := os.UserHomeDir()
+		shown := recentPath(path, c.dir, home)
+		text := fmt.Sprintf("could not open %s: %v", shown, err)
 		if errors.Is(err, fs.ErrNotExist) {
-			text = path + " is gone"
+			text = shown + " is gone"
 		}
 		c.s.post(toastMsg{text: style.SanitizeTerminal(text), err: true})
 		if errors.Is(err, fs.ErrNotExist) {

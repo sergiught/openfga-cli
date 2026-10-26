@@ -222,6 +222,10 @@ func TestStartMissingFileIsAToastAndLeavesRecent(t *testing.T) {
 	if !strings.Contains(v, "b.yaml is gone") || strings.Contains(v, "b.yaml ·") {
 		t.Fatalf("want a toast and no b.yaml row:\n%s", v)
 	}
+	// Named as its row was: a temporary folder's path wraps the toast.
+	if strings.Contains(v, string(filepath.Separator)+"b.yaml") {
+		t.Fatalf("the toast names the whole path:\n%s", v)
+	}
 }
 
 func TestStartNewBlank(t *testing.T) {
