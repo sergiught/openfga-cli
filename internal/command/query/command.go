@@ -222,19 +222,27 @@ func (c *Command) checkCmd() *cobra.Command {
 func (c *Command) batchCheckCmd() *cobra.Command {
 	var (
 		checks       []string
+		file         string
 		fConsistency string
 		contextJSON  string
 		ctxTuples    []string
 		ctxFile      string
 	)
 	cmd := &cobra.Command{
-		Use:   "batch-check --check user,relation,object [...]",
+		Use:   "batch-check (--check user,relation,object [...] | --file checks.json)",
 		Short: "Run several checks in one request",
 		Example: `  ofga query batch-check --check user:anne,viewer,doc:1 --check user:bob,editor,doc:1
-  ofga query batch-check --check user:anne,viewer,doc:1 --context '{"hour":9}'`,
+  ofga query batch-check --check user:anne,viewer,doc:1 --context '{"hour":9}'
+  ofga query batch-check --file checks.json
+  ofga query batch-check --file - < checks.jsonl`,
 		Long: "Run several checks in one request. --context and --contextual-tuple apply to " +
 			"every check in the batch, matching the other query commands; the API accepts them " +
-			"per item, so pass separate invocations when checks need different context.",
+			"per item, so pass separate invocations when checks need different context.\n\n" +
+			"--file reads checks from a JSON array or JSONL file (\"-\" reads stdin; a first byte of [ means " +
+			"an array). Each entry is {user, relation, object, context?, contextual_tuples?, correlation_id?}; " +
+			"an entry's own context and contextual_tuples apply to that check only (its context replaces --context, " +
+			"its tuples add to --contextual-tuple/--contextual-tuples-file). --file and --check combine, file " +
+			"checks first. Every entry is validated before any request is sent.",
 		Args: cobra.NoArgs,
 		// A partial per-item failure is reported by an already-emitted table plus
 		// a non-nil error for the exit code (see batchCheckErr); cobra's default
@@ -245,8 +253,8 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if len(checks) == 0 {
-				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("provide at least one --check user,relation,object"))
+			if len(checks) == 0 && file == "" {
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("pass --check or --file"))
 			}
 			cx, err := fga.ParseJSONObject("--context", contextJSON)
 			if err != nil {
@@ -256,9 +264,21 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 			if err != nil {
 				return clierr.WithCode(clierr.CodeUsage, err)
 			}
-			items := make([]openfga.BatchCheckItem, 0, len(checks))
-			labels := make([]string, 0, len(checks))
-			for i, raw := range checks {
+			var items []openfga.BatchCheckItem
+			if file != "" {
+				fileItems, err := readBatchFile(file, cmd.InOrStdin())
+				if err != nil {
+					return err
+				}
+				for _, it := range fileItems {
+					if it.Context == nil {
+						it.Context = cx
+					}
+					it.ContextualTuples = mergeContextual(ct, it.ContextualTuples)
+					items = append(items, it)
+				}
+			}
+			for _, raw := range checks {
 				parts := strings.Split(raw, ",")
 				if len(parts) != 3 {
 					return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--check %q must be user,relation,object", raw))
@@ -271,14 +291,16 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 				if err != nil {
 					return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--check %q: %w", raw, err))
 				}
-				id := fmt.Sprintf("c%d", i)
 				items = append(items, openfga.BatchCheckItem{
 					TupleKey:         openfga.CheckRequestTupleKey{User: key.User, Relation: key.Relation, Object: key.Object},
-					CorrelationID:    id,
 					Context:          cx,
 					ContextualTuples: ct,
 				})
-				labels = append(labels, fmt.Sprintf("%s %s %s", key.User, key.Relation, key.Object))
+			}
+			assignCorrelationIDs(items)
+			labels := make([]string, len(items))
+			for i, it := range items {
+				labels[i] = fmt.Sprintf("%s %s %s", it.TupleKey.User, it.TupleKey.Relation, it.TupleKey.Object)
 			}
 			ropts, err := cli.ConsistencyOption(fConsistency)
 			if err != nil {
@@ -329,7 +351,8 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringArrayVar(&checks, "check", nil, "a check as user,relation,object (repeatable)")
-	_ = cmd.MarkFlagRequired("check")
+	cmd.Flags().StringVar(&file, "file", "", batchFileUsage)
+	_ = cmd.MarkFlagFilename("file")
 	cmd.Flags().StringVar(&contextJSON, "context", "", "JSON object of condition context, applied to every check")
 	cmd.Flags().StringArrayVar(&ctxTuples, "contextual-tuple", nil, "contextual tuple as user,relation,object (repeatable), applied to every check")
 	cmd.Flags().StringVar(&ctxFile, "contextual-tuples-file", "", contextualTuplesFileUsage)

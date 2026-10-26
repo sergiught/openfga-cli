@@ -605,3 +605,25 @@ func loadTupleFile(path string, stdin io.Reader) ([]openfga.TupleKey, error) {
 	}
 	return loadTuples(stdin, path, format, false)
 }
+
+// DecodeTuple decodes one raw JSON tuple (a tuples-file entry: user, relation,
+// object and an optional condition, strictly) into a validated TupleKey, with
+// the same rules `tuples write --file` applies.
+func DecodeTuple(raw []byte) (openfga.TupleKey, error) {
+	t, err := decodeJSONLLine(bytes.TrimSpace(raw))
+	if err != nil {
+		return openfga.TupleKey{}, err
+	}
+	key, err := fga.ParseTuple(t.User, t.Relation, t.Object)
+	if err != nil {
+		return openfga.TupleKey{}, err
+	}
+	if t.Condition != nil {
+		name := strings.TrimSpace(t.Condition.Name)
+		if name == "" {
+			return openfga.TupleKey{}, errors.New("condition present but its name is empty")
+		}
+		key.Condition = &openfga.RelationshipCondition{Name: name, Context: t.Condition.Context}
+	}
+	return key, nil
+}

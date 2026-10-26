@@ -57,6 +57,33 @@ latest model, so it needs no argument beyond the user and the object. Pass
 `--relation` (repeatable) to test only the ones you name. It runs on top of
 `batch-check`, so it needs OpenFGA >= 1.8.0.
 
+## Checking many things from a file
+
+`query batch-check --file` reads checks from a JSON array or JSONL file (`-`
+reads stdin; a first non-space byte of `[` means an array, otherwise JSONL).
+It combines with `--check`, file checks first, and every entry is validated
+before any request is sent.
+
+```bash
+cat > checks.json <<'JSON'
+[
+  {"user": "user:anne", "relation": "viewer", "object": "document:roadmap"},
+  {"user": "user:bob", "relation": "editor", "object": "document:roadmap",
+   "correlation_id": "bob-edit",
+   "contextual_tuples": [{"user": "user:bob", "relation": "editor", "object": "document:roadmap"}]}
+]
+JSON
+ofga query batch-check --file checks.json
+```
+
+An entry takes `user`, `relation` and `object` (required), plus optional
+`context`, `contextual_tuples` (each in the `tuples write --file` shape) and
+`correlation_id`. Unknown fields are an error. An entry's `contextual_tuples`
+apply to that check only; `--contextual-tuple` and `--contextual-tuples-file`
+(which read tuples from a file, on every `query` command) apply to all of them.
+Problems are reported together as `validation` errors whose details carry the
+entry `index`, the `field` and the `problem`.
+
 ## Trading consistency for latency
 
 Reads default to `HIGHER_CONSISTENCY`, which bypasses the server's caches so a
