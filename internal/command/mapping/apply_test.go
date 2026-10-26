@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"charm.land/log/v2"
 	"github.com/openfga/mapper/language"
@@ -754,5 +755,30 @@ func TestResumeHintSaysWhatItCannotCarry(t *testing.T) {
 	}
 	if got := resumeHint(cmd, "e.jsonl", "ofga x"); !strings.HasSuffix(got, "(plus the --header/--auth-* flags you used)") || strings.Contains(got, "secret") {
 		t.Fatalf("header set: %q", got)
+	}
+}
+
+// Ctrl-C only cancels the context, so reading events from a stdin that never
+// reaches EOF must give up when it does.
+func TestApplyStopsReadingStdinWhenCanceled(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t)
+	mp, _ := applyFiles(t, membership, "")
+	r, w := io.Pipe()
+	defer func() { _ = w.Close() }()
+	ctx, cancel := context.WithCancel(context.Background())
+	got := make(chan error, 1)
+	go func() {
+		_, _, err := runApply(t, ctx, fs.cli(), r, mp, "--events", "-", "--dry-run")
+		got <- err
+	}()
+	cancel()
+	select {
+	case err := <-got:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("err = %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("apply still reading stdin after cancel")
 	}
 }

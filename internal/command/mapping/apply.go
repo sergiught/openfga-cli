@@ -1,6 +1,7 @@
 package mapping
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -277,7 +278,11 @@ func readEvents(cmd *cobra.Command, path string) ([]map[string]any, error) {
 		if stdinIsTerminal(cmd) {
 			output.Notef(cmd.ErrOrStderr(), "reading events from stdin (ctrl+d to end)")
 		}
-		return mapping.ParseEvents(cmd.InOrStdin(), "stdin")
+		data, err := readAll(cmd.Context(), cmd.InOrStdin())
+		if err != nil {
+			return nil, err
+		}
+		return mapping.ParseEvents(bytes.NewReader(data), "stdin")
 	}
 	f, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -288,6 +293,27 @@ func readEvents(cmd *cobra.Command, path string) ([]map[string]any, error) {
 	}
 	defer func() { _ = f.Close() }()
 	return mapping.ParseEvents(f, path)
+}
+
+// readAll reads r to EOF, or until ctx is done. A terminal or a pipe left open
+// may never reach EOF, and Ctrl-C only cancels ctx, so the read runs aside and
+// is abandoned on cancel: the command returns, and the process exits with it.
+func readAll(ctx context.Context, r io.Reader) ([]byte, error) {
+	type result struct {
+		data []byte
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		data, err := io.ReadAll(r)
+		done <- result{data, err}
+	}()
+	select {
+	case res := <-done:
+		return res.data, res.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 func stdinIsTerminal(cmd *cobra.Command) bool {
