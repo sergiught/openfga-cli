@@ -221,6 +221,8 @@ func TestTupleTextShowsWhatTellsTwoTuplesApart(t *testing.T) {
 	numeral.Context = map[string]any{"level": "2"}
 	del := base
 	del.Action = language.ActionDelete
+	contextOnly := base // mapper refuses it in a rule, but not in a test's expectation
+	contextOnly.Context = map[string]any{"region": "eu"}
 	for want, tu := range map[string]language.Tuple{
 		"user:1 member team:1":                                      base,
 		"user:1 member team:1 (in_region)":                          cond,
@@ -228,6 +230,7 @@ func TestTupleTextShowsWhatTellsTwoTuplesApart(t *testing.T) {
 		"user:1 member team:1 (in_region level=2)":                  number,
 		`user:1 member team:1 (in_region level="2")`:                numeral,
 		"user:1 member team:1 (delete)":                             del,
+		`user:1 member team:1 (region="eu")`:                        contextOnly,
 	} {
 		if got := TupleText(tu, nil); got != want {
 			t.Errorf("TupleText(%+v) = %q, want %q", tu, got, want)

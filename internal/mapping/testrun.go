@@ -115,8 +115,9 @@ func RunTestsWithTimeout(ctx context.Context, f *File, filter string, failFast b
 }
 
 // TupleText is a test's tuple, expected or actual, on one line: user relation
-// object, then its condition with the context sorted by key and each value as
-// JSON (so 2 and "2" differ), then a delete marked as one. mapper's runner tells two tuples apart by every one of these,
+// object, then its condition and context, the context sorted by key with each
+// value as JSON (so 2 and "2" differ), then a delete marked as one. A test may
+// expect context without a condition, so context shows even then. mapper's runner tells two tuples apart by every one of these,
 // so a failure that left one out could print a missing and an unexpected line
 // that read the same. field escapes each value taken from the tuple, for a
 // caller writing straight to a terminal; nil leaves them as they are.
@@ -125,16 +126,19 @@ func TupleText(t language.Tuple, field func(string) string) string {
 		field = func(s string) string { return s }
 	}
 	s := field(t.User) + " " + field(t.Relation) + " " + field(t.Object)
+	var cond []string
 	if t.Condition != "" {
-		cond := field(t.Condition)
-		if len(t.Context) > 0 {
-			pairs := make([]string, 0, len(t.Context))
-			for _, k := range slices.Sorted(maps.Keys(t.Context)) {
-				pairs = append(pairs, field(k)+"="+field(compactJSON(t.Context[k])))
-			}
-			cond += " " + strings.Join(pairs, ", ")
+		cond = append(cond, field(t.Condition))
+	}
+	if len(t.Context) > 0 {
+		pairs := make([]string, 0, len(t.Context))
+		for _, k := range slices.Sorted(maps.Keys(t.Context)) {
+			pairs = append(pairs, field(k)+"="+field(compactJSON(t.Context[k])))
 		}
-		s += " (" + cond + ")"
+		cond = append(cond, strings.Join(pairs, ", "))
+	}
+	if len(cond) > 0 {
+		s += " (" + strings.Join(cond, " ") + ")"
 	}
 	if t.Action == language.ActionDelete {
 		s += " (delete)"
