@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/stores-create.v1.json",
+  "title": "ofga stores create --json",
+  "description": "The created store; with --use, also the profile it was saved to ('' when the profile does not exist); with --dry-run, a preview.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/store"
+    },
+    {
+      "$ref": "#/$defs/storeSaved"
+    },
+    {
+      "$ref": "#/$defs/dryRun"
+    }
+  ],
+  "$defs": {
+    "store": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deleted_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false
+    },
+    "storeSaved": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "created_at",
+        "updated_at",
+        "saved_to_profile"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "deleted_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "saved_to_profile": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "dryRun": {
+      "type": "object",
+      "required": [
+        "dry_run",
+        "would_create"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "dry_run": {
+          "const": true
+        },
+        "would_create": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

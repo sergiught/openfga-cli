@@ -1,0 +1,35 @@
+{
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/stores-delete.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "deleted": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "deleted"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "dry_run": {
+          "const": true
+        },
+        "would_delete": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "dry_run",
+        "would_delete"
+      ],
+      "type": "object"
+    }
+  ],
+  "title": "ofga stores delete --json"
+}

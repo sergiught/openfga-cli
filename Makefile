@@ -98,7 +98,7 @@ lint-commits: $(BINARIES_DIR)/commitlint ## Lint the current commit message agai
 	@$(BINARIES_DIR)/commitlint lint
 
 .PHONY: check
-check: fmt vet lint test docs-check license-check ## Run fmt, vet, lint, test and the docs/license freshness checks
+check: fmt vet lint test docs-check schemas-check license-check ## Run fmt, vet, lint, test and the docs/schema/license freshness checks
 
 .PHONY: docs-check
 docs-check: ## Fail if the generated command reference is out of date (CI checks this too)
@@ -108,6 +108,15 @@ docs-check: ## Fail if the generated command reference is out of date (CI checks
 			echo "command reference is stale — run 'make docs-reference' and commit"; \
 			exit 1; \
 		fi
+
+.PHONY: schemas-check
+schemas-check: ## Fail if the generated output schemas are out of date (CI checks this too)
+	@set -e; tmp=$$(mktemp -d); trap 'rm -rf $$tmp' EXIT; \
+	go run ./tools/schemagen -out $$tmp; \
+	if ! diff -qr $$tmp docs/site/public/schemas/output; then \
+		echo "output schemas are stale - run 'make schemas' and commit"; \
+		exit 1; \
+	fi
 
 .PHONY: licenses
 licenses: ## Generate THIRD_PARTY_LICENSES from the modules linked into the binary (goreleaser does this at release)
@@ -159,6 +168,10 @@ recordings: build ## Record per-command site demos from examples/tapes/commands/
 .PHONY: docs-site
 docs-site: ## Build the docs site into docs/site/dist
 	@cd docs/site && npm ci && npm run build
+
+.PHONY: schemas
+schemas: ## Regenerate the JSON Schemas for command output
+	go run ./tools/schemagen -out docs/site/public/schemas/output
 
 .PHONY: docs-reference
 docs-reference: ## Regenerate per-command MDX reference pages from the cobra tree

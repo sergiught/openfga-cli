@@ -44,6 +44,10 @@ jobs:
         run: |
           go run ./tools/docgen
           git diff --exit-code -- docs/site/src/content/docs/reference
+      - name: verify output schemas are fresh
+        run: |
+          go run ./tools/schemagen -out docs/site/public/schemas/output
+          git diff --exit-code -- docs/site/public/schemas/output
       # licensegen rejects a dependency license that is not on the allowlist.
       # The bundle itself is generated at release time, so there is nothing to
       # keep fresh here.

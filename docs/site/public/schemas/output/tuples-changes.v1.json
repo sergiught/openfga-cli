@@ -1,0 +1,69 @@
+{
+  "$defs": {
+    "RelationshipCondition": {
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "type": "object"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "TupleChange": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "type": "string"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "tuple_key": {
+          "$ref": "#/$defs/TupleKey"
+        }
+      },
+      "required": [
+        "tuple_key",
+        "operation",
+        "timestamp"
+      ],
+      "type": "object"
+    },
+    "TupleKey": {
+      "additionalProperties": false,
+      "properties": {
+        "condition": {
+          "$ref": "#/$defs/RelationshipCondition"
+        },
+        "object": {
+          "type": "string"
+        },
+        "relation": {
+          "type": "string"
+        },
+        "user": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "user",
+        "relation",
+        "object"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/tuples-changes.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "$ref": "#/$defs/TupleChange"
+  },
+  "type": "array"
+}

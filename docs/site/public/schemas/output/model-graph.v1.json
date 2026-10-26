@@ -1,0 +1,119 @@
+{
+  "$defs": {
+    "DiagramEdge": {
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "via": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "from",
+        "to",
+        "kind",
+        "via"
+      ],
+      "type": "object"
+    },
+    "Graph": {
+      "additionalProperties": false,
+      "properties": {
+        "edges": {
+          "items": {
+            "$ref": "#/$defs/DiagramEdge"
+          },
+          "type": "array"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "types": {
+          "items": {
+            "$ref": "#/$defs/TypeNode"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema_version",
+        "types",
+        "edges"
+      ],
+      "type": "object"
+    },
+    "Relation": {
+      "additionalProperties": false,
+      "properties": {
+        "edges": {
+          "items": {
+            "$ref": "#/$defs/RelationEdge"
+          },
+          "type": "array"
+        },
+        "name": {
+          "type": "string"
+        },
+        "recursive": {
+          "type": "boolean"
+        },
+        "weight": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "edges",
+        "weight",
+        "recursive"
+      ],
+      "type": "object"
+    },
+    "RelationEdge": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "label"
+      ],
+      "type": "object"
+    },
+    "TypeNode": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "relations": {
+          "items": {
+            "$ref": "#/$defs/Relation"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "relations"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/model-graph.v1.json",
+  "$ref": "#/$defs/Graph",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

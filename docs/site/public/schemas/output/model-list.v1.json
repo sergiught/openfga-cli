@@ -1,0 +1,274 @@
+{
+  "$defs": {
+    "AuthorizationModel": {
+      "additionalProperties": false,
+      "properties": {
+        "conditions": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Condition"
+          },
+          "type": "object"
+        },
+        "id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "type_definitions": {
+          "items": {
+            "$ref": "#/$defs/TypeDefinition"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "schema_version",
+        "type_definitions"
+      ],
+      "type": "object"
+    },
+    "Condition": {
+      "additionalProperties": false,
+      "properties": {
+        "expression": {
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/ConditionMetadata"
+        },
+        "name": {
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ConditionParamType"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "name",
+        "expression"
+      ],
+      "type": "object"
+    },
+    "ConditionMetadata": {
+      "additionalProperties": false,
+      "properties": {
+        "module": {
+          "type": "string"
+        },
+        "source_info": {
+          "$ref": "#/$defs/SourceInfo"
+        }
+      },
+      "type": "object"
+    },
+    "ConditionParamType": {
+      "additionalProperties": false,
+      "properties": {
+        "generic_types": {
+          "items": {
+            "$ref": "#/$defs/ConditionParamType"
+          },
+          "type": "array"
+        },
+        "type_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type_name"
+      ],
+      "type": "object"
+    },
+    "Difference": {
+      "additionalProperties": false,
+      "properties": {
+        "base": {
+          "$ref": "#/$defs/Userset"
+        },
+        "subtract": {
+          "$ref": "#/$defs/Userset"
+        }
+      },
+      "required": [
+        "base",
+        "subtract"
+      ],
+      "type": "object"
+    },
+    "DirectUserset": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "Metadata": {
+      "additionalProperties": false,
+      "properties": {
+        "module": {
+          "type": "string"
+        },
+        "relations": {
+          "additionalProperties": {
+            "$ref": "#/$defs/RelationMetadata"
+          },
+          "type": "object"
+        },
+        "source_info": {
+          "$ref": "#/$defs/SourceInfo"
+        }
+      },
+      "type": "object"
+    },
+    "ObjectRelation": {
+      "additionalProperties": false,
+      "properties": {
+        "object": {
+          "type": "string"
+        },
+        "relation": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "RelationMetadata": {
+      "additionalProperties": false,
+      "properties": {
+        "directly_related_user_types": {
+          "items": {
+            "$ref": "#/$defs/RelationReference"
+          },
+          "type": "array"
+        },
+        "module": {
+          "type": "string"
+        },
+        "source_info": {
+          "$ref": "#/$defs/SourceInfo"
+        }
+      },
+      "type": "object"
+    },
+    "RelationReference": {
+      "additionalProperties": false,
+      "properties": {
+        "condition": {
+          "type": "string"
+        },
+        "relation": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "wildcard": {
+          "$ref": "#/$defs/Wildcard"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    "SourceInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "TupleToUserset": {
+      "additionalProperties": false,
+      "properties": {
+        "computedUserset": {
+          "$ref": "#/$defs/ObjectRelation"
+        },
+        "tupleset": {
+          "$ref": "#/$defs/ObjectRelation"
+        }
+      },
+      "required": [
+        "tupleset",
+        "computedUserset"
+      ],
+      "type": "object"
+    },
+    "TypeDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "metadata": {
+          "$ref": "#/$defs/Metadata"
+        },
+        "relations": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Userset"
+          },
+          "type": "object"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    "Userset": {
+      "additionalProperties": false,
+      "properties": {
+        "computedUserset": {
+          "$ref": "#/$defs/ObjectRelation"
+        },
+        "difference": {
+          "$ref": "#/$defs/Difference"
+        },
+        "intersection": {
+          "$ref": "#/$defs/Usersets"
+        },
+        "this": {
+          "$ref": "#/$defs/DirectUserset"
+        },
+        "tupleToUserset": {
+          "$ref": "#/$defs/TupleToUserset"
+        },
+        "union": {
+          "$ref": "#/$defs/Usersets"
+        }
+      },
+      "type": "object"
+    },
+    "Usersets": {
+      "additionalProperties": false,
+      "properties": {
+        "child": {
+          "items": {
+            "$ref": "#/$defs/Userset"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "child"
+      ],
+      "type": "object"
+    },
+    "Wildcard": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/model-list.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "$ref": "#/$defs/AuthorizationModel"
+  },
+  "type": "array"
+}

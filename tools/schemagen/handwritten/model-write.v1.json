@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/model-write.v1.json",
+  "title": "ofga model write --json",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "authorization_model_id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "authorization_model_id": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "dry_run",
+        "schema_version",
+        "type_definitions"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "dry_run": {
+          "const": true
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "type_definitions": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  ]
+}

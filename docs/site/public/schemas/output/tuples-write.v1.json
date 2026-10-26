@@ -1,0 +1,138 @@
+{
+  "$defs": {
+    "bulk": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "failed": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "reason": {
+                "type": "string"
+              },
+              "tuple": {
+                "$ref": "#/$defs/tupleKey"
+              }
+            },
+            "required": [
+              "tuple",
+              "reason"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "successful": {
+          "items": {
+            "$ref": "#/$defs/tupleKey"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "total": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "written": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "written",
+        "total",
+        "complete",
+        "successful",
+        "failed"
+      ],
+      "type": "object"
+    },
+    "dryRun": {
+      "additionalProperties": false,
+      "properties": {
+        "dry_run": {
+          "const": true
+        },
+        "would_write": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "dry_run",
+        "would_write"
+      ],
+      "type": "object"
+    },
+    "single": {
+      "additionalProperties": false,
+      "properties": {
+        "written": {
+          "const": 1
+        }
+      },
+      "required": [
+        "written"
+      ],
+      "type": "object"
+    },
+    "tupleKey": {
+      "additionalProperties": false,
+      "properties": {
+        "condition": {
+          "additionalProperties": false,
+          "properties": {
+            "context": {
+              "type": "object"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "object": {
+          "type": "string"
+        },
+        "relation": {
+          "type": "string"
+        },
+        "user": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "user",
+        "relation",
+        "object"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/tuples-write.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "A single-tuple count, a bulk result (--file), or a --dry-run preview. 'successful' and 'failed' are null when empty.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/single"
+    },
+    {
+      "$ref": "#/$defs/bulk"
+    },
+    {
+      "$ref": "#/$defs/dryRun"
+    }
+  ],
+  "title": "ofga tuples write --json"
+}
