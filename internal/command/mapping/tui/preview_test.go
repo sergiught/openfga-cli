@@ -366,6 +366,26 @@ func TestALongPathKeepsTheFileName(t *testing.T) {
 	}
 }
 
+// The path is fitted to the room the switch leaves, not to a fixed share: a
+// path that fits beside it is whole, and a narrow pane shortens the path before
+// it drops the switch.
+func TestThePathGetsTheRoomTheSwitchLeaves(t *testing.T) {
+	header := func(title string, w int) string {
+		p := NewPreview(NewSession(t.Context(), recipeDoc(t, "organization.member.added"), nil), title)
+		p.Refresh(Focus{})
+		h, _, _ := strings.Cut(plain(p.View(w, 60)), "\n")
+		return h
+	}
+	short := "/tmp/organization-membership-synchronization.yaml"
+	if h := header(short, 80); !strings.HasPrefix(h, short+" ") || !strings.Contains(h, "ctrl+t input payload") {
+		t.Fatalf("a path that fits beside the switch was cut: %q", h)
+	}
+	deep := "/home/someone/work/projects/identity/sync/configuration/auth0/mapping.yaml"
+	if h := header(deep, 40); !strings.HasPrefix(h, "…/mapping.yaml ") || !strings.Contains(h, "ctrl+t input payload") {
+		t.Fatalf("a narrow pane dropped the switch to keep more of the path: %q", h)
+	}
+}
+
 // A header with room for one note keeps the switch: the rows show where the
 // section is, and nothing else on screen leads to the payload.
 func TestANarrowHeaderKeepsTheSwitch(t *testing.T) {
