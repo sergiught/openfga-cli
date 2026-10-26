@@ -45,8 +45,8 @@ ofga mappings validate auth0.yaml`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: g.runWorkspace,
 	}
-	// The workspace needs a terminal (see playgroundMeta in package base).
-	cmdmeta.Set(cmd, cmdmeta.Meta{InteractiveOnly: true})
+	// The workspace needs a terminal and can write files and apply events.
+	cmdmeta.Set(cmd, cmdmeta.Meta{Mutates: true, InteractiveOnly: true})
 	g.cmd = cmd
 	// The root's threshold: a direct SuggestionsFor (looksLikeTypo) otherwise
 	// uses 0 and misses distance-1 typos.

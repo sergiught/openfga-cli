@@ -552,25 +552,22 @@ func agentModeLabel(s agentmode.State) string {
 }
 
 // playgroundMeta describes the TUI entry points (`ofga playground` and bare
-// `ofga`). Interactive-only commands are flagged as such and nothing else;
-// an agent cannot drive them either way.
-var playgroundMeta = cmdmeta.Meta{InteractiveOnly: true}
+// `ofga`). The playground writes tuples and models, deletes stores and saves
+// config, so it mutates.
+var playgroundMeta = cmdmeta.Meta{Mutates: true, InteractiveOnly: true}
 
 // RegisterSubCommands adds all top-level commands.
 func (c *Command) RegisterSubCommands() {
-	// Group commands only print help (or, for a typo, "unknown command"), so
-	// their metadata is all false; mappings annotates itself (it opens a TUI).
-	group := func(cmd *cobra.Command) *cobra.Command { return cmdmeta.Set(cmd, cmdmeta.Meta{}) }
 	c.cmd.AddCommand(
-		group(profiles.New(c.cli).Command()),
-		group(store.New(c.cli).Command()),
-		group(model.New(c.cli).Command()),
-		group(tuple.New(c.cli).Command()),
+		profiles.New(c.cli).Command(),
+		store.New(c.cli).Command(),
+		model.New(c.cli).Command(),
+		tuple.New(c.cli).Command(),
 		mapping.New(c.cli).Command(),
-		group(query.New(c.cli).Command()),
-		group(assertions.New(c.cli).Command()),
+		query.New(c.cli).Command(),
+		assertions.New(c.cli).Command(),
 		api.New(c.cli).Command(),
-		group(configcmd.New(c.cli).Command()),
+		configcmd.New(c.cli).Command(),
 		configcmd.NewInit(c.cli),
 		configcmd.NewTheme(c.cli),
 		c.playgroundCmd(),

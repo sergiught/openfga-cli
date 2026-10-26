@@ -68,3 +68,24 @@ func TestLeavesExcludesHiddenHelpCompletion(t *testing.T) {
 		t.Errorf("Leaves = %v, want %v", got, want)
 	}
 }
+
+func TestLeavesExcludesGroupsKeepsInteractiveParents(t *testing.T) {
+	run := func(*cobra.Command, []string) error { return nil }
+	root := &cobra.Command{Use: "root", RunE: run}
+	cmdmeta.Set(root, cmdmeta.Meta{InteractiveOnly: true, Mutates: true})
+	group := &cobra.Command{Use: "grp", RunE: run} // GroupRunE-like: no metadata
+	group.AddCommand(&cobra.Command{Use: "leaf", RunE: run})
+	parent := &cobra.Command{Use: "work", RunE: run}
+	cmdmeta.Set(parent, cmdmeta.Meta{Mutates: true})
+	parent.AddCommand(&cobra.Command{Use: "sub", RunE: run})
+	root.AddCommand(group, parent)
+
+	var got []string
+	for _, c := range cmdmeta.Leaves(root) {
+		got = append(got, c.CommandPath())
+	}
+	want := []string{"root", "root grp leaf", "root work", "root work sub"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Leaves = %v, want %v", got, want)
+	}
+}

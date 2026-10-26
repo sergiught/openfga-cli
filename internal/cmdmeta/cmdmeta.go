@@ -86,8 +86,11 @@ func Enum(f *pflag.Flag) []string {
 	return f.Annotations[keyEnum]
 }
 
-// Leaves returns every runnable, non-hidden command under root (root
-// included when runnable), skipping cobra's help and completion commands.
+// Leaves returns the commands an agent can run: runnable, non-hidden commands
+// under root, skipping cobra's help and completion commands. Pure groups (a
+// runnable parent that only prints help and carries no metadata) are left out.
+// A parent that carries metadata is kept, since it does real work itself: a TUI
+// entry point such as bare `ofga`, or `model test` with its subcommands.
 func Leaves(root *cobra.Command) []*cobra.Command {
 	var out []*cobra.Command
 	var walk func(c *cobra.Command)
@@ -98,7 +101,8 @@ func Leaves(root *cobra.Command) []*cobra.Command {
 		if c != root && (c.Name() == "help" || c.Name() == "completion") {
 			return
 		}
-		if c.Runnable() {
+		_, annotated := Get(c)
+		if c.Runnable() && (!c.HasAvailableSubCommands() || annotated) {
 			out = append(out, c)
 		}
 		for _, sub := range c.Commands() {

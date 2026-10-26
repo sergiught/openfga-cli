@@ -45,7 +45,7 @@ func TestMetaSpotChecks(t *testing.T) {
 		{[]string{"tuples", "write"}, cmdmeta.Meta{RequiresStore: true, Mutates: true}},
 		{[]string{"query", "check"}, cmdmeta.Meta{RequiresStore: true}},
 		{[]string{"stores", "list"}, cmdmeta.Meta{}},
-		{[]string{"playground"}, cmdmeta.Meta{InteractiveOnly: true}},
+		{[]string{"playground"}, cmdmeta.Meta{Mutates: true, InteractiveOnly: true}},
 		{[]string{"version"}, cmdmeta.Meta{}},
 	}
 	for _, tc := range tests {
@@ -87,6 +87,23 @@ func TestEnumFlagsAnnotated(t *testing.T) {
 		}
 		if got := strings.Join(cmdmeta.Enum(cmd.Flags().Lookup(tc.flag)), " "); got != tc.want {
 			t.Errorf("%v --%s enum = %q, want %q", tc.path, tc.flag, got, tc.want)
+		}
+	}
+}
+
+func TestLeavesAreNotGroups(t *testing.T) {
+	got := map[string]bool{}
+	for _, c := range cmdmeta.Leaves(metaRoot(t).Command()) {
+		got[c.CommandPath()] = true
+	}
+	for _, p := range []string{"ofga stores", "ofga tuples", "ofga model", "ofga profiles", "ofga config"} {
+		if got[p] {
+			t.Errorf("group %q listed as a leaf", p)
+		}
+	}
+	for _, p := range []string{"ofga", "ofga mappings", "ofga model test", "ofga stores list"} {
+		if !got[p] {
+			t.Errorf("%q missing from leaves", p)
 		}
 	}
 }
