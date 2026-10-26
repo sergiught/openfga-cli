@@ -106,7 +106,7 @@ func TestEnterOnTheLastFieldCommitsAndLeavesTheForm(t *testing.T) {
 // alt+enter starts a new one.
 func TestAMultilineWhenKeepsItsLines(t *testing.T) {
 	assertOnlyEditsChangeTheDocument(t, func() *mapping.Document {
-		return &mapping.Document{Rules: []mapping.Rule{{Name: "r", When: "input.enabled // gate\nand input.admin"}}}
+		return &mapping.Document{Rules: []mapping.Rule{{Name: "r", When: "input.enabled // gate\nand\tinput.admin"}}}
 	}, openTrigger)
 	h := newHarness(t, freshRule(), nil, openTrigger)
 	h.press("tab")

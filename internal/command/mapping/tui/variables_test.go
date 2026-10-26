@@ -103,7 +103,7 @@ func TestTabbingThroughAVariableChangesNothing(t *testing.T) {
 // the variable and leaving must keep both.
 func TestAMultilineVariableKeepsItsLines(t *testing.T) {
 	assertOnlyEditsChangeTheDocument(t, func() *mapping.Document {
-		return varsDoc(mapping.Variable{Name: "org", Expr: "input.a // first\n?? input.b\n"})
+		return varsDoc(mapping.Variable{Name: "org", Expr: "input.a\t// first\n?? input.b\n"})
 	}, func(s *Session) component { return newVarForm(s, Focus{}, 0) })
 	h := newHarness(t, varsDoc(mapping.Variable{Name: "org"}), nil, func(s *Session) component { return newVarForm(s, Focus{}, 0) })
 	h.press("tab")

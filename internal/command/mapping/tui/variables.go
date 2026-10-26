@@ -199,6 +199,7 @@ func (c *varForm) commit() {
 		return
 	}
 	v := c.form.Values()
+	v[1] = c.form.Source(1) // as written until edited: the area shows it sanitized
 	next := mapping.Variable{Name: strings.TrimSpace(v[0]), Expr: strings.TrimSpace(v[1])}
 	// Compare trimmed: a block scalar ends in a newline the form trims, and
 	// leaving the form must not rewrite what nobody edited.

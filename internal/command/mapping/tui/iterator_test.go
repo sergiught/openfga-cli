@@ -153,7 +153,7 @@ func TestTabbingThroughAnIteratorChangesNothing(t *testing.T) {
 func TestTabbingThroughAMultilineIteratorSourceChangesNothing(t *testing.T) {
 	assertOnlyEditsChangeTheDocument(t, func() *mapping.Document {
 		d := identitiesDoc()
-		d.Rules[0].Iterator.Source = "input.data.object.identities\n?? []\n"
+		d.Rules[0].Iterator.Source = "input.data.object.identities\n??\t[]\n"
 		return d
 	}, func(s *Session) component { return newIterForm(s, Focus{}, 0) })
 }

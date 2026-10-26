@@ -131,6 +131,7 @@ func (c *triggerForm) commit() {
 		return
 	}
 	v := c.form.Values()
+	v[1] = c.form.Source(1) // as written until edited: the area shows it sanitized
 	if r.Name == v[0] && r.When == v[1] {
 		return
 	}

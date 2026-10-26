@@ -476,7 +476,7 @@ func TestTabbingThroughAMultilineTupleWhenChangesNothing(t *testing.T) {
 	assertOnlyEditsChangeTheDocument(t, func() *mapping.Document {
 		return tuplesDoc(mapping.Tuple{
 			User: "user:1", Relation: "member", Object: "organization:1",
-			When: "input.a != \"\"\n&& input.b // both\n",
+			When: "input.a != \"\"\n&&\tinput.b // both\n",
 		})
 	}, openForm)
 }

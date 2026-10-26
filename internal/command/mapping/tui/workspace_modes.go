@@ -2,6 +2,7 @@ package tui
 
 import (
 	"os/exec"
+	"path/filepath"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -43,9 +44,18 @@ func (w *workspace) openInEditor() tea.Cmd {
 	if name == "" {
 		return w.toast("no editor found: set $EDITOR", true)
 	}
-	return tea.ExecProcess(exec.Command(name, append(args, w.path)...), func(err error) tea.Msg {
+	return tea.ExecProcess(exec.Command(name, append(args, editorArg(w.path))...), func(err error) tea.Msg {
 		return editorDoneMsg{err: err}
 	})
+}
+
+// editorArg names path so the editor cannot take it for an option: a file
+// argument keeps its relative spelling, and vim runs "-c!cmd" as a command.
+func editorArg(path string) string {
+	if abs, err := filepath.Abs(path); err == nil {
+		return abs
+	}
+	return "." + string(filepath.Separator) + path // Abs fails only on a relative path
 }
 
 // editorDone reloads the file the editor may have fixed. reload leaves

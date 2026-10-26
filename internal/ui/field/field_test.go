@@ -299,6 +299,35 @@ func TestAResizeRewindowsALongValue(t *testing.T) {
 	}
 }
 
+// A tab shows as a space, so the words it separates stay apart, and Source
+// gives back the value as set until the user edits it.
+func TestAnAreaShowsATabAsASpaceAndGivesBackItsSource(t *testing.T) {
+	const when = "input.enabled\tand\tinput.admin"
+	f := NewForm(NewArea("When", ""), New("Name", ""))
+	f.Init()
+	f.SetValues([]string{when, "r\x1b[2J"})
+	if got := f.Values()[0]; got != "input.enabled and input.admin" {
+		t.Fatalf("value = %q, want the tabs shown as spaces", got)
+	}
+	if f.Source(0) != when || f.Source(1) != "r\x1b[2J" {
+		t.Fatalf("source = %q, %q; want the values as set", f.Source(0), f.Source(1))
+	}
+	f.Insert(0, "x")
+	if got := f.Source(0); got != "xinput.enabled and input.admin" {
+		t.Fatalf("source = %q, want the edit", got)
+	}
+	// Undoing the edit gives the value as set back, not the text shown.
+	f.SetCursor(0, 1)
+	f.Update(key("backspace"))
+	if got := f.Source(0); got != when {
+		t.Fatalf("source = %q after the undo, want %q", got, when)
+	}
+	f.Reset()
+	if got := f.Source(0); got != "" {
+		t.Fatalf("source = %q after Reset", got)
+	}
+}
+
 // An area keeps its line breaks, and its caret is a rune offset into the
 // whole value, newlines included, like a text field's.
 func TestAnAreaKeepsLinesAndInsertsAtTheCaret(t *testing.T) {

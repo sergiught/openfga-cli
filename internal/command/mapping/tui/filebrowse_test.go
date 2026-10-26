@@ -73,6 +73,29 @@ func selectRow(t *testing.T, c *fileBrowse, title string) {
 	t.Fatalf("no row %q", title)
 }
 
+// os.ReadDir reports a link as a link, so a linked folder needs its target
+// to show as a folder; its ID keeps the link, as the user named it.
+func TestDirItemsListALinkedFolderAsAFolder(t *testing.T) {
+	dir := browseTree(t)
+	shared := t.TempDir()
+	if err := os.Symlink(shared, filepath.Join(dir, "linked")); err != nil {
+		t.Skip("no symlinks:", err)
+	}
+	items, err := DirItems(dir, []string{".fga"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, it := range items {
+		if it.TitleText == "linked/" {
+			if it.ID != filepath.Join(dir, "linked") {
+				t.Fatalf("ID = %q, want the link", it.ID)
+			}
+			return
+		}
+	}
+	t.Fatalf("the linked folder is missing: %v", items)
+}
+
 func TestFileBrowseWalksAndPicks(t *testing.T) {
 	dir := browseTree(t)
 	h := newHarness(t, nil, nil, openBrowse(dir))

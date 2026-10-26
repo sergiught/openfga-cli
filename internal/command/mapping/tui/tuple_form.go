@@ -145,6 +145,7 @@ func (c *tupleForm) commit() {
 		return
 	}
 	vals := c.form.Values()
+	vals[fieldWhen] = c.form.Source(int(fieldWhen)) // as written until edited: the area shows it sanitized
 	v := func(f tupleField) string {
 		if !c.form.Visible(int(f)) {
 			return ""

@@ -43,6 +43,8 @@ type Field struct {
 	sel      int      // kindSelect index
 	validate func(string) error
 	err      string
+	seed     string // what the last SetValues or Reset gave it
+	set      string // value() right after that
 }
 
 // New returns a text field with the given label and placeholder.
@@ -220,11 +222,12 @@ func (f *Field) value() string {
 }
 
 // sanitizeLines is style.SanitizeTerminal for each line of s: it keeps the
-// line breaks an area shows and drops every other control.
+// line breaks an area shows and drops every other control. A tab becomes a
+// space, as dropping it would join the words it separates.
 func sanitizeLines(s string) string {
 	lines := strings.Split(s, "\n")
 	for i, l := range lines {
-		lines[i] = style.SanitizeTerminal(l)
+		lines[i] = style.SanitizeTerminal(strings.ReplaceAll(l, "\t", " "))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -662,14 +665,30 @@ func (f *Form) SetValues(vals []string) {
 	for i, fl := range f.fields {
 		if i < len(vals) {
 			fl.setValue(vals[i])
+			fl.seed, fl.set = vals[i], fl.value()
 		}
 	}
+}
+
+// Source is field i's value to write back: what SetValues gave it until the
+// user edits it, then what it holds. A field shows its value sanitized, so
+// writing back what it shows would rewrite text nobody touched.
+func (f *Form) Source(i int) string {
+	if i < 0 || i >= len(f.fields) {
+		return ""
+	}
+	fl := f.fields[i]
+	if v := fl.value(); v != fl.set {
+		return v
+	}
+	return fl.seed
 }
 
 // Reset clears values, errors, and completion, refocusing the first field.
 func (f *Form) Reset() {
 	for _, fl := range f.fields {
 		fl.setValue("")
+		fl.seed, fl.set = "", fl.value()
 		fl.err = ""
 		fl.blur()
 	}

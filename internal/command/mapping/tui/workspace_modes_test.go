@@ -168,6 +168,16 @@ func TestNoEditorToasts(t *testing.T) {
 	}
 }
 
+// The file goes after the editor's own arguments, so a relative name starting
+// with "-" would be an option to it: vim runs "-c!cmd" as a command.
+func TestTheEditorGetsAPathItCannotReadAsAnOption(t *testing.T) {
+	t.Chdir(t.TempDir())
+	got := editorArg("-c!touch pwned.yaml")
+	if !filepath.IsAbs(got) || filepath.Base(got) != "-c!touch pwned.yaml" {
+		t.Fatalf("editor arg = %q, want the absolute path", got)
+	}
+}
+
 func TestEOpensTheEditorOnEveryPaneOfABrokenFile(t *testing.T) {
 	t.Setenv("VISUAL", "true")
 	h := brokenWs(t)

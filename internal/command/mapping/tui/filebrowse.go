@@ -41,8 +41,15 @@ func DirItems(dir string, exts []string) ([]uilist.Item, error) {
 		}
 		name := style.SanitizeTerminal(e.Name())
 		it := uilist.Item{TitleText: name, Filter: name, ID: filepath.Join(dir, e.Name())}
+		isDir := e.IsDir()
+		if e.Type()&os.ModeSymlink != 0 {
+			// ReadDir reports the link itself: a linked folder is a folder
+			// to walk into, and the ID keeps the link the user sees.
+			info, err := os.Stat(it.ID)
+			isDir = err == nil && info.IsDir()
+		}
 		switch {
-		case e.IsDir():
+		case isDir:
 			// The trailing slash is the only thing telling the two apart: the rows
 			// are compact, so a description saying "directory" is never drawn.
 			it.TitleText += "/"

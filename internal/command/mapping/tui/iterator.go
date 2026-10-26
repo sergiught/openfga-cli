@@ -216,6 +216,7 @@ func (c *iterForm) commit() {
 		return
 	}
 	v := c.form.Values()
+	v[0] = c.form.Source(0) // as written until edited: the area shows it sanitized
 	src, as := strings.TrimSpace(v[0]), strings.TrimSpace(v[1])
 	switch {
 	case src == "":
