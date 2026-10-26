@@ -93,6 +93,17 @@ func TestCommandsGlobalFlagsOnce(t *testing.T) {
 	}
 }
 
+func TestCommandsNoHelpFlag(t *testing.T) {
+	c, _ := decodeCatalog(t)
+	for _, cmd := range c.Commands {
+		for _, f := range cmd.Flags {
+			if f.Name == "help" {
+				t.Errorf("%s lists cobra's help flag", cmd.Path)
+			}
+		}
+	}
+}
+
 func TestCommandsExcludesInternals(t *testing.T) {
 	c, _ := decodeCatalog(t)
 	for _, cmd := range c.Commands {

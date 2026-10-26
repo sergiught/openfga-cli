@@ -86,7 +86,7 @@ func buildCatalog(root *cobra.Command) catalog {
 		// Flags() holds local and inherited flags once cobra merged them;
 		// skip root's persistent set, which is listed once under global_flags.
 		cmd.Flags().VisitAll(func(f *pflag.Flag) {
-			if f.Hidden || global.Lookup(f.Name) != nil {
+			if f.Hidden || f.Name == "help" || global.Lookup(f.Name) != nil {
 				return
 			}
 			if f.Name == "dry-run" {
