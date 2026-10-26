@@ -177,6 +177,14 @@ condition in_hours(hour: int) {
 			})
 		}
 	})
+	t.Run("a delete names the tuple without its condition", func(t *testing.T) {
+		del := Tuple{User: "user:1", Relation: "gated", Object: "organization:acme", Action: "delete"}
+		for _, r := range []Rule{{Tuples: []Tuple{del}}, {Action: "delete", Tuples: []Tuple{{User: "user:1", Relation: "gated", Object: "organization:acme"}}}} {
+			if ps := lintTuples(0, r, ix); len(ps) > 0 {
+				t.Errorf("rule action %q: %+v", r.Action, ps)
+			}
+		}
+	})
 	t.Run("requirements", func(t *testing.T) {
 		for relation, want := range map[string]bool{"gated": false, "either": true, "member": true} {
 			got := CheckRequirements(ix, []Requirement{{Type: "organization", Relation: relation, UserTypes: []string{"user"}}})

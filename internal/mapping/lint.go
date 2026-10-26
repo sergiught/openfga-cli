@@ -144,6 +144,9 @@ func lintTuples(i int, r Rule, ix *ModelIndex) []Problem {
 			ps = append(ps, Problem{Rule: i, Section: "tuple", Field: "action",
 				Message: "a tuple action cannot be combined with a rule-level action"})
 		}
+		if t.Action == "" {
+			t.Action = r.Action
+		}
 		ps = append(ps, lintAgainstModel(i, t, ix)...)
 	}
 	return ps
@@ -204,8 +207,10 @@ func lintAgainstModel(i int, t Tuple, ix *ModelIndex) []Problem {
 
 	// The server takes a tuple only with a condition the model pairs with its
 	// user type: [user with c] refuses user:1 without c, and [user] refuses it
-	// with one. A user type the relation lacks was reported by lintTarget.
-	if relationKnown && knownCondition && !strings.Contains(t.Condition, "{{") {
+	// with one. A user type the relation lacks was reported by lintTarget. A
+	// delete names a tuple by user, relation and object alone, whatever
+	// condition it was written with.
+	if relationKnown && knownCondition && t.Action != "delete" && !strings.Contains(t.Condition, "{{") {
 		typ, _ := literalObjectType(t.Object)
 		if userTyp, ok := modelUserType(t.User); ok && contains(ix.UserTypesFor(typ, t.Relation), userTyp) {
 			if conds := ix.UserConditionsFor(typ, t.Relation, userTyp); !contains(conds, t.Condition) {
