@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -101,35 +102,13 @@ alone; a different one is replaced only after confirmation or with --force.`,
 			if err != nil {
 				return err
 			}
-			want := agentskill.Content()
-			changed := true
-			switch have, err := os.ReadFile(path); {
-			case err == nil && bytes.Equal(have, want):
-				changed = false
-			case err == nil:
-				if err := prompt.Confirm(cmd, fmt.Sprintf("replace %s?", path), force); err != nil {
-					return err
-				}
-			case !errors.Is(err, os.ErrNotExist):
-				return err
+			changed, err := installSkill(cmd, path, force)
+			if errors.Is(err, fs.ErrExist) {
+				// The file appeared after it was checked: decide again.
+				changed, err = installSkill(cmd, path, force)
 			}
-			if changed {
-				//nolint:gosec // a shared skills dir that other tools must read
-				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-					return err
-				}
-				// Staged, so a failed write leaves an installed skill intact.
-				f, err := atomicfile.Create(path, 0o644)
-				if err != nil {
-					return err
-				}
-				defer f.Abort()
-				if _, err := f.Write(want); err != nil {
-					return err
-				}
-				if err := f.Commit(); err != nil {
-					return err
-				}
+			if err != nil {
+				return err
 			}
 			switch {
 			case c.cli.JSON || c.cli.YAML:
@@ -169,4 +148,46 @@ func skillPath(project bool, dir string) (string, error) {
 		base = filepath.Join(home, ".claude", "skills")
 	}
 	return filepath.Abs(filepath.Join(base, "ofga", "SKILL.md"))
+}
+
+// readSkill is swapped in tests to simulate a file created mid-install.
+var readSkill = os.ReadFile
+
+// installSkill writes the embedded SKILL.md to path unless an identical one is
+// there, confirming before it replaces a different one. It reports whether it
+// wrote, and an fs.ErrExist error if the file appeared after it was checked.
+func installSkill(cmd *cobra.Command, path string, force bool) (bool, error) {
+	want := agentskill.Content()
+	have, err := readSkill(path)
+	exists := err == nil
+	switch {
+	case exists && bytes.Equal(have, want):
+		return false, nil
+	case exists:
+		if err := prompt.Confirm(cmd, fmt.Sprintf("replace %s?", path), force); err != nil {
+			return false, err
+		}
+	case !errors.Is(err, os.ErrNotExist):
+		return false, err
+	}
+	//nolint:gosec // a shared skills dir that other tools must read
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return false, err
+	}
+	// Staged, so a failed write leaves an installed skill intact.
+	f, err := atomicfile.Create(path, 0o644)
+	if err != nil {
+		return false, err
+	}
+	defer f.Abort()
+	if _, err := f.Write(want); err != nil {
+		return false, err
+	}
+	if exists {
+		err = f.Commit()
+	} else {
+		// Never replace a file that was not there when it was checked.
+		err = f.CommitNew()
+	}
+	return err == nil, err
 }

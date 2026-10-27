@@ -208,3 +208,33 @@ func TestSkillInstallRefusesDifferingWithoutForce(t *testing.T) {
 		t.Error("file not replaced with --force")
 	}
 }
+
+// A file that appears between the existence check and the write is not
+// replaced silently: the install decides again and asks, as for any file.
+func TestSkillInstallRechecksFileCreatedMidInstall(t *testing.T) {
+	tmp := t.TempDir()
+	path := skillAt(tmp)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The first read misses the file, as if another process created it just after.
+	calls := 0
+	orig := readSkill
+	t.Cleanup(func() { readSkill = orig })
+	readSkill = func(name string) ([]byte, error) {
+		if calls++; calls == 1 {
+			return nil, os.ErrNotExist
+		}
+		return orig(name)
+	}
+	_, _, err := run(t, false, "skill", "install", "--dir", tmp, "--no-input")
+	if !errors.Is(err, prompt.ErrNeedsForce) {
+		t.Fatalf("err = %v, want ErrNeedsForce", err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != "x" {
+		t.Error("file created mid-install was replaced without --force")
+	}
+}
