@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/configtest"
 )
@@ -254,5 +255,28 @@ func TestBatchCheckNeedsAChecks(t *testing.T) {
 	_, err := runBatch(t, "http://127.0.0.1:1", "")
 	if got := clierr.Code(err); got != clierr.CodeUsage {
 		t.Fatalf("code = %d (err %v), want usage", got, err)
+	}
+}
+
+// Items with no tuples of their own share the global set instead of each
+// copying it, so a large file doesn't hold checks × global tuples in memory.
+func TestMergeContextualSharesASingleSource(t *testing.T) {
+	global := &openfga.ContextualTupleKeys{TupleKeys: []openfga.TupleKey{{User: "user:g", Relation: "member", Object: "team:x"}}}
+	own := &openfga.ContextualTupleKeys{TupleKeys: []openfga.TupleKey{{User: "user:a", Relation: "editor", Object: "doc:1"}}}
+	if got := mergeContextual(global, nil); got != global {
+		t.Errorf("global only: got a copy, want the global pointer")
+	}
+	if got := mergeContextual(nil, own); got != own {
+		t.Errorf("own only: got a copy, want the item's pointer")
+	}
+	if got := mergeContextual(nil, nil); got != nil {
+		t.Errorf("neither: got %+v, want nil", got)
+	}
+	got := mergeContextual(global, own)
+	if got == global || got == own || len(got.TupleKeys) != 2 || got.TupleKeys[0].User != "user:g" || got.TupleKeys[1].User != "user:a" {
+		t.Errorf("both: got %+v, want a new global-then-own set", got)
+	}
+	if len(global.TupleKeys) != 1 {
+		t.Errorf("merging changed the global set: %+v", global.TupleKeys)
 	}
 }

@@ -188,18 +188,20 @@ func decodeField(err error) string {
 }
 
 // mergeContextual returns the global contextual tuples followed by an item's
-// own, or nil when both are empty.
+// own, or nil when both are empty. When only one side has tuples it is
+// returned as is, so items without their own share the global set.
 func mergeContextual(global, own *openfga.ContextualTupleKeys) *openfga.ContextualTupleKeys {
-	var keys []openfga.TupleKey
-	if global != nil {
-		keys = append(keys, global.TupleKeys...)
+	if global == nil || len(global.TupleKeys) == 0 {
+		if own == nil || len(own.TupleKeys) == 0 {
+			return nil
+		}
+		return own
 	}
-	if own != nil {
-		keys = append(keys, own.TupleKeys...)
+	if own == nil || len(own.TupleKeys) == 0 {
+		return global
 	}
-	if len(keys) == 0 {
-		return nil
-	}
+	keys := make([]openfga.TupleKey, 0, len(global.TupleKeys)+len(own.TupleKeys))
+	keys = append(append(keys, global.TupleKeys...), own.TupleKeys...)
 	return &openfga.ContextualTupleKeys{TupleKeys: keys}
 }
 
