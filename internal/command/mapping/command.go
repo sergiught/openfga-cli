@@ -59,7 +59,7 @@ ofga mappings validate auth0.yaml`,
 func (c *Command) RegisterSubCommands() {
 	c.cmd.AddCommand(
 		cmdmeta.Set(c.newValidateCmd(), cmdmeta.Meta{}),
-		cmdmeta.Set(c.newTestCmd(), cmdmeta.Meta{Mutates: true}),
+		cmdmeta.Set(c.newTestCmd(), cmdmeta.Meta{}),
 		cmdmeta.Set(c.newApplyCmd(), cmdmeta.Meta{RequiresStore: true, Mutates: true}),
 	)
 }

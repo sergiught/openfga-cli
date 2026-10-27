@@ -56,7 +56,7 @@ func (c *Command) RegisterSubCommands() {
 		cmdmeta.Set(c.getCmd(), cmdmeta.Meta{RequiresStore: true}),
 		cmdmeta.Set(c.latestCmd(), cmdmeta.Meta{RequiresStore: true}),
 		cmdmeta.Set(c.graphCmd(), cmdmeta.Meta{RequiresStore: true}),
-		cmdmeta.Set(c.testCmd(), cmdmeta.Meta{Mutates: true}),
+		cmdmeta.Set(c.testCmd(), cmdmeta.Meta{}),
 	)
 }
 
