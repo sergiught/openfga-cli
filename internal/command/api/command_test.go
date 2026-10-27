@@ -108,6 +108,34 @@ func TestPlainResponsePreservesRawJSON(t *testing.T) {
 	}
 }
 
+// Under -o jsonl the response is rendered as records like every other command:
+// one compact line per top-level array element, one line for anything else.
+// The server's bytes are kept, so large numbers and key order survive.
+func TestJSONLResponseIsOneRecordPerLine(t *testing.T) {
+	defer func(v bool) { output.JSONL = v }(output.JSONL)
+	output.JSONL = true
+
+	cases := map[string]struct{ body, want string }{
+		"array":     {`[{"a":1},{"a":2}]`, "{\"a\":1}\n{\"a\":2}\n"},
+		"empty":     {`[]`, ""},
+		"multiline": {"{\n  \"z\": 1,\n  \"a\": [1, 2]\n}\n", "{\"z\":1,\"a\":[1,2]}\n"},
+		"precision": {`[{"n":12345678901234567890}]`, "{\"n\":12345678901234567890}\n"},
+		"not json":  {"plain text", "plain text\n"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := &Command{cli: &cli.CLI{JSON: true}}
+			var out bytes.Buffer
+			if err := c.write(&out, []byte(tc.body)); err != nil {
+				t.Fatal(err)
+			}
+			if got := out.String(); got != tc.want {
+				t.Errorf("api -o jsonl output = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // --jq is a global flag this command advertises in its help, so it has to
 // actually filter the response rather than being silently dropped.
 func TestJQFiltersTheResponse(t *testing.T) {
