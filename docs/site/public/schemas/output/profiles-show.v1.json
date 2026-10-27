@@ -107,7 +107,7 @@
   },
   "$id": "https://sergiught.github.io/openfga-cli/schemas/output/profiles-show.v1.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "With a profile name, that stored profile; without one, the fully resolved active configuration (flags and environment applied). Credentials are never included: only has_token and the names of extra headers.",
+  "description": "With a profile name, that stored profile; without one, the fully resolved active configuration (flags and environment applied). Tokens, client secrets and private keys are never included. A stored profile's headers holds each extra header in full ('Name: value'), so it can carry gateway credentials; the resolved configuration reports only has_token and header_names.",
   "oneOf": [
     {
       "$ref": "#/$defs/profile"

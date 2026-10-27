@@ -69,7 +69,7 @@
   "$id": "https://sergiught.github.io/openfga-cli/schemas/output/profiles-list.v1.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "The active profile name and every profile, keyed by name. Secrets are never included.",
+  "description": "The active profile name and every profile, keyed by name. Tokens, client secrets and private keys are never included, but headers holds each stored extra header in full ('Name: value'), so it can carry gateway credentials.",
   "properties": {
     "active": {
       "type": "string"
