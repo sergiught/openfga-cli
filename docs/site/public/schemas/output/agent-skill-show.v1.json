@@ -1,0 +1,19 @@
+{
+  "$defs": {
+    "ShowOutput": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "content"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/agent-skill-show.v1.json",
+  "$ref": "#/$defs/ShowOutput",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

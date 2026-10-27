@@ -1,0 +1,23 @@
+{
+  "$defs": {
+    "InstallOutput": {
+      "additionalProperties": false,
+      "properties": {
+        "changed": {
+          "type": "boolean"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "changed"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/agent-skill-install.v1.json",
+  "$ref": "#/$defs/InstallOutput",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

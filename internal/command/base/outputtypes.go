@@ -3,6 +3,7 @@ package base
 import (
 	"maps"
 
+	"github.com/sergiught/openfga-cli/internal/command/agent"
 	"github.com/sergiught/openfga-cli/internal/command/api"
 	"github.com/sergiught/openfga-cli/internal/command/assertions"
 	"github.com/sergiught/openfga-cli/internal/command/configcmd"
@@ -36,6 +37,7 @@ func OutputTypes() map[string]any {
 		mapping.OutputTypes(),
 		api.OutputTypes(),
 		docs.OutputTypes(),
+		agent.OutputTypes(),
 	} {
 		maps.Copy(all, m)
 	}

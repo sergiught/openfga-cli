@@ -75,6 +75,55 @@ ofga model test [path] [flags]
 | `--tests` | test-file glob(s) to run (repeatable; overrides the manifest's tests, or runs manifest-free with --model) | `[]` |
 | `--watch` | re-run the tests whenever a workspace file changes (interactive; Ctrl-C to stop) | `false` |
 
+## Subcommands
+
+### ofga model test init
+
+Write a minimal ofga.yaml workspace — a local editor schema, model, fixture, and passing test — into dir (default: current directory). Run `ofga model test` in that directory to see a green run and learn the format. Existing files are left untouched unless --force is given.
+
+```sh
+ofga model test init [dir] [flags]
+```
+
+**Examples**
+
+```sh
+  ofga model test init
+  ofga model test init ./ws
+  ofga model test init --force
+```
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--force` | overwrite existing files | `false` |
+
+### ofga model test schema
+
+Print the JSON Schema that describes the ofga.yaml manifest and *.test.yaml files. A hosted copy is available at:
+
+  https://raw.githubusercontent.com/sergiught/openfga-cli/main/internal/modeltest/schema/workspace.v1.json
+
+Use its #manifest fragment for ofga.yaml or #testFile for *.test.yaml.
+
+To pin the schema shipped with your installed CLI, save it locally:
+
+  ofga model test schema > workspace.schema.json
+
+then add a modeline to a workspace file:
+
+  # yaml-language-server: $schema=./workspace.schema.json#manifest
+
+```sh
+ofga model test schema
+```
+
+**Examples**
+
+```sh
+  ofga model test schema
+  ofga model test schema > workspace.schema.json
+```
+
 <details>
 <summary>Global flags</summary>
 

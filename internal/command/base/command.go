@@ -17,6 +17,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/client"
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/cmdmeta"
+	"github.com/sergiught/openfga-cli/internal/command/agent"
 	"github.com/sergiught/openfga-cli/internal/command/api"
 	"github.com/sergiught/openfga-cli/internal/command/assertions"
 	"github.com/sergiught/openfga-cli/internal/command/configcmd"
@@ -562,6 +563,7 @@ func (c *Command) RegisterSubCommands() {
 	c.cmd.AddCommand(
 		profiles.New(c.cli).Command(),
 		docs.New(c.cli).Command(),
+		agent.New(c.cli).Command(),
 		store.New(c.cli).Command(),
 		model.New(c.cli).Command(),
 		tuple.New(c.cli).Command(),

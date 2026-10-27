@@ -152,6 +152,41 @@ func TestRenderLeafPage(t *testing.T) {
 	}
 }
 
+// A command three levels down (ofga agent skill install) gets no page of its
+// own, so its parent's page documents it: usage, examples and flags.
+func TestRenderLeafPageDocumentsSubcommands(t *testing.T) {
+	root := &cobra.Command{Use: "ofga"}
+	agent := &cobra.Command{Use: "agent", Short: "Agent tools"}
+	skill := &cobra.Command{Use: "skill", Short: "Manage the skill"}
+	install := &cobra.Command{
+		Use:     "install",
+		Short:   "Install the skill",
+		Example: "  ofga agent skill install --project",
+		Run:     func(*cobra.Command, []string) {},
+	}
+	install.Flags().Bool("project", false, "install into the current project")
+	show := &cobra.Command{Use: "show", Short: "Print the skill", Run: func(*cobra.Command, []string) {}}
+	skill.AddCommand(install, show)
+	agent.AddCommand(skill)
+	root.AddCommand(agent)
+
+	page := string(renderLeafPage(skill, false, 4, 1))
+	for _, want := range []string{
+		"ofga agent skill [command]",
+		"## Subcommands",
+		"### ofga agent skill install",
+		"ofga agent skill install [flags]",
+		"ofga agent skill install --project",
+		"`--project`",
+		"install into the current project",
+		"### ofga agent skill show",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("page missing %q\n---\n%s", want, page)
+		}
+	}
+}
+
 func TestRenderGroupIndex(t *testing.T) {
 	root := testRoot()
 	page := string(renderGroupIndex(find(t, root, "stores"), 2))

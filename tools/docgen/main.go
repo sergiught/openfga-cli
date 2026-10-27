@@ -168,14 +168,25 @@ func renderLeafPage(cmd *cobra.Command, recording bool, ups, order int) []byte {
 	}
 	b.WriteString(escapeMDX(strings.TrimSpace(desc)) + "\n")
 
-	b.WriteString("\n## Usage\n\n```sh\n" + cmd.UseLine() + "\n```\n")
+	subs := visibleCommands(cmd)
+	usage := cmd.UseLine()
+	if !cmd.Runnable() && len(subs) > 0 {
+		usage = cmd.CommandPath() + " [command]"
+	}
+	b.WriteString("\n## Usage\n\n```sh\n" + usage + "\n```\n")
 
 	b.WriteString(examples(cmd))
 
 	if rows := flagRows(cmd.NonInheritedFlags()); len(rows) > 0 {
-		b.WriteString("\n## Flags\n\n| Flag | Description | Default |\n| --- | --- | --- |\n")
-		for _, r := range rows {
-			b.WriteString(r + "\n")
+		b.WriteString("\n## Flags\n\n" + flagTable(rows))
+	}
+
+	// Commands below this page's level get no page of their own, so they are
+	// documented here.
+	if len(subs) > 0 {
+		b.WriteString("\n## Subcommands\n")
+		for _, sub := range subs {
+			b.WriteString(subcommandSection(sub))
 		}
 	}
 
@@ -206,6 +217,29 @@ func examples(cmd *cobra.Command) string {
 		return ""
 	}
 	return "\n## Examples\n\n```sh\n" + strings.TrimRight(cmd.Example, "\n") + "\n```\n"
+}
+
+// subcommandSection documents one subcommand: description, usage, examples
+// and its own flags.
+func subcommandSection(cmd *cobra.Command) string {
+	var b strings.Builder
+	desc := cmd.Long
+	if desc == "" {
+		desc = cmd.Short
+	}
+	fmt.Fprintf(&b, "\n### %s\n\n%s\n", escapeMDX(cmd.CommandPath()), escapeMDX(strings.TrimSpace(desc)))
+	b.WriteString("\n```sh\n" + cmd.UseLine() + "\n```\n")
+	if cmd.Example != "" {
+		b.WriteString("\n**Examples**\n\n```sh\n" + strings.TrimRight(cmd.Example, "\n") + "\n```\n")
+	}
+	if rows := flagRows(cmd.NonInheritedFlags()); len(rows) > 0 {
+		b.WriteString("\n" + flagTable(rows))
+	}
+	return b.String()
+}
+
+func flagTable(rows []string) string {
+	return "| Flag | Description | Default |\n| --- | --- | --- |\n" + strings.Join(rows, "\n") + "\n"
 }
 
 func flagRows(fs *pflag.FlagSet) []string {
