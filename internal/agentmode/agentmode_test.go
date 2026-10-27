@@ -49,8 +49,8 @@ func TestEnvVarsListsEveryDetector(t *testing.T) {
 
 func TestRefuseHintMatchesReason(t *testing.T) {
 	flagErr := State{Enabled: true, Reason: "--agent"}.Refuse("the playground").Error()
-	if !strings.Contains(flagErr, "drop --agent") || strings.Contains(flagErr, EnvOverride) {
-		t.Errorf("--agent refusal must hint at dropping the flag: %q", flagErr)
+	if !strings.Contains(flagErr, "pass --agent=false") || strings.Contains(flagErr, EnvOverride) {
+		t.Errorf("--agent refusal must hint --agent=false: %q", flagErr)
 	}
 	envErr := State{Enabled: true, Reason: "CLAUDECODE=1"}.Refuse("the playground").Error()
 	if !strings.Contains(envErr, "set OPENFGA_AGENT_MODE=0") {

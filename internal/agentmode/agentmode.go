@@ -68,10 +68,12 @@ func EnvVars() []string {
 // Refuse is the usage error for an interactive feature (thing, e.g. "the
 // playground") that cannot run while agent mode is on.
 func (s State) Refuse(thing string) error {
-	// --agent outranks the env var, so setting OPENFGA_AGENT_MODE=0 would not help.
+	// --agent outranks the env var, so setting OPENFGA_AGENT_MODE=0 would not
+	// help, and dropping --agent may still leave a detector or the env var on.
+	// --agent=false overrides both.
 	if s.Reason == "--agent" {
 		return clierr.WithCode(clierr.CodeUsage, fmt.Errorf(
-			"%s is interactive and agent mode is on (--agent); drop --agent to use it", thing))
+			"%s is interactive and agent mode is on (--agent); pass --agent=false to use it", thing))
 	}
 	return clierr.WithCode(clierr.CodeUsage, fmt.Errorf(
 		"%s is interactive and agent mode is on (%s); set %s=0 to use it", thing, s.Reason, EnvOverride))
