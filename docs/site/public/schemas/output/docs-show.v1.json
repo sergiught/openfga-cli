@@ -1,0 +1,23 @@
+{
+  "$defs": {
+    "Page": {
+      "additionalProperties": false,
+      "properties": {
+        "markdown": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "markdown"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/docs-show.v1.json",
+  "$ref": "#/$defs/Page",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

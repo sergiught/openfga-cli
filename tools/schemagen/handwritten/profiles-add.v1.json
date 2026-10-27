@@ -1,0 +1,20 @@
+{
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/profiles-add.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The profile that was created and whether it became active.",
+  "properties": {
+    "active": {
+      "type": "boolean"
+    },
+    "created": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "active",
+    "created"
+  ],
+  "title": "ofga profiles add --json",
+  "type": "object"
+}

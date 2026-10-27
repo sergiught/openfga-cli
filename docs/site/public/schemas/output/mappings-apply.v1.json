@@ -1,0 +1,90 @@
+{
+  "$defs": {
+    "applyChange": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "type": "string"
+        },
+        "condition": {
+          "type": "string"
+        },
+        "context": {
+          "type": "object"
+        },
+        "event": {
+          "type": "integer"
+        },
+        "object": {
+          "type": "string"
+        },
+        "relation": {
+          "type": "string"
+        },
+        "user": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "event",
+        "action",
+        "user",
+        "relation",
+        "object"
+      ],
+      "type": "object"
+    },
+    "applyResult": {
+      "additionalProperties": false,
+      "properties": {
+        "applied_events": {
+          "type": "integer"
+        },
+        "changes": {
+          "items": {
+            "$ref": "#/$defs/applyChange"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "deletes": {
+          "type": "integer"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "events": {
+          "type": "integer"
+        },
+        "from_event": {
+          "type": "integer"
+        },
+        "store": {
+          "type": "string"
+        },
+        "unmatched": {
+          "type": "integer"
+        },
+        "writes": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "store",
+        "dry_run",
+        "events",
+        "unmatched",
+        "writes",
+        "deletes",
+        "applied_events",
+        "changes"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/mappings-apply.v1.json",
+  "$ref": "#/$defs/applyResult",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

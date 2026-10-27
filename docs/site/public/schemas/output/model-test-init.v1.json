@@ -1,0 +1,29 @@
+{
+  "$defs": {
+    "scaffoldResult": {
+      "additionalProperties": false,
+      "properties": {
+        "created": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "dir": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "dir",
+        "created"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/model-test-init.v1.json",
+  "$ref": "#/$defs/scaffoldResult",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

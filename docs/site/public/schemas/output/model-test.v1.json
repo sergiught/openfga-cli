@@ -1,0 +1,403 @@
+{
+  "$defs": {
+    "AssertionResult": {
+      "additionalProperties": false,
+      "properties": {
+        "expected": true,
+        "explain": {
+          "$ref": "#/$defs/Explain"
+        },
+        "got": true,
+        "kind": {
+          "type": "string"
+        },
+        "passed": {
+          "type": "boolean"
+        },
+        "subject": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "subject",
+        "expected",
+        "got",
+        "passed"
+      ],
+      "type": "object"
+    },
+    "BranchCov": {
+      "additionalProperties": false,
+      "properties": {
+        "covered": {
+          "type": "boolean"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "kind",
+        "covered"
+      ],
+      "type": "object"
+    },
+    "Coverage": {
+      "additionalProperties": false,
+      "properties": {
+        "bounded": {
+          "type": "boolean"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "covered": {
+          "type": "integer"
+        },
+        "diff": {
+          "$ref": "#/$defs/CoverageDiff"
+        },
+        "percent": {
+          "type": "number"
+        },
+        "total": {
+          "type": "integer"
+        },
+        "types": {
+          "items": {
+            "$ref": "#/$defs/TypeCov"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "unreachable": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "total",
+        "covered",
+        "percent",
+        "complete",
+        "types"
+      ],
+      "type": "object"
+    },
+    "CoverageDiff": {
+      "additionalProperties": false,
+      "properties": {
+        "added": {
+          "items": {
+            "$ref": "#/$defs/DiffBranch"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "base": {
+          "type": "string"
+        },
+        "uncovered": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "base",
+        "added",
+        "uncovered"
+      ],
+      "type": "object"
+    },
+    "DiffBranch": {
+      "additionalProperties": false,
+      "properties": {
+        "covered": {
+          "type": "boolean"
+        },
+        "label": {
+          "type": "string"
+        },
+        "relation": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "relation",
+        "label",
+        "covered"
+      ],
+      "type": "object"
+    },
+    "Explain": {
+      "additionalProperties": false,
+      "properties": {
+        "bounded": {
+          "type": "boolean"
+        },
+        "nearest_miss": {
+          "type": "string"
+        },
+        "set_diff": {
+          "$ref": "#/$defs/SetDiff"
+        },
+        "tree": {
+          "$ref": "#/$defs/ExplainNode"
+        },
+        "verdict": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "verdict"
+      ],
+      "type": "object"
+    },
+    "ExplainNode": {
+      "additionalProperties": false,
+      "properties": {
+        "children": {
+          "items": {
+            "$ref": "#/$defs/ExplainNode"
+          },
+          "type": "array"
+        },
+        "conditions": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "direct_member": {
+          "type": "boolean"
+        },
+        "label": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "rel": {
+          "type": "string"
+        },
+        "result": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "label",
+        "result"
+      ],
+      "type": "object"
+    },
+    "RelCov": {
+      "additionalProperties": false,
+      "properties": {
+        "branches": {
+          "items": {
+            "$ref": "#/$defs/BranchCov"
+          },
+          "type": "array"
+        },
+        "covered": {
+          "type": "integer"
+        },
+        "missed": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "relation": {
+          "type": "string"
+        },
+        "total": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "relation",
+        "covered",
+        "total"
+      ],
+      "type": "object"
+    },
+    "Results": {
+      "additionalProperties": false,
+      "properties": {
+        "coverage": {
+          "$ref": "#/$defs/Coverage"
+        },
+        "coverage_error": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "summary": {
+          "$ref": "#/$defs/Summary"
+        },
+        "tests": {
+          "items": {
+            "$ref": "#/$defs/TestResult"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "summary",
+        "tests"
+      ],
+      "type": "object"
+    },
+    "SetDiff": {
+      "additionalProperties": false,
+      "properties": {
+        "missing": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "unexpected": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "Summary": {
+      "additionalProperties": false,
+      "properties": {
+        "duration_ms": {
+          "type": "integer"
+        },
+        "failed": {
+          "type": "integer"
+        },
+        "incomplete": {
+          "type": "boolean"
+        },
+        "matched_files": {
+          "type": "integer"
+        },
+        "matched_tests": {
+          "type": "integer"
+        },
+        "passed": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "total",
+        "passed",
+        "failed",
+        "matched_files",
+        "matched_tests",
+        "duration_ms"
+      ],
+      "type": "object"
+    },
+    "TestResult": {
+      "additionalProperties": false,
+      "properties": {
+        "assertions": {
+          "items": {
+            "$ref": "#/$defs/AssertionResult"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "column": {
+          "type": "integer"
+        },
+        "description": {
+          "type": "string"
+        },
+        "duration_ms": {
+          "type": "integer"
+        },
+        "error": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "passed",
+        "assertions",
+        "duration_ms"
+      ],
+      "type": "object"
+    },
+    "TypeCov": {
+      "additionalProperties": false,
+      "properties": {
+        "covered": {
+          "type": "integer"
+        },
+        "relations": {
+          "items": {
+            "$ref": "#/$defs/RelCov"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "total": {
+          "type": "integer"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "covered",
+        "total",
+        "relations"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/model-test.v1.json",
+  "$ref": "#/$defs/Results",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

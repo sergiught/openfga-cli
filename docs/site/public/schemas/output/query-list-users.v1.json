@@ -1,0 +1,73 @@
+{
+  "$defs": {
+    "FGAObject": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "id"
+      ],
+      "type": "object"
+    },
+    "TypedWildcard": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    "User": {
+      "additionalProperties": false,
+      "properties": {
+        "object": {
+          "$ref": "#/$defs/FGAObject"
+        },
+        "userset": {
+          "$ref": "#/$defs/UsersetUser"
+        },
+        "wildcard": {
+          "$ref": "#/$defs/TypedWildcard"
+        }
+      },
+      "type": "object"
+    },
+    "UsersetUser": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "relation": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "relation"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/query-list-users.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "$ref": "#/$defs/User"
+  },
+  "type": "array"
+}

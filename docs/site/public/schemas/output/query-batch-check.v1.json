@@ -1,0 +1,40 @@
+{
+  "$defs": {
+    "BatchCheckResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "result": {
+          "additionalProperties": {
+            "$ref": "#/$defs/BatchCheckSingleResult"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "result"
+      ],
+      "type": "object"
+    },
+    "BatchCheckSingleResult": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "allowed"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/query-batch-check.v1.json",
+  "$ref": "#/$defs/BatchCheckResponse",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

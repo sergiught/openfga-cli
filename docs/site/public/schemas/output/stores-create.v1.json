@@ -1,0 +1,99 @@
+{
+  "$defs": {
+    "dryRun": {
+      "additionalProperties": false,
+      "properties": {
+        "dry_run": {
+          "const": true
+        },
+        "would_create": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "dry_run",
+        "would_create"
+      ],
+      "type": "object"
+    },
+    "store": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "deleted_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "created_at",
+        "updated_at"
+      ],
+      "type": "object"
+    },
+    "storeSaved": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "deleted_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "saved_to_profile": {
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "created_at",
+        "updated_at",
+        "saved_to_profile"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/stores-create.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The created store; with --use, also the profile it was saved to ('' when the profile does not exist); with --dry-run, a preview.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/store"
+    },
+    {
+      "$ref": "#/$defs/storeSaved"
+    },
+    {
+      "$ref": "#/$defs/dryRun"
+    }
+  ],
+  "title": "ofga stores create --json"
+}

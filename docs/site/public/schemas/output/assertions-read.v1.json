@@ -1,0 +1,112 @@
+{
+  "$defs": {
+    "Assertion": {
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "type": "object"
+        },
+        "contextual_tuples": {
+          "items": {
+            "$ref": "#/$defs/TupleKey"
+          },
+          "type": "array"
+        },
+        "expectation": {
+          "type": "boolean"
+        },
+        "tuple_key": {
+          "$ref": "#/$defs/CheckRequestTupleKey"
+        }
+      },
+      "required": [
+        "tuple_key",
+        "expectation"
+      ],
+      "type": "object"
+    },
+    "CheckRequestTupleKey": {
+      "additionalProperties": false,
+      "properties": {
+        "object": {
+          "type": "string"
+        },
+        "relation": {
+          "type": "string"
+        },
+        "user": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "user",
+        "relation",
+        "object"
+      ],
+      "type": "object"
+    },
+    "ReadAssertionsResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "assertions": {
+          "items": {
+            "$ref": "#/$defs/Assertion"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "authorization_model_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authorization_model_id",
+        "assertions"
+      ],
+      "type": "object"
+    },
+    "RelationshipCondition": {
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "type": "object"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "TupleKey": {
+      "additionalProperties": false,
+      "properties": {
+        "condition": {
+          "$ref": "#/$defs/RelationshipCondition"
+        },
+        "object": {
+          "type": "string"
+        },
+        "relation": {
+          "type": "string"
+        },
+        "user": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "user",
+        "relation",
+        "object"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/assertions-read.v1.json",
+  "$ref": "#/$defs/ReadAssertionsResponse",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

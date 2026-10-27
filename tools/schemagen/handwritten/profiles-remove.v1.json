@@ -1,0 +1,16 @@
+{
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/profiles-remove.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The profile that was removed.",
+  "properties": {
+    "removed": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "removed"
+  ],
+  "title": "ofga profiles remove --json",
+  "type": "object"
+}

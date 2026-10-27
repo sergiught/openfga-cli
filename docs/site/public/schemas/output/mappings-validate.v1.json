@@ -1,0 +1,84 @@
+{
+  "$defs": {
+    "Finding": {
+      "additionalProperties": false,
+      "properties": {
+        "column": {
+          "type": "integer"
+        },
+        "field": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "type": "object"
+    },
+    "validateModel": {
+      "additionalProperties": false,
+      "properties": {
+        "checked": {
+          "type": "boolean"
+        },
+        "source": {
+          "type": "string"
+        },
+        "types": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "checked"
+      ],
+      "type": "object"
+    },
+    "validateResult": {
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "model": {
+          "$ref": "#/$defs/validateModel"
+        },
+        "problems": {
+          "items": {
+            "$ref": "#/$defs/Finding"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "rules": {
+          "type": "integer"
+        },
+        "tests": {
+          "type": "integer"
+        },
+        "valid": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "file",
+        "valid",
+        "rules",
+        "tests",
+        "model",
+        "problems"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/mappings-validate.v1.json",
+  "$ref": "#/$defs/validateResult",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

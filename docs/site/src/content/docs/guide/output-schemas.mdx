@@ -1,0 +1,70 @@
+---
+title: Output schemas
+description: JSON Schemas that describe exactly what every ofga command prints under --json, for validating and generating code against the CLI.
+sidebar:
+  order: 10
+---
+
+Every command that prints a JSON document under `--json` has a published [JSON Schema](https://json-schema.org/) (draft 2020-12) describing that document. Use them to validate output in CI, to generate types for the language your tooling is written in, or to give an agent a precise contract instead of a guess.
+
+## Where they live
+
+Each schema is served at a stable URL derived from the command path: drop the leading `ofga`, join the words with `-`, and add `.v1.json`.
+
+| Command | Schema |
+| --- | --- |
+| `ofga stores list` | `https://sergiught.github.io/openfga-cli/schemas/output/stores-list.v1.json` |
+| `ofga query batch-check` | `https://sergiught.github.io/openfga-cli/schemas/output/query-batch-check.v1.json` |
+| `ofga model test` | `https://sergiught.github.io/openfga-cli/schemas/output/model-test.v1.json` |
+
+The URL is also the schema's `$id`. The error envelope that `--json` failures write to stderr has its own schema, `error.v1.json`.
+
+## Finding the schema for a command
+
+`ofga commands` links each command to its schema in the `output_schema` field. Commands with no JSON output, such as the interactive playground, have none.
+
+```bash
+ofga commands --json | jq -r '.commands[] | select(.path == "ofga stores list") | .output_schema'
+ofga commands --json | jq '.commands[].output_schema'
+```
+
+## Validating output
+
+Any JSON Schema validator works. For example, with [`check-jsonschema`](https://check-jsonschema.readthedocs.io/):
+
+```bash
+schema=$(ofga commands --json | jq -r '.commands[] | select(.path == "ofga stores list") | .output_schema')
+curl -fsSL "$schema" -o stores-list.schema.json
+ofga stores list --json > stores.json
+check-jsonschema --schemafile stores-list.schema.json stores.json
+```
+
+## What a schema describes
+
+A schema describes the JSON **document** that `--json` prints. Some commands print a different shape depending on their mode (`--dry-run`, `--use`, bulk writes, `--purge`); their schema lists each shape under `oneOf`.
+
+With `-o jsonl`, a command whose JSON output is an array prints one element per line. Each line validates against the array schema's `items`, not against the schema itself. A command whose output is a single object prints one line that validates against the whole schema.
+
+```bash
+ofga stores list -o jsonl | while read -r line; do
+  # each $line is one store: it validates against .items of stores-list.v1.json
+  printf '%s\n' "$line" | jq -r .name
+done
+```
+
+Reading input from a file (`query batch-check --file`, `--contextual-tuples-file`) does not change the output shape.
+
+`ofga api` passes the server's response through unchanged, so its schema accepts any JSON value. `ofga model test schema` prints a JSON Schema document of its own, on one line under `-o jsonl`.
+
+## Versioning
+
+The `v1` in each file name is the contract version. Within a version, fields are only ever added: a breaking change to a document's shape, such as removing or renaming a field or changing its type, publishes a new `v2` file alongside `v1`, and `output_schema` then points at it. The old file stays available.
+
+Code that parses the output should ignore properties it does not know, so a newer CLI never breaks it. The schemas themselves are strict, though: they reject unknown properties so they describe the output exactly. An added field updates the `v1` file in place, so a saved copy can reject output from a newer CLI. The hosted files track the latest CLI; to validate a particular release, fetch the schema from its tag instead:
+
+```bash
+tag=v$(ofga version --json | jq -r '.version | ltrimstr("v")')   # release tags are v-prefixed, e.g. v0.268.0
+curl -fsSL "https://raw.githubusercontent.com/sergiught/openfga-cli/$tag/docs/site/public/schemas/output/stores-list.v1.json"
+```
+
+The schemas are generated from the same Go types the commands print and checked against real command output in CI, so they cannot drift from the CLI.

@@ -32,6 +32,16 @@ const (
 	KindError                Kind = "error"
 )
 
+// Kinds lists every Kind, in the order the error schema publishes them.
+func Kinds() []Kind {
+	return []Kind{
+		KindUsage, KindConfirmationRequired, KindValidation, KindAlreadyExists,
+		KindUnauthenticated, KindForbidden, KindNotFound, KindRateLimited,
+		KindServer, KindNetwork, KindTestFailed, KindPartialFailure,
+		KindCanceled, KindError,
+	}
+}
+
 type kindError struct {
 	kind Kind
 	err  error

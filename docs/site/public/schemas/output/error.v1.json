@@ -1,0 +1,67 @@
+{
+  "$defs": {
+    "Envelope": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/EnvelopeBody"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "type": "object"
+    },
+    "EnvelopeBody": {
+      "additionalProperties": false,
+      "properties": {
+        "api_code": {
+          "type": "string"
+        },
+        "code": {
+          "enum": [
+            "usage",
+            "confirmation_required",
+            "validation",
+            "already_exists",
+            "unauthenticated",
+            "forbidden",
+            "not_found",
+            "rate_limited",
+            "server",
+            "network",
+            "test_failed",
+            "partial_failure",
+            "canceled",
+            "error"
+          ],
+          "type": "string"
+        },
+        "details": {
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "hint": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "status": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "details"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/error.v1.json",
+  "$ref": "#/$defs/Envelope",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

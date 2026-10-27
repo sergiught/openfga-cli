@@ -1,0 +1,44 @@
+{
+  "$defs": {
+    "dryRun": {
+      "additionalProperties": false,
+      "properties": {
+        "dry_run": {
+          "const": true
+        },
+        "would_write": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "dry_run",
+        "would_write"
+      ],
+      "type": "object"
+    },
+    "written": {
+      "additionalProperties": false,
+      "properties": {
+        "written": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "written"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/assertions-write.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The number of assertions written; with --dry-run, a preview.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/written"
+    },
+    {
+      "$ref": "#/$defs/dryRun"
+    }
+  ],
+  "title": "ofga assertions write --json"
+}

@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/tuples-delete.v1.json",
+  "title": "ofga tuples delete --json",
+  "description": "A single-tuple count, a bulk result (--file), or a --dry-run preview. 'successful' and 'failed' are null when empty.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/single"
+    },
+    {
+      "$ref": "#/$defs/bulk"
+    },
+    {
+      "$ref": "#/$defs/dryRun"
+    }
+  ],
+  "$defs": {
+    "tupleKey": {
+      "type": "object",
+      "required": [
+        "user",
+        "relation",
+        "object"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "user": {
+          "type": "string"
+        },
+        "relation": {
+          "type": "string"
+        },
+        "object": {
+          "type": "string"
+        },
+        "condition": {
+          "type": "object",
+          "required": [
+            "name"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "context": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    "single": {
+      "type": "object",
+      "required": [
+        "deleted"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "deleted": {
+          "const": 1
+        }
+      }
+    },
+    "bulk": {
+      "type": "object",
+      "required": [
+        "deleted",
+        "total",
+        "complete",
+        "successful",
+        "failed"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "deleted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "successful": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/tupleKey"
+          }
+        },
+        "failed": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "required": [
+              "tuple",
+              "reason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "tuple": {
+                "$ref": "#/$defs/tupleKey"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "dryRun": {
+      "type": "object",
+      "required": [
+        "dry_run",
+        "would_delete"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "dry_run": {
+          "const": true
+        },
+        "would_delete": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

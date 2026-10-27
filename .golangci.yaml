@@ -66,7 +66,7 @@ linters:
       # 0600/0700 to satisfy a rule aimed at credential files would be a silent
       # behaviour change for no security gain, so the modes stay at 0644/0755
       # and respect the caller's umask.
-      - path: (internal/command/model/test_(cmd|init)|internal/command/playground/workbench|tools/(docgen|genassets|licensegen)/main)\.go
+      - path: (internal/command/model/test_(cmd|init)|internal/command/playground/workbench|tools/(docgen|genassets|licensegen|schemagen)/main)\.go
         linters:
           - gosec
         text: 'G301|G302|G306'
