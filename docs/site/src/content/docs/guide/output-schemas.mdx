@@ -63,7 +63,7 @@ The `v1` in each file name is the contract version. Within a version, fields are
 Code that parses the output should ignore properties it does not know, so a newer CLI never breaks it. The schemas themselves are strict, though: they reject unknown properties so they describe the output exactly. An added field updates the `v1` file in place, so a saved copy can reject output from a newer CLI. The hosted files track the latest CLI; to validate a particular release, fetch the schema from its tag instead:
 
 ```bash
-tag=$(ofga version --json | jq -r .version)   # a release build, e.g. v0.268.0
+tag=v$(ofga version --json | jq -r '.version | ltrimstr("v")')   # release tags are v-prefixed, e.g. v0.268.0
 curl -fsSL "https://raw.githubusercontent.com/sergiught/openfga-cli/$tag/docs/site/public/schemas/output/stores-list.v1.json"
 ```
 
