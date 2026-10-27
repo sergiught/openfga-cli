@@ -105,8 +105,12 @@ ofga tuples write --file tuples.json --failed-file failed.json
 ofga tuples write --file failed.json --failed-file failed-again.json
 ```
 
-`failed.json` holds only the tuples that were rejected, in the input format,
-ready to re-run. Fix the cause (see each tuple's error) before repeating.
+`failed.json` holds every tuple that was not written, in the input format,
+ready to re-run. Not all of them were rejected: check each one's `reason` (the
+`failed` list under `--json`). A reason starting `not attempted:` means the
+server became unreachable, and one starting `unisolated:` means its batch was
+rejected but the tuple was never singled out, so re-run those as they are. Fix
+only the tuples the server rejected.
 `ofga tuples delete --file` takes the same flag.
 
 ## 7. Large reads: -o jsonl
