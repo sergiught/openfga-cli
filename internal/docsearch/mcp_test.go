@@ -128,6 +128,28 @@ func TestSearchUnrecognizedShape(t *testing.T) {
 	}
 }
 
+// A result without a content array is a format change, not an empty search;
+// "content": [] is a real empty result.
+func TestSearchRequiresContent(t *testing.T) {
+	for _, result := range []string{`{}`, `null`, `{"content":null}`} {
+		srv := mcpServer(t, false, "", func(id int) string {
+			return fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"result":%s}`, id, result)
+		}, nil)
+		_, err := docsearch.NewForTest(srv.URL, srv.Client()).Search(context.Background(), "q")
+		srv.Close()
+		if err == nil || !strings.Contains(err.Error(), "format may have changed") {
+			t.Errorf("result %s: err = %v, want a format error", result, err)
+		}
+	}
+	srv := mcpServer(t, false, "", func(id int) string {
+		return fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"result":{"content":[]}}`, id)
+	}, nil)
+	defer srv.Close()
+	if res, err := docsearch.NewForTest(srv.URL, srv.Client()).Search(context.Background(), "q"); err != nil || len(res) != 0 {
+		t.Errorf("empty content: res=%v err=%v, want no results", res, err)
+	}
+}
+
 func TestSearchToolError(t *testing.T) {
 	srv := mcpServer(t, false, "", func(id int) string {
 		return fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"result":{"isError":true,"content":[{"type":"text","text":"boom tool"}]}}`, id)

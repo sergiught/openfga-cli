@@ -151,7 +151,9 @@ func (c *Client) Search(ctx context.Context, query string) ([]Result, error) {
 		return nil, rpcError(resp.Error.Message)
 	}
 	var tr toolResult
-	if err := json.Unmarshal(resp.Result, &tr); err != nil {
+	// A missing or null content leaves Content nil; "content": [] decodes to
+	// an empty, non-nil slice and is a real empty result.
+	if err := json.Unmarshal(resp.Result, &tr); err != nil || tr.Content == nil {
 		return nil, clierr.WithKind(clierr.KindError, errorString(errFormat))
 	}
 	var texts []string
