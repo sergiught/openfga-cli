@@ -221,10 +221,11 @@ func TestSearchUnrecognizedShape(t *testing.T) {
 	}
 }
 
-// A result without a content array is a format change, not an empty search;
-// "content": [] is a real empty result.
+// A result without a content array, or with no text blocks in it, is a
+// format change, not an empty search; "content": [] is a real empty result.
 func TestSearchRequiresContent(t *testing.T) {
-	for _, result := range []string{`{}`, `null`, `{"content":null}`} {
+	for _, result := range []string{`{}`, `null`, `{"content":null}`,
+		`{"content":[{"type":"resource_link","uri":"https://openfga.dev/docs/x","name":"x"}]}`} {
 		srv := mcpServer(t, false, "", func(id int) string {
 			return fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"result":%s}`, id, result)
 		}, nil)

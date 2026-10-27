@@ -194,6 +194,11 @@ func (c *Client) Search(ctx context.Context, query string) ([]Result, error) {
 		return nil, clierr.WithKind(clierr.KindError,
 			fmt.Errorf("openfga.dev docs search failed: %s", strings.Join(texts, "\n")))
 	}
+	// Content we can't read (e.g. only resource_link blocks) is a format
+	// change, not an empty search.
+	if len(tr.Content) > 0 && len(texts) == 0 {
+		return nil, clierr.WithKind(clierr.KindError, errorString(errFormat))
+	}
 	return parseResults(texts)
 }
 
