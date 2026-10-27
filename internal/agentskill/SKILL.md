@@ -26,8 +26,8 @@ ofga query check user:anne viewer document:roadmap --json --no-input
 ```
 
 Pick the store and model with `--store-id` and `--model-id` (or a `--profile`).
-Fields in the JSON are stable; a command's schema is linked from the catalog
-(see 3).
+Fields in the JSON are stable but new ones may be added, so ignore fields you
+don't know; a command's schema is linked from the catalog (see 3).
 
 ## 2. Exit codes and error codes
 
