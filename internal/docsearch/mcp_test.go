@@ -238,6 +238,47 @@ func TestSearchMarkdownURL(t *testing.T) {
 	}
 }
 
+// A matching response whose event is never terminated before the cap is
+// oversized, not a success; one terminated by the end of the stream counts.
+func TestSearchSSECapBeforeUnterminatedEvent(t *testing.T) {
+	srv, done := sseServer(t, func(w http.ResponseWriter, id int) {
+		_, _ = fmt.Fprintf(w, "data: %s\n", textResult(id, twoResults))
+		comment := []byte(":" + strings.Repeat("a", 1<<16) + "\n")
+		for n := 0; n <= 8<<20; n += len(comment) {
+			_, _ = w.Write(comment)
+		}
+	})
+	defer srv.Close()
+	defer close(done)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err := docsearch.NewForTest(srv.URL, &http.Client{}).Search(ctx, "q")
+	if err == nil || clierr.Classify(err) != clierr.KindServer || !strings.Contains(err.Error(), "larger than 8 MiB") {
+		t.Errorf("err = %v kind=%v", err, clierr.Classify(err))
+	}
+}
+
+func TestSearchSSEUnterminatedEventAtStreamEnd(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req rpcReq
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if req.ID == nil {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		body := fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"result":{}}`, *req.ID)
+		if req.Method == "tools/call" {
+			body = textResult(*req.ID, twoResults)
+		}
+		_, _ = fmt.Fprintf(w, "data: %s", body) // no trailing newline
+	}))
+	defer srv.Close()
+	if res, err := docsearch.NewForTest(srv.URL, srv.Client()).Search(context.Background(), "q"); err != nil || len(res) != 1 {
+		t.Errorf("res=%v err=%v", res, err)
+	}
+}
+
 func TestSearchUnrecognizedShape(t *testing.T) {
 	srv := mcpServer(t, false, "", func(id int) string { return textResult(id, "just some prose") }, nil)
 	defer srv.Close()

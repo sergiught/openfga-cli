@@ -113,19 +113,19 @@ func matchSSE(body io.Reader, id int) (*rpcMessage, error) {
 	sc := bufio.NewScanner(lr)
 	sc.Buffer(make([]byte, 0, 64*1024), maxBody+1)
 	var cur []string
-	for {
-		more := sc.Scan()
+	// dispatch ends the current event, returning it if it answers id.
+	dispatch := func() *rpcMessage {
+		defer func() { cur = nil }()
+		if len(cur) == 0 {
+			return nil
+		}
+		return matchID([]byte(strings.Join(cur, "\n")), id)
+	}
+	for sc.Scan() {
 		line := strings.TrimRight(sc.Text(), "\r")
-		if !more || line == "" {
-			// An event ends at a blank line or at the end of the stream.
-			if len(cur) > 0 {
-				if r := matchID([]byte(strings.Join(cur, "\n")), id); r != nil {
-					return r, nil
-				}
-				cur = nil
-			}
-			if !more {
-				break
+		if line == "" {
+			if r := dispatch(); r != nil {
+				return r, nil
 			}
 			continue
 		}
@@ -133,11 +133,16 @@ func matchSSE(body io.Reader, id int) (*rpcMessage, error) {
 			cur = append(cur, strings.TrimPrefix(rest, " "))
 		}
 	}
+	// Check how the stream ended before accepting an unterminated last
+	// event: one cut off by the size cap or a read error doesn't count.
 	if lr.N <= 0 || errors.Is(sc.Err(), bufio.ErrTooLong) {
 		return nil, oversized()
 	}
 	if err := sc.Err(); err != nil {
 		return nil, networkErr(err)
+	}
+	if r := dispatch(); r != nil {
+		return r, nil
 	}
 	return nil, clierr.WithKind(clierr.KindError, errorString(errFormat))
 }
