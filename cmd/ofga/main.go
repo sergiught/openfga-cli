@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/sergiught/openfga-cli/internal/agentmode"
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/command/base"
@@ -49,11 +50,13 @@ func main() {
 
 	// Config loads before cobra parses flags, so --config is read from argv here
 	// (env OPENFGA_CONFIG is honored by LoadFrom when no flag is given).
-	noColor := noColorFromArgs(os.Args[1:], "")
+	scan := scanRoot()
+	agent := agentmode.Resolve(agentFlagFromArgs(scan, os.Args[1:]), os.Getenv)
+	noColor := agent.Enabled || noColorFromArgs(os.Args[1:], "")
 	cfg, err := config.LoadFrom(configPathFromArgs(os.Args[1:]))
 	if err != nil {
 		hint := configLoadHint(os.Args[1:])
-		if machineOutputFromArgs(scanRoot(), os.Args[1:]) {
+		if machineOutputFromArgs(scan, os.Args[1:], agent.Enabled) {
 			reportMachineError(os.Stderr, clierr.WithHint(hint, err), clierr.CodeError, "ofga", false)
 			os.Exit(clierr.CodeError)
 		}
@@ -84,7 +87,10 @@ func main() {
 	icons.Apply(icons.Parse(cfg.IconsMode()))
 
 	c := cli.New(logger, cfg, version.Resolved())
-	c.NoColor = boolFlagFromArgs(os.Args[1:], "--no-color")
+	// Agent mode is applied again in PersistentPreRunE, but --help exits before
+	// that runs, so the construction-time writers have to know it already.
+	c.NoColor = agent.Enabled || boolFlagFromArgs(os.Args[1:], "--no-color")
+	c.Agent = agent
 	c.Plain = boolFlagFromArgs(os.Args[1:], "--plain")
 	c.ThemeName = valueFlagFromArgs(os.Args[1:], "--theme")
 
@@ -106,7 +112,7 @@ func main() {
 			}
 		}
 		logger.Debugf("command failed: %+v", err)
-		machine := machineOutputFromArgs(rootCmd, os.Args[1:])
+		machine := machineOutputFromArgs(rootCmd, os.Args[1:], agent.Enabled)
 		if root.OutputResolved() {
 			machine = c.JSON || c.YAML
 		}
@@ -325,33 +331,13 @@ func logLevel(args []string) log.Level {
 // (--json, --yaml, --jq, or -o/--output json|jsonl|yaml). It is the fallback for
 // failures that happen before cobra has resolved the output flags: a mistyped
 // command, an unknown flag, a config that will not load. The last -o wins and
-// is authoritative over --plain, as it is in resolveOutput.
+// is authoritative over --plain, as it is in resolveOutput. With agent set,
+// machine output is the default when none of those is given.
 //
-// argv is parsed against the flags of the command it names (root when it names
-// none), so a flag takes a value exactly when cobra's would: `mappings apply
-// -fojson` is --force -o json, and in `--jq -otable` the -otable is the jq
-// expression.
-func machineOutputFromArgs(root *cobra.Command, args []string) bool {
-	cmd := root
-	if found, _, err := root.Find(args); err == nil {
-		cmd = found
-	}
-	cmd.InitDefaultHelpFlag()
-	// Each flag is mirrored as a string of the same arity, so parsing argv here
-	// never runs the real flags' setters.
-	fs := pflag.NewFlagSet("", pflag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	fs.ParseErrorsAllowlist.UnknownFlags = true
-	mirror := func(f *pflag.Flag) {
-		if fs.Lookup(f.Name) == nil {
-			fs.StringP(f.Name, f.Shorthand, "", "")
-			fs.Lookup(f.Name).NoOptDefVal = f.NoOptDefVal
-		}
-	}
-	cmd.LocalFlags().VisitAll(mirror)
-	cmd.InheritedFlags().VisitAll(mirror)
-	err := fs.Parse(args)
-
+// argv is read through parseArgsAgainst, so in `--jq -otable` the -otable is
+// the jq expression.
+func machineOutputFromArgs(root *cobra.Command, args []string, agent bool) bool {
+	fs, err := parseArgsAgainst(root, args)
 	value := func(name string) string {
 		if f := fs.Lookup(name); f != nil && f.Changed {
 			return f.Value.String()
@@ -374,7 +360,50 @@ func machineOutputFromArgs(root *cobra.Command, args []string) bool {
 	// A bare --jq with no value still asked for machine output.
 	var missing *pflag.ValueRequiredError
 	jq := fs.Changed("jq") || errors.As(err, &missing) && missing.GetFlag().Name == "jq"
-	return jq || on("json") || on("yaml")
+	return agent || jq || on("json") || on("yaml")
+}
+
+// agentFlagFromArgs returns the final --agent value in raw argv, or nil when
+// the flag is not given (or its value is not a bool). Like
+// machineOutputFromArgs, it skips a value another flag consumes: in
+// `--profile --agent=false` the --agent=false is the profile name.
+func agentFlagFromArgs(root *cobra.Command, args []string) *bool {
+	fs, _ := parseArgsAgainst(root, args)
+	f := fs.Lookup("agent")
+	if f == nil || !f.Changed {
+		return nil
+	}
+	v, err := strconv.ParseBool(f.Value.String())
+	if err != nil {
+		return nil
+	}
+	return &v
+}
+
+// parseArgsAgainst parses raw argv against the flags of the command it names
+// (root when it names none), so a flag takes a value exactly when cobra's
+// would: `mappings apply -fojson` is --force -o json. Unknown flags are
+// skipped, so the known ones stay readable.
+func parseArgsAgainst(root *cobra.Command, args []string) (*pflag.FlagSet, error) {
+	cmd := root
+	if found, _, err := root.Find(args); err == nil {
+		cmd = found
+	}
+	cmd.InitDefaultHelpFlag()
+	// Each flag is mirrored as a string of the same arity, so parsing argv here
+	// never runs the real flags' setters.
+	fs := pflag.NewFlagSet("", pflag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.ParseErrorsAllowlist.UnknownFlags = true
+	mirror := func(f *pflag.Flag) {
+		if fs.Lookup(f.Name) == nil {
+			fs.StringP(f.Name, f.Shorthand, "", "")
+			fs.Lookup(f.Name).NoOptDefVal = f.NoOptDefVal
+		}
+	}
+	cmd.LocalFlags().VisitAll(mirror)
+	cmd.InheritedFlags().VisitAll(mirror)
+	return fs, fs.Parse(args)
 }
 
 // scanRoot builds a command tree only to read flag arity from, for a failure

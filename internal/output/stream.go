@@ -62,7 +62,8 @@ func (s *bufferedStream) Close() error {
 }
 
 // jsonStream writes a JSON array one element at a time, reproducing the
-// two-space indentation and disabled HTML escaping of JSON.
+// two-space indentation (or one compact line under Compact) and disabled HTML
+// escaping of JSON.
 type jsonStream struct {
 	w     io.Writer
 	n     int
@@ -77,7 +78,9 @@ func (s *jsonStream) Write(v any) error {
 	enc := json.NewEncoder(&buf)
 	// The element sits one level inside the array, so every line after the
 	// first carries the array's indent as a prefix.
-	enc.SetIndent("  ", "  ")
+	if !Compact {
+		enc.SetIndent("  ", "  ")
+	}
 	enc.SetEscapeHTML(false)
 	if err := enc.Encode(v); err != nil {
 		return s.fail(err)
@@ -87,6 +90,12 @@ func (s *jsonStream) Write(v any) error {
 	prefix := "[\n  "
 	if s.n > 0 {
 		prefix = ",\n  "
+	}
+	if Compact {
+		prefix = "["
+		if s.n > 0 {
+			prefix = ","
+		}
 	}
 	if _, err := io.WriteString(s.w, prefix+elem); err != nil {
 		return s.fail(err)
@@ -103,6 +112,10 @@ func (s *jsonStream) Close() error {
 	// nil-slice coercion.
 	if s.n == 0 {
 		_, err := io.WriteString(s.w, "[]\n")
+		return err
+	}
+	if Compact {
+		_, err := io.WriteString(s.w, "]\n")
 		return err
 	}
 	_, err := io.WriteString(s.w, "\n]\n")

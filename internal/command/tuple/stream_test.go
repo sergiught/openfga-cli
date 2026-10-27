@@ -309,3 +309,26 @@ func TestTuplesReadJSONLRoundTrips(t *testing.T) {
 		t.Errorf("written objects = %v", written)
 	}
 }
+
+// Agent mode promises one-line JSON; a streamed read across pages must honor it.
+func TestReadJSONIsOneLineUnderCompact(t *testing.T) {
+	output.Compact = true
+	t.Cleanup(func() { output.Compact = false })
+	srv := tupleServer(t, 25, 10)
+	a := newHumanTupleCLI(t, srv.URL)
+	a.JSON = true
+	cmd := New(a).readCmd()
+	cmd.SetArgs(nil)
+	out, _ := silenced(cmd)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(out.String(), "\n"); n != 1 || !strings.HasSuffix(out.String(), "]\n") {
+		t.Fatalf("want one line, got %d newlines:\n%s", n, out.String())
+	}
+	var got []openfga.Tuple
+	if err := json.Unmarshal([]byte(out.String()), &got); err != nil || len(got) != 25 {
+		t.Fatalf("err=%v len=%d", err, len(got))
+	}
+}

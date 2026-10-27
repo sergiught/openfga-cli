@@ -125,6 +125,8 @@ func envList() string {
 		{"OPENFGA_PROFILE", "profile to use (alias: FGA_PROFILE)"},
 		{"OPENFGA_CONFIG", "path to the config file"},
 		{"OPENFGA_ICONS", "icon mode: auto (default), nerdfont, unicode or off"},
+		{"OPENFGA_AGENT_MODE", "1 turns agent mode on; 0 keeps it off when a coding agent is detected"},
+		{"CLAUDECODE / GEMINI_CLI", "set by coding agents; turns agent mode on unless OPENFGA_AGENT_MODE=0"},
 		{"NO_COLOR", "disable colored output"},
 		{"CLICOLOR_FORCE / FORCE_COLOR", "force colored output, even through pipes"},
 		{"OPENFGA_REDUCED_MOTION", "disable TUI animations (alias: OFGA_REDUCED_MOTION)"},

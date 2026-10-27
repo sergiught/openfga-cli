@@ -96,13 +96,13 @@ func Ask(cmd *cobra.Command, question, def string) string {
 
 // AskSecret prompts on a TTY for a secret without echoing it (via
 // term.ReadPassword), so tokens never appear on screen or in scrollback. It
-// returns "" when stdin is not a terminal — non-interactive runs should supply
-// secrets via flags or stdin, not this prompt.
+// returns "" when stdin is not a terminal or under --no-input — non-interactive
+// runs should supply secrets via flags or stdin, not this prompt.
 func AskSecret(cmd *cobra.Command, question string) string {
-	f, ok := cmd.InOrStdin().(*os.File)
-	if !ok || !term.IsTerminal(f.Fd()) {
+	if !interactive(cmd) {
 		return ""
 	}
+	f := cmd.InOrStdin().(*os.File)
 	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s: ", question)
 	b, err := term.ReadPassword(f.Fd())
 	_, _ = fmt.Fprintln(cmd.ErrOrStderr())

@@ -181,8 +181,15 @@ func (c *Command) write(w io.Writer, data []byte) error {
 	if output.JSONL && json.Valid(data) {
 		return output.RawJSONLines(w, data)
 	}
-	if !c.cli.JSON && !c.cli.Plain {
-		var buf bytes.Buffer
+	var buf bytes.Buffer
+	switch {
+	case c.cli.JSON && output.Compact:
+		// Agent mode promises one line; json.Compact keeps the server's numbers
+		// and key order, which a decode and re-encode would not.
+		if json.Compact(&buf, data) == nil {
+			data = buf.Bytes()
+		}
+	case !c.cli.JSON && !c.cli.Plain:
 		if json.Indent(&buf, data, "", "  ") == nil {
 			data = buf.Bytes()
 		}

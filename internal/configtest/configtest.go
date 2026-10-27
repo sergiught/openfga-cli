@@ -5,6 +5,8 @@ package configtest
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/sergiught/openfga-cli/internal/agentmode"
 )
 
 // Isolate points the CLI's config at a fresh file under t.TempDir() for the
@@ -15,9 +17,15 @@ import (
 // ~/Library/Application Support and XDG_CONFIG_HOME is ignored entirely, so a
 // test that relies on it silently falls through to the real config — and the
 // TUI writes config on exit.
+//
+// It also clears the agent-mode variables (see agentmode.EnvVars).
 func Isolate(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.toml")
 	t.Setenv("OPENFGA_CONFIG", path)
+	// A test run from inside a coding agent must not flip into agent mode.
+	for _, k := range agentmode.EnvVars() {
+		t.Setenv(k, "")
+	}
 	return path
 }

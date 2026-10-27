@@ -136,6 +136,36 @@ func TestJSONLResponseIsOneRecordPerLine(t *testing.T) {
 	}
 }
 
+// Agent mode promises one-line JSON, so a multiline JSON body is compacted
+// under it. Like -o jsonl, the server's bytes are kept, so large numbers and
+// key order survive; plain output and non-JSON bodies are left as they are.
+func TestAgentModeCompactsTheJSONResponse(t *testing.T) {
+	defer func(v bool) { output.Compact = v }(output.Compact)
+	output.Compact = true
+
+	body := "{\n  \"z\": 12345678901234567890,\n  \"a\": [1, 2]\n}\n"
+	cases := map[string]struct {
+		cli        *cli.CLI
+		body, want string
+	}{
+		"json":     {&cli.CLI{JSON: true}, body, "{\"z\":12345678901234567890,\"a\":[1,2]}\n"},
+		"plain":    {&cli.CLI{Plain: true}, body, body},
+		"not json": {&cli.CLI{JSON: true}, "plain text", "plain text\n"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := &Command{cli: tc.cli}
+			var out bytes.Buffer
+			if err := c.write(&out, []byte(tc.body)); err != nil {
+				t.Fatal(err)
+			}
+			if got := out.String(); got != tc.want {
+				t.Errorf("agent-mode api output = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // --jq is a global flag this command advertises in its help, so it has to
 // actually filter the response rather than being silently dropped.
 func TestJQFiltersTheResponse(t *testing.T) {

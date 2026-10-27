@@ -152,3 +152,59 @@ func TestJSONLStreamerMatchesEmit(t *testing.T) {
 		})
 	}
 }
+
+func TestJSONStreamerUnderCompactIsOneLine(t *testing.T) {
+	Compact = true
+	t.Cleanup(func() { Compact = false })
+	cases := map[string][]streamItem{
+		"empty": {},
+		"one":   {{User: "user:anne", Count: 1}},
+		"three": {{User: "user:anne", Count: 1}, {User: "user:a&b", Count: 2, Meta: map[string]string{"k": "v"}}, {User: "user:carol", Count: 3}},
+	}
+	wants := map[string]string{
+		"empty": "[]\n",
+		"one":   `[{"user":"user:anne","count":1}]` + "\n",
+		"three": `[{"user":"user:anne","count":1},{"user":"user:a&b","count":2,"meta":{"k":"v"}},{"user":"user:carol","count":3}]` + "\n",
+	}
+	for name, items := range cases {
+		t.Run(name, func(t *testing.T) {
+			var got bytes.Buffer
+			s := NewStreamer(&got, false)
+			for _, it := range items {
+				if err := s.Write(it); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if got.String() != wants[name] {
+				t.Errorf("got %q, want %q", got.String(), wants[name])
+			}
+			var emitted bytes.Buffer
+			if err := Emit(&emitted, false, items); err != nil {
+				t.Fatal(err)
+			}
+			if got.String() != emitted.String() {
+				t.Errorf("differs from Emit: %q vs %q", got.String(), emitted.String())
+			}
+		})
+	}
+}
+
+func TestJSONStreamerIndentedFramingIsUnchanged(t *testing.T) {
+	var got bytes.Buffer
+	s := NewStreamer(&got, false)
+	for _, it := range []streamItem{{User: "a", Count: 1}, {User: "b", Count: 2}} {
+		if err := s.Write(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	want := "[\n  {\n    \"user\": \"a\",\n    \"count\": 1\n  },\n  {\n    \"user\": \"b\",\n    \"count\": 2\n  }\n]\n"
+	if got.String() != want {
+		t.Errorf("got %q, want %q", got.String(), want)
+	}
+}

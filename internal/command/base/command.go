@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/sergiught/openfga-cli/internal/agentmode"
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/client"
 	"github.com/sergiught/openfga-cli/internal/clierr"
@@ -99,6 +100,8 @@ source <(ofga completion bash)`,
 			if cli.RequestTimeout < 0 {
 				return fmt.Errorf("--timeout must be non-negative")
 			}
+			// Agent mode first: it supplies resolveOutput's default format.
+			c.resolveAgent(cmd)
 			// Validate -o/--output before marking the command as run, so a bad
 			// value is treated as a usage error (exit 2), like other bad flags.
 			if err := c.resolveOutput(); err != nil {
@@ -177,6 +180,7 @@ source <(ofga completion bash)`,
 	pf.BoolVar(&cli.Plain, "plain", cli.Plain, "output unstyled, tab-separated rows (alias for --output plain)")
 	pf.BoolVarP(&cli.Quiet, "quiet", "q", false, "suppress incidental output")
 	pf.BoolVar(&cli.NoInput, "no-input", false, "never prompt or launch the interactive TUI")
+	pf.Bool("agent", false, "agent mode: compact JSON, no prompts, no color, no success chatter (also OPENFGA_AGENT_MODE=1)")
 	pf.BoolVar(&cli.NoColor, "no-color", cli.NoColor, "disable colored output")
 	pf.StringVar(&cli.ThemeName, "theme", cli.ThemeName, "color theme ("+themeList()+")")
 	pf.DurationVar(&cli.RequestTimeout, "timeout", cli.RequestTimeout, "per-request timeout (0 disables)")
@@ -291,6 +295,11 @@ func (c *Command) resolveOutput() error {
 			c.cli.Output = "json"
 		}
 	}
+	// Agent mode defaults to JSON, but only when no format was chosen: any
+	// explicit -o, --json, --yaml or --plain (and --jq, handled above) wins.
+	if c.cli.Agent.Enabled && c.cli.Output == "" && !c.cli.JSON && !c.cli.YAML && !c.cli.Plain {
+		c.cli.Output = "json"
+	}
 	switch c.cli.Output {
 	case "":
 		// With no authoritative -o, the boolean aliases stand as parsed.
@@ -322,8 +331,30 @@ func (c *Command) resolveOutput() error {
 	return nil
 }
 
+// resolveAgent decides agent mode from --agent, the environment and detector
+// variables, and applies the effects that need the command's flag set: it
+// implies --no-input (also set on the flag so prompt.interactive sees it) and
+// --no-color. The default format is applied by resolveOutput, the output
+// toggles by applyEnvironment.
+func (c *Command) resolveAgent(cmd *cobra.Command) {
+	var flag *bool
+	if cmd.Flags().Changed("agent") {
+		v, _ := cmd.Flags().GetBool("agent")
+		flag = &v
+	}
+	c.cli.Agent = agentmode.Resolve(flag, os.Getenv)
+	if !c.cli.Agent.Enabled {
+		return
+	}
+	c.cli.NoInput = true
+	_ = cmd.Flags().Set("no-input", "true")
+	c.cli.NoColor = true
+}
+
 func (c *Command) applyEnvironment() error {
 	a := c.cli
+	output.Compact = a.Agent.Enabled
+	output.Terse = a.Agent.Enabled
 	output.Quiet = a.Quiet
 	output.Plain = a.Plain
 	output.JSONL = a.Output == "jsonl"
@@ -482,11 +513,12 @@ func (c *Command) versionCmd() *cobra.Command {
 		Example: "  ofga version",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if c.cli.JSON || c.cli.YAML {
-				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]string{
+				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{
 					"version":                 version.Resolved(),
 					"commit":                  version.Commit,
 					"built":                   version.Date,
 					"embedded_openfga_server": version.Server(),
+					"agent_mode":              c.cli.Agent,
 				})
 			}
 			if c.cli.Plain || c.cli.Output == "table" {
@@ -495,12 +527,21 @@ func (c *Command) versionCmd() *cobra.Command {
 					{"commit", version.Commit},
 					{"built", version.Date},
 					{"embedded openfga server", version.Server()},
+					{"agent mode", agentModeLabel(c.cli.Agent)},
 				})
 			}
 			_, err := fmt.Fprintln(cmd.OutOrStdout(), "ofga "+version.String())
 			return err
 		},
 	}
+}
+
+// agentModeLabel renders the agent-mode state for human version output.
+func agentModeLabel(s agentmode.State) string {
+	if !s.Enabled {
+		return "off"
+	}
+	return "on (" + s.Reason + ")"
 }
 
 // RegisterSubCommands adds all top-level commands.
@@ -537,6 +578,9 @@ func (c *Command) playgroundCmd() *cobra.Command {
 }
 
 func (c *Command) runPlayground(cmd *cobra.Command, _ []string) error {
+	if c.cli.Agent.Enabled {
+		return c.cli.Agent.Refuse("the playground")
+	}
 	// The TUI needs an interactive terminal; without one (piped, CI, no TTY)
 	// bare `ofga` prints concise guidance instead of launching and hanging.
 	// The explicit `ofga playground` command fails so automation cannot mistake
