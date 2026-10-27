@@ -145,6 +145,11 @@ tuples, assertions), local CLI config or files in the working tree (such as
 `model test init` scaffolding). An output file you name with a flag such as
 `--output-file` or `--cursor-file` doesn't count.
 
+`requires_store` and `requires_model` mean the command resolves the ID from
+`--store-id` or `--model-id`, the environment or the profile, and fails without
+one. An ID the command takes as a positional argument, as in
+`ofga model get <model-id>`, shows in its `usage` instead.
+
 ```sh
 # Every command that changes state
 ofga commands --json | jq -r '.commands[] | select(.mutates) | .path'

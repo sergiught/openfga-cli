@@ -20,10 +20,14 @@ const (
 
 // Meta describes what a leaf command needs and does.
 type Meta struct {
-	// RequiresStore: the command resolves a store ID and fails without one.
+	// RequiresStore: the command resolves a store ID from --store-id, the
+	// environment or the profile, and fails without one. An ID taken as a
+	// positional argument (stores delete <store-id>) is part of the usage
+	// instead and doesn't count.
 	RequiresStore bool
-	// RequiresModel: the command resolves a model ID and fails without one.
-	// A command that falls back to the latest model is false.
+	// RequiresModel: the same for a model ID and --model-id. A command that
+	// falls back to the latest model is false, as is one that takes the ID
+	// as a positional argument (model get <model-id>).
 	RequiresModel bool
 	// Mutates: the command changes server state (stores, models, tuples,
 	// assertions), local CLI config or files in the working tree (such as a

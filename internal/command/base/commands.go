@@ -111,6 +111,8 @@ func (c *Command) commandsCmd() *cobra.Command {
 			"needs a store or model, mutates state, supports --dry-run or is interactive only. " +
 			"A command mutates when it changes server state (stores, models, tuples, assertions), local CLI config or files in the working tree; " +
 			"an output file named with a flag such as --output-file or --cursor-file doesn't count. " +
+			"A command needs a store or model when it resolves the ID from --store-id or --model-id, the environment or the profile; " +
+			"an ID taken as a positional argument is shown in its usage instead. " +
 			"Use --json or --yaml for the full catalog (global flags are listed once); " +
 			"the default is a table of commands.",
 		Example: "  ofga commands\n  ofga commands --json | jq -r '.commands[] | select(.mutates) | .path'",
