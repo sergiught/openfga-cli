@@ -16,6 +16,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/cmdmeta"
+	"github.com/sergiught/openfga-cli/internal/command/tuple"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/style"
@@ -114,10 +115,39 @@ func parseContextualTuples(vals []string) (*openfga.ContextualTupleKeys, error) 
 	return &openfga.ContextualTupleKeys{TupleKeys: keys}, nil
 }
 
+// contextualTuplesFileUsage is the --contextual-tuples-file help text.
+const contextualTuplesFileUsage = `read contextual tuples from a JSON, JSONL, YAML or CSV file (same shape as tuples write --file); "-" reads stdin`
+
+// contextualTuples merges tuples read from file (or stdin for "-") with the
+// repeated --contextual-tuple values: file tuples first, then flag tuples. It
+// returns nil when both are empty.
+func contextualTuples(cmd *cobra.Command, flagVals []string, file string) (*openfga.ContextualTupleKeys, error) {
+	var keys []openfga.TupleKey
+	if file != "" {
+		fileKeys, err := tuple.LoadTupleFile(file, cmd.InOrStdin())
+		if err != nil {
+			return nil, err
+		}
+		keys = fileKeys
+	}
+	flagged, err := parseContextualTuples(flagVals)
+	if err != nil {
+		return nil, clierr.WithCode(clierr.CodeUsage, err)
+	}
+	if flagged != nil {
+		keys = append(keys, flagged.TupleKeys...)
+	}
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	return &openfga.ContextualTupleKeys{TupleKeys: keys}, nil
+}
+
 func (c *Command) checkCmd() *cobra.Command {
 	var (
 		contextJSON       string
 		ctxTuples         []string
+		ctxFile           string
 		fUser, fRel, fObj string
 		fConsistency      string
 	)
@@ -143,9 +173,9 @@ func (c *Command) checkCmd() *cobra.Command {
 			if err != nil {
 				return clierr.WithCode(clierr.CodeUsage, err)
 			}
-			ct, err := parseContextualTuples(ctxTuples)
+			ct, err := contextualTuples(cmd, ctxTuples, ctxFile)
 			if err != nil {
-				return clierr.WithCode(clierr.CodeUsage, err)
+				return err
 			}
 			ropts, err := cli.ConsistencyOption(fConsistency)
 			if err != nil {
@@ -183,6 +213,8 @@ func (c *Command) checkCmd() *cobra.Command {
 	f.StringVar(&fObj, "object", "", "object (alternative to the positional arg)")
 	f.StringVar(&contextJSON, "context", "", "JSON object of condition context")
 	f.StringArrayVar(&ctxTuples, "contextual-tuple", nil, "contextual tuple as user,relation,object (repeatable)")
+	f.StringVar(&ctxFile, "contextual-tuples-file", "", contextualTuplesFileUsage)
+	_ = cmd.MarkFlagFilename("contextual-tuples-file")
 	cli.RegisterConsistencyFlag(cmd, &fConsistency)
 	return cmd
 }
@@ -190,18 +222,27 @@ func (c *Command) checkCmd() *cobra.Command {
 func (c *Command) batchCheckCmd() *cobra.Command {
 	var (
 		checks       []string
+		file         string
 		fConsistency string
 		contextJSON  string
 		ctxTuples    []string
+		ctxFile      string
 	)
 	cmd := &cobra.Command{
-		Use:   "batch-check --check user,relation,object [...]",
+		Use:   "batch-check (--check user,relation,object [...] | --file checks.json)",
 		Short: "Run several checks in one request",
 		Example: `  ofga query batch-check --check user:anne,viewer,doc:1 --check user:bob,editor,doc:1
-  ofga query batch-check --check user:anne,viewer,doc:1 --context '{"hour":9}'`,
+  ofga query batch-check --check user:anne,viewer,doc:1 --context '{"hour":9}'
+  ofga query batch-check --file checks.json
+  ofga query batch-check --file - < checks.jsonl`,
 		Long: "Run several checks in one request. --context and --contextual-tuple apply to " +
 			"every check in the batch, matching the other query commands; the API accepts them " +
-			"per item, so pass separate invocations when checks need different context.",
+			"per item, so pass separate invocations when checks need different context.\n\n" +
+			"--file reads checks from a JSON array or JSONL file (\"-\" reads stdin; a first byte of [ means " +
+			"an array). Each entry is {user, relation, object, context?, contextual_tuples?, correlation_id?}; " +
+			"an entry's own context and contextual_tuples apply to that check only (its context replaces --context, " +
+			"its tuples add to --contextual-tuple/--contextual-tuples-file). --file and --check combine, file " +
+			"checks first. Every entry is validated before any request is sent.",
 		Args: cobra.NoArgs,
 		// A partial per-item failure is reported by an already-emitted table plus
 		// a non-nil error for the exit code (see batchCheckErr); cobra's default
@@ -212,20 +253,35 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if len(checks) == 0 {
-				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("provide at least one --check user,relation,object"))
+			if len(checks) == 0 && file == "" {
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("pass --check or --file"))
+			}
+			if file == "-" && ctxFile == "-" {
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--file - and --contextual-tuples-file - both read stdin; pass one of them as a file path"))
 			}
 			cx, err := fga.ParseJSONObject("--context", contextJSON)
 			if err != nil {
 				return clierr.WithCode(clierr.CodeUsage, err)
 			}
-			ct, err := parseContextualTuples(ctxTuples)
+			ct, err := contextualTuples(cmd, ctxTuples, ctxFile)
 			if err != nil {
-				return clierr.WithCode(clierr.CodeUsage, err)
+				return err
 			}
-			items := make([]openfga.BatchCheckItem, 0, len(checks))
-			labels := make([]string, 0, len(checks))
-			for i, raw := range checks {
+			var items []openfga.BatchCheckItem
+			if file != "" {
+				fileItems, err := readBatchFile(file, cmd.InOrStdin())
+				if err != nil {
+					return err
+				}
+				for _, it := range fileItems {
+					if it.Context == nil {
+						it.Context = cx
+					}
+					it.ContextualTuples = mergeContextual(ct, it.ContextualTuples)
+					items = append(items, it)
+				}
+			}
+			for _, raw := range checks {
 				parts := strings.Split(raw, ",")
 				if len(parts) != 3 {
 					return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--check %q must be user,relation,object", raw))
@@ -238,14 +294,16 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 				if err != nil {
 					return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--check %q: %w", raw, err))
 				}
-				id := fmt.Sprintf("c%d", i)
 				items = append(items, openfga.BatchCheckItem{
 					TupleKey:         openfga.CheckRequestTupleKey{User: key.User, Relation: key.Relation, Object: key.Object},
-					CorrelationID:    id,
 					Context:          cx,
 					ContextualTuples: ct,
 				})
-				labels = append(labels, fmt.Sprintf("%s %s %s", key.User, key.Relation, key.Object))
+			}
+			assignCorrelationIDs(items)
+			labels := make([]string, len(items))
+			for i, it := range items {
+				labels[i] = fmt.Sprintf("%s %s %s", it.TupleKey.User, it.TupleKey.Relation, it.TupleKey.Object)
 			}
 			ropts, err := cli.ConsistencyOption(fConsistency)
 			if err != nil {
@@ -296,9 +354,12 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringArrayVar(&checks, "check", nil, "a check as user,relation,object (repeatable)")
-	_ = cmd.MarkFlagRequired("check")
+	cmd.Flags().StringVar(&file, "file", "", batchFileUsage)
+	_ = cmd.MarkFlagFilename("file")
 	cmd.Flags().StringVar(&contextJSON, "context", "", "JSON object of condition context, applied to every check")
 	cmd.Flags().StringArrayVar(&ctxTuples, "contextual-tuple", nil, "contextual tuple as user,relation,object (repeatable), applied to every check")
+	cmd.Flags().StringVar(&ctxFile, "contextual-tuples-file", "", contextualTuplesFileUsage)
+	_ = cmd.MarkFlagFilename("contextual-tuples-file")
 	cli.RegisterConsistencyFlag(cmd, &fConsistency)
 	return cmd
 }
@@ -355,6 +416,7 @@ func (c *Command) listRelationsCmd() *cobra.Command {
 	var (
 		contextJSON  string
 		ctxTuples    []string
+		ctxFile      string
 		relations    []string
 		fUser, fObj  string
 		fConsistency string
@@ -390,9 +452,9 @@ func (c *Command) listRelationsCmd() *cobra.Command {
 			if err != nil {
 				return clierr.WithCode(clierr.CodeUsage, err)
 			}
-			ct, err := parseContextualTuples(ctxTuples)
+			ct, err := contextualTuples(cmd, ctxTuples, ctxFile)
 			if err != nil {
-				return clierr.WithCode(clierr.CodeUsage, err)
+				return err
 			}
 			ropts, err := cli.ConsistencyOption(fConsistency)
 			if err != nil {
@@ -453,6 +515,8 @@ func (c *Command) listRelationsCmd() *cobra.Command {
 		"relation to test (repeatable; default: every relation on the object's type)")
 	cmd.Flags().StringVar(&contextJSON, "context", "", "JSON object of condition context")
 	cmd.Flags().StringArrayVar(&ctxTuples, "contextual-tuple", nil, "contextual tuple as user,relation,object (repeatable)")
+	cmd.Flags().StringVar(&ctxFile, "contextual-tuples-file", "", contextualTuplesFileUsage)
+	_ = cmd.MarkFlagFilename("contextual-tuples-file")
 	cli.RegisterConsistencyFlag(cmd, &fConsistency)
 	return cmd
 }
@@ -475,6 +539,7 @@ func (c *Command) listObjectsCmd() *cobra.Command {
 	var (
 		contextJSON           string
 		ctxTuples             []string
+		ctxFile               string
 		objectType, rel, user string
 		fConsistency          string
 	)
@@ -499,9 +564,9 @@ func (c *Command) listObjectsCmd() *cobra.Command {
 			if err != nil {
 				return clierr.WithCode(clierr.CodeUsage, err)
 			}
-			ct, err := parseContextualTuples(ctxTuples)
+			ct, err := contextualTuples(cmd, ctxTuples, ctxFile)
 			if err != nil {
-				return clierr.WithCode(clierr.CodeUsage, err)
+				return err
 			}
 			ropts, err := cli.ConsistencyOption(fConsistency)
 			if err != nil {
@@ -540,6 +605,8 @@ func (c *Command) listObjectsCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&contextJSON, "context", "", "JSON object of condition context")
 	cmd.Flags().StringArrayVar(&ctxTuples, "contextual-tuple", nil, "contextual tuple as user,relation,object (repeatable)")
+	cmd.Flags().StringVar(&ctxFile, "contextual-tuples-file", "", contextualTuplesFileUsage)
+	_ = cmd.MarkFlagFilename("contextual-tuples-file")
 	cmd.Flags().StringVar(&objectType, "type", "", "object type")
 	cmd.Flags().StringVar(&rel, "relation", "", "relation")
 	cmd.Flags().StringVar(&user, "user", "", "user")
@@ -551,6 +618,7 @@ func (c *Command) listUsersCmd() *cobra.Command {
 	var (
 		contextJSON  string
 		ctxTuples    []string
+		ctxFile      string
 		userTypes    []string
 		object, rel  string
 		fConsistency string
@@ -576,9 +644,9 @@ func (c *Command) listUsersCmd() *cobra.Command {
 			if err != nil {
 				return clierr.WithCode(clierr.CodeUsage, err)
 			}
-			ct, err := parseContextualTuples(ctxTuples)
+			ct, err := contextualTuples(cmd, ctxTuples, ctxFile)
 			if err != nil {
-				return clierr.WithCode(clierr.CodeUsage, err)
+				return err
 			}
 			ropts, err := cli.ConsistencyOption(fConsistency)
 			if err != nil {
@@ -646,6 +714,8 @@ func (c *Command) listUsersCmd() *cobra.Command {
 	cmd.Flags().StringVar(&rel, "relation", "", "relation")
 	cmd.Flags().StringVar(&contextJSON, "context", "", "JSON object of condition context")
 	cmd.Flags().StringArrayVar(&ctxTuples, "contextual-tuple", nil, "contextual tuple as user,relation,object (repeatable)")
+	cmd.Flags().StringVar(&ctxFile, "contextual-tuples-file", "", contextualTuplesFileUsage)
+	_ = cmd.MarkFlagFilename("contextual-tuples-file")
 	cli.RegisterConsistencyFlag(cmd, &fConsistency)
 	_ = cmd.MarkFlagRequired("type")
 	return cmd

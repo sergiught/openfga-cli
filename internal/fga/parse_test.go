@@ -88,3 +88,29 @@ func TestParseTuple(t *testing.T) {
 		})
 	}
 }
+
+func TestDecodeStrictJSONRejectsTrailingData(t *testing.T) {
+	bad := []string{
+		`{"a":1}]`,
+		`{"a":1}}`,
+		`{"a":1},`,
+		`{"a":1} {"a":2}`,
+		`{"a":1} x`,
+		// Only space, tab, CR and LF are JSON whitespace.
+		"{\"a\":1}\v",
+		"{\"a\":1}\f",
+		"{\"a\":1}\u00a0",
+	}
+	for _, in := range bad {
+		var v struct{ A int }
+		if err := DecodeStrictJSON([]byte(in), &v); err == nil {
+			t.Errorf("DecodeStrictJSON(%q) = nil, want a trailing-data error", in)
+		}
+	}
+	for _, in := range []string{`{"a":1}`, "  {\"a\":1}  \n", "{\"a\":1}\t\r\n", `[1,2]`} {
+		var v any
+		if err := DecodeStrictJSON([]byte(in), &v); err != nil {
+			t.Errorf("DecodeStrictJSON(%q) = %v, want nil", in, err)
+		}
+	}
+}

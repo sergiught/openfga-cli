@@ -31,6 +31,7 @@ ofga query check [user] [relation] [object] [flags]
 | `--consistency` | read consistency: HIGHER_CONSISTENCY, MINIMIZE_LATENCY, UNSPECIFIED (default HIGHER_CONSISTENCY) |   |
 | `--context` | JSON object of condition context |   |
 | `--contextual-tuple` | contextual tuple as user,relation,object (repeatable) | `[]` |
+| `--contextual-tuples-file` | read contextual tuples from a JSON, JSONL, YAML or CSV file (same shape as tuples write --file); "-" reads stdin |   |
 | `--object` | object (alternative to the positional arg) |   |
 | `--relation` | relation (alternative to the positional arg) |   |
 | `--user` | user (alternative to the positional arg) |   |

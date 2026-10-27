@@ -11,10 +11,12 @@ import CommandDemo from '../../../../components/CommandDemo.astro';
 
 Run several checks in one request. --context and --contextual-tuple apply to every check in the batch, matching the other query commands; the API accepts them per item, so pass separate invocations when checks need different context.
 
+--file reads checks from a JSON array or JSONL file ("-" reads stdin; a first byte of [ means an array). Each entry is \{user, relation, object, context?, contextual_tuples?, correlation_id?}; an entry's own context and contextual_tuples apply to that check only (its context replaces --context, its tuples add to --contextual-tuple/--contextual-tuples-file). --file and --check combine, file checks first. Every entry is validated before any request is sent.
+
 ## Usage
 
 ```sh
-ofga query batch-check --check user,relation,object [...] [flags]
+ofga query batch-check (--check user,relation,object [...] | --file checks.json) [flags]
 ```
 
 ## Examples
@@ -22,6 +24,8 @@ ofga query batch-check --check user,relation,object [...] [flags]
 ```sh
   ofga query batch-check --check user:anne,viewer,doc:1 --check user:bob,editor,doc:1
   ofga query batch-check --check user:anne,viewer,doc:1 --context '{"hour":9}'
+  ofga query batch-check --file checks.json
+  ofga query batch-check --file - < checks.jsonl
 ```
 
 ## Flags
@@ -32,6 +36,8 @@ ofga query batch-check --check user,relation,object [...] [flags]
 | `--consistency` | read consistency: HIGHER_CONSISTENCY, MINIMIZE_LATENCY, UNSPECIFIED (default HIGHER_CONSISTENCY) |   |
 | `--context` | JSON object of condition context, applied to every check |   |
 | `--contextual-tuple` | contextual tuple as user,relation,object (repeatable), applied to every check | `[]` |
+| `--contextual-tuples-file` | read contextual tuples from a JSON, JSONL, YAML or CSV file (same shape as tuples write --file); "-" reads stdin |   |
+| `--file` | read checks from a JSON array or JSONL file ("-" reads stdin); each entry is \{user, relation, object, context?, contextual_tuples?, correlation_id?} |   |
 
 <details>
 <summary>Global flags</summary>

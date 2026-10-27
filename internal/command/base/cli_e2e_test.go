@@ -493,6 +493,16 @@ func TestMachineErrorEnvelope(t *testing.T) {
 {"user":"user:2","relation":"viewer","object":"doc:1"}]`), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	badBatch := filepath.Join(t.TempDir(), "bad-batch.jsonl")
+	if err := os.WriteFile(badBatch, []byte(`{"user":"user:a","relation":"viewer","object":"doc:1"}
+{"user":"user:b","relation":"viewer"}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	badContextual := filepath.Join(t.TempDir(), "bad-contextual.json")
+	if err := os.WriteFile(badContextual, []byte(`[{"user":"user:a","relation":"viewer","object":"doc:1"},{"user":"nope","relation":"viewer","object":"doc:1"}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	badCfg := filepath.Join(t.TempDir(), "bad.toml")
 	if err := os.WriteFile(badCfg, []byte("not = [valid"), 0o600); err != nil {
 		t.Fatal(err)
@@ -541,6 +551,18 @@ func TestMachineErrorEnvelope(t *testing.T) {
 			check: func(t *testing.T, out string, _ clierr.EnvelopeBody) {
 				if !json.Valid([]byte(out)) {
 					t.Errorf("stdout is not valid JSON: %q", out)
+				}
+			}},
+		{name: "bad batch file", env: api, args: []string{"query", "batch-check", "--file", badBatch, "--json"}, exit: 2, code: clierr.KindValidation,
+			check: func(t *testing.T, _ string, e clierr.EnvelopeBody) {
+				if len(e.Details) == 0 || e.Details[0]["index"] != float64(1) || e.Details[0]["field"] != "object" {
+					t.Errorf("details = %v, want entry 1 object problem", e.Details)
+				}
+			}},
+		{name: "bad contextual tuples file", env: api, args: []string{"query", "check", "user:anne", "viewer", "doc:1", "--contextual-tuples-file", badContextual, "--json"}, exit: 2, code: clierr.KindValidation,
+			check: func(t *testing.T, _ string, e clierr.EnvelopeBody) {
+				if len(e.Details) == 0 || e.Details[0]["index"] != float64(1) || e.Details[0]["source"] != badContextual {
+					t.Errorf("details = %v, want tuple index 1 for the file", e.Details)
 				}
 			}},
 		{name: "config load", env: []string{"OPENFGA_CONFIG=" + badCfg}, args: []string{"stores", "list", "--json"}, exit: 1, code: clierr.KindError,

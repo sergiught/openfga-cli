@@ -2,10 +2,16 @@ package tuple
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/sergiught/go-openfga/openfga"
+	"github.com/sergiught/openfga-cli/internal/clierr"
 )
 
 // wantTuple asserts one parsed entry's triple and condition name.
@@ -294,5 +300,109 @@ func TestEncodeTupleFileRoundTrips(t *testing.T) {
 				t.Errorf("condition context lost through %s: %#v", format, got[1].Condition.Context)
 			}
 		})
+	}
+}
+
+func TestLoadTupleFileMatchesWriteFile(t *testing.T) {
+	const fixture = `[{"user":"user:a","relation":"viewer","object":"doc:1"},` +
+		`{"user":"user:b","relation":"editor","object":"doc:2","condition":{"name":"c","context":{"x":1}}}]`
+	path := filepath.Join(t.TempDir(), "t.json")
+	if err := os.WriteFile(path, []byte(fixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadTupleFile(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := bulkTuples(&cobra.Command{}, path, formatJSON, nil, "", "", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("LoadTupleFile = %+v, write path = %+v", got, want)
+	}
+
+	_, err = LoadTupleFile(filepath.Join(t.TempDir(), "missing.json"), nil)
+	// An unreadable file is a runtime failure, as it is for tuples write --file.
+	if clierr.Classify(err) != clierr.KindError || clierr.Code(err) != clierr.CodeError {
+		t.Fatalf("kind = %q code = %d, want error 1; err=%v", clierr.Classify(err), clierr.Code(err), err)
+	}
+}
+
+func TestLoadTupleFileStdinSniff(t *testing.T) {
+	const bare = `{"user":"user:a","relation":"viewer","object":"doc:1"}`
+	const export = `{"key":{"user":"user:a","relation":"viewer","object":"doc:1"},"timestamp":"2026-01-02T03:04:05Z"}`
+	const second = `{"user":"user:b","relation":"editor","object":"doc:2"}`
+	cases := []struct {
+		name  string
+		input string
+		want  []string // users
+	}{
+		{"single-line bare JSONL", bare + "\n", []string{"user:a"}},
+		{"single-line bare JSONL without newline", bare, []string{"user:a"}},
+		{"single-line read-export JSONL", export + "\n", []string{"user:a"}},
+		{"multi-line JSONL", bare + "\n" + second + "\n", []string{"user:a", "user:b"}},
+		{"JSON array", "[" + bare + "," + second + "]", []string{"user:a", "user:b"}},
+		{"leading whitespace array", "\n  [" + bare + "]", []string{"user:a"}},
+		{"tuples document", `{"tuples":[` + bare + `,` + second + `]}`, []string{"user:a", "user:b"}},
+		{"pretty tuples document", "{\n  \"tuples\": [\n" + bare + "\n  ]\n}\n", []string{"user:a"}},
+		{"BOM array", "\ufeff[" + bare + "]", []string{"user:a"}},
+		{"BOM JSONL", "\ufeff" + bare + "\n", []string{"user:a"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := LoadTupleFile("-", strings.NewReader(tc.input))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var users []string
+			for _, k := range got {
+				users = append(users, k.User)
+			}
+			if !reflect.DeepEqual(users, tc.want) {
+				t.Fatalf("users = %v, want %v", users, tc.want)
+			}
+		})
+	}
+
+	t.Run("empty", func(t *testing.T) {
+		_, err := LoadTupleFile("-", strings.NewReader(" \n"))
+		if err == nil || clierr.Classify(err) != clierr.KindValidation {
+			t.Fatalf("err = %v (kind %q), want a validation error", err, clierr.Classify(err))
+		}
+	})
+}
+
+func TestLoadTupleFileHintOmitsFileFormatFlag(t *testing.T) {
+	_, err := LoadTupleFile("-", strings.NewReader(`{"user":"user:a","bogus":1}`+"\n"))
+	if err == nil {
+		t.Fatal("want an error")
+	}
+	if strings.Contains(err.Error(), "--file-format") {
+		t.Fatalf("hint mentions --file-format, which query commands lack: %v", err)
+	}
+	if !strings.Contains(err.Error(), "one tuple per line") {
+		t.Fatalf("hint = %v, want query-appropriate guidance", err)
+	}
+}
+
+func TestLoadTupleFileErrorsCarryZeroBasedIndex(t *testing.T) {
+	in := `[{"user":"user:a","relation":"viewer","object":"doc:1"},{"user":"bad","relation":"viewer","object":"doc:1"}]`
+	_, err := LoadTupleFile("-", strings.NewReader(in))
+	if err == nil {
+		t.Fatal("want an error")
+	}
+	if !strings.Contains(err.Error(), "tuple 1:") {
+		t.Fatalf("err = %v, want 0-based \"tuple 1:\"", err)
+	}
+	env := clierr.NewEnvelope(err)
+	found := false
+	for _, d := range env.Error.Details {
+		if d["index"] == 1 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("details = %v, want index 1", env.Error.Details)
 	}
 }
