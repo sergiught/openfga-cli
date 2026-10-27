@@ -25,8 +25,10 @@ type Meta struct {
 	// RequiresModel: the command resolves a model ID and fails without one.
 	// A command that falls back to the latest model is false.
 	RequiresModel bool
-	// Mutates: the command can change server state, local files or config
-	// (unless run with --dry-run or without --force).
+	// Mutates: the command changes server state (stores, models, tuples,
+	// assertions) or local CLI config. Local output files such as
+	// --output-file and --cursor-file don't count. Dry runs and unconfirmed
+	// runs still count as mutating commands.
 	Mutates bool
 	// InteractiveOnly: the command is a TUI entry point.
 	InteractiveOnly bool

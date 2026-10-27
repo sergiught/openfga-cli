@@ -140,6 +140,10 @@ flags, examples, and whether it needs a store or model, mutates state, supports
 `--dry-run` or only runs interactively. Global flags are listed once. It works
 offline and needs no profile.
 
+A command is marked `mutates` when it changes server state (stores, models,
+tuples, assertions) or local CLI config. Local output files such as
+`--output-file` and `--cursor-file` don't count.
+
 ```sh
 # Every command that changes state
 ofga commands --json | jq -r '.commands[] | select(.mutates) | .path'
