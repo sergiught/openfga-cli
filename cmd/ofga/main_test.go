@@ -99,6 +99,14 @@ func TestReportCanceledPrintsPartialCommitDetail(t *testing.T) {
 	}
 }
 
+func TestReportCanceledPrintsSilentSummary(t *testing.T) {
+	var buf bytes.Buffer
+	reportCanceled(&buf, clierr.WithPartialResult(clierr.Silent(clierr.CodeError, "wrote 2, failed 1 of 3 tuple(s)")))
+	if out := buf.String(); !strings.Contains(out, "wrote 2, failed 1 of 3 tuple(s)") || strings.Contains(out, "(handled)") {
+		t.Errorf("want the silent summary, got %q", out)
+	}
+}
+
 func TestReportCanceledWithoutPartialResultPrintsOnlyCanceled(t *testing.T) {
 	var buf bytes.Buffer
 	reportCanceled(&buf, context.Canceled)
@@ -138,11 +146,33 @@ func TestMachineOutputFromArgs(t *testing.T) {
 		{[]string{"--output=yaml"}, true}, {[]string{"-o=json"}, true}, {[]string{"--jq", ".a"}, true},
 		{[]string{"--jq=.a"}, true}, {[]string{"-o", "table"}, false}, {[]string{"--json", "--plain"}, false},
 		{[]string{"--", "--json"}, false}, {[]string{"stores", "list"}, false}, {nil, false},
+		// The last -o wins, as it does for pflag.
+		{[]string{"-o", "table", "-o", "json"}, true}, {[]string{"-o", "json", "--output=table"}, false},
+		{[]string{"--plain", "-o", "json"}, true},
+		// -o inside a shorthand cluster, but not inside another flag's value.
+		{[]string{"-qojson"}, true}, {[]string{"-qo", "json"}, true}, {[]string{"-pojson"}, false},
+		// A bare --jq whose value is missing still asked for machine output.
+		{[]string{"stores", "list", "--jq"}, true},
 	}
 	for _, tt := range tests {
 		if got := machineOutputFromArgs(tt.args); got != tt.want {
 			t.Errorf("machineOutputFromArgs(%q) = %v, want %v", tt.args, got, tt.want)
 		}
+	}
+}
+
+func TestReportMachineErrorCanceledKeepsSilentSummary(t *testing.T) {
+	err := clierr.WithPartialResult(clierr.Silent(clierr.CodeError, "wrote 2, failed 1 of 3 tuple(s)"))
+	var buf bytes.Buffer
+	reportMachineError(&buf, err, clierr.CodeCanceled, "ofga tuples write", true)
+	if !strings.Contains(buf.String(), `"message":"canceled: wrote 2, failed 1 of 3 tuple(s)"`) {
+		t.Fatalf("partial-result summary lost: %s", buf.String())
+	}
+
+	buf.Reset()
+	reportMachineError(&buf, clierr.WithPartialResult(errors.New("wrote 1 of 2")), clierr.CodeCanceled, "ofga tuples write", true)
+	if !strings.Contains(buf.String(), `"message":"canceled: wrote 1 of 2"`) {
+		t.Fatalf("plain partial result lost: %s", buf.String())
 	}
 }
 

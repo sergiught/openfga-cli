@@ -168,10 +168,23 @@ func main() {
 // to the cancellation.
 func reportCanceled(w io.Writer, err error) {
 	output.Errorf(w, "canceled")
-	var partial *clierr.PartialResult
-	if errors.As(err, &partial) {
-		output.Hintf(w, "%s", partial.Error())
+	if report := partialReport(err); report != "" {
+		output.Hintf(w, "%s", report)
 	}
+}
+
+// partialReport returns the "N of M committed" detail a clierr.PartialResult
+// carries, or "" without one. A Silent error inside it reports its summary,
+// since its own message is only a placeholder.
+func partialReport(err error) string {
+	var partial *clierr.PartialResult
+	if !errors.As(err, &partial) {
+		return ""
+	}
+	if s := clierr.SilentSummary(partial); s != "" {
+		return s
+	}
+	return partial.Error()
 }
 
 func profileWriter(w io.Writer, noColor bool) *colorprofile.Writer {
@@ -299,40 +312,62 @@ func logLevel(args []string) log.Level {
 // (--json, --yaml, --jq, or -o/--output json|yaml). It is the fallback for
 // failures that happen before cobra has resolved the output flags: a mistyped
 // command, an unknown flag, a config that will not load. --plain and
-// -o plain|table always win, as they do in resolveOutput.
+// the last -o wins and is authoritative, as it is in resolveOutput.
 func machineOutputFromArgs(args []string) bool {
-	if boolFlagFromArgs(args, "--plain") {
-		return false
-	}
-	machine := boolFlagFromArgs(args, "--json") || boolFlagFromArgs(args, "--yaml")
+	var value string
+	jq := false
 	for i, arg := range args {
 		if arg == "--" {
 			break
 		}
-		var value string
+		next := ""
+		if i+1 < len(args) {
+			next = args[i+1]
+		}
 		switch {
-		case arg == "--jq" && i+1 < len(args), strings.HasPrefix(arg, "--jq="):
-			machine = true
-			continue
-		case arg == "-o" || arg == "--output":
-			if i+1 < len(args) {
-				value = args[i+1]
-			}
+		// A bare --jq with no value still asked for machine output.
+		case arg == "--jq", strings.HasPrefix(arg, "--jq="):
+			jq = true
+		case arg == "--output":
+			value = next
 		case strings.HasPrefix(arg, "--output="):
 			value = strings.TrimPrefix(arg, "--output=")
-		case strings.HasPrefix(arg, "-o") && !strings.HasPrefix(arg, "--"):
-			value = strings.TrimPrefix(strings.TrimPrefix(arg, "-o"), "=")
-		default:
-			continue
-		}
-		switch value {
-		case "json", "yaml":
-			machine = true
-		case "plain", "table":
-			return false
+		case len(arg) > 1 && arg[0] == '-' && arg[1] != '-':
+			if v, ok := shorthandOutput(arg[1:], next); ok {
+				value = v
+			}
 		}
 	}
-	return machine
+	switch value {
+	case "json", "yaml":
+		return true
+	case "plain", "table":
+		return false
+	}
+	if boolFlagFromArgs(args, "--plain") {
+		return false
+	}
+	return jq || boolFlagFromArgs(args, "--json") || boolFlagFromArgs(args, "--yaml")
+}
+
+// shorthandOutput finds -o in a shorthand cluster such as "qojson" or "qo"
+// (whose value is next). A value-taking shorthand before it swallows the rest
+// of the cluster, so "pojson" is --profile=ojson.
+func shorthandOutput(cluster, next string) (string, bool) {
+	for i := range len(cluster) {
+		c := cluster[i]
+		if c == 'o' {
+			rest := strings.TrimPrefix(cluster[i+1:], "=")
+			if rest == "" {
+				return next, true
+			}
+			return rest, true
+		}
+		if strings.IndexByte(valueShorthands, c) >= 0 {
+			return "", false
+		}
+	}
+	return "", false
 }
 
 // reportMachineError writes err to w as the one-line JSON error envelope.
@@ -345,9 +380,8 @@ func reportMachineError(w io.Writer, err error, code int, cmdPath string, cancel
 	case canceled:
 		body.Code = clierr.KindCanceled
 		body.Message = "canceled"
-		var partial *clierr.PartialResult
-		if errors.As(err, &partial) {
-			body.Message = "canceled: " + partial.Error()
+		if report := partialReport(err); report != "" {
+			body.Message = "canceled: " + report
 		}
 	case code == clierr.CodeUsage:
 		if !clierr.HasKind(err) {
