@@ -3,7 +3,10 @@ package model
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
+
+	"github.com/sergiught/openfga-cli/internal/output"
 )
 
 // TestTestSchemaCmdPrintsValidJSON verifies `model test schema` writes the
@@ -24,5 +27,26 @@ func TestTestSchemaCmdPrintsValidJSON(t *testing.T) {
 	}
 	if _, ok := doc["$schema"]; !ok {
 		t.Fatalf("schema output missing $schema key: %s", out.String())
+	}
+}
+
+// Under -o jsonl and agent-mode compaction the schema is one compact line,
+// like every other command's JSON output.
+func TestTestSchemaCmdIsOneLineWhenCompact(t *testing.T) {
+	for name, set := range map[string]*bool{"jsonl": &output.JSONL, "compact": &output.Compact} {
+		t.Run(name, func(t *testing.T) {
+			defer func(v bool) { *set = v }(*set)
+			*set = true
+			cmd := (&Command{}).testSchemaCmd()
+			var out bytes.Buffer
+			cmd.SetOut(&out)
+			if err := cmd.RunE(cmd, nil); err != nil {
+				t.Fatal(err)
+			}
+			line := strings.TrimSuffix(out.String(), "\n")
+			if strings.Contains(line, "\n") || !json.Valid([]byte(line)) {
+				t.Fatalf("want one line of JSON, got %d lines", strings.Count(out.String(), "\n"))
+			}
+		})
 	}
 }
