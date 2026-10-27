@@ -15,8 +15,10 @@ Agent mode gives compact one-line JSON, turns prompts and color off, and drops
 success chatter. It turns on by itself when `CLAUDECODE=1` is set. Otherwise
 ask for it with `--agent` or `OPENFGA_AGENT_MODE=1`.
 
-If you cannot use agent mode, pass `--json --no-input` on every call. Never
-start the TUI: a bare `ofga` and `ofga playground` refuse to run in agent mode.
+If you cannot use agent mode, pass `--json --no-input --quiet` on every call.
+That is the closest equivalent; output is still pretty-printed and color is not
+forced off. Never start the TUI: a bare `ofga` and `ofga playground` refuse to
+run in agent mode.
 
 ```bash
 ofga stores list --agent
@@ -72,7 +74,7 @@ changes nothing:
 ofga tuples write user:anne viewer document:roadmap --dry-run
 ofga tuples write --file tuples.json --dry-run
 ofga model write --file model.fga --dry-run
-ofga stores create --dry-run
+ofga stores create my-store --dry-run
 ```
 
 Read the preview, then repeat the same command without the flag.

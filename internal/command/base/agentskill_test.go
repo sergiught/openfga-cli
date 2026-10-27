@@ -47,6 +47,62 @@ func skillSpans(body string) []string {
 	return spans
 }
 
+// fencedSpans returns the command lines of body's fenced code blocks, cut at
+// shell separators.
+func fencedSpans(body string) []string {
+	var spans []string
+	inFence := false
+	for _, line := range strings.Split(body, "\n") {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "```") {
+			inFence = !inFence
+			continue
+		}
+		if !inFence || strings.HasPrefix(t, "#") {
+			continue
+		}
+		for _, sep := range []string{"|", "&&", ";"} {
+			t, _, _ = strings.Cut(t, sep)
+		}
+		spans = append(spans, t)
+	}
+	return spans
+}
+
+// scanSkillArity reports every fenced ofga example whose positional words
+// (those after the command path, up to the first flag) its command rejects.
+func scanSkillArity(root *cobra.Command, body string) []string {
+	var misses []string
+	for _, span := range fencedSpans(body) {
+		toks := strings.Fields(span)
+		if len(toks) == 0 || toks[0] != "ofga" {
+			continue
+		}
+		cmd, rest := root, toks[1:]
+		for len(rest) > 0 && wordRE.MatchString(rest[0]) {
+			sub := subcommand(cmd, rest[0])
+			if sub == nil {
+				break
+			}
+			cmd, rest = sub, rest[1:]
+		}
+		var pos []string
+		for _, a := range rest {
+			if strings.HasPrefix(a, "-") {
+				break
+			}
+			pos = append(pos, a)
+		}
+		if cmd.Args == nil {
+			continue
+		}
+		if err := cmd.Args(cmd, pos); err != nil {
+			misses = append(misses, "bad arguments in `"+span+"`: "+err.Error())
+		}
+	}
+	return misses
+}
+
 func subcommand(parent *cobra.Command, name string) *cobra.Command {
 	for _, c := range parent.Commands() {
 		if c.Name() == name || c.HasAlias(name) {
@@ -120,7 +176,8 @@ func scanSkill(root *cobra.Command, body string) []string {
 
 func TestSkillMentionsOnlyRealCommandsAndFlags(t *testing.T) {
 	root := metaRoot(t).Command()
-	if misses := scanSkill(root, string(agentskill.Content())); len(misses) > 0 {
+	body := string(agentskill.Content())
+	if misses := append(scanSkill(root, body), scanSkillArity(root, body)...); len(misses) > 0 {
 		t.Fatalf("SKILL.md names things ofga does not have:\n  %s", strings.Join(misses, "\n  "))
 	}
 }
@@ -136,5 +193,14 @@ func TestScanSkillCatchesBadTokens(t *testing.T) {
 	}
 	if strings.Contains(got, "unknown flag --dry-run") || strings.Contains(got, "unknown flag --json") {
 		t.Errorf("valid flags reported:\n%s", got)
+	}
+}
+
+func TestScanSkillArityCatchesMissingPositional(t *testing.T) {
+	root := metaRoot(t).Command()
+	body := "```\nofga stores create --dry-run\nofga stores create my-store --dry-run\nofga stores list --json | jq .\n```\n"
+	got := scanSkillArity(root, body)
+	if len(got) != 1 || !strings.Contains(got[0], "ofga stores create --dry-run") {
+		t.Errorf("want exactly the arg-less create reported, got %v", got)
 	}
 }

@@ -5,17 +5,17 @@ sidebar:
   order: 11
 ---
 
-`ofga` is built to be driven by coding agents such as Claude Code or Gemini CLI as well as by people. This page collects what an agent needs; the [scripting guide](/guide/scripting/) has the full detail on each piece.
+`ofga` is built to be driven by coding agents such as Claude Code or Gemini CLI as well as by people. This page collects what an agent needs; the [scripting guide](../scripting/) has the full detail on each piece.
 
 ## Agent mode
 
-Agent mode makes `ofga` default to compact one-line JSON, turns off prompts and color, and drops success messages, so an agent never waits on a human. It turns on when you pass `--agent`, set `OPENFGA_AGENT_MODE=1`, or run inside a detected agent (`CLAUDECODE=1`, `GEMINI_CLI=1`). See [Agent mode](/guide/scripting/#agent-mode) for the exact rules and how to opt out.
+Agent mode makes `ofga` default to compact one-line JSON, turns off prompts and color, and drops success messages, so an agent never waits on a human. It turns on when you pass `--agent`, set `OPENFGA_AGENT_MODE=1`, or run inside a detected agent (`CLAUDECODE=1`, `GEMINI_CLI=1`). See [Agent mode](../scripting/#agent-mode) for the exact rules and how to opt out.
 
 ```bash
 ofga stores list --agent
 ```
 
-Without agent mode, the same behavior is `--json --no-input`.
+Without agent mode, the closest equivalent is `--json --no-input --quiet`. It still differs: output is pretty-printed rather than compact, and color is not forced off.
 
 ## Errors an agent can branch on
 
@@ -25,7 +25,7 @@ With `--json`, `-o json|jsonl|yaml` or agent mode, a failing command writes exac
 {"error":{"code":"not_found","message":"...","status":404,"hint":"...","details":[]}}
 ```
 
-Branch on `code`, which is stable. The [error codes table](/guide/scripting/#errors-as-json) lists every code, when it appears and its exit code. Exit codes keep their meaning: 0 success, 1 error, 2 usage, 3 test failure, 4 network, 130 canceled. A destructive command run without `--force` fails with `confirmation_required` rather than waiting for an answer.
+Branch on `code`, which is stable. The [error codes table](../scripting/#errors-as-json) lists every code, when it appears and its exit code. Exit codes keep their meaning: 0 success, 1 error, 2 usage, 3 test failure, 4 network, 130 canceled. A destructive command run without `--force` fails with `confirmation_required` rather than waiting for an answer.
 
 ## Discovering commands
 
@@ -45,7 +45,7 @@ ofga tuples read -o jsonl --max-results 10000
 
 ## Output schemas
 
-Every machine-readable command has a published JSON Schema, linked from `ofga commands`. See [Output schemas](/guide/output-schemas/).
+Every machine-readable command has a published JSON Schema, linked from `ofga commands`. See [Output schemas](../output-schemas/).
 
 ## Searching the OpenFGA docs
 
