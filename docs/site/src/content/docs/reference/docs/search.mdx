@@ -1,0 +1,62 @@
+---
+title: "ofga docs search"
+description: "Search the OpenFGA docs"
+sidebar:
+  order: 100
+---
+
+Search the OpenFGA documentation. Queries are sent to openfga.dev.
+
+## Usage
+
+```sh
+ofga docs search <query...> [flags]
+```
+
+## Examples
+
+```sh
+  ofga docs search contextual tuples
+  ofga docs search "conditions" --max-results 3
+  ofga docs search modeling roles --json
+```
+
+## Flags
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--max-results` | maximum number of results | `5` |
+
+<details>
+<summary>Global flags</summary>
+
+```
+      --agent                            agent mode: compact JSON, no prompts, no color, no success chatter (also OPENFGA_AGENT_MODE=1)
+      --api-url string                   OpenFGA API URL (overrides profile/env)
+      --auth-client-secret-file string   read the process-scoped OAuth client secret from a file
+      --auth-private-key-file string     read the process-scoped private-key JWT signing key from a file
+      --auth-token-file string           read the process-scoped API token from a file
+      --config string                    path to the config file (overrides OPENFGA_CONFIG)
+  -d, --debug                            enable debug logging
+      --header stringArray               extra request header as 'Name: value' (repeatable; adds to the profile's headers)
+      --jq string                        filter machine-readable output through this jq expression (implies -o json)
+      --json                             output machine-readable JSON (alias for --output json)
+      --model-id string                  authorization model ID (overrides profile/env)
+      --no-color                         disable colored output
+      --no-input                         never prompt or launch the interactive TUI
+  -o, --output string                    output format: json, jsonl, yaml, plain or table (takes precedence over --json/--yaml/--plain)
+      --plain                            output unstyled, tab-separated rows (alias for --output plain)
+  -p, --profile string                   configuration profile to use
+  -q, --quiet                            suppress incidental output
+      --store-id string                  store ID (overrides profile/env)
+      --theme string                     color theme (aurora, catppuccin, charm, dracula, gruvbox, nord, tokyonight, mono)
+      --timeout duration                 per-request timeout (0 disables) (default 30s)
+  -v, --verbose                          alias for --debug
+      --yaml                             output machine-readable YAML (alias for --output yaml)
+```
+
+</details>
+
+## Related
+
+- [ofga docs show](../show/)

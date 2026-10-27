@@ -228,6 +228,12 @@ func friendlyParts(err error) (headline, hint, cause string) {
 		return "authentication failed at the OAuth token endpoint — check client_secret, token_url, and audience.",
 			"", err.Error()
 	}
+	// An error that already explains itself (a failure reaching something other
+	// than the OpenFGA server, e.g. openfga.dev) must not get the server hint.
+	var own interface{ FriendlyAsIs() }
+	if errors.As(err, &own) {
+		return err.Error(), "", ""
+	}
 	if IsConnErr(err) {
 		if connToTokenEndpoint(err) {
 			return "cannot reach the OAuth token endpoint. Is it running, and is token_url correct?",
