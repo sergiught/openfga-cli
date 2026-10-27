@@ -322,7 +322,7 @@ func logLevel(args []string) log.Level {
 }
 
 // machineOutputFromArgs reports whether raw argv selects machine output
-// (--json, --yaml, --jq, or -o/--output json|yaml). It is the fallback for
+// (--json, --yaml, --jq, or -o/--output json|jsonl|yaml). It is the fallback for
 // failures that happen before cobra has resolved the output flags: a mistyped
 // command, an unknown flag, a config that will not load. The last -o wins and
 // is authoritative over --plain, as it is in resolveOutput.
@@ -363,7 +363,7 @@ func machineOutputFromArgs(root *cobra.Command, args []string) bool {
 		return v
 	}
 	switch value("output") {
-	case "json", "yaml":
+	case "json", "jsonl", "yaml":
 		return true
 	case "plain", "table":
 		return false

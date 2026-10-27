@@ -33,7 +33,7 @@ ofga tuples read [flags]
 | `--limit` | alias for --max-results | `0` |
 | `--max-results` | cap the total number of tuples returned (0 = unbounded) | `0` |
 | `--object` | filter by object |   |
-| `--output-file` | write tuples to this file instead of stdout (JSON unless --yaml/--plain) |   |
+| `--output-file` | write tuples to this file instead of stdout, in the selected output format |   |
 | `--page-size` | per-request page size (0 = server default; not a total cap) | `50` |
 | `--relation` | filter by relation |   |
 | `--user` | filter by user |   |
@@ -54,7 +54,7 @@ ofga tuples read [flags]
       --model-id string                  authorization model ID (overrides profile/env)
       --no-color                         disable colored output
       --no-input                         never prompt or launch the interactive TUI
-  -o, --output string                    output format: json, yaml, plain or table (takes precedence over --json/--yaml/--plain)
+  -o, --output string                    output format: json, jsonl, yaml, plain or table (takes precedence over --json/--yaml/--plain)
       --plain                            output unstyled, tab-separated rows (alias for --output plain)
   -p, --profile string                   configuration profile to use
   -q, --quiet                            suppress incidental output

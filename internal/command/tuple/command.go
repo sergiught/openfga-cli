@@ -444,7 +444,7 @@ func (c *Command) readCmd() *cobra.Command {
 	f.IntVar(&pageSize, "page-size", 50, "per-request page size (0 = server default; not a total cap)")
 	f.IntVar(&maxResults, "max-results", 0, "cap the total number of tuples returned (0 = unbounded)")
 	f.IntVar(&maxResults, "limit", 0, "alias for --max-results")
-	f.StringVar(&outputFile, "output-file", "", "write tuples to this file instead of stdout (JSON unless --yaml/--plain)")
+	f.StringVar(&outputFile, "output-file", "", "write tuples to this file instead of stdout, in the selected output format")
 	_ = cmd.MarkFlagFilename("output-file")
 	cli.RegisterConsistencyFlag(cmd, &fConsistency)
 	return cmd

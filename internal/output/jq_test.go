@@ -137,3 +137,36 @@ func TestStreamerUnderJQMatchesEmit(t *testing.T) {
 		}
 	}
 }
+
+// -o jsonl --jq keeps jsonl, but the filter must still see the whole document,
+// not just the first line JSON() would write for a top-level array.
+func TestJQSeesWholeDocumentUnderJSONL(t *testing.T) {
+	defer func(j string) { JQ = j }(JQ)
+	JSONL = true
+	t.Cleanup(func() { JSONL = false })
+
+	tests := []struct {
+		name, filter string
+		v            any
+		want         string
+	}{
+		{"length", "length", []int{1, 2, 3}, "3\n"},
+		{"empty length", "length", []int{}, "0\n"},
+		{"nil length", "length", []int(nil), "0\n"},
+		{"first", ".[0]", []int{7, 8}, "7\n"},
+		{"each", ".[]", []map[string]int{{"a": 1}, {"a": 2}}, "{\"a\":1}\n{\"a\":2}\n"},
+		{"array result stays one line", "[.[]]", []int{1, 2}, "[1,2]\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			JQ = tt.filter
+			var buf bytes.Buffer
+			if err := Emit(&buf, false, tt.v); err != nil {
+				t.Fatal(err)
+			}
+			if buf.String() != tt.want {
+				t.Errorf("got %q, want %q", buf.String(), tt.want)
+			}
+		})
+	}
+}

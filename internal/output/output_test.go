@@ -350,3 +350,44 @@ func TestStyledPrintersKeepDeliberateStylingButNotActions(t *testing.T) {
 		})
 	}
 }
+
+func withJSONL(t *testing.T) {
+	t.Helper()
+	JSONL = true
+	t.Cleanup(func() { JSONL = false })
+}
+
+func TestJSONLArrayOneElementPerLine(t *testing.T) {
+	withJSONL(t)
+	var buf bytes.Buffer
+	if err := JSON(&buf, []map[string]int{{"a": 1}, {"a": 2}}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := buf.String(), "{\"a\":1}\n{\"a\":2}\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestJSONLEmptyArrayWritesNothing(t *testing.T) {
+	withJSONL(t)
+	for name, v := range map[string]any{"empty": []int{}, "nil": []int(nil)} {
+		var buf bytes.Buffer
+		if err := JSON(&buf, v); err != nil {
+			t.Fatal(err)
+		}
+		if buf.String() != "" {
+			t.Errorf("%s: got %q, want nothing", name, buf.String())
+		}
+	}
+}
+
+func TestJSONLObjectIsOneLine(t *testing.T) {
+	withJSONL(t)
+	var buf bytes.Buffer
+	if err := JSON(&buf, map[string]any{"a": []int{1, 2}}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := buf.String(), "{\"a\":[1,2]}\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

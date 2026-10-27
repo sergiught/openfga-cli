@@ -129,3 +129,28 @@ func TestResolveOutputRejectsInvalidJQ(t *testing.T) {
 		t.Fatal("an invalid --jq filter should be rejected")
 	}
 }
+
+func TestOutputJSONLResolves(t *testing.T) {
+	t.Cleanup(func() { output.JSONL = false })
+	a := cli.New(log.New(io.Discard), config.New(), "test")
+	c := New(a)
+	a.Output = "jsonl" // after New, whose flag registration resets the default
+	if err := c.resolveOutput(); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.applyEnvironment(); err != nil {
+		t.Fatal(err)
+	}
+	if !a.JSON || a.YAML || !output.JSONL {
+		t.Fatalf("want JSON && !YAML && JSONL, got JSON:%v YAML:%v JSONL:%v", a.JSON, a.YAML, output.JSONL)
+	}
+}
+
+func TestOutputCompletionIncludesJSONL(t *testing.T) {
+	root := New(cli.New(log.New(io.Discard), config.New(), "test")).Command()
+	vals, _ := root.GetFlagCompletionFunc("output")
+	got, _ := vals(root, nil, "")
+	if strings.Join(got, ",") != "json,jsonl,yaml,plain,table" {
+		t.Errorf("completion = %v", got)
+	}
+}

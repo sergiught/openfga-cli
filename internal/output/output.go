@@ -29,6 +29,9 @@ var (
 	// redirected), Table drops its box-drawing frame so the rows stay
 	// grep/awk-friendly, mirroring how color is stripped for non-TTY output.
 	Interactive bool
+	// JSONL renders JSON as one compact value per line (-o jsonl): a top-level
+	// array becomes one line per element.
+	JSONL bool
 )
 
 // JSON writes v as indented JSON to w. A typed nil slice (e.g. `var x []T` with
@@ -39,10 +42,75 @@ func JSON(w io.Writer, v any) error {
 	if rv := reflect.ValueOf(v); rv.Kind() == reflect.Slice && rv.IsNil() {
 		v = reflect.MakeSlice(rv.Type(), 0, 0).Interface()
 	}
+	if JSONL {
+		return jsonLines(w, v)
+	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	enc.SetEscapeHTML(false)
 	return enc.Encode(v)
+}
+
+// jsonLines writes v compactly: each element of a top-level array on its own
+// line (nothing for an empty or nil array), anything else as a single line.
+func jsonLines(w io.Writer, v any) error {
+	raw, err := compactJSON(v)
+	if err != nil {
+		return err
+	}
+	return writeRecords(w, raw)
+}
+
+// RawJSONLines writes the bytes of a JSON document as -o jsonl records, the way
+// jsonLines renders a value. Working on the bytes rather than a decoded value
+// keeps the document's numbers and key order exactly as they were.
+func RawJSONLines(w io.Writer, data []byte) error {
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, data); err != nil {
+		return err
+	}
+	return writeRecords(w, buf.Bytes())
+}
+
+// writeRecords writes compact JSON as one line, or one line per element when it
+// is an array.
+func writeRecords(w io.Writer, raw []byte) error {
+	// The input is already compact, so elements go out as-is.
+	lines := []json.RawMessage{raw}
+	if len(raw) > 0 && raw[0] == '[' {
+		lines = nil
+		if err := json.Unmarshal(raw, &lines); err != nil {
+			return err
+		}
+	}
+	var out bytes.Buffer
+	for _, l := range lines {
+		out.Write(l)
+		out.WriteByte('\n')
+	}
+	_, err := w.Write(out.Bytes())
+	return err
+}
+
+// jsonLine writes v as exactly one compact line, arrays included.
+func jsonLine(w io.Writer, v any) error {
+	raw, err := compactJSON(v)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(append(raw, '\n'))
+	return err
+}
+
+// compactJSON encodes v on one line without HTML escaping.
+func compactJSON(v any) ([]byte, error) {
+	var enc bytes.Buffer
+	e := json.NewEncoder(&enc)
+	e.SetEscapeHTML(false)
+	if err := e.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSpace(enc.Bytes()), nil
 }
 
 // YAML writes v as YAML to w. v is round-tripped through JSON first so field

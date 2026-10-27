@@ -268,3 +268,44 @@ func TestReadPlainStreamsOneRecordPerTuple(t *testing.T) {
 		}
 	}
 }
+
+// -o jsonl output of `tuples read` is directly re-runnable as `tuples write
+// --file`: the round trip must preserve every key.
+func TestTuplesReadJSONLRoundTrips(t *testing.T) {
+	output.JSONL = true
+	t.Cleanup(func() { output.JSONL = false })
+	srv := tupleServer(t, 3, 10)
+	a := newHumanTupleCLI(t, srv.URL)
+	a.JSON = true
+	rd := New(a).readCmd()
+	rd.SetArgs(nil)
+	out, _ := silenced(rd)
+	if err := rd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n"); len(lines) != 3 {
+		t.Fatalf("want 3 lines, got %d:\n%s", len(lines), out.String())
+	}
+	output.JSONL = false
+
+	p := filepath.Join(t.TempDir(), "t.jsonl")
+	if err := os.WriteFile(p, []byte(out.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rec, apiURL := newWriteRecorder(t)
+	wr := New(newHumanTupleCLI(t, apiURL)).writeCmd()
+	wr.SetArgs([]string{"--file", p})
+	silenced(wr)
+	if err := wr.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var written []string
+	for _, req := range rec.decoded(t) {
+		for _, k := range req.Writes.TupleKeys {
+			written = append(written, k.Object)
+		}
+	}
+	if strings.Join(written, ",") != "doc:0,doc:1,doc:2" {
+		t.Errorf("written objects = %v", written)
+	}
+}

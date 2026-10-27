@@ -145,7 +145,7 @@ func TestMachineOutputFromArgs(t *testing.T) {
 	}{
 		{[]string{"stores", "list", "--json"}, true}, {[]string{"-o", "json"}, true}, {[]string{"-ojson"}, true},
 		{[]string{"--output=yaml"}, true}, {[]string{"-o=json"}, true}, {[]string{"--jq", ".a"}, true},
-		{[]string{"--jq=.a"}, true}, {[]string{"-o", "table"}, false}, {[]string{"--json", "--plain"}, false},
+		{[]string{"--jq=.a"}, true}, {[]string{"-o", "jsonl"}, true}, {[]string{"-o", "table"}, false}, {[]string{"--json", "--plain"}, false},
 		{[]string{"--", "--json"}, false}, {[]string{"stores", "list"}, false}, {nil, false},
 		// The last -o wins, as it does for pflag.
 		{[]string{"-o", "table", "-o", "json"}, true}, {[]string{"-o", "json", "--output=table"}, false},

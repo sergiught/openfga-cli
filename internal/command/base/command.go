@@ -171,7 +171,7 @@ source <(ofga completion bash)`,
 	pf.StringVar(&cli.APITokenFile, "auth-token-file", "", "read the process-scoped API token from a file")
 	pf.StringVar(&cli.ClientSecretFile, "auth-client-secret-file", "", "read the process-scoped OAuth client secret from a file")
 	pf.StringVar(&cli.PrivateKeyFile, "auth-private-key-file", "", "read the process-scoped private-key JWT signing key from a file")
-	pf.StringVarP(&cli.Output, "output", "o", "", "output format: json, yaml, plain or table (takes precedence over --json/--yaml/--plain)")
+	pf.StringVarP(&cli.Output, "output", "o", "", "output format: json, jsonl, yaml, plain or table (takes precedence over --json/--yaml/--plain)")
 	pf.BoolVar(&cli.JSON, "json", false, "output machine-readable JSON (alias for --output json)")
 	pf.BoolVar(&cli.YAML, "yaml", false, "output machine-readable YAML (alias for --output yaml)")
 	pf.BoolVar(&cli.Plain, "plain", cli.Plain, "output unstyled, tab-separated rows (alias for --output plain)")
@@ -190,7 +190,7 @@ source <(ofga completion bash)`,
 	_ = c.cmd.RegisterFlagCompletionFunc("store-id", c.completeStores)
 	_ = c.cmd.RegisterFlagCompletionFunc("model-id", c.completeModels)
 	_ = c.cmd.RegisterFlagCompletionFunc("output", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-		return []string{"json", "yaml", "plain", "table"}, cobra.ShellCompDirectiveNoFileComp
+		return []string{"json", "jsonl", "yaml", "plain", "table"}, cobra.ShellCompDirectiveNoFileComp
 	})
 	_ = c.cmd.RegisterFlagCompletionFunc("theme",
 		cobra.FixedCompletions(theme.Names(), cobra.ShellCompDirectiveNoFileComp))
@@ -303,10 +303,12 @@ func (c *Command) resolveOutput() error {
 			}
 		}
 		if selected > 1 {
-			return fmt.Errorf("cannot combine --json, --yaml, and --plain; pick one (or use -o json|yaml|plain|table)")
+			return fmt.Errorf("cannot combine --json, --yaml, and --plain; pick one (or use -o json|jsonl|yaml|plain|table)")
 		}
 		return nil
 	case "json":
+		c.cli.JSON, c.cli.YAML, c.cli.Plain = true, false, false
+	case "jsonl":
 		c.cli.JSON, c.cli.YAML, c.cli.Plain = true, false, false
 	case "yaml":
 		c.cli.JSON, c.cli.YAML, c.cli.Plain = false, true, false
@@ -315,7 +317,7 @@ func (c *Command) resolveOutput() error {
 	case "table":
 		c.cli.JSON, c.cli.YAML, c.cli.Plain = false, false, false
 	default:
-		return fmt.Errorf("invalid --output %q: want json, yaml, plain or table", c.cli.Output)
+		return fmt.Errorf("invalid --output %q: want json, jsonl, yaml, plain or table", c.cli.Output)
 	}
 	return nil
 }
@@ -324,6 +326,7 @@ func (c *Command) applyEnvironment() error {
 	a := c.cli
 	output.Quiet = a.Quiet
 	output.Plain = a.Plain
+	output.JSONL = a.Output == "jsonl"
 	output.Interactive = term.IsTerminal(os.Stdout.Fd())
 
 	// --plain is an explicit machine-output mode: always unstyled and

@@ -149,8 +149,8 @@ func validatePath(path string) error {
 
 // write emits the response body: filtered when --jq is set, otherwise raw
 // under --json and --plain (for stable, machine-safe piping), converted to
-// YAML under --output yaml, and pretty-printed JSON for the default human
-// presentation.
+// YAML under --output yaml, one record per line under --output jsonl, and
+// pretty-printed JSON for the default human presentation.
 func (c *Command) write(w io.Writer, data []byte) error {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil
@@ -175,6 +175,11 @@ func (c *Command) write(w io.Writer, data []byte) error {
 			return err
 		}
 		return output.YAML(w, generic)
+	}
+	// Under -o jsonl a JSON body becomes records like any other command's
+	// output; anything else is written as-is, as it is for YAML.
+	if output.JSONL && json.Valid(data) {
+		return output.RawJSONLines(w, data)
 	}
 	if !c.cli.JSON && !c.cli.Plain {
 		var buf bytes.Buffer
