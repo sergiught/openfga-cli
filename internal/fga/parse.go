@@ -27,7 +27,9 @@ func DecodeStrictJSON(data []byte, v any) error {
 	if err := dec.Decode(v); err != nil {
 		return err
 	}
-	if dec.More() {
+	// More() misses a stray closing bracket, so require the rest to be
+	// whitespace only.
+	if len(bytes.TrimSpace(data[dec.InputOffset():])) > 0 {
 		return errors.New("unexpected trailing data after JSON value")
 	}
 	return nil

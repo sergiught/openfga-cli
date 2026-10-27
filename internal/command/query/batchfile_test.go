@@ -202,6 +202,19 @@ func TestBatchCheckFileDecodeErrorsJoinOtherProblems(t *testing.T) {
 	}
 }
 
+// A JSONL record with a stray closing bracket is malformed, not a check.
+func TestBatchCheckFileJSONLTrailingBracketRejected(t *testing.T) {
+	srv, bodies := batchRecorder(t)
+	file := writeBatchFile(t, "c.jsonl", `{"user":"user:a","relation":"viewer","object":"doc:1"}]`+"\n")
+	_, err := runBatch(t, srv.URL, "", "--file", file)
+	if clierr.Code(err) != clierr.CodeUsage || clierr.NewEnvelope(err).Error.Code != clierr.KindValidation {
+		t.Fatalf("err = %v (code %d), want a validation error", err, clierr.Code(err))
+	}
+	if len(bodies()) != 0 {
+		t.Error("no request may be sent")
+	}
+}
+
 func TestBatchCheckFileDuplicateCorrelationID(t *testing.T) {
 	srv, bodies := batchRecorder(t)
 	file := writeBatchFile(t, "c.json", `[{"user":"user:a","relation":"v","object":"doc:1","correlation_id":"x"},{"user":"user:b","relation":"v","object":"doc:2","correlation_id":"x"}]`)
