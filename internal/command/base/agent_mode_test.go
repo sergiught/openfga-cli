@@ -238,3 +238,12 @@ func TestAgentModeHelpHasNoColorEvenWhenForced(t *testing.T) {
 		t.Fatalf("forced color without agent mode emitted no ANSI, so the test proves nothing: %q", out)
 	}
 }
+
+// A flag-looking value another flag consumes is not an agent-mode opt-out, so
+// a failure before cobra parses flags still gets the envelope.
+func TestAgentModeOptOutLookalikeValueKeepsEnvelope(t *testing.T) {
+	_, errb, code := runOfga(t, t.TempDir(), "", []string{"CLAUDECODE=1"}, "--profile", "--agent=false", "nosuchcmd")
+	if code != clierr.CodeUsage || !json.Valid([]byte(errb)) || !strings.Contains(errb, `"code":"usage"`) {
+		t.Fatalf("code=%d err=%q", code, errb)
+	}
+}

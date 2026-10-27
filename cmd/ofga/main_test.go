@@ -183,7 +183,7 @@ func TestMachineOutputFromArgs(t *testing.T) {
 	}
 }
 
-func TestBoolFlagState(t *testing.T) {
+func TestAgentFlagFromArgs(t *testing.T) {
 	yes, no := true, false
 	tests := []struct {
 		args []string
@@ -192,13 +192,21 @@ func TestBoolFlagState(t *testing.T) {
 		{[]string{"stores", "list"}, nil},
 		{[]string{"--agent"}, &yes},
 		{[]string{"--agent=false"}, &no},
+		{[]string{"--agent", "--agent=false"}, &no},
 		{[]string{"--agent", "--"}, &yes},
 		{[]string{"--", "--agent"}, nil},
+		{[]string{"stores", "list", "--agent=bogus"}, nil},
+		// A value another flag consumes is not the --agent flag.
+		{[]string{"--profile", "--agent=false", "nosuchcmd"}, nil},
+		{[]string{"stores", "list", "--jq", "--agent"}, nil},
+		// Unknown commands and flags still leave --agent readable.
+		{[]string{"stors", "--bogus", "--agent=false"}, &no},
 	}
+	root := scanRoot()
 	for _, tt := range tests {
-		got := boolFlagState(tt.args, "--agent")
+		got := agentFlagFromArgs(root, tt.args)
 		if (got == nil) != (tt.want == nil) || (got != nil && *got != *tt.want) {
-			t.Errorf("boolFlagState(%q) = %v, want %v", tt.args, got, tt.want)
+			t.Errorf("agentFlagFromArgs(%q) = %v, want %v", tt.args, got, tt.want)
 		}
 	}
 }
