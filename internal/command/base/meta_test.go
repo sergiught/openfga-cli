@@ -67,7 +67,7 @@ func TestMetaSpotChecks(t *testing.T) {
 
 func TestEnumFlagsAnnotated(t *testing.T) {
 	root := metaRoot(t).Command()
-	if got := cmdmeta.Enum(root.PersistentFlags().Lookup("output")); strings.Join(got, " ") != "json yaml plain table" {
+	if got := cmdmeta.Enum(root.PersistentFlags().Lookup("output")); strings.Join(got, " ") != "json jsonl yaml plain table" {
 		t.Errorf("-o enum = %v", got)
 	}
 	for _, tc := range []struct {
