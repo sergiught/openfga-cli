@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/x/term"
+	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/spf13/cobra"
 )
 
@@ -19,7 +20,9 @@ var ErrAborted = errors.New("aborted")
 
 // ErrNeedsForce is returned when a confirmation cannot be asked (no TTY) and
 // --force was not given.
-var ErrNeedsForce = errors.New("refusing to proceed without confirmation; pass --force to skip the prompt")
+var ErrNeedsForce = clierr.WithKind(clierr.KindConfirmationRequired,
+	clierr.WithHint("pass --force to skip the prompt",
+		errors.New("refusing to proceed without confirmation; pass --force to skip the prompt")))
 
 // interactive reports whether cmd's stdin is a terminal we can prompt on.
 func interactive(cmd *cobra.Command) bool {

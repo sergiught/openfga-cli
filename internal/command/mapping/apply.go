@@ -118,11 +118,11 @@ func (c *Command) runApply(cmd *cobra.Command, path, eventsPath string, fromEven
 		problemsOut = errw
 	}
 	if f == nil {
-		return failToLoad(problemsOut, path, problems)
+		return failToLoad(problemsOut, machine, path, problems)
 	}
 	m, diags, err := mapping.CompileSource(f.Src)
 	if err != nil {
-		return failToLoad(problemsOut, path, mapping.FindingsFrom(diags))
+		return failToLoad(problemsOut, machine, path, mapping.FindingsFrom(diags))
 	}
 	events, err := readEvents(cmd, eventsPath)
 	if err != nil {
@@ -206,7 +206,7 @@ func (c *Command) runApply(cmd *cobra.Command, path, eventsPath string, fromEven
 		if applied > 0 || fromEvent > 1 {
 			resume = resumeHint(cmd, eventsPath, resumeCommand(cmd, path, eventsPath, plan.Events[applied].Index, force))
 		}
-		return reportApplyFailure(ctx, errw, plan, applied, err, resume)
+		return reportApplyFailure(ctx, errw, machine, plan, applied, err, resume)
 	}
 	if err := emitApply(out, c.cli, res); err != nil {
 		return err
@@ -331,7 +331,7 @@ func stdinIsTerminal(cmd *cobra.Command) bool {
 // plan's events that landed; event numbers are the file's. A cancellation
 // hands its report to main (which prints "canceled" and the report as a hint);
 // any other failure is printed here, once.
-func reportApplyFailure(ctx context.Context, w io.Writer, plan *mapping.Plan, applied int, err error, resume string) error {
+func reportApplyFailure(ctx context.Context, w io.Writer, machine bool, plan *mapping.Plan, applied int, err error, resume string) error {
 	failed := plan.Events[applied].Index
 	msg := strings.TrimPrefix(err.Error(), fmt.Sprintf("event %d: ", failed))
 	done := mapping.AppliedSoFar(plan, applied)
@@ -348,17 +348,30 @@ func reportApplyFailure(ctx context.Context, w io.Writer, plan *mapping.Plan, ap
 		}
 		return clierr.WithPartialResult(canceledReport{text})
 	}
-	output.Errorf(w, "%s; event %d failed: %s", done, failed, msg)
+	summary := fmt.Sprintf("%s; event %d failed: %s", done, failed, msg)
+	var hints []string
 	if split {
-		output.Hintf(w, "event %d goes out in several requests and may be partly written", failed)
+		hints = append(hints, fmt.Sprintf("event %d goes out in several requests and may be partly written", failed))
 	}
-	for _, h := range applyHints(err) {
-		output.Hintf(w, "%s", h)
-	}
+	hints = append(hints, applyHints(err)...)
 	if resume != "" {
-		output.Hintf(w, "%s", resume)
+		hints = append(hints, resume)
 	}
-	return clierr.Silent(clierr.Code(err))
+	// Under machine output the error envelope main writes is the only thing on
+	// stderr; it carries the summary and hints above.
+	if !machine {
+		output.Errorf(w, "%s", summary)
+		for _, h := range hints {
+			output.Hintf(w, "%s", h)
+		}
+	}
+	// A lost server stays network even after some events landed: it is a
+	// retry, where a rejection partway through is not.
+	kind := clierr.Classify(err)
+	if applied > 0 && kind != clierr.KindNetwork {
+		kind = clierr.KindPartialFailure
+	}
+	return clierr.WithHint(strings.Join(hints, "; "), clierr.WithKind(kind, clierr.SilentCause(clierr.Code(err), summary, err)))
 }
 
 // applyHints explains a failed apply beyond its message: the friendly text

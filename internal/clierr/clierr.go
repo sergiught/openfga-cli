@@ -44,24 +44,50 @@ func WithCode(code int, err error) error {
 	return &Coded{C: code, Err: err}
 }
 
-// errSilent is the sentinel carried by Silent errors; its message is never
-// shown to the user (main exits early on IsSilent), so it only surfaces in
-// debug logs.
-var errSilent = errors.New("(handled)")
+// silentError is carried by Silent errors. Its message is never shown to the
+// user (main exits early on IsSilent), so Error only surfaces in debug logs;
+// summary is the one-line human summary the command already printed. cause,
+// when set, is the error behind it, kept so the envelope still finds its API
+// status and code.
+type silentError struct {
+	summary string
+	cause   error
+}
+
+func (e *silentError) Error() string { return "(handled)" }
+func (e *silentError) Unwrap() error { return e.cause }
 
 // Silent tags an exit code for a failure the command has already reported to
 // the user (e.g. a model-test "N/Total test(s) failed" summary line). main
 // honors the exit code but prints nothing further, so the summary is not
-// duplicated. Use WithCode instead when the error carries a message the user
-// still needs to see.
-func Silent(code int) error {
-	return &Coded{C: code, Err: errSilent}
+// duplicated. summary is that one-line human summary; it feeds the machine
+// error envelope. Use WithCode instead when the error carries a message the
+// user still needs to see.
+func Silent(code int, summary string) error {
+	return &Coded{C: code, Err: &silentError{summary: summary}}
+}
+
+// SilentCause is Silent for a failure caused by cause, which stays in the
+// chain so the machine error envelope can report its status and API code.
+func SilentCause(code int, summary string, cause error) error {
+	return &Coded{C: code, Err: &silentError{summary: summary, cause: cause}}
 }
 
 // IsSilent reports whether err is a Silent error whose message was already
 // surfaced to the user and should not be printed again.
 func IsSilent(err error) bool {
-	return errors.Is(err, errSilent)
+	var s *silentError
+	return errors.As(err, &s)
+}
+
+// SilentSummary returns the summary a Silent error carries, or "" if err is
+// not Silent.
+func SilentSummary(err error) string {
+	var s *silentError
+	if errors.As(err, &s) {
+		return s.summary
+	}
+	return ""
 }
 
 // PartialResult marks an error from an interrupted bulk operation (e.g. a
@@ -174,31 +200,43 @@ func Friendly(err error) string {
 	if err == nil {
 		return ""
 	}
+	headline, hint, cause := friendlyParts(err)
+	out := headline
+	if hint != "" {
+		out += "\n  " + hint
+	}
+	if cause != "" {
+		out += "\n  " + cause
+	}
+	return out
+}
+
+// friendlyParts splits Friendly's output into its headline, an optional
+// remediation hint line, and the underlying cause (empty when the error is
+// returned as-is).
+func friendlyParts(err error) (headline, hint, cause string) {
 	var authErr *openfga.AuthenticationError
 	if errors.As(err, &authErr) {
-		return "authentication failed — check your token or credentials with `ofga profiles show`.\n" +
-			"  the token may be expired, or the profile's auth method may be wrong.\n" +
-			"  " + err.Error()
+		return "authentication failed — check your token or credentials with `ofga profiles show`.",
+			"the token may be expired, or the profile's auth method may be wrong.", err.Error()
 	}
 	// A token-endpoint credential rejection reaches us wrapped inside the API
 	// request's url.Error (which implements net.Error), so it would otherwise be
 	// misreported as an unreachable API server. The endpoint was reached — the
 	// credentials were refused — so point the fix at token_url/client_secret.
 	if isTokenExchangeRejection(err) {
-		return "authentication failed at the OAuth token endpoint — check client_secret, token_url, and audience.\n" +
-			"  " + err.Error()
+		return "authentication failed at the OAuth token endpoint — check client_secret, token_url, and audience.",
+			"", err.Error()
 	}
 	if IsConnErr(err) {
 		if connToTokenEndpoint(err) {
-			return "cannot reach the OAuth token endpoint. Is it running, and is token_url correct?\n" +
-				"  set it with OPENFGA_TOKEN_URL or `ofga profiles set token_url <url>`\n" +
-				"  " + err.Error()
+			return "cannot reach the OAuth token endpoint. Is it running, and is token_url correct?",
+				"set it with OPENFGA_TOKEN_URL or `ofga profiles set token_url <url>`", err.Error()
 		}
-		return "cannot reach the OpenFGA server. Is it running, and is the API URL correct?\n" +
-			"  set the URL with OPENFGA_API_URL or `ofga profiles set api_url <url>`\n" +
-			"  " + err.Error()
+		return "cannot reach the OpenFGA server. Is it running, and is the API URL correct?",
+			"set the URL with OPENFGA_API_URL or `ofga profiles set api_url <url>`", err.Error()
 	}
-	return err.Error()
+	return err.Error(), "", ""
 }
 
 // isTokenExchangeRejection reports whether the OAuth token exchange itself was

@@ -76,19 +76,19 @@ func (c *Command) runTest(cmd *cobra.Command, path, filter string, failFast bool
 		return err
 	}
 	if f == nil {
-		return failToLoad(problemsOut, path, problems)
+		return failToLoad(problemsOut, machineOut, path, problems)
 	}
 	if len(f.Doc.Tests) == 0 {
 		// A file that does not compile says so before it says it has no tests.
 		if _, diags, err := mapping.CompileSource(f.Src); err != nil {
-			return failToLoad(problemsOut, path, mapping.FindingsFrom(diags))
+			return failToLoad(problemsOut, machineOut, path, mapping.FindingsFrom(diags))
 		}
 		return fmt.Errorf("no tests in %s: add a tests: block, or open it in 'ofga mappings %s' to save one per rule with a sample event", path, shellQuote(path))
 	}
 	res, err := mapping.RunTests(cmd.Context(), f, filter, failFast)
 	var le *mapping.LoadError
 	if errors.As(err, &le) {
-		return failToLoad(problemsOut, path, mapping.FindingsFrom(le.Diagnostics))
+		return failToLoad(problemsOut, machineOut, path, mapping.FindingsFrom(le.Diagnostics))
 	}
 	if err != nil {
 		return err
@@ -111,7 +111,11 @@ func (c *Command) runTest(cmd *cobra.Command, path, filter string, failFast bool
 	default:
 		printTestOutcomes(out, path, res)
 	}
-	printTestSummary(errw, res)
+	// Under machine output the error envelope is the only thing on stderr for
+	// a failing run; it carries the same summary.
+	if !machineOut || res.Failed() == 0 {
+		printTestSummary(errw, res)
+	}
 
 	if report != "" {
 		if err := writeTestReport(cmd, report, reportFile, results); err != nil {
@@ -119,17 +123,29 @@ func (c *Command) runTest(cmd *cobra.Command, path, filter string, failFast bool
 		}
 	}
 	if res.Failed() > 0 {
-		return clierr.Silent(clierr.CodeTestFailed)
+		return clierr.Silent(clierr.CodeTestFailed, testSummaryLine(res))
 	}
 	return nil
 }
 
-// failToLoad prints a file's findings the way validate does and exits 1.
-func failToLoad(w io.Writer, path string, problems []mapping.Finding) error {
-	if err := printProblems(w, path, problems); err != nil {
+// failToLoad prints a file's findings the way validate does and exits 1. Under
+// machine output the findings travel in the error envelope's details instead,
+// since the envelope is then the only thing on stderr.
+func failToLoad(w io.Writer, machine bool, path string, problems []mapping.Finding) error {
+	var details []map[string]any
+	if machine {
+		for _, p := range problems {
+			details = append(details, map[string]any{"file": path, "line": p.Line, "column": p.Column, "field": p.Field, "message": p.Message})
+		}
+	} else if err := printProblems(w, path, problems); err != nil {
 		return err
 	}
-	return clierr.Silent(clierr.CodeError)
+	return clierr.WithDetails(clierr.WithKind(clierr.KindValidation, clierr.Silent(clierr.CodeError, problemsSummary(path, len(problems)))), details...)
+}
+
+// problemsSummary is the one-line "file: N problem(s)" summary validate prints.
+func problemsSummary(path string, n int) string {
+	return fmt.Sprintf("%s: %s", path, mapping.Plural(n, "problem"))
 }
 
 // writeTestReport writes the report to reportFile atomically, or to stdout.
@@ -225,6 +241,17 @@ func formatTestDuration(d time.Duration) string {
 
 func printTestSummary(w io.Writer, run *mapping.TestRun) {
 	failed := run.Failed()
+	line := testSummaryLine(run)
+	if failed > 0 {
+		output.Errorf(w, "%s", line)
+		return
+	}
+	output.Successf(w, "%s", line)
+}
+
+// testSummaryLine is the "N passed, M failed" line printTestSummary prints.
+func testSummaryLine(run *mapping.TestRun) string {
+	failed := run.Failed()
 	line := fmt.Sprintf("%d passed, %d failed", len(run.Tests)-failed, failed)
 	if run.Filtered > 0 {
 		line += fmt.Sprintf(", %d filtered", run.Filtered)
@@ -232,11 +259,7 @@ func printTestSummary(w io.Writer, run *mapping.TestRun) {
 	if run.Skipped > 0 {
 		line += fmt.Sprintf(", %d not run (--fail-fast)", run.Skipped)
 	}
-	if failed > 0 {
-		output.Errorf(w, "%s", line)
-		return
-	}
-	output.Successf(w, "%s", line)
+	return line
 }
 
 // testReport converts a run to the report model shared with `model test`.

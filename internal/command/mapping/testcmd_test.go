@@ -61,6 +61,9 @@ func TestTestCommand(t *testing.T) {
 		if clierr.Code(err) != clierr.CodeTestFailed || !clierr.IsSilent(err) {
 			t.Fatalf("err=%v", err)
 		}
+		if clierr.SilentSummary(err) != "0 passed, 1 failed" || clierr.Classify(err) != clierr.KindTestFailed {
+			t.Fatalf("summary=%q kind=%v", clierr.SilentSummary(err), clierr.Classify(err))
+		}
 		for _, want := range []string{"mapping.yaml:19", "missing: user:u1 admin organization:o1", "unexpected: user:u1 member organization:o1", "fired: member-added", "0 passed, 1 failed"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("missing %q in:\n%s", want, out)
@@ -416,5 +419,22 @@ tests:
 	out, _ = run(t, newCLI(), "test", writeFile(t, t.TempDir(), "mapping.yaml", hostile))
 	if strings.Contains(out, "\x1b[31m") || !strings.Contains(out, `missing: user:1 member team:1 (in_region region="e`) {
 		t.Errorf("out = %q", out)
+	}
+}
+
+func TestTestCommandJSONFailureKeepsStderrClean(t *testing.T) {
+	configtest.Isolate(t)
+	p := writeFile(t, t.TempDir(), "mapping.yaml", failingMapping)
+	c := newCLI()
+	c.JSON = true
+	root := New(c).Command()
+	var out, errb bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&errb)
+	root.SetArgs([]string{"test", p})
+	root.SilenceUsage, root.SilenceErrors = true, true
+	err := root.Execute()
+	if clierr.Code(err) != clierr.CodeTestFailed || errb.Len() != 0 {
+		t.Fatalf("err=%v stderr=%q", err, errb.String())
 	}
 }

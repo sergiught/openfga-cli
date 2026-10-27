@@ -3,9 +3,11 @@ package prompt
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/spf13/cobra"
 )
 
@@ -64,5 +66,18 @@ func TestNoInputDisablesPrompts(t *testing.T) {
 	}
 	if got := Ask(cmd, "value", "default"); got != "default" {
 		t.Fatalf("Ask() = %q, want default under --no-input", got)
+	}
+}
+
+func TestNeedsForceEnvelope(t *testing.T) {
+	env := clierr.NewEnvelope(ErrNeedsForce).Error
+	if env.Code != clierr.KindConfirmationRequired || !strings.Contains(env.Hint, "--force") {
+		t.Errorf("envelope = %+v", env)
+	}
+	if !errors.Is(fmt.Errorf("wrapped: %w", ErrNeedsForce), ErrNeedsForce) {
+		t.Error("errors.Is identity lost")
+	}
+	if clierr.Code(ErrNeedsForce) != 1 {
+		t.Errorf("Code = %d, want 1", clierr.Code(ErrNeedsForce))
 	}
 }

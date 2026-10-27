@@ -104,13 +104,26 @@ func runBulk(cmd *cobra.Command, c *cli.CLI, cl *openfga.Client, keys []openfga.
 	// Written unconditionally, so a clean re-run truncates the file left behind
 	// by the previous one: a stale list of failures that have since been fixed
 	// is worse than an empty file.
+	var saveErr error
 	if o.failedFile != "" {
-		if err := writeFailedFile(o.failedFile, failedKeys, o.format); err != nil {
-			output.Errorf(cmd.ErrOrStderr(), "could not write --failed-file %s: %v", o.failedFile, err)
-		}
+		saveErr = writeFailedFile(o.failedFile, failedKeys, o.format)
+	}
+	savedTo := "" // the --failed-file path, once it was written
+	if saveErr == nil {
+		savedTo = o.failedFile
 	}
 
 	machine := c.JSON || c.YAML
+	// A failed run under machine output carries the save error in its envelope,
+	// which is then the only thing on stderr; everywhere else it is printed.
+	var saveDetails []map[string]any
+	switch {
+	case saveErr == nil:
+	case machine && len(failures) > 0:
+		saveDetails = append(saveDetails, map[string]any{"failed_file": o.failedFile, "error": saveErr.Error()})
+	default:
+		output.Errorf(cmd.ErrOrStderr(), "could not write --failed-file %s: %v", o.failedFile, saveErr)
+	}
 	emitErr := emitBulkResult(cmd, c, noun, len(succeeded), keys, succeeded, failures)
 	if len(failures) == 0 {
 		if machine || output.Plain {
@@ -124,23 +137,30 @@ func runBulk(cmd *cobra.Command, c *cli.CLI, cl *openfga.Client, keys []openfga.
 	if ctxErr := cmd.Context().Err(); ctxErr != nil {
 		// Interrupted: main's cancellation handler prints "canceled" plus this
 		// detail, so printing a second summary here would only duplicate it.
-		return clierr.WithPartialResult(fmt.Errorf("%s: %w", summary, ctxErr))
+		return clierr.WithDetails(clierr.WithPartialResult(fmt.Errorf("%s: %w", summary, ctxErr)), saveDetails...)
 	}
 	if !machine && !output.Plain {
-		reportFailures(cmd, summary, failures, o, connErr)
+		reportFailures(cmd, summary, failures, connErr, savedTo)
 	}
 	// A transport failure keeps CodeNetwork: `ofga tuples write --file` is a
 	// scripting entry point, and "the server was unreachable" is a retry, while
 	// "the server rejected these tuples" is not.
-	code := clierr.CodeError
+	code, kind := clierr.CodeError, clierr.KindPartialFailure
 	if connErr != nil {
-		code = clierr.CodeNetwork
+		code, kind = clierr.CodeNetwork, clierr.KindNetwork
+	}
+	hint := "pass --failed-file <path> to save the failed tuples for a re-run"
+	switch {
+	case savedTo != "":
+		hint = "re-run the failed tuples with --file " + savedTo
+	case saveErr != nil:
+		hint = "fix the --failed-file path to save the failed tuples for a re-run"
 	}
 	// The summary and the per-tuple reasons (or the machine payload) have
 	// already reached the user, so the error is Silent: main honors the exit
 	// code without printing a second, redundant message. It still carries a
 	// PartialResult so a cancellation racing this return keeps its reporting.
-	return clierr.WithPartialResult(clierr.Silent(code))
+	return clierr.WithDetails(clierr.WithPartialResult(clierr.WithHint(hint, clierr.WithKind(kind, clierr.Silent(code, summary)))), saveDetails...)
 }
 
 // bulkApply feeds keys to the SDK a window at a time and splits the per-tuple
@@ -362,8 +382,9 @@ func failureReason(err error) string {
 }
 
 // reportFailures prints the human summary followed by the rejected tuples and
-// their reasons, capped so a large import does not bury the summary.
-func reportFailures(cmd *cobra.Command, summary string, failures []bulkFailure, o bulkOpts, connErr error) {
+// their reasons, capped so a large import does not bury the summary. savedTo is
+// the --failed-file the failures were written to, or "" when none was.
+func reportFailures(cmd *cobra.Command, summary string, failures []bulkFailure, connErr error, savedTo string) {
 	w := cmd.ErrOrStderr()
 	output.Errorf(w, "%s", summary)
 	for i, f := range failures {
@@ -383,8 +404,8 @@ func reportFailures(cmd *cobra.Command, summary string, failures []bulkFailure, 
 			output.Hintf(w, "%d tuple(s) could not be isolated within the retry budget; re-run the failed tuples with --max-tuples-per-write 1", n)
 		}
 	}
-	if o.failedFile != "" {
-		output.Hintf(w, "the failed tuples were written to %s and can be re-run with --file", o.failedFile)
+	if savedTo != "" {
+		output.Hintf(w, "the failed tuples were written to %s and can be re-run with --file", savedTo)
 	}
 }
 

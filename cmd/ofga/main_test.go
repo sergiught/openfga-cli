@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,6 +14,7 @@ import (
 	"charm.land/log/v2"
 
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/config"
 )
 
 func TestRawGlobalFlagParsing(t *testing.T) {
@@ -98,6 +100,14 @@ func TestReportCanceledPrintsPartialCommitDetail(t *testing.T) {
 	}
 }
 
+func TestReportCanceledPrintsSilentSummary(t *testing.T) {
+	var buf bytes.Buffer
+	reportCanceled(&buf, clierr.WithPartialResult(clierr.Silent(clierr.CodeError, "wrote 2, failed 1 of 3 tuple(s)")))
+	if out := buf.String(); !strings.Contains(out, "wrote 2, failed 1 of 3 tuple(s)") || strings.Contains(out, "(handled)") {
+		t.Errorf("want the silent summary, got %q", out)
+	}
+}
+
 func TestReportCanceledWithoutPartialResultPrintsOnlyCanceled(t *testing.T) {
 	var buf bytes.Buffer
 	reportCanceled(&buf, context.Canceled)
@@ -125,5 +135,82 @@ func TestMainFileRunsStandalone(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "USAGE") {
 		t.Fatalf("standalone help missing usage:\n%s", out)
+	}
+}
+
+func TestMachineOutputFromArgs(t *testing.T) {
+	tests := []struct {
+		args []string
+		want bool
+	}{
+		{[]string{"stores", "list", "--json"}, true}, {[]string{"-o", "json"}, true}, {[]string{"-ojson"}, true},
+		{[]string{"--output=yaml"}, true}, {[]string{"-o=json"}, true}, {[]string{"--jq", ".a"}, true},
+		{[]string{"--jq=.a"}, true}, {[]string{"-o", "table"}, false}, {[]string{"--json", "--plain"}, false},
+		{[]string{"--", "--json"}, false}, {[]string{"stores", "list"}, false}, {nil, false},
+		// The last -o wins, as it does for pflag.
+		{[]string{"-o", "table", "-o", "json"}, true}, {[]string{"-o", "json", "--output=table"}, false},
+		{[]string{"--plain", "-o", "json"}, true},
+		// -o inside a shorthand cluster, but not inside another flag's value.
+		{[]string{"-qojson"}, true}, {[]string{"-qo", "json"}, true}, {[]string{"-pojson"}, false},
+		// A bare --jq whose value is missing still asked for machine output.
+		{[]string{"stores", "list", "--jq"}, true},
+		// A value a flag consumes is not itself a flag.
+		{[]string{"stores", "list", "--jq", "-otable", "--json"}, true},
+		{[]string{"stores", "list", "--profile", "-ojson"}, false},
+		// Shorthand arity comes from the command: -f is --force here.
+		{[]string{"mappings", "apply", "-fojson", "--bogus"}, true},
+		// Unknown flags and commands still leave the output flags readable.
+		{[]string{"stores", "list", "--bogus", "-o", "json"}, true},
+		{[]string{"stors", "--json"}, true},
+	}
+	root := scanRoot()
+	for _, tt := range tests {
+		if got := machineOutputFromArgs(root, tt.args); got != tt.want {
+			t.Errorf("machineOutputFromArgs(%q) = %v, want %v", tt.args, got, tt.want)
+		}
+	}
+}
+
+func TestConfigLoadHintNamesTheFileThatFailed(t *testing.T) {
+	if got := configLoadHint([]string{"stores", "list", "--config", "/elsewhere/ofga.toml"}); got != "fix or remove /elsewhere/ofga.toml, then try again" {
+		t.Errorf("explicit --config hint = %q", got)
+	}
+	if got := configLoadHint([]string{"--config=/elsewhere/ofga.toml"}); !strings.Contains(got, "/elsewhere/ofga.toml") {
+		t.Errorf("explicit --config= hint = %q", got)
+	}
+	if path := config.DefaultPath(); path != "" {
+		if got := configLoadHint(nil); got != "fix or remove "+path+", then try again" {
+			t.Errorf("default hint = %q", got)
+		}
+	}
+}
+
+func TestReportMachineErrorCanceledKeepsSilentSummary(t *testing.T) {
+	err := clierr.WithPartialResult(clierr.Silent(clierr.CodeError, "wrote 2, failed 1 of 3 tuple(s)"))
+	var buf bytes.Buffer
+	reportMachineError(&buf, err, clierr.CodeCanceled, "ofga tuples write", true)
+	if !strings.Contains(buf.String(), `"message":"canceled: wrote 2, failed 1 of 3 tuple(s)"`) {
+		t.Fatalf("partial-result summary lost: %s", buf.String())
+	}
+
+	buf.Reset()
+	reportMachineError(&buf, clierr.WithPartialResult(errors.New("wrote 1 of 2")), clierr.CodeCanceled, "ofga tuples write", true)
+	if !strings.Contains(buf.String(), `"message":"canceled: wrote 1 of 2"`) {
+		t.Fatalf("plain partial result lost: %s", buf.String())
+	}
+}
+
+func TestReportMachineErrorKeepsExplicitKind(t *testing.T) {
+	explicit := clierr.WithCode(clierr.CodeUsage, clierr.WithKind(clierr.KindValidation, errors.New("x")))
+	var buf bytes.Buffer
+	reportMachineError(&buf, explicit, clierr.CodeUsage, "ofga query batch-check", false)
+	if !strings.Contains(buf.String(), `"code":"validation"`) {
+		t.Fatalf("explicit kind clobbered: %s", buf.String())
+	}
+
+	buf.Reset()
+	reportMachineError(&buf, clierr.WithCode(clierr.CodeUsage, errors.New("x")), clierr.CodeUsage, "ofga query batch-check", false)
+	if !strings.Contains(buf.String(), `"code":"usage"`) {
+		t.Fatalf("plain usage error not usage: %s", buf.String())
 	}
 }

@@ -2,6 +2,7 @@ package base
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +13,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/sergiught/openfga-cli/internal/clierr"
 )
 
 // sharedBin builds the ofga binary once for the whole package's e2e tests.
@@ -460,5 +463,141 @@ func TestConfigLoadErrorWarnsOnEveryCommand(t *testing.T) {
 	}
 	if !strings.Contains(errb, path) {
 		t.Errorf("--json mode should still warn on stderr: stderr=%q", errb)
+	}
+}
+
+func TestMachineErrorEnvelope(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/write"):
+			body, _ := io.ReadAll(r.Body)
+			if strings.Contains(string(body), "user:2") {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"code":"validation_error","message":"bad tuple"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{}`))
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/stores/"):
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"code":"store_id_not_found","message":"store not found"}`))
+		default:
+			_, _ = w.Write([]byte(`{"stores":[]}`))
+		}
+	}))
+	defer srv.Close()
+
+	tuples := filepath.Join(t.TempDir(), "tuples.json")
+	if err := os.WriteFile(tuples, []byte(`[
+{"user":"user:1","relation":"viewer","object":"doc:1"},
+{"user":"user:2","relation":"viewer","object":"doc:1"}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	badCfg := filepath.Join(t.TempDir(), "bad.toml")
+	if err := os.WriteFile(badCfg, []byte("not = [valid"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const storeID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	api := []string{"OPENFGA_API_URL=" + srv.URL, "OPENFGA_STORE_ID=" + storeID}
+
+	tests := []struct {
+		name  string
+		env   []string
+		args  []string
+		exit  int
+		code  clierr.Kind
+		check func(t *testing.T, out string, e clierr.EnvelopeBody)
+	}{
+		{name: "unknown command", args: []string{"stores", "lisst", "--json"}, exit: 2, code: clierr.KindUsage,
+			check: func(t *testing.T, _ string, e clierr.EnvelopeBody) {
+				if len(e.Details) == 0 || e.Details[0]["suggestion"] != "list" {
+					t.Errorf("details = %v, want suggestion list", e.Details)
+				}
+			}},
+		{name: "unknown flag", args: []string{"stores", "list", "--bogus", "--json"}, exit: 2, code: clierr.KindUsage},
+		{name: "arg count", args: []string{"query", "check", "user:anne", "viewer", "--json"}, exit: 2, code: clierr.KindUsage},
+		{name: "network", env: []string{"OPENFGA_STORE_ID=" + storeID}, args: []string{"stores", "list", "--json", "--api-url", "http://127.0.0.1:1"}, exit: 4, code: clierr.KindNetwork},
+		{name: "not found", env: api, args: []string{"stores", "get", "--store-id", storeID, "--json"}, exit: 1, code: clierr.KindNotFound,
+			check: func(t *testing.T, _ string, e clierr.EnvelopeBody) {
+				if e.Status != 404 {
+					t.Errorf("status = %d, want 404", e.Status)
+				}
+			}},
+		{name: "needs force", env: api, args: []string{"stores", "delete", storeID, "--json"}, exit: 1, code: clierr.KindConfirmationRequired,
+			check: func(t *testing.T, _ string, e clierr.EnvelopeBody) {
+				if !strings.Contains(e.Hint, "--force") {
+					t.Errorf("hint = %q, want --force", e.Hint)
+				}
+			}},
+		{name: "yaml output", args: []string{"stores", "lisst", "-o", "yaml"}, exit: 2, code: clierr.KindUsage},
+		{name: "bad jq", env: api, args: []string{"stores", "list", "--jq", ".["}, exit: 2, code: clierr.KindUsage},
+		{name: "partial failure", env: api, args: []string{"tuples", "write", "--file", tuples, "--max-tuples-per-write", "1", "--json"}, exit: 1, code: clierr.KindPartialFailure,
+			check: func(t *testing.T, out string, _ clierr.EnvelopeBody) {
+				if !json.Valid([]byte(out)) {
+					t.Errorf("stdout is not valid JSON: %q", out)
+				}
+			}},
+		{name: "partial failure quiet", env: api, args: []string{"tuples", "write", "--file", tuples, "--max-tuples-per-write", "1", "--json", "--quiet"}, exit: 1, code: clierr.KindPartialFailure,
+			check: func(t *testing.T, out string, _ clierr.EnvelopeBody) {
+				if !json.Valid([]byte(out)) {
+					t.Errorf("stdout is not valid JSON: %q", out)
+				}
+			}},
+		{name: "config load", env: []string{"OPENFGA_CONFIG=" + badCfg}, args: []string{"stores", "list", "--json"}, exit: 1, code: clierr.KindError,
+			check: func(t *testing.T, _ string, e clierr.EnvelopeBody) {
+				if !strings.Contains(e.Hint, "fix or remove") {
+					t.Errorf("hint = %q, want fix or remove", e.Hint)
+				}
+			}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, errb, code := runOfga(t, t.TempDir(), "", tt.env, tt.args...)
+			if code != tt.exit {
+				t.Fatalf("exit = %d, want %d (stderr=%q)", code, tt.exit, errb)
+			}
+			var lines []string
+			for _, l := range strings.Split(errb, "\n") {
+				if strings.TrimSpace(l) != "" {
+					lines = append(lines, l)
+				}
+			}
+			// The config-load warning is informational and stays on stderr
+			// ahead of the failure; every other row has the envelope alone.
+			if tt.name == "config load" && len(lines) > 1 && strings.HasPrefix(lines[0], "● warning:") {
+				lines = lines[1:]
+			}
+			if len(lines) != 1 {
+				t.Fatalf("stderr has %d non-empty lines, want 1: %q", len(lines), errb)
+			}
+			var env clierr.Envelope
+			if err := json.Unmarshal([]byte(lines[0]), &env); err != nil {
+				t.Fatalf("stderr is not an envelope: %v (%q)", err, lines[0])
+			}
+			if env.Error.Code != tt.code {
+				t.Errorf("code = %q, want %q (%+v)", env.Error.Code, tt.code, env.Error)
+			}
+			if env.Error.Details == nil {
+				t.Error("details must be non-nil")
+			}
+			if tt.check != nil {
+				tt.check(t, out, env.Error)
+			}
+		})
+	}
+}
+
+func TestHumanErrorsUnchanged(t *testing.T) {
+	_, errb, code := runOfga(t, t.TempDir(), "", nil, "stores", "lisst")
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2", code)
+	}
+	if !strings.Contains(errb, "●") || !strings.Contains(errb, "--help") {
+		t.Errorf("human error lost its bullet or hint: %q", errb)
+	}
+	for _, l := range strings.Split(errb, "\n") {
+		if json.Valid([]byte(strings.TrimSpace(l))) && strings.HasPrefix(strings.TrimSpace(l), "{") {
+			t.Errorf("human stderr contains JSON: %q", l)
+		}
 	}
 }

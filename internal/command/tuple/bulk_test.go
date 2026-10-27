@@ -727,6 +727,52 @@ func TestBulkWriteUnreachableServerExitsNetwork(t *testing.T) {
 	if got := failedTuplesIn(t, failedPath); len(got) != 4 {
 		t.Errorf("--failed-file holds %d tuples, want all 4 so the run is re-runnable", len(got))
 	}
+	if got := clierr.SilentSummary(err); got != "wrote 0, failed 4 of 4 tuple(s)" {
+		t.Errorf("SilentSummary = %q", got)
+	}
+	if got := clierr.Classify(err); got != clierr.KindNetwork {
+		t.Errorf("Classify = %q, want network", got)
+	}
+	if h := clierr.NewEnvelope(err).Error.Hint; h != "re-run the failed tuples with --file "+failedPath {
+		t.Errorf("hint = %q", h)
+	}
+}
+
+// TestBulkWriteUnsavedFailedFileIsNotRecommended covers a --failed-file that
+// could not be written: no hint may point at it, and under machine output the
+// write error travels in the envelope instead of a human line before it.
+func TestBulkWriteUnsavedFailedFileIsNotRecommended(t *testing.T) {
+	for _, machine := range []bool{false, true} {
+		t.Run(fmt.Sprintf("machine=%v", machine), func(t *testing.T) {
+			rec, apiURL := newWriteRecorder(t)
+			rec.fail = func(_ int, body string) bool { return strings.Contains(body, `"user:1"`) }
+			p := bulkFileOf(t, 3, formatJSON)
+			failedPath := filepath.Join(t.TempDir(), "missing", "failed.json")
+
+			c := newHumanTupleCLI(t, apiURL)
+			c.JSON = machine
+			cmd := New(c).writeCmd()
+			cmd.SetArgs([]string{"--file", p, "--max-tuples-per-write", "1", "--failed-file", failedPath})
+			_, errOut := silenced(cmd)
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatal("a failed tuple must produce an error")
+			}
+			env := clierr.NewEnvelope(err).Error
+			if strings.Contains(env.Hint, "--file "+failedPath) || strings.Contains(errOut.String(), "can be re-run") {
+				t.Errorf("an unwritten --failed-file was recommended: hint %q, stderr %q", env.Hint, errOut.String())
+			}
+			printed := strings.Contains(errOut.String(), "could not write --failed-file")
+			var inDetails bool
+			for _, d := range env.Details {
+				inDetails = inDetails || d["failed_file"] == failedPath && d["error"] != ""
+			}
+			if printed == machine || inDetails != machine {
+				t.Errorf("printed=%v inDetails=%v, want the write error only in the %s", printed, inDetails,
+					map[bool]string{false: "human output", true: "envelope"}[machine])
+			}
+		})
+	}
 }
 
 func TestBulkWriteMaxParallelRequestsIsHonoured(t *testing.T) {

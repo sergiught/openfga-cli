@@ -291,12 +291,24 @@ func TestApplyReportsHowFarItGot(t *testing.T) {
 	if clierr.Code(err) != clierr.CodeError || !clierr.IsSilent(err) {
 		t.Fatalf("code = %d err = %v", clierr.Code(err), err)
 	}
+	if got := clierr.SilentSummary(err); !strings.HasPrefix(got, "no events applied; event 1 failed: ") || clierr.Classify(err) != clierr.KindValidation {
+		t.Errorf("summary=%q kind=%v", got, clierr.Classify(err))
+	}
 	if !strings.Contains(stderr, "no events applied; event 1 failed: ") || !strings.Contains(stderr, "type not found") {
 		t.Errorf("stderr:\n%s", stderr)
 	}
 	if strings.Contains(stderr, "event 1: ") {
 		t.Errorf("event prefix doubled:\n%s", stderr)
 	}
+	t.Run("machine output keeps stderr clean", func(t *testing.T) {
+		c := fs.cli()
+		c.JSON = true
+		_, stderr, err := runApply(t, context.Background(), c, nil, mp, "--events", ep, "--force")
+		// The pre-apply plan summary is progress, not the failure report.
+		if !clierr.IsSilent(err) || strings.Contains(stderr, "failed") {
+			t.Fatalf("err=%v stderr=%q", err, stderr)
+		}
+	})
 	// Nothing got through, so running the same command again is the resume.
 	if strings.Contains(stderr, "resume") {
 		t.Errorf("a run that applied nothing offers a resume:\n%s", stderr)
@@ -627,8 +639,12 @@ func TestMachineModeKeepsProblemLinesOffStdout(t *testing.T) {
 		root.SetArgs(args)
 		root.SilenceUsage, root.SilenceErrors = true, true
 		err := root.Execute()
-		if clierr.Code(err) != clierr.CodeError || out.Len() != 0 || !strings.Contains(errb.String(), "mapping.yaml:2:8") {
-			t.Errorf("%v: err=%v stdout=%q stderr=%q", args, err, out.String(), errb.String())
+		// The error envelope is the only thing main writes to stderr under
+		// machine output, so the problem lines move into its details.
+		env := clierr.NewEnvelope(err).Error
+		if clierr.Code(err) != clierr.CodeError || out.Len() != 0 || errb.Len() != 0 ||
+			env.Code != clierr.KindValidation || len(env.Details) == 0 || env.Details[0]["line"] != 2 {
+			t.Errorf("%v: err=%v stdout=%q stderr=%q envelope=%+v", args, err, out.String(), errb.String(), env)
 		}
 	}
 }
@@ -799,5 +815,94 @@ func TestApplyStopsReadingStdinWhenCanceled(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("apply still reading stdin after cancel")
+	}
+}
+
+// Under machine output the split-event warning belongs in the envelope: with
+// nothing applied the kind alone would tell an agent nothing was written.
+func TestApplyMachineEnvelopeCarriesSplitEventHint(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, map[string]any{
+		"user": "user:u1", "relation": "member", "object": "team:t1",
+		"condition": map[string]any{"name": "in_office", "context": map[string]any{"level": 5}},
+	})
+	fs.failWrite = `{"code":"validation_error","message":"type not found"}`
+	mp, ep := applyFiles(t, conditional, `{"type":"grant","user":"u1","team":"t1","level":5}`)
+	c := fs.cli()
+	c.JSON = true
+	_, stderr, err := runApply(t, context.Background(), c, nil, mp, "--events", ep, "--force")
+	if !clierr.IsSilent(err) || strings.Contains(stderr, "failed") {
+		t.Fatalf("err=%v stderr=%q", err, stderr)
+	}
+	env := clierr.NewEnvelope(err)
+	if env.Error.Code != clierr.KindValidation {
+		t.Errorf("kind = %q", env.Error.Code)
+	}
+	if !strings.Contains(env.Error.Hint, "event 1 goes out in several requests and may be partly written") {
+		t.Errorf("hint = %q", env.Error.Hint)
+	}
+}
+
+// failSecondWrite answers every /write after the first with fail, retries
+// included; the first lands.
+func failSecondWrite(fs *fakeStore, fail http.HandlerFunc) {
+	h := fs.srv.Config.Handler
+	var mu sync.Mutex
+	writes := 0
+	fs.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/write") {
+			mu.Lock()
+			writes++
+			n := writes
+			mu.Unlock()
+			if n >= 2 {
+				fail(w, r)
+				return
+			}
+		}
+		h.ServeHTTP(w, r)
+	})
+}
+
+func TestApplyMachineEnvelopeKeepsAPIErrorAfterPartialApply(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t)
+	failSecondWrite(fs, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"code":"validation_error","message":"type not found"}`)
+	})
+	mp, ep := applyFiles(t, membership,
+		`{"type":"added","user":"u1","team":"t1"}`+"\n"+`{"type":"added","user":"u2","team":"t1"}`+"\n")
+	c := fs.cli()
+	c.JSON = true
+	_, _, err := runApply(t, context.Background(), c, nil, mp, "--events", ep, "--force")
+	env := clierr.NewEnvelope(err)
+	if env.Error.Code != clierr.KindPartialFailure || env.Error.Status != http.StatusBadRequest || env.Error.APICode != "validation_error" {
+		t.Errorf("envelope = %+v, want partial_failure with status 400 and api_code validation_error", env.Error)
+	}
+	if !strings.Contains(env.Error.Message, "event 2 failed") {
+		t.Errorf("message = %q", env.Error.Message)
+	}
+}
+
+func TestApplyLostServerAfterPartialApplyIsNetwork(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t)
+	failSecondWrite(fs, func(w http.ResponseWriter, _ *http.Request) {
+		if conn, _, herr := w.(http.Hijacker).Hijack(); herr == nil {
+			_ = conn.Close()
+		}
+	})
+	mp, ep := applyFiles(t, membership,
+		`{"type":"added","user":"u1","team":"t1"}`+"\n"+`{"type":"added","user":"u2","team":"t1"}`+"\n")
+	c := fs.cli()
+	c.JSON = true
+	_, _, err := runApply(t, context.Background(), c, nil, mp, "--events", ep, "--force")
+	if got := clierr.Code(err); got != clierr.CodeNetwork {
+		t.Errorf("exit code = %d, want %d", got, clierr.CodeNetwork)
+	}
+	if env := clierr.NewEnvelope(err); env.Error.Code != clierr.KindNetwork {
+		t.Errorf("kind = %q, want network", env.Error.Code)
 	}
 }

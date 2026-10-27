@@ -43,6 +43,10 @@ type Command struct {
 	// invocation (unknown flag/command, wrong arg count) rather than a runtime
 	// error, so main can exit with CodeUsage.
 	ranCommand bool
+	// outputResolved records that resolveOutput accepted the output flags, so
+	// c.cli.JSON/YAML are authoritative; main falls back to scanning argv
+	// otherwise.
+	outputResolved bool
 }
 
 // New constructs the root command and wires persistent flags + sub-commands.
@@ -100,6 +104,7 @@ source <(ofga completion bash)`,
 			if err := c.resolveOutput(); err != nil {
 				return err
 			}
+			c.outputResolved = true
 			// Same for --header. It is otherwise only parsed while building a
 			// client, which reports a malformed value as a runtime error and
 			// never looks at it at all for commands that build no client.
@@ -452,6 +457,11 @@ func (c *Command) ErrWriter() *colorprofile.Writer { return c.errW }
 // argument validation passed. When it is false after Execute returns an error,
 // the failure was a bad invocation and main exits with CodeUsage.
 func (c *Command) RanCommand() bool { return c.ranCommand }
+
+// OutputResolved reports whether the output flags were validated and applied,
+// i.e. resolveOutput returned nil. Only then are the JSON and YAML toggles
+// trustworthy.
+func (c *Command) OutputResolved() bool { return c.outputResolved }
 
 // versionCmd prints the full build info (version, commit, date, and the
 // version of the OpenFGA server embedded for `ofga model test`). Under --json

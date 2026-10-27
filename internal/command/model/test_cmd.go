@@ -304,7 +304,7 @@ func (c *Command) testCmd() *cobra.Command {
 				// failure keeps its CodeTestFailed (exit 3) and isn't
 				// misclassified as a coverage usage error (exit 2) that CI keys
 				// on differently.
-				return clierr.Silent(clierr.CodeTestFailed)
+				return clierr.Silent(clierr.CodeTestFailed, summaryText(res))
 			}
 
 			// A coverage-build failure is no longer fatal to the run itself
@@ -518,7 +518,11 @@ func renderTestResults(cmd *cobra.Command, a *cli.CLI, res *modeltest.Results, e
 		if err := output.Emit(cmd.OutOrStdout(), a.YAML, res); err != nil {
 			return err
 		}
-		summaryLine(cmd.ErrOrStderr(), res)
+		// On failure the error envelope is the only thing on stderr under
+		// machine output; it carries this same summary.
+		if res.Summary.Failed == 0 {
+			summaryLine(cmd.ErrOrStderr(), res)
+		}
 		return nil
 	}
 
@@ -601,6 +605,13 @@ func summaryLine(w io.Writer, res *modeltest.Results) {
 		return
 	}
 	output.Successf(w, "%s/%d test(s) passed (%s)", style.Success.Render(fmt.Sprintf("%d", s.Passed)), s.Total, dur)
+}
+
+// summaryText is the failure line of summaryLine without styling or duration,
+// so the machine envelope message is stable.
+func summaryText(res *modeltest.Results) string {
+	s := res.Summary
+	return fmt.Sprintf("%d/%d test(s) failed", s.Failed, s.Total)
 }
 
 // formatDuration renders a millisecond duration like go test's summary line

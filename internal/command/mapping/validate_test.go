@@ -122,6 +122,10 @@ func TestValidateJSON(t *testing.T) {
 	if clierr.Code(err) != clierr.CodeError || !strings.Contains(out, `"valid": false`) || !strings.Contains(out, `"line": 4`) {
 		t.Fatalf("code=%d out=%s", clierr.Code(err), out)
 	}
+	// Under JSON nothing but the payload is printed; the summary travels in the error.
+	if strings.Contains(out, "●") || clierr.SilentSummary(err) != p+": 1 problem" || clierr.Classify(err) != clierr.KindValidation {
+		t.Fatalf("summary=%q kind=%v out=%s", clierr.SilentSummary(err), clierr.Classify(err), out)
+	}
 }
 
 func TestValidateSyntaxErrorHasNoPositionEcho(t *testing.T) {

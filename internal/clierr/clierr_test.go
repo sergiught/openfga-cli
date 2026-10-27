@@ -214,19 +214,33 @@ func TestFriendlyTokenEndpoint(t *testing.T) {
 }
 
 func TestSilent(t *testing.T) {
-	err := Silent(CodeTestFailed)
+	err := Silent(CodeTestFailed, "x")
 	if !IsSilent(err) {
 		t.Error("IsSilent(Silent(CodeTestFailed)) = false, want true")
 	}
+	if got := SilentSummary(err); got != "x" {
+		t.Errorf("SilentSummary = %q, want x", got)
+	}
 	if got := Code(err); got != CodeTestFailed {
-		t.Errorf("Code(Silent(CodeTestFailed)) = %d, want %d", got, CodeTestFailed)
+		t.Errorf("Code(Silent(CodeTestFailed) = %d, want %d", got, CodeTestFailed)
 	}
 	if IsSilent(errors.New("plain")) {
 		t.Error("IsSilent(plain error) = true, want false")
 	}
 	// Wrapping preserves the silent sentinel.
-	if !IsSilent(fmt.Errorf("wrapped: %w", Silent(CodeError))) {
+	if !IsSilent(fmt.Errorf("wrapped: %w", Silent(CodeError, "x"))) {
 		t.Error("IsSilent(wrapped Silent) = false, want true")
+	}
+}
+
+func TestSilentCauseKeepsCauseInChain(t *testing.T) {
+	cause := errors.New("boom")
+	err := SilentCause(CodeError, "x", cause)
+	if !IsSilent(err) || SilentSummary(err) != "x" || Code(err) != CodeError {
+		t.Errorf("IsSilent/SilentSummary/Code = %v/%q/%d", IsSilent(err), SilentSummary(err), Code(err))
+	}
+	if !errors.Is(err, cause) {
+		t.Error("cause is not in the chain")
 	}
 }
 

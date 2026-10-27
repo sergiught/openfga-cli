@@ -16,6 +16,8 @@ import (
 
 	"charm.land/log/v2"
 	"github.com/charmbracelet/colorprofile"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
@@ -50,13 +52,18 @@ func main() {
 	noColor := noColorFromArgs(os.Args[1:], "")
 	cfg, err := config.LoadFrom(configPathFromArgs(os.Args[1:]))
 	if err != nil {
+		hint := configLoadHint(os.Args[1:])
+		if machineOutputFromArgs(scanRoot(), os.Args[1:]) {
+			reportMachineError(os.Stderr, clierr.WithHint(hint, err), clierr.CodeError, "ofga", false)
+			os.Exit(clierr.CodeError)
+		}
 		// base.New (which builds the profile-aware writers) hasn't run yet, so
 		// wrap stderr here too — otherwise this early error leaks ANSI to a pipe
 		// and ignores NO_COLOR.
 		errw := profileWriter(os.Stderr, noColor)
 		output.Errorf(errw, "%s", err.Error())
-		if path := config.DefaultPath(); path != "" {
-			output.Hintf(errw, "fix or remove %s, then try again", path)
+		if hint != "" {
+			output.Hintf(errw, "%s", hint)
 		}
 		os.Exit(clierr.CodeError)
 	}
@@ -99,6 +106,24 @@ func main() {
 			}
 		}
 		logger.Debugf("command failed: %+v", err)
+		machine := machineOutputFromArgs(rootCmd, os.Args[1:])
+		if root.OutputResolved() {
+			machine = c.JSON || c.YAML
+		}
+		if machine {
+			if lerr := cfg.LoadErr(); lerr != nil && errors.Is(err, lerr) {
+				err = clierr.WithHint("fix or remove "+cfg.Path()+", then try again", err)
+			}
+			code := clierr.Code(err)
+			canceled := ctx.Err() != nil
+			if canceled {
+				code = clierr.CodeCanceled
+			} else if !root.RanCommand() {
+				code = clierr.CodeUsage
+			}
+			reportMachineError(os.Stderr, err, code, cmd.CommandPath(), canceled)
+			os.Exit(code)
+		}
 		if ctx.Err() != nil {
 			// A signal (Ctrl-C or SIGTERM) cancelled the request context.
 			// signal.NotifyContext cancels with a signalError cause rather than
@@ -142,10 +167,23 @@ func main() {
 // to the cancellation.
 func reportCanceled(w io.Writer, err error) {
 	output.Errorf(w, "canceled")
-	var partial *clierr.PartialResult
-	if errors.As(err, &partial) {
-		output.Hintf(w, "%s", partial.Error())
+	if report := partialReport(err); report != "" {
+		output.Hintf(w, "%s", report)
 	}
+}
+
+// partialReport returns the "N of M committed" detail a clierr.PartialResult
+// carries, or "" without one. A Silent error inside it reports its summary,
+// since its own message is only a placeholder.
+func partialReport(err error) string {
+	var partial *clierr.PartialResult
+	if !errors.As(err, &partial) {
+		return ""
+	}
+	if s := clierr.SilentSummary(partial); s != "" {
+		return s
+	}
+	return partial.Error()
 }
 
 func profileWriter(w io.Writer, noColor bool) *colorprofile.Writer {
@@ -260,6 +298,20 @@ func configPathFromArgs(args []string) string {
 	return ""
 }
 
+// configLoadHint is the remediation for a config that failed to load, naming
+// the file that failed: the --config override when argv has one, else the
+// default location. Returns "" when neither resolves.
+func configLoadHint(args []string) string {
+	path := configPathFromArgs(args)
+	if path == "" {
+		path = config.DefaultPath()
+	}
+	if path == "" {
+		return ""
+	}
+	return "fix or remove " + path + ", then try again"
+}
+
 // logLevel raises verbosity when the preferred debug flag or its legacy
 // verbose alias is present.
 func logLevel(args []string) log.Level {
@@ -267,4 +319,90 @@ func logLevel(args []string) log.Level {
 		return log.DebugLevel
 	}
 	return log.WarnLevel
+}
+
+// machineOutputFromArgs reports whether raw argv selects machine output
+// (--json, --yaml, --jq, or -o/--output json|yaml). It is the fallback for
+// failures that happen before cobra has resolved the output flags: a mistyped
+// command, an unknown flag, a config that will not load. The last -o wins and
+// is authoritative over --plain, as it is in resolveOutput.
+//
+// argv is parsed against the flags of the command it names (root when it names
+// none), so a flag takes a value exactly when cobra's would: `mappings apply
+// -fojson` is --force -o json, and in `--jq -otable` the -otable is the jq
+// expression.
+func machineOutputFromArgs(root *cobra.Command, args []string) bool {
+	cmd := root
+	if found, _, err := root.Find(args); err == nil {
+		cmd = found
+	}
+	cmd.InitDefaultHelpFlag()
+	// Each flag is mirrored as a string of the same arity, so parsing argv here
+	// never runs the real flags' setters.
+	fs := pflag.NewFlagSet("", pflag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.ParseErrorsAllowlist.UnknownFlags = true
+	mirror := func(f *pflag.Flag) {
+		if fs.Lookup(f.Name) == nil {
+			fs.StringP(f.Name, f.Shorthand, "", "")
+			fs.Lookup(f.Name).NoOptDefVal = f.NoOptDefVal
+		}
+	}
+	cmd.LocalFlags().VisitAll(mirror)
+	cmd.InheritedFlags().VisitAll(mirror)
+	err := fs.Parse(args)
+
+	value := func(name string) string {
+		if f := fs.Lookup(name); f != nil && f.Changed {
+			return f.Value.String()
+		}
+		return ""
+	}
+	on := func(name string) bool {
+		v, _ := strconv.ParseBool(value(name))
+		return v
+	}
+	switch value("output") {
+	case "json", "yaml":
+		return true
+	case "plain", "table":
+		return false
+	}
+	if on("plain") {
+		return false
+	}
+	// A bare --jq with no value still asked for machine output.
+	var missing *pflag.ValueRequiredError
+	jq := fs.Changed("jq") || errors.As(err, &missing) && missing.GetFlag().Name == "jq"
+	return jq || on("json") || on("yaml")
+}
+
+// scanRoot builds a command tree only to read flag arity from, for a failure
+// that happens before main has built the real one.
+func scanRoot() *cobra.Command {
+	return base.New(cli.New(log.New(io.Discard), config.New(), version.Resolved())).Command()
+}
+
+// reportMachineError writes err to w as the one-line JSON error envelope.
+// code is the process exit code main computed; cmdPath names the command for
+// the default usage hint.
+func reportMachineError(w io.Writer, err error, code int, cmdPath string, canceled bool) {
+	env := clierr.NewEnvelope(err)
+	body := &env.Error
+	switch {
+	case canceled:
+		body.Code = clierr.KindCanceled
+		body.Message = "canceled"
+		if report := partialReport(err); report != "" {
+			body.Message = "canceled: " + report
+		}
+	case code == clierr.CodeUsage:
+		if !clierr.HasKind(err) {
+			body.Code = clierr.KindUsage
+		}
+		if body.Hint == "" {
+			body.Hint = "run '" + cmdPath + " --help' for usage"
+		}
+	}
+	_ = env.WriteLine(w)
 }
