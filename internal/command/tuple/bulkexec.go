@@ -212,9 +212,13 @@ func bulkApply(cmd *cobra.Command, cl *openfga.Client, keys []openfga.TupleKey, 
 			if len(idx) == 0 {
 				continue
 			}
-			if len(idx) == 1 {
-				r := results[idx[0]]
-				failures = append(failures, bulkFailure{Tuple: r.TupleKey, Reason: failureReason(r.Err)})
+			// A lone suspect needs no bisection. When another chunk of this
+			// window lost the server, bisecting would only send more requests
+			// into the outage, so the chunk keeps its own rejection.
+			if len(idx) == 1 || connErr != nil {
+				for _, i := range idx {
+					failures = append(failures, bulkFailure{Tuple: results[i].TupleKey, Reason: failureReason(results[i].Err)})
+				}
 				continue
 			}
 			ks := make([]openfga.TupleKey, len(idx))

@@ -70,8 +70,9 @@ type writeRecorder struct {
 	// non-400 status is answered with a store_id_not_found body.
 	status int
 	// drop makes the server close the connection without replying to request
-	// n, which the client sees as an unreachable server.
-	drop func(n int) bool
+	// n (1-based, with its body), which the client sees as an unreachable
+	// server.
+	drop func(n int, body string) bool
 	// failCode, when set, replaces the API code of a 400 rejection.
 	failCode string
 }
@@ -101,7 +102,7 @@ func newWriteRecorder(t *testing.T) (*writeRecorder, string) {
 		if rec.inFlight > rec.maxInFlight {
 			rec.maxInFlight = rec.inFlight
 		}
-		drop := rec.drop != nil && rec.drop(n)
+		drop := rec.drop != nil && rec.drop(n, string(body))
 		fail := rec.fail != nil && rec.fail(n, string(body))
 		delay := rec.delay
 		status := rec.status
@@ -1083,7 +1084,7 @@ func TestBulkWriteIsolationConnLossAccountsForEveryTuple(t *testing.T) {
 	rec.fail = func(_ int, body string) bool {
 		return strings.Contains(body, `"user:1"`) || strings.Contains(body, `"user:4"`)
 	}
-	rec.drop = func(n int) bool { return n >= 3 }
+	rec.drop = func(n int, _ string) bool { return n >= 3 }
 	got, failedPath, _, err := runIsolation(t, rec, apiURL, 6, false, "--max-tuples-per-write", "3", "--max-parallel-requests", "2")
 	if err == nil {
 		t.Fatal("want an error")
@@ -1133,5 +1134,46 @@ func TestBulkWriteDoesNotBisectRequestLevelValidationError(t *testing.T) {
 		if f.Reason != got.Failed[0].Reason || !strings.Contains(f.Reason, "authorization_model_not_found") {
 			t.Errorf("reason = %q", f.Reason)
 		}
+	}
+}
+
+// A window whose chunks come back with both a tuple rejection and a lost
+// connection must not bisect the rejected chunk: the server is already known
+// to be unreachable, so every extra request would only repeat the failure.
+func TestBulkWriteSkipsIsolationWhenWindowLostServer(t *testing.T) {
+	rec, apiURL := newWriteRecorder(t)
+	rec.fail = func(_ int, body string) bool { return strings.Contains(body, `"user:1"`) }
+	rec.drop = func(_ int, body string) bool { return strings.Contains(body, `"user:4"`) }
+	got, failedPath, _, err := runIsolation(t, rec, apiURL, 9, false, "--max-tuples-per-write", "3", "--max-parallel-requests", "2")
+	if clierr.Code(err) != clierr.CodeNetwork {
+		t.Fatalf("err = %v (code %d), want a network failure", err, clierr.Code(err))
+	}
+	for _, body := range rec.requests() {
+		if strings.Contains(body, `"user:6"`) {
+			t.Errorf("the next window was sent after the server became unreachable: %s", body)
+		}
+		if strings.Contains(body, `"user:1"`) && !strings.Contains(body, `"user:0"`) {
+			t.Errorf("the rejected chunk was bisected after the server became unreachable: %s", body)
+		}
+	}
+	if got.Written != 0 || len(got.Failed) != 9 {
+		t.Fatalf("written/failed = %d/%d, want 0/9", got.Written, len(got.Failed))
+	}
+	reasons := map[string]string{}
+	for _, f := range got.Failed {
+		reasons[f.Tuple.User] = f.Reason
+	}
+	for _, u := range []string{"user:0", "user:1", "user:2"} {
+		if strings.HasPrefix(reasons[u], "not attempted") || strings.HasPrefix(reasons[u], "unisolated") {
+			t.Errorf("%s reason = %q, want the chunk's rejection", u, reasons[u])
+		}
+	}
+	for _, u := range []string{"user:6", "user:7", "user:8"} {
+		if reasons[u] != reasonUnreachable {
+			t.Errorf("%s reason = %q, want %q", u, reasons[u], reasonUnreachable)
+		}
+	}
+	if in := failedTuplesIn(t, failedPath); len(in) != 9 {
+		t.Errorf("--failed-file holds %d tuples, want 9", len(in))
 	}
 }
