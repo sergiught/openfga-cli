@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/docsearch"
@@ -246,6 +247,15 @@ func TestPageKeepsDecodedPercentEscaped(t *testing.T) {
 		}
 		if got, err := docsearch.PageURL(tc.ref); err != nil || got != tc.url {
 			t.Errorf("PageURL(%s) = %q, %v", tc.ref, got, err)
+		}
+	}
+}
+
+// --timeout 0 disables the deadline; New must not swap in a default.
+func TestNewKeepsTimeout(t *testing.T) {
+	for _, d := range []time.Duration{0, 5 * time.Second} {
+		if got := docsearch.New(d).HTTPTimeout(); got != d {
+			t.Errorf("New(%v) timeout = %v", d, got)
 		}
 	}
 }

@@ -21,9 +21,8 @@ import (
 const DefaultBaseURL = "https://openfga.dev"
 
 const (
-	defaultTimeout = 30 * time.Second
-	maxBody        = 8 << 20 // 8 MiB
-	docsHost       = "openfga.dev"
+	maxBody  = 8 << 20 // 8 MiB
+	docsHost = "openfga.dev"
 )
 
 // Client searches and fetches the OpenFGA docs.
@@ -47,11 +46,9 @@ type Page struct {
 	Markdown string `json:"markdown" yaml:"markdown"`
 }
 
-// New returns a Client for openfga.dev. A zero timeout means 30s.
+// New returns a Client for openfga.dev. A zero timeout disables the
+// deadline, as --timeout 0 promises.
 func New(timeout time.Duration) *Client {
-	if timeout <= 0 {
-		timeout = defaultTimeout
-	}
 	return newWithBaseURL(DefaultBaseURL, &http.Client{Timeout: timeout})
 }
 
