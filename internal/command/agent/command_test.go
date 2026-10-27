@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -69,6 +70,7 @@ func TestSkillShowJSON(t *testing.T) {
 func TestSkillInstallDefault(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp) // os.UserHomeDir on Windows
 	out, errb, err := run(t, false, "skill", "install")
 	if err != nil {
 		t.Fatal(err)
@@ -84,11 +86,13 @@ func TestSkillInstallDefault(t *testing.T) {
 	if err != nil || !bytes.Equal(b, agentskill.Content()) {
 		t.Fatalf("installed file wrong: %v", err)
 	}
-	if fi, _ := os.Stat(want); fi.Mode().Perm() != 0o644 {
-		t.Errorf("file mode = %v, want 0644", fi.Mode().Perm())
-	}
-	if fi, _ := os.Stat(filepath.Dir(want)); fi.Mode().Perm() != 0o755 {
-		t.Errorf("dir mode = %v, want 0755", fi.Mode().Perm())
+	if runtime.GOOS != "windows" { // Windows keeps no POSIX permission bits
+		if fi, _ := os.Stat(want); fi.Mode().Perm() != 0o644 {
+			t.Errorf("file mode = %v, want 0644", fi.Mode().Perm())
+		}
+		if fi, _ := os.Stat(filepath.Dir(want)); fi.Mode().Perm() != 0o755 {
+			t.Errorf("dir mode = %v, want 0755", fi.Mode().Perm())
+		}
 	}
 }
 
@@ -139,6 +143,7 @@ func TestSkillInstallRejectsEmptyDir(t *testing.T) {
 	for _, args := range [][]string{{"--dir", ""}, {"--dir", " "}, {"--project", "--dir", ""}} {
 		home := t.TempDir()
 		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home)
 		_, _, err := run(t, false, append([]string{"skill", "install"}, args...)...)
 		if err == nil || clierr.Code(err) != 2 {
 			t.Errorf("%q: err = %v (code %d), want a usage error", args, err, clierr.Code(err))
