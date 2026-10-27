@@ -55,7 +55,9 @@ func TestClassicCLIByteParity(t *testing.T) {
 
 	t.Run("CLICOLOR_FORCE=1 still emits truecolor", func(t *testing.T) {
 		cmd := exec.Command(bin, "--help")
-		cmd.Env = append(os.Environ(), "CLICOLOR_FORCE=1", "COLORTERM=truecolor")
+		// Agent mode turns color off, and the inherited env may carry an agent
+		// marker (CLAUDECODE, ...), so opt out of it explicitly.
+		cmd.Env = append(os.Environ(), "CLICOLOR_FORCE=1", "COLORTERM=truecolor", "OPENFGA_AGENT_MODE=0")
 		out, err := cmd.Output()
 		if err != nil {
 			t.Fatalf("ofga --help: %v", err)

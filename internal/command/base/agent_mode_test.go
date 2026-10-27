@@ -220,3 +220,21 @@ func TestBareOfgaRefusesInAgentModeEnvelope(t *testing.T) {
 		t.Fatalf("code=%d err=%q", code, errb)
 	}
 }
+
+// --help exits before PersistentPreRunE, so agent mode must already have
+// disabled color when the writers are built, even under a force-color env.
+func TestAgentModeHelpHasNoColorEvenWhenForced(t *testing.T) {
+	env := []string{"CLAUDECODE=1", "NO_COLOR=", "CLICOLOR_FORCE=1", "FORCE_COLOR=1"}
+	out, errb, code := runOfga(t, t.TempDir(), "", env, "--help")
+	if code != 0 || !strings.Contains(out, "USAGE") {
+		t.Fatalf("code=%d out=%q err=%q", code, out, errb)
+	}
+	if strings.Contains(out+errb, "\x1b[") {
+		t.Fatalf("agent-mode --help emitted ANSI escapes: %q", out)
+	}
+	// The same env without agent mode does color, so the check above is live.
+	out, _, _ = runOfga(t, t.TempDir(), "", []string{"NO_COLOR=", "CLICOLOR_FORCE=1", "FORCE_COLOR=1"}, "--help")
+	if !strings.Contains(out, "\x1b[") {
+		t.Fatalf("forced color without agent mode emitted no ANSI, so the test proves nothing: %q", out)
+	}
+}

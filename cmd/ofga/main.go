@@ -86,7 +86,9 @@ func main() {
 	icons.Apply(icons.Parse(cfg.IconsMode()))
 
 	c := cli.New(logger, cfg, version.Resolved())
-	c.NoColor = boolFlagFromArgs(os.Args[1:], "--no-color")
+	// Agent mode is applied again in PersistentPreRunE, but --help exits before
+	// that runs, so the construction-time writers have to know it already.
+	c.NoColor = agent.Enabled || boolFlagFromArgs(os.Args[1:], "--no-color")
 	c.Agent = agent
 	c.Plain = boolFlagFromArgs(os.Args[1:], "--plain")
 	c.ThemeName = valueFlagFromArgs(os.Args[1:], "--theme")
