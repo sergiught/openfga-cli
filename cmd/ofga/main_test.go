@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -142,5 +143,20 @@ func TestMachineOutputFromArgs(t *testing.T) {
 		if got := machineOutputFromArgs(tt.args); got != tt.want {
 			t.Errorf("machineOutputFromArgs(%q) = %v, want %v", tt.args, got, tt.want)
 		}
+	}
+}
+
+func TestReportMachineErrorKeepsExplicitKind(t *testing.T) {
+	explicit := clierr.WithCode(clierr.CodeUsage, clierr.WithKind(clierr.KindValidation, errors.New("x")))
+	var buf bytes.Buffer
+	reportMachineError(&buf, explicit, clierr.CodeUsage, "ofga query batch-check", false)
+	if !strings.Contains(buf.String(), `"code":"validation"`) {
+		t.Fatalf("explicit kind clobbered: %s", buf.String())
+	}
+
+	buf.Reset()
+	reportMachineError(&buf, clierr.WithCode(clierr.CodeUsage, errors.New("x")), clierr.CodeUsage, "ofga query batch-check", false)
+	if !strings.Contains(buf.String(), `"code":"usage"`) {
+		t.Fatalf("plain usage error not usage: %s", buf.String())
 	}
 }

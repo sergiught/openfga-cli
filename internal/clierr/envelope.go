@@ -65,6 +65,12 @@ func WithKind(k Kind, err error) error {
 	return &kindError{kind: k, err: err}
 }
 
+// HasKind reports whether err carries an explicit Kind set with WithKind.
+func HasKind(err error) bool {
+	var ke *kindError
+	return errors.As(err, &ke)
+}
+
 // WithHint attaches a remediation hint to err. Returns nil for a nil error;
 // the outermost WithHint wins.
 func WithHint(hint string, err error) error {

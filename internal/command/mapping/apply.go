@@ -349,22 +349,20 @@ func reportApplyFailure(ctx context.Context, w io.Writer, machine bool, plan *ma
 		return clierr.WithPartialResult(canceledReport{text})
 	}
 	summary := fmt.Sprintf("%s; event %d failed: %s", done, failed, msg)
-	hints := applyHints(err)
+	var hints []string
+	if split {
+		hints = append(hints, fmt.Sprintf("event %d goes out in several requests and may be partly written", failed))
+	}
+	hints = append(hints, applyHints(err)...)
 	if resume != "" {
 		hints = append(hints, resume)
 	}
 	// Under machine output the error envelope main writes is the only thing on
-	// stderr; it carries the summary and hints below.
+	// stderr; it carries the summary and hints above.
 	if !machine {
 		output.Errorf(w, "%s", summary)
-		if split {
-			output.Hintf(w, "event %d goes out in several requests and may be partly written", failed)
-		}
-		for _, h := range applyHints(err) {
+		for _, h := range hints {
 			output.Hintf(w, "%s", h)
-		}
-		if resume != "" {
-			output.Hintf(w, "%s", resume)
 		}
 	}
 	kind := clierr.KindPartialFailure

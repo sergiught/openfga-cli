@@ -350,7 +350,9 @@ func reportMachineError(w io.Writer, err error, code int, cmdPath string, cancel
 			body.Message = "canceled: " + partial.Error()
 		}
 	case code == clierr.CodeUsage:
-		body.Code = clierr.KindUsage
+		if !clierr.HasKind(err) {
+			body.Code = clierr.KindUsage
+		}
 		if body.Hint == "" {
 			body.Hint = "run '" + cmdPath + " --help' for usage"
 		}

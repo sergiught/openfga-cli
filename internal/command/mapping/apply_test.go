@@ -817,3 +817,28 @@ func TestApplyStopsReadingStdinWhenCanceled(t *testing.T) {
 		t.Fatal("apply still reading stdin after cancel")
 	}
 }
+
+// Under machine output the split-event warning belongs in the envelope: with
+// nothing applied the kind alone would tell an agent nothing was written.
+func TestApplyMachineEnvelopeCarriesSplitEventHint(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, map[string]any{
+		"user": "user:u1", "relation": "member", "object": "team:t1",
+		"condition": map[string]any{"name": "in_office", "context": map[string]any{"level": 5}},
+	})
+	fs.failWrite = `{"code":"validation_error","message":"type not found"}`
+	mp, ep := applyFiles(t, conditional, `{"type":"grant","user":"u1","team":"t1","level":5}`)
+	c := fs.cli()
+	c.JSON = true
+	_, stderr, err := runApply(t, context.Background(), c, nil, mp, "--events", ep, "--force")
+	if !clierr.IsSilent(err) || strings.Contains(stderr, "failed") {
+		t.Fatalf("err=%v stderr=%q", err, stderr)
+	}
+	env := clierr.NewEnvelope(err)
+	if env.Error.Code != clierr.KindValidation {
+		t.Errorf("kind = %q", env.Error.Code)
+	}
+	if !strings.Contains(env.Error.Hint, "event 1 goes out in several requests and may be partly written") {
+		t.Errorf("hint = %q", env.Error.Hint)
+	}
+}
