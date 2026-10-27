@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/openfga-cli/internal/agentskill"
+	"github.com/sergiught/openfga-cli/internal/atomicfile"
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/cmdmeta"
@@ -117,8 +118,16 @@ alone; a different one is replaced only after confirmation or with --force.`,
 				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 					return err
 				}
-				//nolint:gosec // the skill is public, not a secret
-				if err := os.WriteFile(path, want, 0o644); err != nil {
+				// Staged, so a failed write leaves an installed skill intact.
+				f, err := atomicfile.Create(path, 0o644)
+				if err != nil {
+					return err
+				}
+				defer f.Abort()
+				if _, err := f.Write(want); err != nil {
+					return err
+				}
+				if err := f.Commit(); err != nil {
 					return err
 				}
 			}
