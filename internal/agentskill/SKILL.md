@@ -115,8 +115,9 @@ only the tuples the server rejected.
 
 ## 7. Large reads: -o jsonl
 
-`--json` prints one document, so a big read is held in memory and parsed as a
-whole. For many rows use `-o jsonl`: one JSON value per line, streamed.
+`tuples read` streams its output either way, but `--json` prints one array
+that you have to parse as a whole. For many rows use `-o jsonl`: one JSON value
+per line, so each row can be handled as it arrives.
 
 ```bash
 ofga tuples read --object document:roadmap -o jsonl --max-results 1000
