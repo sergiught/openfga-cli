@@ -119,6 +119,38 @@ func TestSearchEchoesSessionID(t *testing.T) {
 	}
 }
 
+// Every request after initialize carries the version the server negotiated.
+func TestSearchSendsNegotiatedProtocolVersion(t *testing.T) {
+	var mu sync.Mutex
+	seen := map[string]string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req rpcReq
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		mu.Lock()
+		seen[req.Method] = r.Header.Get("MCP-Protocol-Version")
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		switch req.Method {
+		case "initialize":
+			_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":{"protocolVersion":"2025-03-26"}}`, *req.ID)
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			_, _ = fmt.Fprint(w, textResult(*req.ID, twoResults))
+		}
+	}))
+	defer srv.Close()
+	if _, err := docsearch.NewForTest(srv.URL, srv.Client()).Search(context.Background(), "q"); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"initialize": "", "notifications/initialized": "2025-03-26", "tools/call": "2025-03-26"}
+	for m, v := range want {
+		if seen[m] != v {
+			t.Errorf("%s: MCP-Protocol-Version = %q, want %q", m, seen[m], v)
+		}
+	}
+}
+
 func TestSearchUnrecognizedShape(t *testing.T) {
 	srv := mcpServer(t, false, "", func(id int) string { return textResult(id, "just some prose") }, nil)
 	defer srv.Close()

@@ -33,10 +33,12 @@ type toolResult struct {
 	} `json:"content"`
 }
 
-// session carries the Mcp-Session-Id the server hands out on initialize.
+// session carries the Mcp-Session-Id the server hands out on initialize and
+// the negotiated protocol version, both sent on every later request.
 type session struct {
-	c  *Client
-	id string
+	c       *Client
+	id      string
+	version string
 }
 
 // post sends one JSON-RPC message. For a request (id != nil) it returns the
@@ -61,6 +63,9 @@ func (s *session) post(ctx context.Context, id *int, method string, params any) 
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	if s.id != "" {
 		req.Header.Set("Mcp-Session-Id", s.id)
+	}
+	if s.version != "" {
+		req.Header.Set("MCP-Protocol-Version", s.version)
 	}
 	resp, err := s.c.http.Do(req)
 	if err != nil {
@@ -136,6 +141,14 @@ func (c *Client) Search(ctx context.Context, query string) ([]Result, error) {
 	}
 	if init.Error != nil {
 		return nil, rpcError(init.Error.Message)
+	}
+	var ir struct {
+		ProtocolVersion string `json:"protocolVersion"`
+	}
+	_ = json.Unmarshal(init.Result, &ir)
+	s.version = ir.ProtocolVersion
+	if s.version == "" {
+		s.version = protocolVersion
 	}
 	if _, err := s.post(ctx, nil, "notifications/initialized", nil); err != nil {
 		return nil, err
