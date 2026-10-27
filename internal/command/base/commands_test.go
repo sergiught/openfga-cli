@@ -93,6 +93,44 @@ func TestCommandsGlobalFlagsOnce(t *testing.T) {
 	}
 }
 
+// A command-local flag that shares a global's name (init's --store-id saves
+// it to the profile) is the command's own flag, not the inherited global.
+func TestCommandsKeepsLocalFlagsThatShadowGlobals(t *testing.T) {
+	c, _ := decodeCatalog(t)
+	globals := map[string]string{}
+	for _, f := range c.GlobalFlags {
+		globals[f.Name] = f.Usage
+	}
+	for _, path := range []string{"ofga init", "ofga profiles add"} {
+		var cmd *commandInfo
+		for i := range c.Commands {
+			if c.Commands[i].Path == path {
+				cmd = &c.Commands[i]
+			}
+		}
+		if cmd == nil {
+			t.Fatalf("%s missing", path)
+		}
+		flags := map[string]string{}
+		for _, f := range cmd.Flags {
+			flags[f.Name] = f.Usage
+		}
+		for _, name := range []string{"api-url", "store-id", "model-id"} {
+			usage, ok := flags[name]
+			if !ok {
+				t.Errorf("%s lacks its local --%s", path, name)
+				continue
+			}
+			if usage == globals[name] {
+				t.Errorf("%s --%s carries the global's usage %q", path, name, usage)
+			}
+		}
+		if _, ok := flags["output"]; ok {
+			t.Errorf("%s lists inherited --output", path)
+		}
+	}
+}
+
 func TestCommandsNoHelpFlag(t *testing.T) {
 	c, _ := decodeCatalog(t)
 	for _, cmd := range c.Commands {
