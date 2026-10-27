@@ -459,14 +459,28 @@ func schemaErr(source string, format bulkFormat, cause error) error {
 	if source == "-" {
 		label = "from stdin"
 	}
-	msg := fmt.Sprintf("parse tuples %s as %s: %v; expected %s", label, format, cause, schemaHint(format))
+	body := fmt.Sprintf("parse tuples %s as %s: %v; expected %s", label, format, cause, schemaHint(format))
+	suffix := ". Use --file-format to override the format inferred from the file extension"
 	if source == "-" && format == formatJSON {
-		msg += ". stdin has no extension, so it is read as json; pass --file-format to change that"
-	} else {
-		msg += ". Use --file-format to override the format inferred from the file extension"
+		suffix = ". stdin has no extension, so it is read as json; pass --file-format to change that"
 	}
-	return clierr.WithCode(clierr.CodeUsage, errors.New(msg))
+	return clierr.WithCode(clierr.CodeUsage, &schemaError{body: body, suffix: suffix})
 }
+
+// schemaError is a schemaErr failure whose trailing --file-format advice can
+// be swapped by callers whose command has no such flag.
+type schemaError struct{ body, suffix string }
+
+func (e *schemaError) Error() string { return e.body + e.suffix }
+
+// indexedError tags a per-tuple failure with the tuple's reported index.
+type indexedError struct {
+	index int
+	err   error
+}
+
+func (e *indexedError) Error() string { return e.err.Error() }
+func (e *indexedError) Unwrap() error { return e.err }
 
 // schemaHint describes the shapes a format accepts.
 func schemaHint(format bulkFormat) string {
@@ -578,8 +592,18 @@ func splitTypeID(s string) (typ, id string) {
 func LoadTupleFile(path string, stdin io.Reader) ([]openfga.TupleKey, error) {
 	keys, err := loadTupleFile(path, stdin)
 	if err != nil {
-		return nil, clierr.WithKind(clierr.KindValidation,
-			clierr.WithDetails(err, map[string]any{"source": path, "problem": err.Error()}))
+		// The query commands have no --file-format flag, so replace that advice.
+		var se *schemaError
+		if errors.As(err, &se) {
+			err = clierr.WithCode(clierr.CodeUsage, errors.New(se.body+
+				`. Use a JSON array, a {"tuples":[…]} document, or one tuple per line (JSONL)`))
+		}
+		detail := map[string]any{"source": path, "problem": err.Error()}
+		var ie *indexedError
+		if errors.As(err, &ie) {
+			detail["index"] = ie.index
+		}
+		return nil, clierr.WithKind(clierr.KindValidation, clierr.WithDetails(err, detail))
 	}
 	return keys, nil
 }
@@ -590,20 +614,34 @@ func loadTupleFile(path string, stdin io.Reader) ([]openfga.TupleKey, error) {
 		return nil, err
 	}
 	if path == "-" {
-		// Stdin has no extension: buffer it and treat a stream holding more
-		// than one top-level JSON value as JSON Lines, anything else as JSON.
+		// Stdin has no extension: buffer it, drop a UTF-8 BOM and sniff. A
+		// leading "[" is a JSON array, a lone object with a "tuples" key is the
+		// JSON document form, anything else is JSON Lines.
 		data, err := readlimit.All(stdin, readlimit.Document, "tuples from stdin")
 		if err != nil {
 			return nil, err
 		}
-		dec := json.NewDecoder(bytes.NewReader(data))
-		var first json.RawMessage
-		if dec.Decode(&first) == nil && dec.More() {
-			format = formatJSONL
-		}
+		data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
+		format = sniffStdinFormat(data)
 		stdin = bytes.NewReader(data)
 	}
-	return loadTuples(stdin, path, format, false)
+	return loadTuples(stdin, path, format, false, 0)
+}
+
+// sniffStdinFormat picks the format of extensionless stdin input.
+func sniffStdinFormat(data []byte) bulkFormat {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || trimmed[0] == '[' {
+		return formatJSON
+	}
+	dec := json.NewDecoder(bytes.NewReader(trimmed))
+	var doc map[string]json.RawMessage
+	if dec.Decode(&doc) == nil && !dec.More() {
+		if _, ok := doc["tuples"]; ok {
+			return formatJSON
+		}
+	}
+	return formatJSONL
 }
 
 // DecodeTuple decodes one raw JSON tuple (a tuples-file entry: user, relation,

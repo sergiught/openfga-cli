@@ -173,3 +173,56 @@ func TestContextualTuplesFileInvalidIsValidation(t *testing.T) {
 		t.Fatalf("server received %d requests, want 0", n)
 	}
 }
+
+func TestContextualTuplesFileFromStdinSingleLineJSONL(t *testing.T) {
+	configtest.Isolate(t)
+	rec := newBodyRecorder(t)
+	cmd := New(newQueryCLI(t, rec.srv.URL)).checkCmd()
+	cmd.SetIn(strings.NewReader(`{"user":"user:a","relation":"viewer","object":"doc:1"}` + "\n"))
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"user:anne", "viewer", "doc:1", "--contextual-tuples-file", "-"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got := contextualUsers(t, rec.bodies[0]); len(got) != 1 || got[0] != "user:a" {
+		t.Fatalf("contextual users = %v, want [user:a]", got)
+	}
+}
+
+func TestContextualTuplesFileErrorIsZeroBasedWithIndex(t *testing.T) {
+	configtest.Isolate(t)
+	rec := newBodyRecorder(t)
+	file := writeTupleFile(t, "bad.json", `[{"user":"user:a","relation":"viewer","object":"doc:1"},{"user":"nope","relation":"viewer","object":"doc:1"}]`)
+	cmd := New(newQueryCLI(t, rec.srv.URL)).checkCmd()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"user:anne", "viewer", "doc:1", "--contextual-tuples-file", file})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "tuple 1:") {
+		t.Fatalf("err = %v, want a 0-based \"tuple 1:\" message", err)
+	}
+	found := false
+	for _, d := range clierr.NewEnvelope(err).Error.Details {
+		if d["index"] == 1 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("details lack index 1: %v", clierr.NewEnvelope(err).Error.Details)
+	}
+}
+
+func TestBatchCheckRejectsBothStdinFlags(t *testing.T) {
+	srv, bodies := batchRecorder(t)
+	_, err := runBatch(t, srv.URL, batchJSON, "--file", "-", "--contextual-tuples-file", "-")
+	if err == nil || clierr.Code(err) != clierr.CodeUsage {
+		t.Fatalf("err = %v (code %d), want a usage error", err, clierr.Code(err))
+	}
+	if !strings.Contains(err.Error(), "both read stdin") {
+		t.Fatalf("err = %v, want the both-stdin message", err)
+	}
+	if len(bodies()) != 0 {
+		t.Fatal("a request was sent")
+	}
+}

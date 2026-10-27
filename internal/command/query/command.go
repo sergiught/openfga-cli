@@ -256,6 +256,9 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 			if len(checks) == 0 && file == "" {
 				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("pass --check or --file"))
 			}
+			if file == "-" && ctxFile == "-" {
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--file - and --contextual-tuples-file - both read stdin; pass one of them as a file path"))
+			}
 			cx, err := fga.ParseJSONObject("--context", contextJSON)
 			if err != nil {
 				return clierr.WithCode(clierr.CodeUsage, err)

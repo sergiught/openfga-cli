@@ -581,13 +581,13 @@ func bulkTuples(cmd *cobra.Command, file string, format bulkFormat, args []strin
 		return nil, clierr.WithCode(clierr.CodeUsage,
 			fmt.Errorf("--file cannot be combined with positional args or --user/--relation/--object"))
 	}
-	return loadTuples(cmd.InOrStdin(), file, format, forDelete)
+	return loadTuples(cmd.InOrStdin(), file, format, forDelete, 1)
 }
 
 // loadTuples is the single tuple-file reader behind `tuples write|delete --file`
 // and LoadTupleFile: it reads file (or stdin for "-"), decodes it in format and
 // validates every entry.
-func loadTuples(stdin io.Reader, file string, format bulkFormat, forDelete bool) ([]openfga.TupleKey, error) {
+func loadTuples(stdin io.Reader, file string, format bulkFormat, forDelete bool, base int) ([]openfga.TupleKey, error) {
 	var data []byte
 	var err error
 	if file == "-" {
@@ -609,16 +609,16 @@ func loadTuples(stdin io.Reader, file string, format bulkFormat, forDelete bool)
 	for i, t := range raw {
 		key, err := fga.ParseTuple(t.User, t.Relation, t.Object)
 		if err != nil {
-			return nil, clierr.WithCode(clierr.CodeUsage, fmt.Errorf("tuple %d: %w", i+1, err))
+			return nil, &indexedError{i, clierr.WithCode(clierr.CodeUsage, fmt.Errorf("tuple %d: %w", i+base, err))}
 		}
 		if t.Condition != nil {
 			if forDelete {
-				return nil, clierr.WithCode(clierr.CodeUsage,
-					fmt.Errorf("tuple %d: delete does not support a condition (deletes match by user/relation/object only)", i+1))
+				return nil, &indexedError{i, clierr.WithCode(clierr.CodeUsage,
+					fmt.Errorf("tuple %d: delete does not support a condition (deletes match by user/relation/object only)", i+base))}
 			}
 			name := strings.TrimSpace(t.Condition.Name)
 			if name == "" {
-				return nil, clierr.WithCode(clierr.CodeUsage, fmt.Errorf("tuple %d: condition present but its name is empty", i+1))
+				return nil, &indexedError{i, clierr.WithCode(clierr.CodeUsage, fmt.Errorf("tuple %d: condition present but its name is empty", i+base))}
 			}
 			key.Condition = &openfga.RelationshipCondition{Name: name, Context: t.Condition.Context}
 		}
