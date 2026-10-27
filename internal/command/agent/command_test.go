@@ -133,6 +133,22 @@ func TestSkillInstallProjectAndDirConflict(t *testing.T) {
 	}
 }
 
+// An explicitly empty --dir is a usage error, not a silent fall back to the
+// home directory (which would also slip past the --project check).
+func TestSkillInstallRejectsEmptyDir(t *testing.T) {
+	for _, args := range [][]string{{"--dir", ""}, {"--dir", " "}, {"--project", "--dir", ""}} {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		_, _, err := run(t, false, append([]string{"skill", "install"}, args...)...)
+		if err == nil || clierr.Code(err) != 2 {
+			t.Errorf("%q: err = %v (code %d), want a usage error", args, err, clierr.Code(err))
+		}
+		if _, statErr := os.Stat(filepath.Join(home, ".claude")); !errors.Is(statErr, os.ErrNotExist) {
+			t.Errorf("%q: wrote into HOME", args)
+		}
+	}
+}
+
 func TestSkillInstallIdempotent(t *testing.T) {
 	tmp := t.TempDir()
 	type res struct {

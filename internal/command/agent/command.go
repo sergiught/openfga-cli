@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -88,7 +89,11 @@ alone; a different one is replaced only after confirmation or with --force.`,
   ofga agent skill install --dir ~/.config/other-agent/skills --force`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if project && dir != "" {
+			dirSet := cmd.Flags().Changed("dir")
+			if dirSet && strings.TrimSpace(dir) == "" {
+				return clierr.WithCode(clierr.CodeUsage, errors.New("--dir must not be empty"))
+			}
+			if project && dirSet {
 				return clierr.WithCode(clierr.CodeUsage, errors.New("--project and --dir are mutually exclusive"))
 			}
 			path, err := skillPath(project, dir)
