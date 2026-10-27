@@ -14,6 +14,7 @@ import (
 	"charm.land/log/v2"
 
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/config"
 )
 
 func TestRawGlobalFlagParsing(t *testing.T) {
@@ -153,10 +154,33 @@ func TestMachineOutputFromArgs(t *testing.T) {
 		{[]string{"-qojson"}, true}, {[]string{"-qo", "json"}, true}, {[]string{"-pojson"}, false},
 		// A bare --jq whose value is missing still asked for machine output.
 		{[]string{"stores", "list", "--jq"}, true},
+		// A value a flag consumes is not itself a flag.
+		{[]string{"stores", "list", "--jq", "-otable", "--json"}, true},
+		{[]string{"stores", "list", "--profile", "-ojson"}, false},
+		// Shorthand arity comes from the command: -f is --force here.
+		{[]string{"mappings", "apply", "-fojson", "--bogus"}, true},
+		// Unknown flags and commands still leave the output flags readable.
+		{[]string{"stores", "list", "--bogus", "-o", "json"}, true},
+		{[]string{"stors", "--json"}, true},
 	}
+	root := scanRoot()
 	for _, tt := range tests {
-		if got := machineOutputFromArgs(tt.args); got != tt.want {
+		if got := machineOutputFromArgs(root, tt.args); got != tt.want {
 			t.Errorf("machineOutputFromArgs(%q) = %v, want %v", tt.args, got, tt.want)
+		}
+	}
+}
+
+func TestConfigLoadHintNamesTheFileThatFailed(t *testing.T) {
+	if got := configLoadHint([]string{"stores", "list", "--config", "/elsewhere/ofga.toml"}); got != "fix or remove /elsewhere/ofga.toml, then try again" {
+		t.Errorf("explicit --config hint = %q", got)
+	}
+	if got := configLoadHint([]string{"--config=/elsewhere/ofga.toml"}); !strings.Contains(got, "/elsewhere/ofga.toml") {
+		t.Errorf("explicit --config= hint = %q", got)
+	}
+	if path := config.DefaultPath(); path != "" {
+		if got := configLoadHint(nil); got != "fix or remove "+path+", then try again" {
+			t.Errorf("default hint = %q", got)
 		}
 	}
 }

@@ -16,6 +16,8 @@ import (
 
 	"charm.land/log/v2"
 	"github.com/charmbracelet/colorprofile"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
@@ -50,11 +52,8 @@ func main() {
 	noColor := noColorFromArgs(os.Args[1:], "")
 	cfg, err := config.LoadFrom(configPathFromArgs(os.Args[1:]))
 	if err != nil {
-		if machineOutputFromArgs(os.Args[1:]) {
-			hint := ""
-			if path := config.DefaultPath(); path != "" {
-				hint = "fix or remove " + path + ", then try again"
-			}
+		hint := configLoadHint(os.Args[1:])
+		if machineOutputFromArgs(scanRoot(), os.Args[1:]) {
 			reportMachineError(os.Stderr, clierr.WithHint(hint, err), clierr.CodeError, "ofga", false)
 			os.Exit(clierr.CodeError)
 		}
@@ -63,8 +62,8 @@ func main() {
 		// and ignores NO_COLOR.
 		errw := profileWriter(os.Stderr, noColor)
 		output.Errorf(errw, "%s", err.Error())
-		if path := config.DefaultPath(); path != "" {
-			output.Hintf(errw, "fix or remove %s, then try again", path)
+		if hint != "" {
+			output.Hintf(errw, "%s", hint)
 		}
 		os.Exit(clierr.CodeError)
 	}
@@ -107,7 +106,7 @@ func main() {
 			}
 		}
 		logger.Debugf("command failed: %+v", err)
-		machine := machineOutputFromArgs(os.Args[1:])
+		machine := machineOutputFromArgs(rootCmd, os.Args[1:])
 		if root.OutputResolved() {
 			machine = c.JSON || c.YAML
 		}
@@ -299,6 +298,20 @@ func configPathFromArgs(args []string) string {
 	return ""
 }
 
+// configLoadHint is the remediation for a config that failed to load, naming
+// the file that failed: the --config override when argv has one, else the
+// default location. Returns "" when neither resolves.
+func configLoadHint(args []string) string {
+	path := configPathFromArgs(args)
+	if path == "" {
+		path = config.DefaultPath()
+	}
+	if path == "" {
+		return ""
+	}
+	return "fix or remove " + path + ", then try again"
+}
+
 // logLevel raises verbosity when the preferred debug flag or its legacy
 // verbose alias is present.
 func logLevel(args []string) log.Level {
@@ -311,63 +324,63 @@ func logLevel(args []string) log.Level {
 // machineOutputFromArgs reports whether raw argv selects machine output
 // (--json, --yaml, --jq, or -o/--output json|yaml). It is the fallback for
 // failures that happen before cobra has resolved the output flags: a mistyped
-// command, an unknown flag, a config that will not load. --plain and
-// the last -o wins and is authoritative, as it is in resolveOutput.
-func machineOutputFromArgs(args []string) bool {
-	var value string
-	jq := false
-	for i, arg := range args {
-		if arg == "--" {
-			break
-		}
-		next := ""
-		if i+1 < len(args) {
-			next = args[i+1]
-		}
-		switch {
-		// A bare --jq with no value still asked for machine output.
-		case arg == "--jq", strings.HasPrefix(arg, "--jq="):
-			jq = true
-		case arg == "--output":
-			value = next
-		case strings.HasPrefix(arg, "--output="):
-			value = strings.TrimPrefix(arg, "--output=")
-		case len(arg) > 1 && arg[0] == '-' && arg[1] != '-':
-			if v, ok := shorthandOutput(arg[1:], next); ok {
-				value = v
-			}
+// command, an unknown flag, a config that will not load. The last -o wins and
+// is authoritative over --plain, as it is in resolveOutput.
+//
+// argv is parsed against the flags of the command it names (root when it names
+// none), so a flag takes a value exactly when cobra's would: `mappings apply
+// -fojson` is --force -o json, and in `--jq -otable` the -otable is the jq
+// expression.
+func machineOutputFromArgs(root *cobra.Command, args []string) bool {
+	cmd := root
+	if found, _, err := root.Find(args); err == nil {
+		cmd = found
+	}
+	cmd.InitDefaultHelpFlag()
+	// Each flag is mirrored as a string of the same arity, so parsing argv here
+	// never runs the real flags' setters.
+	fs := pflag.NewFlagSet("", pflag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.ParseErrorsAllowlist.UnknownFlags = true
+	mirror := func(f *pflag.Flag) {
+		if fs.Lookup(f.Name) == nil {
+			fs.StringP(f.Name, f.Shorthand, "", "")
+			fs.Lookup(f.Name).NoOptDefVal = f.NoOptDefVal
 		}
 	}
-	switch value {
+	cmd.LocalFlags().VisitAll(mirror)
+	cmd.InheritedFlags().VisitAll(mirror)
+	err := fs.Parse(args)
+
+	value := func(name string) string {
+		if f := fs.Lookup(name); f != nil && f.Changed {
+			return f.Value.String()
+		}
+		return ""
+	}
+	on := func(name string) bool {
+		v, _ := strconv.ParseBool(value(name))
+		return v
+	}
+	switch value("output") {
 	case "json", "yaml":
 		return true
 	case "plain", "table":
 		return false
 	}
-	if boolFlagFromArgs(args, "--plain") {
+	if on("plain") {
 		return false
 	}
-	return jq || boolFlagFromArgs(args, "--json") || boolFlagFromArgs(args, "--yaml")
+	// A bare --jq with no value still asked for machine output.
+	var missing *pflag.ValueRequiredError
+	jq := fs.Changed("jq") || errors.As(err, &missing) && missing.GetFlag().Name == "jq"
+	return jq || on("json") || on("yaml")
 }
 
-// shorthandOutput finds -o in a shorthand cluster such as "qojson" or "qo"
-// (whose value is next). A value-taking shorthand before it swallows the rest
-// of the cluster, so "pojson" is --profile=ojson.
-func shorthandOutput(cluster, next string) (string, bool) {
-	for i := range len(cluster) {
-		c := cluster[i]
-		if c == 'o' {
-			rest := strings.TrimPrefix(cluster[i+1:], "=")
-			if rest == "" {
-				return next, true
-			}
-			return rest, true
-		}
-		if strings.IndexByte(valueShorthands, c) >= 0 {
-			return "", false
-		}
-	}
-	return "", false
+// scanRoot builds a command tree only to read flag arity from, for a failure
+// that happens before main has built the real one.
+func scanRoot() *cobra.Command {
+	return base.New(cli.New(log.New(io.Discard), config.New(), version.Resolved())).Command()
 }
 
 // reportMachineError writes err to w as the one-line JSON error envelope.
