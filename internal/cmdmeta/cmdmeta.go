@@ -26,9 +26,10 @@ type Meta struct {
 	// A command that falls back to the latest model is false.
 	RequiresModel bool
 	// Mutates: the command changes server state (stores, models, tuples,
-	// assertions) or local CLI config. Local output files such as
-	// --output-file and --cursor-file don't count. Dry runs and unconfirmed
-	// runs still count as mutating commands.
+	// assertions), local CLI config or files in the working tree (such as a
+	// scaffolded workspace). An output file the caller names with a flag such
+	// as --output-file or --cursor-file doesn't count. Dry runs and
+	// unconfirmed runs still count as mutating commands.
 	Mutates bool
 	// InteractiveOnly: the command is a TUI entry point.
 	InteractiveOnly bool

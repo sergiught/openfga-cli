@@ -141,8 +141,9 @@ flags, examples, and whether it needs a store or model, mutates state, supports
 offline and needs no profile.
 
 A command is marked `mutates` when it changes server state (stores, models,
-tuples, assertions) or local CLI config. Local output files such as
-`--output-file` and `--cursor-file` don't count.
+tuples, assertions), local CLI config or files in the working tree (such as
+`model test init` scaffolding). An output file you name with a flag such as
+`--output-file` or `--cursor-file` doesn't count.
 
 ```sh
 # Every command that changes state

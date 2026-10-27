@@ -107,8 +107,8 @@ func (c *Command) commandsCmd() *cobra.Command {
 		Short: "List every command, its flags and metadata",
 		Long: "Print a catalog of every runnable command: path, usage, flags, examples and whether it " +
 			"needs a store or model, mutates state, supports --dry-run or is interactive only. " +
-			"A command mutates when it changes server state (stores, models, tuples, assertions) or local CLI config; " +
-			"local output files such as --output-file and --cursor-file don't count. " +
+			"A command mutates when it changes server state (stores, models, tuples, assertions), local CLI config or files in the working tree; " +
+			"an output file named with a flag such as --output-file or --cursor-file doesn't count. " +
 			"Use --json or --yaml for the full catalog (global flags are listed once); " +
 			"the default is a table of commands.",
 		Example: "  ofga commands\n  ofga commands --json | jq -r '.commands[] | select(.mutates) | .path'",
