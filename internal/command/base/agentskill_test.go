@@ -70,7 +70,8 @@ func fencedSpans(body string) []string {
 }
 
 // scanSkillArity reports every fenced ofga example whose positional words
-// (those after the command path, up to the first flag) its command rejects.
+// (those after the command path that are not flags or flag values) its
+// command rejects.
 func scanSkillArity(root *cobra.Command, body string) []string {
 	var misses []string
 	for _, span := range fencedSpans(body) {
@@ -86,17 +87,17 @@ func scanSkillArity(root *cobra.Command, body string) []string {
 			}
 			cmd, rest = sub, rest[1:]
 		}
-		var pos []string
-		for _, a := range rest {
-			if strings.HasPrefix(a, "-") {
-				break
-			}
-			pos = append(pos, a)
-		}
 		if cmd.Args == nil {
 			continue
 		}
-		if err := cmd.Args(cmd, pos); err != nil {
+		// Parse the flags as cobra would, so positionals mixed in between
+		// them are found.
+		cmd.InitDefaultHelpFlag()
+		if err := cmd.ParseFlags(rest); err != nil {
+			misses = append(misses, "bad flags in `"+span+"`: "+err.Error())
+			continue
+		}
+		if err := cmd.Args(cmd, cmd.Flags().Args()); err != nil {
 			misses = append(misses, "bad arguments in `"+span+"`: "+err.Error())
 		}
 	}
@@ -198,9 +199,16 @@ func TestScanSkillCatchesBadTokens(t *testing.T) {
 
 func TestScanSkillArityCatchesMissingPositional(t *testing.T) {
 	root := metaRoot(t).Command()
-	body := "```\nofga stores create --dry-run\nofga stores create my-store --dry-run\nofga stores list --json | jq .\n```\n"
-	got := scanSkillArity(root, body)
-	if len(got) != 1 || !strings.Contains(got[0], "ofga stores create --dry-run") {
-		t.Errorf("want exactly the arg-less create reported, got %v", got)
+	// Positionals after a flag count too: a stray word after a bool flag is
+	// caught, and a name that follows a flag is not reported missing.
+	body := "```\nofga stores create --dry-run\nofga stores create my-store --dry-run\nofga stores create --dry-run my-store\nofga stores list --json extra\nofga stores list --json | jq .\n```\n"
+	got := strings.Join(scanSkillArity(root, body), "\n")
+	for _, want := range []string{"`ofga stores create --dry-run`", "`ofga stores list --json extra`"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("misses missing %s:\n%s", want, got)
+		}
+	}
+	if n := strings.Count(got, "bad arguments"); n != 2 {
+		t.Errorf("want exactly 2 reports, got %d:\n%s", n, got)
 	}
 }
