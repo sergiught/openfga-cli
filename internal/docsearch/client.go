@@ -116,6 +116,15 @@ func readBody(r io.Reader) ([]byte, error) {
 // bare docs path, a /docs/ path, or a full openfga.dev URL, and drops any .md
 // suffix, fragment and query.
 func PageURL(ref string) (string, error) {
+	p, err := pagePath(ref)
+	if err != nil {
+		return "", err
+	}
+	return (&url.URL{Scheme: "https", Host: docsHost, Path: p}).String(), nil
+}
+
+// pagePath validates ref and returns its cleaned, decoded /docs/... path.
+func pagePath(ref string) (string, error) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
 		return "", errors.New("empty docs page reference")
@@ -155,18 +164,19 @@ func PageURL(ref string) (string, error) {
 	if !strings.HasPrefix(p, "/docs/") || len(p) == len("/docs/") {
 		return "", fmt.Errorf("docs page must be under https://%s/docs/, got %q", docsHost, ref)
 	}
-	return "https://" + docsHost + p, nil
+	return p, nil
 }
 
 // Page fetches the markdown rendering of a docs page, verbatim.
 func (c *Client) Page(ctx context.Context, ref string) (Page, error) {
-	canonical, err := PageURL(ref)
+	p, err := pagePath(ref)
 	if err != nil {
 		return Page{}, clierr.WithCode(clierr.CodeUsage, clierr.WithKind(clierr.KindUsage, err))
 	}
-	// Re-derive the fetch URL from the validated path so only /docs/... is ever requested.
-	cu, _ := url.Parse(canonical)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+cu.Path+".md", nil)
+	canonical := (&url.URL{Scheme: "https", Host: docsHost, Path: p}).String()
+	// Escape the validated path so a decoded % can't be reinterpreted on the
+	// way out; only /docs/... is ever requested.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+(&url.URL{Path: p + ".md"}).EscapedPath(), nil)
 	if err != nil {
 		return Page{}, err
 	}

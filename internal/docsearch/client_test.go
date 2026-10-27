@@ -221,3 +221,31 @@ func TestSearchOversizedResponseIsNotANetworkError(t *testing.T) {
 	_, err := docsearch.NewForTest(srv.URL, srv.Client()).Search(context.Background(), "q")
 	assertOversizeErr(t, err)
 }
+
+// A decoded % must stay escaped: docs/x%25 fetches /docs/x%25.md rather than
+// panicking on an unparsable URL, and a double-encoded ".." stays a literal
+// segment instead of becoming a path traversal.
+func TestPageKeepsDecodedPercentEscaped(t *testing.T) {
+	var gotRaw string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRaw = r.URL.EscapedPath()
+		w.Header().Set("Content-Type", "text/markdown")
+		_, _ = w.Write([]byte("# x\n"))
+	}))
+	defer srv.Close()
+	for _, tc := range []struct{ ref, path, url string }{
+		{"docs/x%25", "/docs/x%25.md", "https://openfga.dev/docs/x%25"},
+		{"docs/%252e%252e/blog/x", "/docs/%252e%252e/blog/x.md", "https://openfga.dev/docs/%252e%252e/blog/x"},
+	} {
+		p, err := docsearch.NewForTest(srv.URL, srv.Client()).Page(context.Background(), tc.ref)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.ref, err)
+		}
+		if gotRaw != tc.path || p.URL != tc.url {
+			t.Errorf("%s: fetched %q url %q, want %q %q", tc.ref, gotRaw, p.URL, tc.path, tc.url)
+		}
+		if got, err := docsearch.PageURL(tc.ref); err != nil || got != tc.url {
+			t.Errorf("PageURL(%s) = %q, %v", tc.ref, got, err)
+		}
+	}
+}
