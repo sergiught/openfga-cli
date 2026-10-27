@@ -177,3 +177,47 @@ func TestRedirectOnSameHostIsFollowed(t *testing.T) {
 		t.Errorf("p=%+v err=%v", p, err)
 	}
 }
+
+// oversizedBody streams a little over the 8 MiB cap.
+func oversizedBody(w http.ResponseWriter) {
+	chunk := []byte(strings.Repeat("a", 1<<20))
+	for i := 0; i < 9; i++ {
+		_, _ = w.Write(chunk)
+	}
+}
+
+func assertOversizeErr(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("want an error")
+	}
+	if clierr.Classify(err) != clierr.KindServer {
+		t.Errorf("kind = %q, want server", clierr.Classify(err))
+	}
+	if code := clierr.Code(err); code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if msg := err.Error() + clierr.Friendly(err); strings.Contains(msg, "cannot reach") || !strings.Contains(msg, "larger than 8 MiB") {
+		t.Errorf("message = %q", msg)
+	}
+}
+
+func TestPageOversizedResponseIsNotANetworkError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/markdown")
+		oversizedBody(w)
+	}))
+	defer srv.Close()
+	_, err := docsearch.NewForTest(srv.URL, srv.Client()).Page(context.Background(), "x/y")
+	assertOversizeErr(t, err)
+}
+
+func TestSearchOversizedResponseIsNotANetworkError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		oversizedBody(w)
+	}))
+	defer srv.Close()
+	_, err := docsearch.NewForTest(srv.URL, srv.Client()).Search(context.Background(), "q")
+	assertOversizeErr(t, err)
+}

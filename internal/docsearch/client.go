@@ -99,14 +99,15 @@ func statusErr(status string, code int) error {
 	return clierr.WithKind(clierr.KindError, err)
 }
 
-// readBody reads at most maxBody bytes and fails if the body is larger.
+// readBody reads at most maxBody bytes. A read failure is a network error; a
+// body over the cap is a server error, since the host was reached.
 func readBody(r io.Reader) ([]byte, error) {
 	b, err := io.ReadAll(io.LimitReader(r, maxBody+1))
 	if err != nil {
-		return nil, err
+		return nil, networkErr(err)
 	}
 	if len(b) > maxBody {
-		return nil, errors.New("response larger than 8 MiB")
+		return nil, clierr.WithKind(clierr.KindServer, errors.New("openfga.dev returned a response larger than 8 MiB"))
 	}
 	return b, nil
 }
@@ -184,7 +185,7 @@ func (c *Client) Page(ctx context.Context, ref string) (Page, error) {
 	}
 	b, err := readBody(resp.Body)
 	if err != nil {
-		return Page{}, networkErr(err)
+		return Page{}, err
 	}
 	return Page{URL: canonical, Markdown: string(b)}, nil
 }

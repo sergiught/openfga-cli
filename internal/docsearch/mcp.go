@@ -78,7 +78,7 @@ func (s *session) post(ctx context.Context, id *int, method string, params any) 
 	}
 	data, err := readBody(resp.Body)
 	if err != nil {
-		return nil, networkErr(err)
+		return nil, err
 	}
 	mt, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	var msgs [][]byte
