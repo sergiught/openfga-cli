@@ -229,9 +229,9 @@ func TestSkillInstallRechecksFileCreatedMidInstall(t *testing.T) {
 	calls := 0
 	orig := readSkill
 	t.Cleanup(func() { readSkill = orig })
-	readSkill = func(name string) ([]byte, error) {
+	readSkill = func(name string) ([]byte, bool, error) {
 		if calls++; calls == 1 {
-			return nil, os.ErrNotExist
+			return nil, false, nil
 		}
 		return orig(name)
 	}
@@ -241,5 +241,27 @@ func TestSkillInstallRechecksFileCreatedMidInstall(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(path); string(b) != "x" {
 		t.Error("file created mid-install was replaced without --force")
+	}
+}
+
+// A dangling SKILL.md symlink is an existing entry: it needs confirmation and
+// --force replaces it, rather than every install failing on it.
+func TestSkillInstallReplacesDanglingSymlink(t *testing.T) {
+	tmp := t.TempDir()
+	path := skillAt(tmp)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(tmp, "gone"), path); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, _, err := run(t, false, "skill", "install", "--dir", tmp, "--no-input"); !errors.Is(err, prompt.ErrNeedsForce) {
+		t.Fatalf("err = %v, want ErrNeedsForce", err)
+	}
+	if _, _, err := run(t, false, "skill", "install", "--dir", tmp, "--force"); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(path); !bytes.Equal(b, agentskill.Content()) {
+		t.Error("dangling symlink not replaced with --force")
 	}
 }

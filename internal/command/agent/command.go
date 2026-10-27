@@ -150,25 +150,36 @@ func skillPath(project bool, dir string) (string, error) {
 	return filepath.Abs(filepath.Join(base, "ofga", "SKILL.md"))
 }
 
-// readSkill is swapped in tests to simulate a file created mid-install.
-var readSkill = os.ReadFile
+// readSkill returns the content at path and whether an entry is there at all;
+// a dangling symlink reads as missing but is still an entry to replace. It is
+// swapped in tests to simulate a file created mid-install.
+var readSkill = func(path string) (have []byte, exists bool, err error) {
+	have, err = os.ReadFile(path)
+	switch {
+	case err == nil:
+		return have, true, nil
+	case !errors.Is(err, os.ErrNotExist):
+		return nil, false, err
+	}
+	_, err = os.Lstat(path)
+	return nil, err == nil, nil
+}
 
 // installSkill writes the embedded SKILL.md to path unless an identical one is
 // there, confirming before it replaces a different one. It reports whether it
 // wrote, and an fs.ErrExist error if the file appeared after it was checked.
 func installSkill(cmd *cobra.Command, path string, force bool) (bool, error) {
 	want := agentskill.Content()
-	have, err := readSkill(path)
-	exists := err == nil
+	have, exists, err := readSkill(path)
 	switch {
+	case err != nil:
+		return false, err
 	case exists && bytes.Equal(have, want):
 		return false, nil
 	case exists:
 		if err := prompt.Confirm(cmd, fmt.Sprintf("replace %s?", path), force); err != nil {
 			return false, err
 		}
-	case !errors.Is(err, os.ErrNotExist):
-		return false, err
 	}
 	//nolint:gosec // a shared skills dir that other tools must read
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
