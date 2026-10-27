@@ -588,9 +588,14 @@ func splitTypeID(s string) (typ, id string) {
 
 // LoadTupleFile reads tuples from path ("-" reads stdin) using the same format
 // inference, shapes and strict decoding as `tuples write --file`. Errors keep
-// their exit code and are tagged as validation errors naming the source.
+// their exit code; invalid content is also tagged as a validation error naming
+// the source.
 func LoadTupleFile(path string, stdin io.Reader) ([]openfga.TupleKey, error) {
 	keys, err := loadTupleFile(path, stdin)
+	if err != nil && clierr.Code(err) != clierr.CodeUsage {
+		// A file that can't be read is a runtime failure, not bad input.
+		return nil, err
+	}
 	if err != nil {
 		// The query commands have no --file-format flag, so replace that advice.
 		var se *schemaError

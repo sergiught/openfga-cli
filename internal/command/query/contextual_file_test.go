@@ -213,6 +213,47 @@ func TestContextualTuplesFileErrorIsZeroBasedWithIndex(t *testing.T) {
 	}
 }
 
+// A file that can't be read is a runtime failure (exit 1), as it is for
+// tuples write --file; only invalid content is a usage error (exit 2).
+func TestContextualTuplesFileExitCodes(t *testing.T) {
+	configtest.Isolate(t)
+	missing := filepath.Join(t.TempDir(), "missing.json")
+	invalid := writeTupleFile(t, "bad.json", `[{"user":"user:a"}]`)
+	tests := []struct {
+		name string
+		cmd  func(*cli.CLI) *cobra.Command
+		args []string
+	}{
+		{"check", func(a *cli.CLI) *cobra.Command { return New(a).checkCmd() }, []string{"user:anne", "viewer", "doc:1"}},
+		{"batch-check", func(a *cli.CLI) *cobra.Command { return New(a).batchCheckCmd() }, []string{"--check", "user:anne,viewer,doc:1"}},
+		{"list-objects", func(a *cli.CLI) *cobra.Command { return New(a).listObjectsCmd() }, []string{"document", "viewer", "user:anne"}},
+		{"list-users", func(a *cli.CLI) *cobra.Command { return New(a).listUsersCmd() }, []string{"document:roadmap", "viewer", "--type", "user"}},
+		{"list-relations", func(a *cli.CLI) *cobra.Command { return New(a).listRelationsCmd() }, []string{"user:anne", "document:roadmap", "--relation", "viewer"}},
+	}
+	for _, tt := range tests {
+		for _, file := range []struct {
+			path string
+			code int
+			kind clierr.Kind
+		}{{missing, clierr.CodeError, clierr.KindError}, {invalid, clierr.CodeUsage, clierr.KindValidation}} {
+			t.Run(tt.name+"/"+filepath.Base(file.path), func(t *testing.T) {
+				rec := newBodyRecorder(t)
+				cmd := tt.cmd(newQueryCLI(t, rec.srv.URL))
+				cmd.SetOut(io.Discard)
+				cmd.SetErr(io.Discard)
+				cmd.SetArgs(append(append([]string{}, tt.args...), "--contextual-tuples-file", file.path))
+				err := cmd.Execute()
+				if clierr.Code(err) != file.code || clierr.Classify(err) != file.kind {
+					t.Fatalf("code=%d kind=%q, want %d %q; err=%v", clierr.Code(err), clierr.Classify(err), file.code, file.kind, err)
+				}
+				if rec.count() != 0 {
+					t.Fatalf("server received %d requests, want 0", rec.count())
+				}
+			})
+		}
+	}
+}
+
 func TestBatchCheckRejectsBothStdinFlags(t *testing.T) {
 	srv, bodies := batchRecorder(t)
 	_, err := runBatch(t, srv.URL, batchJSON, "--file", "-", "--contextual-tuples-file", "-")

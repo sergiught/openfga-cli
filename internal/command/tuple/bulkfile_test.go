@@ -323,8 +323,9 @@ func TestLoadTupleFileMatchesWriteFile(t *testing.T) {
 	}
 
 	_, err = LoadTupleFile(filepath.Join(t.TempDir(), "missing.json"), nil)
-	if clierr.Classify(err) != clierr.KindValidation {
-		t.Fatalf("kind = %q, want validation; err=%v", clierr.Classify(err), err)
+	// An unreadable file is a runtime failure, as it is for tuples write --file.
+	if clierr.Classify(err) != clierr.KindError || clierr.Code(err) != clierr.CodeError {
+		t.Fatalf("kind = %q code = %d, want error 1; err=%v", clierr.Classify(err), clierr.Code(err), err)
 	}
 }
 

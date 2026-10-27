@@ -132,7 +132,7 @@ func contextualTuples(cmd *cobra.Command, flagVals []string, file string) (*open
 	}
 	flagged, err := parseContextualTuples(flagVals)
 	if err != nil {
-		return nil, err
+		return nil, clierr.WithCode(clierr.CodeUsage, err)
 	}
 	if flagged != nil {
 		keys = append(keys, flagged.TupleKeys...)
@@ -175,7 +175,7 @@ func (c *Command) checkCmd() *cobra.Command {
 			}
 			ct, err := contextualTuples(cmd, ctxTuples, ctxFile)
 			if err != nil {
-				return clierr.WithCode(clierr.CodeUsage, err)
+				return err
 			}
 			ropts, err := cli.ConsistencyOption(fConsistency)
 			if err != nil {
@@ -265,7 +265,7 @@ func (c *Command) batchCheckCmd() *cobra.Command {
 			}
 			ct, err := contextualTuples(cmd, ctxTuples, ctxFile)
 			if err != nil {
-				return clierr.WithCode(clierr.CodeUsage, err)
+				return err
 			}
 			var items []openfga.BatchCheckItem
 			if file != "" {
@@ -454,7 +454,7 @@ func (c *Command) listRelationsCmd() *cobra.Command {
 			}
 			ct, err := contextualTuples(cmd, ctxTuples, ctxFile)
 			if err != nil {
-				return clierr.WithCode(clierr.CodeUsage, err)
+				return err
 			}
 			ropts, err := cli.ConsistencyOption(fConsistency)
 			if err != nil {
@@ -566,7 +566,7 @@ func (c *Command) listObjectsCmd() *cobra.Command {
 			}
 			ct, err := contextualTuples(cmd, ctxTuples, ctxFile)
 			if err != nil {
-				return clierr.WithCode(clierr.CodeUsage, err)
+				return err
 			}
 			ropts, err := cli.ConsistencyOption(fConsistency)
 			if err != nil {
@@ -646,7 +646,7 @@ func (c *Command) listUsersCmd() *cobra.Command {
 			}
 			ct, err := contextualTuples(cmd, ctxTuples, ctxFile)
 			if err != nil {
-				return clierr.WithCode(clierr.CodeUsage, err)
+				return err
 			}
 			ropts, err := cli.ConsistencyOption(fConsistency)
 			if err != nil {
