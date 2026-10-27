@@ -365,11 +365,13 @@ func reportApplyFailure(ctx context.Context, w io.Writer, machine bool, plan *ma
 			output.Hintf(w, "%s", h)
 		}
 	}
-	kind := clierr.KindPartialFailure
-	if applied == 0 {
-		kind = clierr.Classify(err)
+	// A lost server stays network even after some events landed: it is a
+	// retry, where a rejection partway through is not.
+	kind := clierr.Classify(err)
+	if applied > 0 && kind != clierr.KindNetwork {
+		kind = clierr.KindPartialFailure
 	}
-	return clierr.WithHint(strings.Join(hints, "; "), clierr.WithKind(kind, clierr.Silent(clierr.Code(err), summary)))
+	return clierr.WithHint(strings.Join(hints, "; "), clierr.WithKind(kind, clierr.SilentCause(clierr.Code(err), summary, err)))
 }
 
 // applyHints explains a failed apply beyond its message: the friendly text

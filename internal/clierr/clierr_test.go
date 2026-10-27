@@ -233,6 +233,17 @@ func TestSilent(t *testing.T) {
 	}
 }
 
+func TestSilentCauseKeepsCauseInChain(t *testing.T) {
+	cause := errors.New("boom")
+	err := SilentCause(CodeError, "x", cause)
+	if !IsSilent(err) || SilentSummary(err) != "x" || Code(err) != CodeError {
+		t.Errorf("IsSilent/SilentSummary/Code = %v/%q/%d", IsSilent(err), SilentSummary(err), Code(err))
+	}
+	if !errors.Is(err, cause) {
+		t.Error("cause is not in the chain")
+	}
+}
+
 func TestWithPartialResult(t *testing.T) {
 	if WithPartialResult(nil) != nil {
 		t.Error("WithPartialResult(nil) should be nil")

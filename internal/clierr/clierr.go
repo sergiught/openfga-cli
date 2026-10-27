@@ -46,10 +46,16 @@ func WithCode(code int, err error) error {
 
 // silentError is carried by Silent errors. Its message is never shown to the
 // user (main exits early on IsSilent), so Error only surfaces in debug logs;
-// summary is the one-line human summary the command already printed.
-type silentError struct{ summary string }
+// summary is the one-line human summary the command already printed. cause,
+// when set, is the error behind it, kept so the envelope still finds its API
+// status and code.
+type silentError struct {
+	summary string
+	cause   error
+}
 
 func (e *silentError) Error() string { return "(handled)" }
+func (e *silentError) Unwrap() error { return e.cause }
 
 // Silent tags an exit code for a failure the command has already reported to
 // the user (e.g. a model-test "N/Total test(s) failed" summary line). main
@@ -59,6 +65,12 @@ func (e *silentError) Error() string { return "(handled)" }
 // user still needs to see.
 func Silent(code int, summary string) error {
 	return &Coded{C: code, Err: &silentError{summary: summary}}
+}
+
+// SilentCause is Silent for a failure caused by cause, which stays in the
+// chain so the machine error envelope can report its status and API code.
+func SilentCause(code int, summary string, cause error) error {
+	return &Coded{C: code, Err: &silentError{summary: summary, cause: cause}}
 }
 
 // IsSilent reports whether err is a Silent error whose message was already

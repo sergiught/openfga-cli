@@ -842,3 +842,67 @@ func TestApplyMachineEnvelopeCarriesSplitEventHint(t *testing.T) {
 		t.Errorf("hint = %q", env.Error.Hint)
 	}
 }
+
+// failSecondWrite answers every /write after the first with fail, retries
+// included; the first lands.
+func failSecondWrite(fs *fakeStore, fail http.HandlerFunc) {
+	h := fs.srv.Config.Handler
+	var mu sync.Mutex
+	writes := 0
+	fs.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/write") {
+			mu.Lock()
+			writes++
+			n := writes
+			mu.Unlock()
+			if n >= 2 {
+				fail(w, r)
+				return
+			}
+		}
+		h.ServeHTTP(w, r)
+	})
+}
+
+func TestApplyMachineEnvelopeKeepsAPIErrorAfterPartialApply(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t)
+	failSecondWrite(fs, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"code":"validation_error","message":"type not found"}`)
+	})
+	mp, ep := applyFiles(t, membership,
+		`{"type":"added","user":"u1","team":"t1"}`+"\n"+`{"type":"added","user":"u2","team":"t1"}`+"\n")
+	c := fs.cli()
+	c.JSON = true
+	_, _, err := runApply(t, context.Background(), c, nil, mp, "--events", ep, "--force")
+	env := clierr.NewEnvelope(err)
+	if env.Error.Code != clierr.KindPartialFailure || env.Error.Status != http.StatusBadRequest || env.Error.APICode != "validation_error" {
+		t.Errorf("envelope = %+v, want partial_failure with status 400 and api_code validation_error", env.Error)
+	}
+	if !strings.Contains(env.Error.Message, "event 2 failed") {
+		t.Errorf("message = %q", env.Error.Message)
+	}
+}
+
+func TestApplyLostServerAfterPartialApplyIsNetwork(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t)
+	failSecondWrite(fs, func(w http.ResponseWriter, _ *http.Request) {
+		if conn, _, herr := w.(http.Hijacker).Hijack(); herr == nil {
+			_ = conn.Close()
+		}
+	})
+	mp, ep := applyFiles(t, membership,
+		`{"type":"added","user":"u1","team":"t1"}`+"\n"+`{"type":"added","user":"u2","team":"t1"}`+"\n")
+	c := fs.cli()
+	c.JSON = true
+	_, _, err := runApply(t, context.Background(), c, nil, mp, "--events", ep, "--force")
+	if got := clierr.Code(err); got != clierr.CodeNetwork {
+		t.Errorf("exit code = %d, want %d", got, clierr.CodeNetwork)
+	}
+	if env := clierr.NewEnvelope(err); env.Error.Code != clierr.KindNetwork {
+		t.Errorf("kind = %q, want network", env.Error.Code)
+	}
+}
