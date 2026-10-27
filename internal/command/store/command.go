@@ -12,6 +12,7 @@ import (
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/cmdmeta"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/prompt"
 	"github.com/sergiught/openfga-cli/internal/style"
@@ -63,10 +64,10 @@ func (c *Command) completeIDs(cmd *cobra.Command, args []string, _ string) ([]st
 // RegisterSubCommands wires the store sub-commands.
 func (c *Command) RegisterSubCommands() {
 	c.cmd.AddCommand(
-		c.createCmd(),
-		c.listCmd(),
-		c.getCmd(),
-		c.deleteCmd(),
+		cmdmeta.Set(c.createCmd(), cmdmeta.Meta{Mutates: true}),
+		cmdmeta.Set(c.listCmd(), cmdmeta.Meta{}),
+		cmdmeta.Set(c.getCmd(), cmdmeta.Meta{}),
+		cmdmeta.Set(c.deleteCmd(), cmdmeta.Meta{Mutates: true}),
 	)
 }
 

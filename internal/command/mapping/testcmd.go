@@ -16,6 +16,7 @@ import (
 
 	"github.com/sergiught/openfga-cli/internal/atomicfile"
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/cmdmeta"
 	"github.com/sergiught/openfga-cli/internal/mapping"
 	"github.com/sergiught/openfga-cli/internal/modeltest"
 	"github.com/sergiught/openfga-cli/internal/output"
@@ -49,6 +50,7 @@ ofga mappings test --report junit --report-file mapping-tests.xml`,
 	cmd.Flags().StringVar(&report, "report", "", `write a report in this format ("junit", "json", or "github"); to --report-file if set, otherwise printed to the terminal`)
 	cmd.Flags().StringVar(&reportFile, "report-file", "", "path to write the --report file to (requires --report)")
 	_ = cmd.RegisterFlagCompletionFunc("report", cobra.FixedCompletions([]string{"junit", "json", "github"}, cobra.ShellCompDirectiveNoFileComp))
+	cmdmeta.SetEnum(cmd, "report", "junit", "json", "github")
 	return cmd
 }
 

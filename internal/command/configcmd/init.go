@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/openfga-cli/internal/cli"
+	"github.com/sergiught/openfga-cli/internal/cmdmeta"
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/prompt"
@@ -165,7 +166,7 @@ func NewInit(c *cli.CLI) *cobra.Command {
 	f.BoolVar(&tokenStdin, "token-stdin", false, "read the API token from stdin")
 	f.BoolVarP(&force, "force", "f", false, "overwrite an existing profile without prompting")
 	_ = f.MarkHidden("token")
-	return cmd
+	return cmdmeta.Set(cmd, cmdmeta.Meta{Mutates: true})
 }
 
 // wizardEligible reports whether the guided tour can run: both stdin and stdout

@@ -1,0 +1,51 @@
+---
+title: "ofga commands"
+description: "List every command, its flags and metadata"
+sidebar:
+  order: 3
+---
+
+Print a catalog of every runnable command: path, usage, flags, examples and whether it needs a store or model, mutates state, supports --dry-run or is interactive only. A command mutates when it changes server state (stores, models, tuples, assertions), local CLI config or files in the working tree; an output file named with a flag such as --output-file or --cursor-file doesn't count. A command needs a store or model when it resolves the ID from --store-id or --model-id, the environment or the profile; an ID taken as a positional argument is shown in its usage instead. Use --json or --yaml for the full catalog (global flags are listed once); the default is a table of commands.
+
+## Usage
+
+```sh
+ofga commands
+```
+
+## Examples
+
+```sh
+  ofga commands
+  ofga commands --json | jq -r '.commands[] | select(.mutates) | .path'
+```
+
+<details>
+<summary>Global flags</summary>
+
+```
+      --agent                            agent mode: compact JSON, no prompts, no color, no success chatter (also OPENFGA_AGENT_MODE=1)
+      --api-url string                   OpenFGA API URL (overrides profile/env)
+      --auth-client-secret-file string   read the process-scoped OAuth client secret from a file
+      --auth-private-key-file string     read the process-scoped private-key JWT signing key from a file
+      --auth-token-file string           read the process-scoped API token from a file
+      --config string                    path to the config file (overrides OPENFGA_CONFIG)
+  -d, --debug                            enable debug logging
+      --header stringArray               extra request header as 'Name: value' (repeatable; adds to the profile's headers)
+      --jq string                        filter machine-readable output through this jq expression (implies -o json)
+      --json                             output machine-readable JSON (alias for --output json)
+      --model-id string                  authorization model ID (overrides profile/env)
+      --no-color                         disable colored output
+      --no-input                         never prompt or launch the interactive TUI
+  -o, --output string                    output format: json, jsonl, yaml, plain or table (takes precedence over --json/--yaml/--plain)
+      --plain                            output unstyled, tab-separated rows (alias for --output plain)
+  -p, --profile string                   configuration profile to use
+  -q, --quiet                            suppress incidental output
+      --store-id string                  store ID (overrides profile/env)
+      --theme string                     color theme (aurora, catppuccin, charm, dracula, gruvbox, nord, tokyonight, mono)
+      --timeout duration                 per-request timeout (0 disables) (default 30s)
+  -v, --verbose                          alias for --debug
+      --yaml                             output machine-readable YAML (alias for --output yaml)
+```
+
+</details>

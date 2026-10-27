@@ -14,6 +14,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/client"
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/cmdmeta"
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/prompt"
@@ -71,15 +72,15 @@ func (c *Command) completeNames(_ *cobra.Command, args []string, _ string) ([]st
 // RegisterSubCommands wires the context sub-commands.
 func (c *Command) RegisterSubCommands() {
 	c.cmd.AddCommand(
-		c.listCmd(),
-		c.currentCmd(),
-		c.showCmd(),
-		c.useCmd(),
-		c.setCmd(),
-		c.unsetCmd(),
-		c.addCmd(),
-		c.removeCmd(),
-		c.cleanupCredentialsCmd(),
+		cmdmeta.Set(c.listCmd(), cmdmeta.Meta{}),
+		cmdmeta.Set(c.currentCmd(), cmdmeta.Meta{}),
+		cmdmeta.Set(c.showCmd(), cmdmeta.Meta{}),
+		cmdmeta.Set(c.useCmd(), cmdmeta.Meta{Mutates: true}),
+		cmdmeta.Set(c.setCmd(), cmdmeta.Meta{Mutates: true}),
+		cmdmeta.Set(c.unsetCmd(), cmdmeta.Meta{Mutates: true}),
+		cmdmeta.Set(c.addCmd(), cmdmeta.Meta{Mutates: true}),
+		cmdmeta.Set(c.removeCmd(), cmdmeta.Meta{Mutates: true}),
+		cmdmeta.Set(c.cleanupCredentialsCmd(), cmdmeta.Meta{Mutates: true}),
 	)
 }
 
@@ -640,6 +641,7 @@ func (c *Command) addCmd() *cobra.Command {
 	f.StringVar(&modelID, "model-id", "", "authorization model ID to save in the profile")
 	f.StringVar(&authMethod, "auth-method", "", "none | api_token | client_credentials | private_key_jwt")
 	_ = cmd.RegisterFlagCompletionFunc("auth-method", cobra.FixedCompletions(authMethods, cobra.ShellCompDirectiveNoFileComp))
+	cmdmeta.SetEnum(cmd, "auth-method", authMethods...)
 	f.StringVar(&token, "token", "", "rejected: use --token-file or --token-stdin")
 	f.StringVar(&tokenFile, "token-file", "", "read the API token from a file")
 	f.BoolVar(&tokenStdin, "token-stdin", false, "read the API token from stdin")

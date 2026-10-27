@@ -22,6 +22,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/atomicfile"
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/cmdmeta"
 	"github.com/sergiught/openfga-cli/internal/command/playground"
 	"github.com/sergiught/openfga-cli/internal/modeltest"
 	"github.com/sergiught/openfga-cli/internal/output"
@@ -363,7 +364,9 @@ func (c *Command) testCmd() *cobra.Command {
 	// Shell completion: enum flags complete their choices; path-like flags and
 	// the positional workspace path complete files/dirs.
 	_ = cmd.RegisterFlagCompletionFunc("report", cobra.FixedCompletions([]string{"junit", "json", "github"}, cobra.ShellCompDirectiveNoFileComp))
+	cmdmeta.SetEnum(cmd, "report", "junit", "json", "github")
 	_ = cmd.RegisterFlagCompletionFunc("explain", cobra.FixedCompletions([]string{"auto", "full"}, cobra.ShellCompDirectiveNoFileComp))
+	cmdmeta.SetEnum(cmd, "explain", "auto", "full")
 	_ = cmd.MarkFlagFilename("file")
 	cmd.ValidArgsFunction = func(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
 		if len(args) > 0 {
@@ -372,8 +375,8 @@ func (c *Command) testCmd() *cobra.Command {
 		return nil, cobra.ShellCompDirectiveDefault // complete the workspace path (files/dirs)
 	}
 
-	cmd.AddCommand(c.testInitCmd())
-	cmd.AddCommand(c.testSchemaCmd())
+	cmd.AddCommand(cmdmeta.Set(c.testInitCmd(), cmdmeta.Meta{Mutates: true}))
+	cmd.AddCommand(cmdmeta.Set(c.testSchemaCmd(), cmdmeta.Meta{}))
 	return cmd
 }
 

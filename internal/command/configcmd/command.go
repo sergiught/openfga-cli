@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/openfga-cli/internal/cli"
+	"github.com/sergiught/openfga-cli/internal/cmdmeta"
 	"github.com/sergiught/openfga-cli/internal/output"
 )
 
@@ -29,7 +30,7 @@ func New(c *cli.CLI) *Command {
 			"see the file location.",
 		RunE: c.GroupRunE,
 	}
-	cmd.cmd.AddCommand(cmd.pathCmd())
+	cmd.cmd.AddCommand(cmdmeta.Set(cmd.pathCmd(), cmdmeta.Meta{}))
 	return cmd
 }
 

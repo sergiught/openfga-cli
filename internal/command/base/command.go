@@ -16,6 +16,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/client"
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/cmdmeta"
 	"github.com/sergiught/openfga-cli/internal/command/api"
 	"github.com/sergiught/openfga-cli/internal/command/assertions"
 	"github.com/sergiught/openfga-cli/internal/command/configcmd"
@@ -49,6 +50,10 @@ type Command struct {
 	// otherwise.
 	outputResolved bool
 }
+
+// outputFormats are the values -o/--output accepts; the completion list and
+// the catalog enum share this one slice.
+var outputFormats = []string{"json", "jsonl", "yaml", "plain", "table"}
 
 // New constructs the root command and wires persistent flags + sub-commands.
 func New(cli *cli.CLI) *Command {
@@ -193,12 +198,13 @@ source <(ofga completion bash)`,
 	_ = c.cmd.RegisterFlagCompletionFunc("profile", c.completeProfiles)
 	_ = c.cmd.RegisterFlagCompletionFunc("store-id", c.completeStores)
 	_ = c.cmd.RegisterFlagCompletionFunc("model-id", c.completeModels)
-	_ = c.cmd.RegisterFlagCompletionFunc("output", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-		return []string{"json", "jsonl", "yaml", "plain", "table"}, cobra.ShellCompDirectiveNoFileComp
-	})
+	_ = c.cmd.RegisterFlagCompletionFunc("output", cobra.FixedCompletions(outputFormats, cobra.ShellCompDirectiveNoFileComp))
 	_ = c.cmd.RegisterFlagCompletionFunc("theme",
 		cobra.FixedCompletions(theme.Names(), cobra.ShellCompDirectiveNoFileComp))
+	cmdmeta.SetEnum(c.cmd, "output", outputFormats...)
+	cmdmeta.SetEnum(c.cmd, "theme", theme.Names()...)
 
+	cmdmeta.Set(c.cmd, playgroundMeta)
 	c.RegisterSubCommands()
 	return c
 }
@@ -506,7 +512,7 @@ func (c *Command) OutputResolved() bool { return c.outputResolved }
 // `ofga model test` — not the version of whatever server the active profile
 // points at, which this command never contacts.
 func (c *Command) versionCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:     "version",
 		Short:   "Print version and build information",
 		Args:    cobra.NoArgs,
@@ -534,6 +540,7 @@ func (c *Command) versionCmd() *cobra.Command {
 			return err
 		},
 	}
+	return cmdmeta.Set(cmd, cmdmeta.Meta{})
 }
 
 // agentModeLabel renders the agent-mode state for human version output.
@@ -543,6 +550,11 @@ func agentModeLabel(s agentmode.State) string {
 	}
 	return "on (" + s.Reason + ")"
 }
+
+// playgroundMeta describes the TUI entry points (`ofga playground` and bare
+// `ofga`). The playground writes tuples and models, deletes stores and saves
+// config, so it mutates.
+var playgroundMeta = cmdmeta.Meta{Mutates: true, InteractiveOnly: true}
 
 // RegisterSubCommands adds all top-level commands.
 func (c *Command) RegisterSubCommands() {
@@ -560,11 +572,12 @@ func (c *Command) RegisterSubCommands() {
 		configcmd.NewTheme(c.cli),
 		c.playgroundCmd(),
 		c.versionCmd(),
+		c.commandsCmd(),
 	)
 }
 
 func (c *Command) playgroundCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:     "playground",
 		Short:   "Launch the interactive playground",
 		Example: "  ofga playground",
@@ -575,6 +588,7 @@ func (c *Command) playgroundCmd() *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: c.runPlayground,
 	}
+	return cmdmeta.Set(cmd, playgroundMeta)
 }
 
 func (c *Command) runPlayground(cmd *cobra.Command, _ []string) error {
