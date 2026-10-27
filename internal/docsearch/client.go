@@ -35,7 +35,7 @@ type Client struct {
 type Result struct {
 	Title       string `json:"title" yaml:"title"`
 	URL         string `json:"url" yaml:"url"`
-	MarkdownURL string `json:"markdown_url" yaml:"markdown_url"` // URL + ".md"
+	MarkdownURL string `json:"markdown_url" yaml:"markdown_url"` // canonical URL + ".md"; empty outside the docs
 	Page        string `json:"page" yaml:"page"`
 	Snippet     string `json:"snippet" yaml:"snippet"`
 }

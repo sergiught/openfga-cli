@@ -212,6 +212,32 @@ func TestSearchSSEOversizedStream(t *testing.T) {
 	}
 }
 
+// markdown_url drops a link's fragment and query, and is empty for a link
+// outside the docs; url keeps the link as given.
+func TestSearchMarkdownURL(t *testing.T) {
+	item := func(link string) string { return "Title: T\nLink: " + link + "\nContent: c" }
+	srv := mcpServer(t, false, "", func(id int) string {
+		return textResult(id,
+			item("https://openfga.dev/docs/modeling/conditions#context"),
+			item("https://openfga.dev/docs/modeling/conditions?x=1"),
+			item("https://openfga.dev/blog/post"))
+	}, nil)
+	defer srv.Close()
+	res, err := docsearch.NewForTest(srv.URL, srv.Client()).Search(context.Background(), "q")
+	if err != nil || len(res) != 3 {
+		t.Fatalf("res=%v err=%v", res, err)
+	}
+	want := []string{"https://openfga.dev/docs/modeling/conditions.md", "https://openfga.dev/docs/modeling/conditions.md", ""}
+	for i, r := range res {
+		if r.MarkdownURL != want[i] {
+			t.Errorf("%s: markdown_url = %q, want %q", r.URL, r.MarkdownURL, want[i])
+		}
+	}
+	if res[0].URL != "https://openfga.dev/docs/modeling/conditions#context" {
+		t.Errorf("url = %q, want the link unchanged", res[0].URL)
+	}
+}
+
 func TestSearchUnrecognizedShape(t *testing.T) {
 	srv := mcpServer(t, false, "", func(id int) string { return textResult(id, "just some prose") }, nil)
 	defer srv.Close()

@@ -37,7 +37,11 @@ func parseResult(text string) (Result, bool) {
 	if !hasTitle || !hasLink || r.URL == "" {
 		return Result{}, false
 	}
-	r.MarkdownURL = r.URL + ".md"
+	// The link may carry a #fragment or ?query; the markdown lives at the
+	// canonical page URL. A link outside the docs has no markdown rendering.
+	if canonical, err := PageURL(r.URL); err == nil {
+		r.MarkdownURL = canonical + ".md"
+	}
 	return r, true
 }
 
