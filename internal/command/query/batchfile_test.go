@@ -171,6 +171,36 @@ func TestBatchCheckFileValidationDetails(t *testing.T) {
 	}
 }
 
+// An entry that doesn't decode is reported with the other entries' problems,
+// not instead of them.
+func TestBatchCheckFileDecodeErrorsJoinOtherProblems(t *testing.T) {
+	cases := map[string]string{
+		"c.json":  `[{"user":"","relation":"viewer","object":"doc:1"},{"user":"user:a","relation":"viewer","object":"doc:1","context":[]},{"user":"user:a","relation":"viewer","object":"doc:1","bogus":1}]`,
+		"c.jsonl": `{"user":"","relation":"viewer","object":"doc:1"}` + "\n" + `{"user":"user:a","relation":"viewer","object":"doc:1","context":[]}` + "\n" + `{"user":"user:a","relation":"viewer","object":"doc:1","bogus":1}` + "\n",
+	}
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			srv, bodies := batchRecorder(t)
+			_, err := runBatch(t, srv.URL, "", "--file", writeBatchFile(t, name, content))
+			if clierr.Code(err) != clierr.CodeUsage {
+				t.Fatalf("code = %d, want usage; err=%v", clierr.Code(err), err)
+			}
+			env := clierr.NewEnvelope(err).Error
+			if env.Code != clierr.KindValidation || len(env.Details) != 3 {
+				t.Fatalf("envelope = %+v", env)
+			}
+			for i, field := range []string{"user", "context", "entry"} {
+				if d := env.Details[i]; d["index"] != i || d["field"] != field {
+					t.Errorf("detail %d = %v, want index %d field %s", i, d, i, field)
+				}
+			}
+			if len(bodies()) != 0 {
+				t.Error("no request may be sent")
+			}
+		})
+	}
+}
+
 func TestBatchCheckFileDuplicateCorrelationID(t *testing.T) {
 	srv, bodies := batchRecorder(t)
 	file := writeBatchFile(t, "c.json", `[{"user":"user:a","relation":"v","object":"doc:1","correlation_id":"x"},{"user":"user:b","relation":"v","object":"doc:2","correlation_id":"x"}]`)

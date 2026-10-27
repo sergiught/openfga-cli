@@ -53,19 +53,24 @@ func readBatchFile(path string, stdin io.Reader) ([]openfga.BatchCheckItem, erro
 	if err != nil {
 		return nil, err
 	}
-	entries, err := decodeBatchEntries(data, path)
+	raws, err := splitBatchEntries(data, path)
 	if err != nil {
 		return nil, malformedBatch(err)
 	}
-	if len(entries) == 0 {
+	if len(raws) == 0 {
 		return nil, malformedBatch(fmt.Errorf("batch-check file %s: no checks", path))
 	}
 
 	var problems []batchProblem
-	items := make([]openfga.BatchCheckItem, len(entries))
-	seen := make(map[string]struct{}, len(entries))
-	for i, e := range entries {
+	items := make([]openfga.BatchCheckItem, len(raws))
+	seen := make(map[string]struct{}, len(raws))
+	for i, r := range raws {
 		add := func(field, problem string) { problems = append(problems, batchProblem{i, field, problem}) }
+		var e batchEntry
+		if err := fga.DecodeStrictJSON(r.raw, &e); err != nil {
+			add(decodeField(err), r.where+err.Error())
+			continue
+		}
 		if strings.TrimSpace(e.User) == "" {
 			add("user", "is required")
 		} else if err := fga.ValidateUserRef(e.User); err != nil {
@@ -128,26 +133,30 @@ func validationErr(path string, problems []batchProblem) error {
 		clierr.WithDetails(clierr.WithCode(clierr.CodeUsage, errors.New(msg)), details...))
 }
 
-// decodeBatchEntries decodes the file: .jsonl is JSONL; .json, "-" and any
-// other name is a JSON array when the first non-space byte is '[', else JSONL.
-func decodeBatchEntries(data []byte, path string) ([]batchEntry, error) {
+// batchRaw is one undecoded entry; where locates a JSONL entry's line.
+type batchRaw struct {
+	raw   json.RawMessage
+	where string
+}
+
+// splitBatchEntries splits the file into entries without decoding them, so
+// every entry's problems are reported together: .jsonl is JSONL; .json, "-"
+// and any other name is a JSON array when the first non-space byte is '[',
+// else JSONL. Only input that can't be split is an error here.
+func splitBatchEntries(data []byte, path string) ([]batchRaw, error) {
 	label := "batch-check file " + path
 	trimmed := bytes.TrimSpace(data)
 	if len(trimmed) == 0 {
 		return nil, fmt.Errorf("%s: input is empty", label)
 	}
-	var entries []batchEntry
+	var entries []batchRaw
 	if !strings.EqualFold(filepath.Ext(path), ".jsonl") && trimmed[0] == '[' {
 		var raws []json.RawMessage
 		if err := json.Unmarshal(trimmed, &raws); err != nil {
 			return nil, fmt.Errorf("%s: %w", label, err)
 		}
-		for i, raw := range raws {
-			var e batchEntry
-			if err := fga.DecodeStrictJSON(raw, &e); err != nil {
-				return nil, fmt.Errorf("%s: entry %d: %w", label, i, err)
-			}
-			entries = append(entries, e)
+		for _, raw := range raws {
+			entries = append(entries, batchRaw{raw: raw})
 		}
 		return entries, nil
 	}
@@ -160,16 +169,22 @@ func decodeBatchEntries(data []byte, path string) ([]batchEntry, error) {
 		if len(raw) == 0 {
 			continue
 		}
-		var e batchEntry
-		if err := fga.DecodeStrictJSON(raw, &e); err != nil {
-			return nil, fmt.Errorf("%s: line %d: %w", label, line, err)
-		}
-		entries = append(entries, e)
+		entries = append(entries, batchRaw{raw: bytes.Clone(raw), where: fmt.Sprintf("line %d: ", line)})
 	}
 	if err := sc.Err(); err != nil {
 		return nil, fmt.Errorf("%s: line %d: %w", label, line+1, err)
 	}
 	return entries, nil
+}
+
+// decodeField names the entry field a decode error is about, or "entry" when
+// the error isn't about one field (bad JSON, an unknown field).
+func decodeField(err error) string {
+	var ute *json.UnmarshalTypeError
+	if errors.As(err, &ute) && ute.Field != "" {
+		return ute.Field
+	}
+	return "entry"
 }
 
 // mergeContextual returns the global contextual tuples followed by an item's
