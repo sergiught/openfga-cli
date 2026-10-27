@@ -114,11 +114,12 @@ func (s *jsonStream) fail(err error) error {
 	return err
 }
 
-// jsonlStream writes each value as one compact line; there is no framing, so
-// Close has nothing to write.
+// jsonlStream writes each value as one compact line, never splitting an
+// array-valued one, since it is one record of the stream. There is no framing,
+// so Close has nothing to write.
 type jsonlStream struct{ w io.Writer }
 
-func (s *jsonlStream) Write(v any) error { return jsonLines(s.w, v) }
+func (s *jsonlStream) Write(v any) error { return jsonLine(s.w, v) }
 func (s *jsonlStream) Close() error      { return nil }
 
 // yamlStream writes a YAML sequence one item at a time. Items are rendered

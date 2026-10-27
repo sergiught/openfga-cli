@@ -120,3 +120,35 @@ func TestJSONLStreamerWritesEachValueOnItsOwnLine(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+// Under -o jsonl each streamed value is one record, exactly as Emit renders the
+// slice of those values: an array-valued record is not split a second time.
+func TestJSONLStreamerMatchesEmit(t *testing.T) {
+	JSONL = true
+	t.Cleanup(func() { JSONL = false })
+	cases := map[string][]any{
+		"empty":   {},
+		"objects": {map[string]int{"a": 1}, map[string]string{"b": "<&>"}},
+		"arrays":  {[]int{1, 2}, []int{}},
+	}
+	for name, items := range cases {
+		t.Run(name, func(t *testing.T) {
+			var want, got bytes.Buffer
+			if err := Emit(&want, false, items); err != nil {
+				t.Fatal(err)
+			}
+			s := NewStreamer(&got, false)
+			for _, it := range items {
+				if err := s.Write(it); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if got.String() != want.String() {
+				t.Errorf("streamed output differs from Emit\n got: %q\nwant: %q", got.String(), want.String())
+			}
+		})
+	}
+}
