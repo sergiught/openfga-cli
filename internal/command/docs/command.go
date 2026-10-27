@@ -10,6 +10,7 @@ import (
 
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/cmdmeta"
 	"github.com/sergiught/openfga-cli/internal/docsearch"
 	"github.com/sergiught/openfga-cli/internal/output"
 )
@@ -31,7 +32,10 @@ func New(cli *cli.CLI) *Command {
 		Short: "Search and read the OpenFGA docs",
 		Long:  "Search and read the OpenFGA documentation without leaving the terminal. Queries are sent to openfga.dev.",
 	}
-	c.cmd.AddCommand(c.searchCmd(), c.showCmd())
+	c.cmd.AddCommand(
+		cmdmeta.Set(c.searchCmd(), cmdmeta.Meta{}),
+		cmdmeta.Set(c.showCmd(), cmdmeta.Meta{}),
+	)
 	return c
 }
 
