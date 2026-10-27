@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
 	"net/http"
 	"strings"
@@ -81,50 +82,64 @@ func (s *session) post(ctx context.Context, id *int, method string, params any) 
 	if id == nil {
 		return nil, nil
 	}
+	mt, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	if mt == "text/event-stream" {
+		return matchSSE(resp.Body, *id)
+	}
 	data, err := readBody(resp.Body)
 	if err != nil {
 		return nil, err
 	}
-	mt, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
-	var msgs [][]byte
-	if mt == "text/event-stream" {
-		msgs = sseEvents(data)
-	} else {
-		msgs = [][]byte{data}
-	}
-	for _, m := range msgs {
-		var r rpcMessage
-		if json.Unmarshal(m, &r) == nil && r.ID != nil && *r.ID == *id {
-			return &r, nil
-		}
+	if r := matchID(data, *id); r != nil {
+		return r, nil
 	}
 	return nil, clierr.WithKind(clierr.KindError, errorString(errFormat))
 }
 
-// sseEvents returns the data payload of each event, joining its data: lines.
-func sseEvents(b []byte) [][]byte {
-	var events [][]byte
-	var cur []string
-	flush := func() {
-		if len(cur) > 0 {
-			events = append(events, []byte(strings.Join(cur, "\n")))
-			cur = nil
-		}
+// matchID decodes one JSON-RPC message, returning it only if it answers id.
+func matchID(data []byte, id int) *rpcMessage {
+	var r rpcMessage
+	if json.Unmarshal(data, &r) == nil && r.ID != nil && *r.ID == id {
+		return &r
 	}
-	sc := bufio.NewScanner(bytes.NewReader(b))
+	return nil
+}
+
+// matchSSE reads events as they arrive and returns the response to id as
+// soon as it is complete, so a server that keeps the stream open afterwards
+// can't stall the request. The 8 MiB cap covers everything read.
+func matchSSE(body io.Reader, id int) (*rpcMessage, error) {
+	lr := &io.LimitedReader{R: body, N: maxBody + 1}
+	sc := bufio.NewScanner(lr)
 	sc.Buffer(make([]byte, 0, 64*1024), maxBody+1)
-	for sc.Scan() {
+	var cur []string
+	for {
+		more := sc.Scan()
 		line := strings.TrimRight(sc.Text(), "\r")
-		if line == "" {
-			flush()
+		if !more || line == "" {
+			// An event ends at a blank line or at the end of the stream.
+			if len(cur) > 0 {
+				if r := matchID([]byte(strings.Join(cur, "\n")), id); r != nil {
+					return r, nil
+				}
+				cur = nil
+			}
+			if !more {
+				break
+			}
 			continue
 		}
 		if rest, ok := strings.CutPrefix(line, "data:"); ok {
 			cur = append(cur, strings.TrimPrefix(rest, " "))
 		}
 	}
-	flush()
-	return events
+	if lr.N <= 0 || errors.Is(sc.Err(), bufio.ErrTooLong) {
+		return nil, oversized()
+	}
+	if err := sc.Err(); err != nil {
+		return nil, networkErr(err)
+	}
+	return nil, clierr.WithKind(clierr.KindError, errorString(errFormat))
 }
 
 // Search runs the docs search tool and returns its hits.

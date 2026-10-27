@@ -106,9 +106,13 @@ func readBody(r io.Reader) ([]byte, error) {
 		return nil, networkErr(err)
 	}
 	if len(b) > maxBody {
-		return nil, clierr.WithKind(clierr.KindServer, errors.New("openfga.dev returned a response larger than 8 MiB"))
+		return nil, oversized()
 	}
 	return b, nil
+}
+
+func oversized() error {
+	return clierr.WithKind(clierr.KindServer, errors.New("openfga.dev returned a response larger than 8 MiB"))
 }
 
 // PageURL canonicalizes ref to https://openfga.dev/docs/<path>. It accepts a

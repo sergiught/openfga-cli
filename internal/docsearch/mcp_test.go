@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/docsearch"
@@ -148,6 +149,66 @@ func TestSearchSendsNegotiatedProtocolVersion(t *testing.T) {
 		if seen[m] != v {
 			t.Errorf("%s: MCP-Protocol-Version = %q, want %q", m, seen[m], v)
 		}
+	}
+}
+
+// sseServer answers every request as an SSE stream: write(id) runs after the
+// headers are flushed, then the stream stays open until done is closed.
+func sseServer(t *testing.T, write func(w http.ResponseWriter, id int)) (*httptest.Server, chan struct{}) {
+	t.Helper()
+	done := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req rpcReq
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if req.ID == nil {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		if req.Method == "initialize" {
+			_, _ = fmt.Fprintf(w, "data: {\"jsonrpc\":\"2.0\",\"id\":%d,\"result\":{}}\n\n", *req.ID)
+		} else {
+			write(w, *req.ID)
+		}
+		w.(http.Flusher).Flush()
+		select {
+		case <-done:
+		case <-r.Context().Done():
+		}
+	}))
+	return srv, done
+}
+
+// The response is returned as soon as it arrives, even though the server
+// keeps the stream open and no timeout is set.
+func TestSearchSSEDoesNotWaitForStreamEnd(t *testing.T) {
+	srv, done := sseServer(t, func(w http.ResponseWriter, id int) {
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", textResult(id, twoResults))
+	})
+	defer srv.Close()
+	defer close(done)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	res, err := docsearch.NewForTest(srv.URL, &http.Client{}).Search(ctx, "q")
+	if err != nil || len(res) != 1 {
+		t.Fatalf("res=%v err=%v", res, err)
+	}
+}
+
+func TestSearchSSEOversizedStream(t *testing.T) {
+	srv, done := sseServer(t, func(w http.ResponseWriter, _ int) {
+		line := []byte("data: " + strings.Repeat("a", 1<<20) + "\n\n")
+		for i := 0; i < 9; i++ {
+			_, _ = w.Write(line)
+		}
+	})
+	defer srv.Close()
+	defer close(done)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err := docsearch.NewForTest(srv.URL, &http.Client{}).Search(ctx, "q")
+	if err == nil || clierr.Classify(err) != clierr.KindServer || !strings.Contains(err.Error(), "larger than 8 MiB") {
+		t.Errorf("err = %v kind=%v", err, clierr.Classify(err))
 	}
 }
 
