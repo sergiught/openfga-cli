@@ -54,10 +54,17 @@ done
 
 Reading input from a file (`query batch-check --file`, `--contextual-tuples-file`) does not change the output shape.
 
-`ofga api` passes the server's response through unchanged, so its schema accepts any JSON value. `ofga model test schema` prints a JSON Schema document of its own.
+`ofga api` passes the server's response through unchanged, so its schema accepts any JSON value. `ofga model test schema` prints a JSON Schema document of its own, on one line under `-o jsonl`.
 
 ## Versioning
 
-The `v1` in each file name is the contract version. Adding an optional field is not a breaking change, so consumers should ignore properties they do not know. A breaking change to a document's shape, such as removing or renaming a field or changing its type, publishes a new `v2` file alongside `v1`, and `output_schema` then points at it. The old file stays available.
+The `v1` in each file name is the contract version. Within a version, fields are only ever added: a breaking change to a document's shape, such as removing or renaming a field or changing its type, publishes a new `v2` file alongside `v1`, and `output_schema` then points at it. The old file stays available.
+
+Code that parses the output should ignore properties it does not know, so a newer CLI never breaks it. The schemas themselves are strict, though: they reject unknown properties so they describe the output exactly. An added field updates the `v1` file in place, so a saved copy can reject output from a newer CLI. The hosted files track the latest CLI; to validate a particular release, fetch the schema from its tag instead:
+
+```bash
+tag=$(ofga version --json | jq -r .version)   # a release build, e.g. v0.268.0
+curl -fsSL "https://raw.githubusercontent.com/sergiught/openfga-cli/$tag/docs/site/public/schemas/output/stores-list.v1.json"
+```
 
 The schemas are generated from the same Go types the commands print and checked against real command output in CI, so they cannot drift from the CLI.
