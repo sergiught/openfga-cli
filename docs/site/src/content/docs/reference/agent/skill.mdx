@@ -13,6 +13,49 @@ Print or install the SKILL.md that teaches a coding agent to drive ofga.
 ofga agent skill
 ```
 
+## Subcommands
+
+### ofga agent skill install
+
+Install the SKILL.md that ships inside this ofga binary.
+
+By default it goes to ~/.claude/skills/ofga/SKILL.md (Claude Code). --project
+installs to ./.claude/skills/ofga/SKILL.md instead, and --dir \<path> to
+\<path>/ofga/SKILL.md for any other agent. A file with identical content is left
+alone; a different one is replaced only after confirmation or with --force.
+
+```sh
+ofga agent skill install [flags]
+```
+
+**Examples**
+
+```sh
+  ofga agent skill install
+  ofga agent skill install --project
+  ofga agent skill install --dir ~/.config/other-agent/skills --force
+```
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--dir` | install to \<dir>/ofga/SKILL.md |   |
+| `-f, --force` | replace a different existing file without asking | `false` |
+| `--project` | install to ./.claude/skills/ofga/SKILL.md | `false` |
+
+### ofga agent skill show
+
+Print the SKILL.md that ships inside this ofga binary.
+
+```sh
+ofga agent skill show
+```
+
+**Examples**
+
+```sh
+  ofga agent skill show
+```
+
 <details>
 <summary>Global flags</summary>
 
