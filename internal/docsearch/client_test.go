@@ -163,6 +163,28 @@ func TestRedirectOffHostIsRefused(t *testing.T) {
 	}
 }
 
+// A same-host redirect must still stay under /docs/.
+func TestRedirectOutOfDocsIsRefused(t *testing.T) {
+	for _, target := range []string{"/blog/outside.md", "/docs/../blog/outside.md", "/docs/%2e%2e/blog/outside.md"} {
+		outside := 0
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/docs/x.md" {
+				w.Header().Set("Location", target)
+				w.WriteHeader(http.StatusFound)
+				return
+			}
+			outside++
+			w.Header().Set("Content-Type", "text/markdown")
+			_, _ = w.Write([]byte("outside"))
+		}))
+		_, err := docsearch.NewForTest(srv.URL, &http.Client{}).Page(context.Background(), "docs/x")
+		srv.Close()
+		if err == nil || outside != 0 {
+			t.Errorf("redirect to %s: err=%v, outside requests=%d", target, err, outside)
+		}
+	}
+}
+
 func TestRedirectOnSameHostIsFollowed(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/docs/x.md" {

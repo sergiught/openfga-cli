@@ -60,11 +60,13 @@ func NewWithBaseURL(base string, hc *http.Client) *Client { return newWithBaseUR
 func newWithBaseURL(base string, hc *http.Client) *Client {
 	base = strings.TrimRight(base, "/")
 	// Never follow a redirect off the base host: it could carry the MCP
-	// session id (or the request) to another site.
+	// session id (or the request) to another site. Nor out of /docs/, so only
+	// docs pages are ever fetched.
 	bu, _ := url.Parse(base)
 	cp := *hc
 	cp.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if bu == nil || req.URL.Scheme != bu.Scheme || req.URL.Host != bu.Host {
+		if bu == nil || req.URL.Scheme != bu.Scheme || req.URL.Host != bu.Host ||
+			!strings.HasPrefix(path.Clean(req.URL.Path), "/docs/") {
 			return fmt.Errorf("refusing redirect to %s", req.URL.Redacted())
 		}
 		if len(via) >= 10 {
