@@ -143,14 +143,24 @@ retrying the whole file.
 
 `--failed-file` writes just the rejected tuples, in the same format as the
 input and with the reasons stripped, so the file can be fixed and re-run
-directly. Because a rejected request fails its whole chunk, re-run with
-`--max-tuples-per-write 1` when you need per-tuple attribution:
+directly. When the server rejects a chunk, the CLI bisects it with extra
+requests, so only the tuples it actually refused are reported:
 
 ```bash
 ofga tuples write --file tuples.csv --failed-file failed.csv
 # fix the rows, then:
 ofga tuples write --file failed.csv
 ```
+
+Bisection only runs when the server says a tuple in the request was invalid. A
+chunk rejected for any other reason, such as an auth failure, a missing model,
+rate limiting or a server error, is reported whole, with that reason on every
+tuple. Bisection spends at most 1000 extra requests per run. Tuples it couldn't
+settle within that budget are reported as `unisolated: <reason>` and may well
+be valid, so re-run them with `--max-tuples-per-write 1` to see which ones the
+server refuses. If the server becomes unreachable, the run stops and the
+tuples it never sent are reported as `not attempted`. All of these land in
+`--failed-file` too, so the same re-run covers them.
 
 `--max-tuples-per-write` (default 100) and `--max-parallel-requests` (default 1)
 tune throughput for large imports. `--on-duplicate ignore` (write) and
