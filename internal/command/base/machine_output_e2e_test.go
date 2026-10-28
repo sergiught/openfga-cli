@@ -219,3 +219,56 @@ func TestEmptyResultsYAMLAndJQ(t *testing.T) {
 		})
 	}
 }
+
+func TestAssertionsTestWithNoAssertionsEmitsOneDocument(t *testing.T) {
+	const modelID = "01HXYZ0000000000000000MODL"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch p := r.URL.Path; {
+		case strings.HasSuffix(p, "/authorization-models"):
+			_, _ = w.Write([]byte(`{"authorization_models":[{"id":"` + modelID + `","schema_version":"1.1","type_definitions":[]}]}`))
+		case strings.Contains(p, "/assertions/"):
+			_, _ = w.Write([]byte(`{"authorization_model_id":"` + modelID + `","assertions":[]}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"code":"unexpected","message":"unexpected request"}`))
+		}
+	}))
+	defer srv.Close()
+	env := []string{"OPENFGA_API_URL=" + srv.URL, "OPENFGA_STORE_ID=" + e2eStoreID, "OPENFGA_AGENT_MODE=0"}
+
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{"jsonl", []string{"assertions", "test", "-o", "jsonl"}},
+		{"agent", []string{"--agent", "assertions", "test"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, errb, code := runOfga(t, t.TempDir(), "", env, tc.args...)
+			if code != 0 {
+				t.Fatalf("exit = %d, stderr=%q", code, errb)
+			}
+			if !oneLine(out) {
+				t.Fatalf("stdout = %q, want one document on one line", out)
+			}
+			var doc struct {
+				Passed  *int  `json:"passed"`
+				Total   *int  `json:"total"`
+				Results []any `json:"results"`
+			}
+			if err := json.Unmarshal([]byte(out), &doc); err != nil {
+				t.Fatalf("stdout is not JSON: %v (%q)", err, out)
+			}
+			if doc.Passed == nil || *doc.Passed != 0 || doc.Total == nil || *doc.Total != 0 {
+				t.Errorf("passed/total = %v/%v, want 0/0: %q", doc.Passed, doc.Total, out)
+			}
+			if doc.Results == nil || len(doc.Results) != 0 || !strings.Contains(out, `"results":[]`) {
+				t.Errorf("results = %v, want an empty array: %q", doc.Results, out)
+			}
+			if tc.name == "agent" && strings.Contains(errb, "no assertions to run") {
+				t.Errorf("agent mode printed the informational line: %q", errb)
+			}
+		})
+	}
+}
