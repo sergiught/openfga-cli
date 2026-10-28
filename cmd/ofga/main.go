@@ -310,7 +310,7 @@ func withConfigIgnoredHint(err error, path string, code int, cmdPath string) err
 	note := "config file " + path + " could not be read and was ignored; fix or remove it"
 	hint := clierr.NewEnvelope(err).Error.Hint
 	if hint == "" && code == clierr.CodeUsage {
-		hint = "run '" + cmdPath + " --help' for usage"
+		hint = usageHint(cmdPath)
 	}
 	if hint != "" {
 		note = hint + "; " + note
@@ -429,6 +429,9 @@ func scanRoot() *cobra.Command {
 // reportMachineError writes err to w as the one-line JSON error envelope.
 // code is the process exit code main computed; cmdPath names the command for
 // the default usage hint.
+// usageHint is the envelope hint for a usage error that carries none of its own.
+func usageHint(cmdPath string) string { return "run '" + cmdPath + " --help' for usage" }
+
 func reportMachineError(w io.Writer, err error, code int, cmdPath string, canceled bool) {
 	env := clierr.NewEnvelope(err)
 	body := &env.Error
@@ -444,7 +447,7 @@ func reportMachineError(w io.Writer, err error, code int, cmdPath string, cancel
 			body.Code = clierr.KindUsage
 		}
 		if body.Hint == "" {
-			body.Hint = "run '" + cmdPath + " --help' for usage"
+			body.Hint = usageHint(cmdPath)
 		}
 	}
 	_ = env.WriteLine(w)

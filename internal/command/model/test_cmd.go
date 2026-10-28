@@ -480,9 +480,9 @@ var stdoutIsTerminal = func() bool { return term.IsTerminal(os.Stdout.Fd()) }
 // result in the Test Results section. It is a no-op — with a one-line stderr
 // note so the ignore isn't silent — in machine-output (-o json/yaml), non-TTY,
 // --no-tui, or --no-input/agent-mode runs, so it never disturbs the
-// scripted/CI contract. The
-// interactive session is the terminal action; the caller still returns exit 3
-// on failures once the TUI closes, keeping CI semantics for scripted callers.
+// scripted/CI contract. The interactive session is the terminal action; the
+// caller still returns exit 3 on failures once the TUI closes, keeping CI
+// semantics for scripted callers.
 func (c *Command) runPlayground(cmd *cobra.Command, ws *modeltest.Workspace, res *modeltest.Results, dedupe, noTUI bool) error {
 	if len(res.Tests) == 0 {
 		return nil
