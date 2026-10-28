@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -152,10 +153,18 @@ func orUnset(s string) string {
 
 // RedactedURL masks a password embedded in an API URL
 // (http://user:pass@host), which url.URL.String — and so plain logging of the
-// resolved value — would otherwise print in full.
+// resolved value — would otherwise print in full. A value url.Parse rejects
+// (a profile's api_url is stored unvalidated) is hidden whole if it might
+// carry userinfo, since its password cannot be located reliably.
 func RedactedURL(raw string) string {
 	u, err := url.Parse(raw)
-	if err != nil || u.User == nil {
+	if err != nil {
+		if strings.Contains(raw, "@") {
+			return "<malformed URL hidden>"
+		}
+		return raw
+	}
+	if u.User == nil {
 		return raw
 	}
 	if _, hasPassword := u.User.Password(); !hasPassword {
