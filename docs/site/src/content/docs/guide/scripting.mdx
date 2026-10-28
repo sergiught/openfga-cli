@@ -73,7 +73,7 @@ exit code is unchanged. `--quiet` does not suppress it.
 | --- | --- | --- |
 | `usage` | Unknown command or flag, wrong arguments, invalid `--jq` or `-o` | 2 |
 | `confirmation_required` | A destructive command ran non-interactively without `--force` | 1 |
-| `validation` | The server rejected the request as invalid (400) | 1 |
+| `validation` | The server rejected the request as invalid (400), or a local input file failed validation | 1, except 2 when a `query` input file (`batch-check --file`, `--contextual-tuples-file`) is malformed |
 | `already_exists` | A tuple write duplicated an existing tuple | 1 |
 | `unauthenticated` | Missing, invalid or rejected credentials (401) | 1 |
 | `forbidden` | Authenticated but not allowed (403) | 1 |
@@ -208,14 +208,14 @@ polling job wants instead of re-reading the changelog from the beginning:
 
 ```bash
 # First run records where it got to.
-ofga tuples changes --json --token-file .fga-cursor > changes.json
+ofga tuples changes --json --cursor-file .fga-cursor > changes.json
 
 # Later runs pick up from there.
 ofga tuples changes --json --continuation-token "$(cat .fga-cursor)" \
-  --token-file .fga-cursor > new-changes.json
+  --cursor-file .fga-cursor > new-changes.json
 ```
 
-`--token-file` is written before the changes are rendered, so a consumer that
+`--cursor-file` is written before the changes are rendered, so a consumer that
 exits early (`| head`) still leaves a usable cursor behind. Stopping early with
 `--max-results` records the token that produced the partial page, so resuming
 replays those changes rather than skipping them. The JSON output itself stays a
