@@ -279,3 +279,19 @@ func TestReportMachineErrorKeepsExplicitKind(t *testing.T) {
 		t.Fatalf("plain usage error not usage: %s", buf.String())
 	}
 }
+
+func TestWithConfigIgnoredHintKeepsExistingHint(t *testing.T) {
+	hintOf := func(err error) string { return clierr.NewEnvelope(err).Error.Hint }
+	plain := withConfigIgnoredHint(errors.New("x"), "/c.toml", clierr.CodeError, "ofga x")
+	if got := hintOf(plain); !strings.Contains(got, "/c.toml") || !strings.Contains(got, "ignored") {
+		t.Errorf("plain hint = %q", got)
+	}
+	had := withConfigIgnoredHint(clierr.WithHint("try again", errors.New("x")), "/c.toml", clierr.CodeError, "ofga x")
+	if got := hintOf(had); !strings.HasPrefix(got, "try again; ") || !strings.Contains(got, "/c.toml") {
+		t.Errorf("existing hint dropped: %q", got)
+	}
+	usage := withConfigIgnoredHint(errors.New("x"), "/c.toml", clierr.CodeUsage, "ofga x")
+	if got := hintOf(usage); !strings.HasPrefix(got, "run 'ofga x --help' for usage; ") {
+		t.Errorf("usage hint dropped: %q", got)
+	}
+}

@@ -421,9 +421,11 @@ func (c *Command) applyEnvironment() error {
 // by config.LoadFrom on cfg.LoadErr) on stderr for every command — not just
 // `profiles` and `config init` — so a corrupt config file is never silently
 // ignored while the CLI runs on defaults. Warn-only: the command still
-// proceeds. Suppressed by --quiet, like other incidental output.
+// proceeds. Suppressed by --quiet, like other incidental output, and under
+// machine output, where the failure envelope carries the note instead so stderr
+// stays a single JSON line.
 func (c *Command) warnConfigLoadErr(cmd *cobra.Command) {
-	if c.cli.Quiet {
+	if c.cli.Quiet || c.cli.JSON || c.cli.YAML {
 		return
 	}
 	if err := c.cli.Config.LoadErr(); err != nil {

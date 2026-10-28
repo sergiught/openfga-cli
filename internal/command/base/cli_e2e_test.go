@@ -464,7 +464,7 @@ func TestConfigLoadErrorWarnsOnEveryCommand(t *testing.T) {
 		t.Errorf("--quiet should not suppress the command's own output: %q", out)
 	}
 
-	// Machine-output modes keep stdout clean; the warning still reaches stderr.
+	// Machine-output modes keep stdout clean and withhold the warning.
 	out, errb, code = runOfga(t, home, "", nil, "config", "path", "--json")
 	if code != 0 {
 		t.Fatalf("--json run should still succeed: code=%d err=%q", code, errb)
@@ -473,8 +473,8 @@ func TestConfigLoadErrorWarnsOnEveryCommand(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &pathResult); err != nil || pathResult["path"] == "" {
 		t.Fatalf("--json stdout must stay clean JSON: out=%q err=%v", out, err)
 	}
-	if !strings.Contains(errb, path) {
-		t.Errorf("--json mode should still warn on stderr: stderr=%q", errb)
+	if errb != "" {
+		t.Errorf("--json mode must keep stderr empty on success: stderr=%q", errb)
 	}
 }
 
@@ -644,5 +644,49 @@ func TestCommandsWorksOffline(t *testing.T) {
 	}
 	if !json.Valid([]byte(out)) {
 		t.Fatalf("commands output is not valid JSON: %q", out)
+	}
+}
+
+// TestConfigLoadErrorKeepsMachineStderrToOneLine: under machine output the
+// human warning is withheld so a failing command writes exactly one JSON
+// line to stderr (the envelope, whose hint carries the config note) and a
+// succeeding one writes nothing. Human mode keeps the warning.
+func TestConfigLoadErrorKeepsMachineStderrToOneLine(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := writeCorruptConfig(t, home)
+	pin := []string{"OPENFGA_AGENT_MODE=0"}
+
+	for _, mode := range [][]string{{"--json"}, {"-o", "yaml"}, {"--agent"}} {
+		args := append([]string{"config", "path"}, mode...)
+		if _, errb, code := runOfga(t, home, "", pin, args...); code != 0 || errb != "" {
+			t.Errorf("%v success: code=%d stderr=%q, want empty stderr", mode, code, errb)
+		}
+	}
+
+	_, errb, code := runOfga(t, home, "", pin, "model", "write", "--file", filepath.Join(home, "missing.fga"), "--json")
+	if code == 0 {
+		t.Fatalf("expected a failure")
+	}
+	if lines := strings.Split(strings.TrimRight(errb, "\n"), "\n"); len(lines) != 1 {
+		t.Fatalf("stderr must be exactly one line, got %q", errb)
+	}
+	var env struct {
+		Error struct {
+			Hint string `json:"hint"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(errb), &env); err != nil {
+		t.Fatalf("stderr is not JSON: %q: %v", errb, err)
+	}
+	if !strings.Contains(env.Error.Hint, path) || !strings.Contains(env.Error.Hint, "ignored") {
+		t.Errorf("hint should say the config %q was ignored: %q", path, env.Error.Hint)
+	}
+
+	_, errb, _ = runOfga(t, home, "", pin, "config", "path")
+	if !strings.Contains(errb, "parse config") {
+		t.Errorf("human mode must still warn: %q", errb)
 	}
 }
