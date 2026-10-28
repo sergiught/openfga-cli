@@ -135,7 +135,7 @@ func (cli *CLI) traceResolved(r config.Resolved) {
 	}
 	cli.Logger.Debug("resolved configuration",
 		"profile", r.Profile,
-		"api_url", redactedURL(r.APIURL),
+		"api_url", RedactedURL(r.APIURL),
 		"store_id", orUnset(r.StoreID),
 		"model_id", orUnset(r.ModelID),
 		"auth", method,
@@ -150,10 +150,10 @@ func orUnset(s string) string {
 	return s
 }
 
-// redactedURL masks a password embedded in an API URL
+// RedactedURL masks a password embedded in an API URL
 // (http://user:pass@host), which url.URL.String — and so plain logging of the
 // resolved value — would otherwise print in full.
-func redactedURL(raw string) string {
+func RedactedURL(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil || u.User == nil {
 		return raw

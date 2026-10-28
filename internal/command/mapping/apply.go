@@ -234,7 +234,11 @@ func resumeFlags(cmd *cobra.Command) []string {
 	var flags []string
 	for _, name := range []string{"config", "profile", "api-url", "store-id", "model-id"} {
 		if f := cmd.Flags().Lookup(name); f != nil && f.Changed {
-			flags = append(flags, "--"+name, shellQuote(f.Value.String()))
+			v := f.Value.String()
+			if name == "api-url" {
+				v = cli.RedactedURL(v)
+			}
+			flags = append(flags, "--"+name, shellQuote(v))
 		}
 	}
 	return flags
