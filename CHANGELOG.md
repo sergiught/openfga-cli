@@ -1,5 +1,65 @@
 # Changelog
 
+## [0.268.0](https://github.com/sergiught/openfga-cli/compare/v0.267.0...v0.268.0) (2026-10-28)
+
+
+### Features
+
+* **agent:** ship an installable ofga agent skill ([#184](https://github.com/sergiught/openfga-cli/issues/184)) ([d7e644f](https://github.com/sergiught/openfga-cli/commit/d7e644f68c1177fdbc6a17c7652ada69fa48f85c))
+* **build:** ship third-party license attribution and gate dependency licenses ([#141](https://github.com/sergiught/openfga-cli/issues/141)) ([0075851](https://github.com/sergiught/openfga-cli/commit/007585102129140dbfaff76942df278436644d6f))
+* **cli:** add -o jsonl ([#178](https://github.com/sergiught/openfga-cli/issues/178)) ([0c382ca](https://github.com/sergiught/openfga-cli/commit/0c382cabde4e59a982f2d517a23d3d013f5c36c6))
+* **cli:** add ofga commands, a machine-readable command catalog ([#180](https://github.com/sergiught/openfga-cli/issues/180)) ([2ee869f](https://github.com/sergiught/openfga-cli/commit/2ee869fdc76de71dce108d7b1044406c4970ce1b))
+* **cli:** agent mode ([#179](https://github.com/sergiught/openfga-cli/issues/179)) ([2736aff](https://github.com/sergiught/openfga-cli/commit/2736aff4b68eb62c8af33c0650d41852b56267bf))
+* **cli:** machine-readable errors with stable codes ([#177](https://github.com/sergiught/openfga-cli/issues/177)) ([648914b](https://github.com/sergiught/openfga-cli/commit/648914b28139dbeeaf1158cd7a73b68ac6db03b2))
+* **cli:** publish JSON Schemas for command output ([#183](https://github.com/sergiught/openfga-cli/issues/183)) ([745ca4b](https://github.com/sergiught/openfga-cli/commit/745ca4b3926e9b3622bc9276c15b62b7fa8cff09))
+* **docs:** search and read the OpenFGA docs from the CLI ([#182](https://github.com/sergiught/openfga-cli/issues/182)) ([f070294](https://github.com/sergiught/openfga-cli/commit/f070294b20b1ee604ad8542bf17378cf93b2f76e))
+* **mappings:** an interactive workspace for writing mapping files ([#166](https://github.com/sergiught/openfga-cli/issues/166)) ([1ffd90c](https://github.com/sergiught/openfga-cli/commit/1ffd90ce1b637d5a3ed97dbfc8ec9f3b32144c2e))
+* **mappings:** validate, test and apply mapper files ([#165](https://github.com/sergiught/openfga-cli/issues/165)) ([7a6c9ce](https://github.com/sergiught/openfga-cli/commit/7a6c9ce272d00bdfe4917485c0108884cf347ce9))
+* **query:** read batch checks and contextual tuples from a file ([#181](https://github.com/sergiught/openfga-cli/issues/181)) ([a624eb8](https://github.com/sergiught/openfga-cli/commit/a624eb89ee9aeca7184aa475e59235a18faf987f))
+
+
+### Bug fixes
+
+* **agent:** normalize docs snippets and hint --dir without a home directory ([#188](https://github.com/sergiught/openfga-cli/issues/188)) ([335676b](https://github.com/sergiught/openfga-cli/commit/335676bfcf7944118f03ec4920c740de7e7ba3f5))
+* **assertions:** print an empty result document when there are no assertions to test ([#193](https://github.com/sergiught/openfga-cli/issues/193)) ([568a80c](https://github.com/sergiught/openfga-cli/commit/568a80ce05e00e21cb567aec30edfad7f70704ee))
+* **cli:** hide the password in an API URL in profiles output and the mappings resume hint ([#194](https://github.com/sergiught/openfga-cli/issues/194)) ([2bc0a11](https://github.com/sergiught/openfga-cli/commit/2bc0a112eeb63c6908ba162a8f6d3969ad54312e))
+* **deps:** bump x/crypto and moby/go-archive to clear govulncheck ([#136](https://github.com/sergiught/openfga-cli/issues/136)) ([4dca1b7](https://github.com/sergiught/openfga-cli/commit/4dca1b7e42bf3b0373f9cf217ee3b6da85460dc0))
+* **deps:** bump x/net to v0.62.0 to clear govulncheck ([#199](https://github.com/sergiught/openfga-cli/issues/199)) ([f43b929](https://github.com/sergiught/openfga-cli/commit/f43b929c573433ccf66c06427aeb54a5dae60ae6))
+* **deps:** require go 1.27.2 and bump x/net to clear govulncheck ([#153](https://github.com/sergiught/openfga-cli/issues/153)) ([b878a8d](https://github.com/sergiught/openfga-cli/commit/b878a8d1f282dcc036401ee20aee590ce9864948))
+* **deps:** require go 1.27.3 to clear govulncheck ([#169](https://github.com/sergiught/openfga-cli/issues/169)) ([344c85e](https://github.com/sergiught/openfga-cli/commit/344c85e2265e986fdf8718255b424e347a2c720f))
+* keep agent-mode and machine-output contracts for playground, config warnings and mappings apply ([#198](https://github.com/sergiught/openfga-cli/issues/198)) ([c65928e](https://github.com/sergiught/openfga-cli/commit/c65928e78519e020cb20ddbe748aded84ce68402))
+* **mappings:** name the interactive workspace in the missing-file hint and tag it not_found ([#195](https://github.com/sergiught/openfga-cli/issues/195)) ([c3526d5](https://github.com/sergiught/openfga-cli/commit/c3526d5cfcaccc8a997f8a775d772a18031c48ab))
+* **mappings:** polish from a QC pass over the commands, TUI and guide ([#175](https://github.com/sergiught/openfga-cli/issues/175)) ([11ad7fc](https://github.com/sergiught/openfga-cli/commit/11ad7fc40f022aa7fe8cfd003afd9da9927677b9))
+* **modeltest:** strip hidden controls from GitHub annotations ([#163](https://github.com/sergiught/openfga-cli/issues/163)) ([efdf69f](https://github.com/sergiught/openfga-cli/commit/efdf69fb034e93e9cc49586629d2c93b24976d2b))
+* **playground:** keep typing in place across query-form rebuilds ([#164](https://github.com/sergiught/openfga-cli/issues/164)) ([b159530](https://github.com/sergiught/openfga-cli/commit/b1595306e9e720dfb6b4e84e3d69fac11c9d4929))
+* **profiles:** hide header values in list and show output ([#187](https://github.com/sergiught/openfga-cli/issues/187)) ([d2833a7](https://github.com/sergiught/openfga-cli/commit/d2833a77d301228d46b660ef5100b3190f7fdf3c))
+* **tuples:** blame only the tuple a bulk write rejected ([#176](https://github.com/sergiught/openfga-cli/issues/176)) ([58eb9a2](https://github.com/sergiught/openfga-cli/commit/58eb9a2fd7e4c0395a1d9c8467b71d2861feaf83))
+* validate user references and let the last --config win ([#190](https://github.com/sergiught/openfga-cli/issues/190)) ([2d1cc10](https://github.com/sergiught/openfga-cli/commit/2d1cc103b0f46025dc19a319b5e117b5b0534907))
+
+
+### Refactors
+
+* **cmdmeta:** share each enum list with its validation ([#189](https://github.com/sergiught/openfga-cli/issues/189)) ([467429f](https://github.com/sergiught/openfga-cli/commit/467429f5deb8db26b9b3172566c758b03fc0532a))
+
+
+### Tests
+
+* **client:** check the store iterator's error in the capture tests ([#170](https://github.com/sergiught/openfga-cli/issues/170)) ([51c6f4b](https://github.com/sergiught/openfga-cli/commit/51c6f4bd3f9d8df9b440d88d1e499b009b6a8442))
+* cover agent-mode refusal, cancellation and empty machine output ([#191](https://github.com/sergiught/openfga-cli/issues/191)) ([7993cf4](https://github.com/sergiught/openfga-cli/commit/7993cf47b036a5d63c0e0f3fc6499c0f993881d2))
+* **e2e:** remove the shared ofga build dir after the package's tests ([#192](https://github.com/sergiught/openfga-cli/issues/192)) ([daee4a7](https://github.com/sergiught/openfga-cli/commit/daee4a704f0eddb36be78a8576bc5f67f9403b05))
+
+
+### Documentation
+
+* **agent:** cover mapping files in the agent skill and treat command output as data ([#196](https://github.com/sergiught/openfga-cli/issues/196)) ([e9c785f](https://github.com/sergiught/openfga-cli/commit/e9c785f12d1078350c3d7ec729558e73ae6d84ac))
+* fix stale flag, exit-code and docs-search notes and widen the trademark disclaimer ([#197](https://github.com/sergiught/openfga-cli/issues/197)) ([1462245](https://github.com/sergiught/openfga-cli/commit/1462245da2ee9e8cdf781758c51ae83074e7d0cb))
+* **mappings:** a guide to syncing events into tuples ([#167](https://github.com/sergiught/openfga-cli/issues/167)) ([51b35e3](https://github.com/sergiught/openfga-cli/commit/51b35e3a14887cd857cea5fb69e75598b82d0a66))
+
+
+### Build
+
+* generate THIRD_PARTY_LICENSES at release time instead of committing it ([#157](https://github.com/sergiught/openfga-cli/issues/157)) ([d691ad9](https://github.com/sergiught/openfga-cli/commit/d691ad920313c5f647b7f128046c00c7bc9a1c6a))
+
 ## [0.267.0](https://github.com/sergiught/openfga-cli/compare/v0.266.0...v0.267.0) (2026-08-03)
 
 
