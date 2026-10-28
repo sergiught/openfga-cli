@@ -20,6 +20,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/config"
+	"github.com/sergiught/openfga-cli/internal/modeltest"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/style"
 )
@@ -958,5 +959,34 @@ func TestModelTestFailureJSONKeepsStderrClean(t *testing.T) {
 	}
 	if errOut != "" {
 		t.Fatalf("stderr = %q, want empty", errOut)
+	}
+}
+
+// --playground must never open the full-screen TUI under --no-input or agent
+// mode (which implies it), even when stdout is a terminal.
+func TestRunPlaygroundSkippedWhenNonInteractive(t *testing.T) {
+	old := stdoutIsTerminal
+	stdoutIsTerminal = func() bool { return true }
+	t.Cleanup(func() { stdoutIsTerminal = old })
+
+	for name, mutate := range map[string]func(*cli.CLI){
+		"no-input": func(a *cli.CLI) { a.NoInput = true },
+		"agent":    func(a *cli.CLI) { a.Agent.Enabled = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			a := cli.New(log.New(io.Discard), config.New(), "test")
+			mutate(a)
+			c := New(a)
+			cmd := &cobra.Command{}
+			var errOut bytes.Buffer
+			cmd.SetErr(&errOut)
+			res := &modeltest.Results{Tests: []modeltest.TestResult{{Name: "t"}}}
+			if err := c.runPlayground(cmd, nil, res, false, false); err != nil {
+				t.Fatalf("runPlayground: %v", err)
+			}
+			if !strings.Contains(errOut.String(), "--playground needs an interactive terminal") {
+				t.Errorf("want the ignore note, got %q", errOut.String())
+			}
+		})
 	}
 }

@@ -117,7 +117,8 @@ func main() {
 			machine = c.JSON || c.YAML
 		}
 		if machine {
-			if lerr := cfg.LoadErr(); lerr != nil && errors.Is(err, lerr) {
+			lerr := cfg.LoadErr()
+			if lerr != nil && errors.Is(err, lerr) {
 				err = clierr.WithHint("fix or remove "+cfg.Path()+", then try again", err)
 			}
 			code := clierr.Code(err)
@@ -126,6 +127,9 @@ func main() {
 				code = clierr.CodeCanceled
 			} else if !root.RanCommand() {
 				code = clierr.CodeUsage
+			}
+			if lerr != nil && !errors.Is(err, lerr) {
+				err = withConfigIgnoredHint(err, cfg.Path(), code, cmd.CommandPath())
 			}
 			reportMachineError(os.Stderr, err, code, cmd.CommandPath(), canceled)
 			os.Exit(code)
@@ -298,6 +302,22 @@ func configPathFromArgs(root *cobra.Command, args []string) string {
 	return f.Value.String()
 }
 
+// withConfigIgnoredHint appends a note that the config file failed to load and
+// was ignored to err's envelope hint, keeping the hint it already carries (or
+// the usage hint reportMachineError would add). Machine output withholds the
+// human warning, so this is where the problem surfaces.
+func withConfigIgnoredHint(err error, path string, code int, cmdPath string) error {
+	note := "config file " + path + " could not be read and was ignored; fix or remove it"
+	hint := clierr.NewEnvelope(err).Error.Hint
+	if hint == "" && code == clierr.CodeUsage {
+		hint = usageHint(cmdPath)
+	}
+	if hint != "" {
+		note = hint + "; " + note
+	}
+	return clierr.WithHint(note, err)
+}
+
 // configLoadHint is the remediation for a config that failed to load, naming
 // the file that failed: the --config override when argv has one, else the
 // default location. Returns "" when neither resolves.
@@ -409,6 +429,9 @@ func scanRoot() *cobra.Command {
 // reportMachineError writes err to w as the one-line JSON error envelope.
 // code is the process exit code main computed; cmdPath names the command for
 // the default usage hint.
+// usageHint is the envelope hint for a usage error that carries none of its own.
+func usageHint(cmdPath string) string { return "run '" + cmdPath + " --help' for usage" }
+
 func reportMachineError(w io.Writer, err error, code int, cmdPath string, canceled bool) {
 	env := clierr.NewEnvelope(err)
 	body := &env.Error
@@ -424,7 +447,7 @@ func reportMachineError(w io.Writer, err error, code int, cmdPath string, cancel
 			body.Code = clierr.KindUsage
 		}
 		if body.Hint == "" {
-			body.Hint = "run '" + cmdPath + " --help' for usage"
+			body.Hint = usageHint(cmdPath)
 		}
 	}
 	_ = env.WriteLine(w)

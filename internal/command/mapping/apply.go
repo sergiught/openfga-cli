@@ -99,7 +99,9 @@ ofga mappings apply sync/auth0.yaml --events export.jsonl --from-event 40 --forc
 func (c *Command) runApply(cmd *cobra.Command, path, eventsPath string, fromEvent int, dryRun, force bool) error {
 	machine := c.cli.JSON || c.cli.YAML
 	if machine && !dryRun && !force {
-		return clierr.WithCode(clierr.CodeUsage, errors.New("-o json/yaml never prompts; pass --dry-run or --force"))
+		// Machine output covers -o json/yaml/jsonl and agent mode, which has no -o.
+		return clierr.WithCode(clierr.CodeUsage, clierr.WithHint("pass --dry-run to preview or --force to write",
+			errors.New("non-interactive runs never prompt; pass --dry-run to preview or --force to write")))
 	}
 	// Piped events use up stdin, so nothing could answer the prompt: refuse
 	// now rather than after reading them and planning against the store.
