@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -135,7 +136,7 @@ func (cli *CLI) traceResolved(r config.Resolved) {
 	}
 	cli.Logger.Debug("resolved configuration",
 		"profile", r.Profile,
-		"api_url", redactedURL(r.APIURL),
+		"api_url", RedactedURL(r.APIURL),
 		"store_id", orUnset(r.StoreID),
 		"model_id", orUnset(r.ModelID),
 		"auth", method,
@@ -150,12 +151,20 @@ func orUnset(s string) string {
 	return s
 }
 
-// redactedURL masks a password embedded in an API URL
+// RedactedURL masks a password embedded in an API URL
 // (http://user:pass@host), which url.URL.String — and so plain logging of the
-// resolved value — would otherwise print in full.
-func redactedURL(raw string) string {
+// resolved value — would otherwise print in full. A value url.Parse rejects
+// (a profile's api_url is stored unvalidated) is hidden whole if it might
+// carry userinfo, since its password cannot be located reliably.
+func RedactedURL(raw string) string {
 	u, err := url.Parse(raw)
-	if err != nil || u.User == nil {
+	if err != nil {
+		if strings.Contains(raw, "@") {
+			return "<malformed URL hidden>"
+		}
+		return raw
+	}
+	if u.User == nil {
 		return raw
 	}
 	if _, hasPassword := u.User.Password(); !hasPassword {

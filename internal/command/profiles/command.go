@@ -96,7 +96,7 @@ func (c *Command) listCmd() *cobra.Command {
 			if c.cli.JSON || c.cli.YAML {
 				masked := make(map[string]config.Profile, len(cfg.Profiles))
 				for name, p := range cfg.Profiles {
-					masked[name] = maskHeaders(p)
+					masked[name] = maskProfile(p)
 				}
 				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{
 					"active":   c.activeProfile(),
@@ -113,7 +113,7 @@ func (c *Command) listCmd() *cobra.Command {
 				rows = append(rows, []string{
 					active,
 					output.SanitizeField(name),
-					output.SanitizeField(p.APIURL),
+					output.SanitizeField(cli.RedactedURL(p.APIURL)),
 					output.SanitizeField(orDash(p.StoreID)),
 					output.SanitizeField(orDash(p.ModelID)),
 					output.SanitizeField(authMethod(p)),
@@ -162,11 +162,11 @@ func (c *Command) showCmd() *cobra.Command {
 					return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("%w: %q", config.ErrNoProfile, args[0]))
 				}
 				if c.cli.JSON || c.cli.YAML {
-					return output.Emit(cmd.OutOrStdout(), c.cli.YAML, maskHeaders(p))
+					return output.Emit(cmd.OutOrStdout(), c.cli.YAML, maskProfile(p))
 				}
 				rows := [][2]string{
 					{"profile", args[0]},
-					{"api_url", p.APIURL},
+					{"api_url", cli.RedactedURL(p.APIURL)},
 					{"store_id", orDash(p.StoreID)},
 					{"model_id", orDash(p.ModelID)},
 					{"headers", headerSummary(p.Headers)},
@@ -182,7 +182,7 @@ func (c *Command) showCmd() *cobra.Command {
 				// report only whether one is configured.
 				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{
 					"profile":   r.Profile,
-					"api_url":   r.APIURL,
+					"api_url":   cli.RedactedURL(r.APIURL),
 					"store_id":  r.StoreID,
 					"model_id":  r.ModelID,
 					"auth":      authName(r.Auth),
@@ -194,7 +194,7 @@ func (c *Command) showCmd() *cobra.Command {
 			}
 			rows := [][2]string{
 				{"profile (active)", r.Profile},
-				{"api_url", r.APIURL},
+				{"api_url", cli.RedactedURL(r.APIURL)},
 				{"store_id", orDash(r.StoreID)},
 				{"model_id", orDash(r.ModelID)},
 				{"headers", headerSummary(r.Headers)},
@@ -824,10 +824,12 @@ func headerNames(headers []string) []string {
 	return names
 }
 
-// maskHeaders returns a copy of p whose header values are replaced with
-// "<hidden>", for machine output: a stored header is there to authenticate
-// against a gateway, so its value is a credential. The original is untouched.
-func maskHeaders(p config.Profile) config.Profile {
+// maskProfile returns a copy of p whose header values are replaced with
+// "<hidden>" and whose API URL password is hidden, for machine output: a stored
+// header is there to authenticate against a gateway, so its value is a
+// credential, and so is URL userinfo. The original is untouched.
+func maskProfile(p config.Profile) config.Profile {
+	p.APIURL = cli.RedactedURL(p.APIURL)
 	if len(p.Headers) == 0 {
 		return p
 	}

@@ -713,6 +713,54 @@ func TestProfilesListAndShowMaskHeaderValues(t *testing.T) {
 	}
 }
 
+func TestProfilesHideTheAPIURLPassword(t *testing.T) {
+	newCLI := func() *cli.CLI {
+		return cli.New(charmlog.New(io.Discard), &config.Config{
+			Active: "prod",
+			Profiles: map[string]config.Profile{
+				"prod":  {APIURL: "https://svc:s3cr3t@fga.example.com"},
+				"plain": {APIURL: "https://plain.example.com"},
+			},
+		}, "test")
+	}
+	for _, tc := range []struct {
+		name string
+		json bool
+		args []string
+	}{
+		{"list json", true, []string{"list"}},
+		{"list human", false, []string{"list"}},
+		{"show named json", true, []string{"show", "prod"}},
+		{"show named human", false, []string{"show", "prod"}},
+		{"show active json", true, []string{"show"}},
+		{"show active human", false, []string{"show"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("OPENFGA_PROFILE", "")
+			t.Setenv("FGA_PROFILE", "")
+			t.Setenv("OPENFGA_API_URL", "")
+			t.Setenv("FGA_API_URL", "")
+			c := newCLI()
+			c.JSON = tc.json
+			out := runSub(t, c, tc.args[0], tc.args[1:]...)
+			if strings.Contains(out, "s3cr3t") {
+				t.Fatalf("output leaks the URL password:\n%s", out)
+			}
+			if !strings.Contains(out, "svc:xxxxx@fga.example.com") {
+				t.Fatalf("output lacks the redacted URL:\n%s", out)
+			}
+		})
+	}
+
+	t.Run("no userinfo is unchanged", func(t *testing.T) {
+		c := newCLI()
+		c.JSON = true
+		if out := runSub(t, c, "show", "plain"); !strings.Contains(out, "https://plain.example.com") {
+			t.Fatalf("plain URL altered:\n%s", out)
+		}
+	})
+}
+
 func TestProfilesListOmitsHeadersWhenNone(t *testing.T) {
 	c := cli.New(charmlog.New(io.Discard), &config.Config{
 		Active:   "default",

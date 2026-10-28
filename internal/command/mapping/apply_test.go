@@ -734,6 +734,18 @@ func TestResumeCommandRepeatsTheStoreFlags(t *testing.T) {
 	}
 }
 
+func TestResumeCommandHidesTheAPIURLPassword(t *testing.T) {
+	cmd := &cobra.Command{Use: "apply"}
+	cmd.Flags().String("api-url", "", "")
+	if err := cmd.Flags().Set("api-url", "https://svc:s3cr3t@fga.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	got := resumeCommand(cmd, "m.yaml", "-", 3, false)
+	if strings.Contains(got, "s3cr3t") || !strings.Contains(got, "svc:xxxxx@fga.example.com") {
+		t.Fatalf("resume command = %s", got)
+	}
+}
+
 func TestChangeLineShowsConditionContext(t *testing.T) {
 	for _, tc := range []struct {
 		t    language.Tuple
