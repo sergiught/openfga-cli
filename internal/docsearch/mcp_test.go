@@ -341,3 +341,46 @@ func TestSearchServerStatus(t *testing.T) {
 		t.Errorf("err = %v kind=%v", err, clierr.Classify(err))
 	}
 }
+
+// One event may span several data: lines; the spec joins them with "\n", and
+// a newline between JSON tokens is insignificant whitespace.
+func TestSearchSSEMultiLineData(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req rpcReq
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if req.ID == nil {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		if req.Method == "initialize" {
+			_, _ = fmt.Fprintf(w, "data: {\"jsonrpc\":\"2.0\",\"id\":%d,\n", *req.ID)
+			_, _ = fmt.Fprint(w, "data: \"result\":{}}\r\n\r\n")
+			return
+		}
+		// Split the result after its first comma, with an unrelated event
+		// ahead of it.
+		body := textResult(*req.ID, twoResults)
+		i := strings.Index(body, ",")
+		_, _ = fmt.Fprint(w, "event: ping\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"x\"}\n\n")
+		_, _ = fmt.Fprintf(w, "event: message\ndata: %s\ndata: %s\n\n", body[:i+1], body[i+1:])
+	}))
+	defer srv.Close()
+	res, err := docsearch.NewForTest(srv.URL, srv.Client()).Search(context.Background(), "q")
+	if err != nil || len(res) != 1 || res[0].Title != "Contextual Tuples" {
+		t.Fatalf("res=%v err=%v", res, err)
+	}
+}
+
+// A body just under the cap is accepted, so the limit is not off by a chunk.
+func TestSearchJSONJustUnderCap(t *testing.T) {
+	srv := mcpServer(t, false, "", func(id int) string {
+		pad := strings.Repeat("a", 8<<20-4096)
+		return textResult(id, "Title: T\nLink: https://openfga.dev/docs/x\nContent: "+pad)
+	}, nil)
+	defer srv.Close()
+	res, err := docsearch.NewForTest(srv.URL, srv.Client()).Search(context.Background(), "q")
+	if err != nil || len(res) != 1 {
+		t.Fatalf("len=%d err=%v", len(res), err)
+	}
+}
