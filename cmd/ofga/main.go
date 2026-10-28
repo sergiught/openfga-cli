@@ -53,9 +53,9 @@ func main() {
 	scan := scanRoot()
 	agent := agentmode.Resolve(agentFlagFromArgs(scan, os.Args[1:]), os.Getenv)
 	noColor := agent.Enabled || noColorFromArgs(os.Args[1:], "")
-	cfg, err := config.LoadFrom(configPathFromArgs(os.Args[1:]))
+	cfg, err := config.LoadFrom(configPathFromArgs(scan, os.Args[1:]))
 	if err != nil {
-		hint := configLoadHint(os.Args[1:])
+		hint := configLoadHint(scan, os.Args[1:])
 		if machineOutputFromArgs(scan, os.Args[1:], agent.Enabled) {
 			reportMachineError(os.Stderr, clierr.WithHint(hint, err), clierr.CodeError, "ofga", false)
 			os.Exit(clierr.CodeError)
@@ -286,29 +286,23 @@ func valueFlagFromArgs(args []string, name string) string {
 }
 
 // configPathFromArgs extracts a --config value from raw args, before cobra
-// parses them (config must load first). Returns "" when the flag is absent.
-func configPathFromArgs(args []string) string {
-	for i, a := range args {
-		// Stop at the `--` terminator: anything after it is a positional
-		// argument, not a flag, so a literal "--config" there isn't ours.
-		if a == "--" {
-			break
-		}
-		if a == "--config" && i+1 < len(args) {
-			return args[i+1]
-		}
-		if v, ok := strings.CutPrefix(a, "--config="); ok {
-			return v
-		}
+// parses them (config must load first). It parses against root's flag arity, so
+// a value another flag consumes is not mistaken for --config, and the last
+// --config wins, as in pflag. Returns "" when the flag is absent.
+func configPathFromArgs(root *cobra.Command, args []string) string {
+	fs, _ := parseArgsAgainst(root, args)
+	f := fs.Lookup("config")
+	if f == nil || !f.Changed {
+		return ""
 	}
-	return ""
+	return f.Value.String()
 }
 
 // configLoadHint is the remediation for a config that failed to load, naming
 // the file that failed: the --config override when argv has one, else the
 // default location. Returns "" when neither resolves.
-func configLoadHint(args []string) string {
-	path := configPathFromArgs(args)
+func configLoadHint(root *cobra.Command, args []string) string {
+	path := configPathFromArgs(root, args)
 	if path == "" {
 		path = config.DefaultPath()
 	}

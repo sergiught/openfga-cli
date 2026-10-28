@@ -62,7 +62,7 @@ func ParseTuple(user, relation, object string) (openfga.TupleKey, error) {
 		return openfga.TupleKey{}, fmt.Errorf("tuple requires user, relation and object (got user=%q relation=%q object=%q)", user, relation, object)
 	}
 	// user is "type:id", a wildcard "type:*", or a userset "type:id#relation".
-	if !strings.Contains(user, ":") {
+	if !validUserShape(user) {
 		return openfga.TupleKey{}, fmt.Errorf("user %q must be in the form type:id (e.g. user:anne, or a userset like team:eng#member) — did you swap the arguments? order is <user> <relation> <object>", user)
 	}
 	// object is a concrete "type:id" (no wildcard, no userset).
@@ -164,6 +164,17 @@ func SplitObject(object string) (typ, id string) {
 	return typ, id
 }
 
+// validUserShape reports whether user has a non-empty type and id and, when a
+// "#relation" suffix is present, a non-empty relation.
+func validUserShape(user string) bool {
+	obj, rel, hasRel := strings.Cut(user, "#")
+	typ, id := SplitObject(obj)
+	if typ == "" || id == "" {
+		return false
+	}
+	return !hasRel || (rel != "" && !strings.Contains(rel, "#"))
+}
+
 // ValidateUserRef checks that user is a "type:id", a wildcard "type:*", or a
 // userset "type:id#relation" — the same shape ParseTuple accepts for the user
 // position — so a swapped argument yields a friendly hint, not a raw 400.
@@ -172,7 +183,7 @@ func ValidateUserRef(user string) error {
 	if user == "" {
 		return fmt.Errorf("user is required")
 	}
-	if !strings.Contains(user, ":") {
+	if !validUserShape(user) {
 		return fmt.Errorf("user %q must be in the form type:id (e.g. user:anne, or a userset like team:eng#member) — did you swap the arguments?", user)
 	}
 	return nil

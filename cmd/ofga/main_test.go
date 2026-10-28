@@ -138,6 +138,30 @@ func TestMainFileRunsStandalone(t *testing.T) {
 	}
 }
 
+func TestConfigPathFromArgsLastWins(t *testing.T) {
+	tests := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--config", "a.yaml"}, "a.yaml"},
+		{[]string{"--config=a.yaml"}, "a.yaml"},
+		{[]string{"--config", "a.yaml", "--config", "b.yaml"}, "b.yaml"},
+		{[]string{"--config=a.yaml", "--config=b.yaml"}, "b.yaml"},
+		{[]string{"--config=a.yaml", "--config", "b.yaml"}, "b.yaml"},
+		{[]string{"--config", "a.yaml", "--", "--config", "b.yaml"}, "a.yaml"},
+		{[]string{"stores", "list"}, ""},
+		// A value another flag consumes is not a --config.
+		{[]string{"--config=a.toml", "--profile", "--config=b.toml"}, "a.toml"},
+		{[]string{"--config", "--config=local.toml"}, "--config=local.toml"},
+	}
+	root := scanRoot()
+	for _, tt := range tests {
+		if got := configPathFromArgs(root, tt.args); got != tt.want {
+			t.Errorf("configPathFromArgs(%q) = %q, want %q", tt.args, got, tt.want)
+		}
+	}
+}
+
 func TestMachineOutputFromArgs(t *testing.T) {
 	tests := []struct {
 		args []string
@@ -212,14 +236,15 @@ func TestAgentFlagFromArgs(t *testing.T) {
 }
 
 func TestConfigLoadHintNamesTheFileThatFailed(t *testing.T) {
-	if got := configLoadHint([]string{"stores", "list", "--config", "/elsewhere/ofga.toml"}); got != "fix or remove /elsewhere/ofga.toml, then try again" {
+	root := scanRoot()
+	if got := configLoadHint(root, []string{"stores", "list", "--config", "/elsewhere/ofga.toml"}); got != "fix or remove /elsewhere/ofga.toml, then try again" {
 		t.Errorf("explicit --config hint = %q", got)
 	}
-	if got := configLoadHint([]string{"--config=/elsewhere/ofga.toml"}); !strings.Contains(got, "/elsewhere/ofga.toml") {
+	if got := configLoadHint(root, []string{"--config=/elsewhere/ofga.toml"}); !strings.Contains(got, "/elsewhere/ofga.toml") {
 		t.Errorf("explicit --config= hint = %q", got)
 	}
 	if path := config.DefaultPath(); path != "" {
-		if got := configLoadHint(nil); got != "fix or remove "+path+", then try again" {
+		if got := configLoadHint(root, nil); got != "fix or remove "+path+", then try again" {
 			t.Errorf("default hint = %q", got)
 		}
 	}

@@ -45,7 +45,7 @@ func TestValidateUserRef(t *testing.T) {
 			t.Errorf("ValidateUserRef(%q) = %v, want nil", ok, err)
 		}
 	}
-	for _, bad := range []string{"", "anne", "document"} {
+	for _, bad := range []string{"", "anne", "document", ":anne", "user:", ":", "team:eng#", "team:#member", "#member", "team:eng#a#b"} {
 		if ValidateUserRef(bad) == nil {
 			t.Errorf("ValidateUserRef(%q) = nil, want error", bad)
 		}
@@ -74,6 +74,11 @@ func TestParseTuple(t *testing.T) {
 		{name: "valid public wildcard user", user: "user:*", relation: "viewer", object: "document:roadmap"},
 		{name: "empty user", user: "", relation: "viewer", object: "document:roadmap", wantErr: true},
 		{name: "user missing type (swapped args)", user: "anne", relation: "viewer", object: "document:roadmap", wantErr: true},
+		{name: "user empty type", user: ":anne", relation: "viewer", object: "document:roadmap", wantErr: true},
+		{name: "user empty id", user: "user:", relation: "viewer", object: "document:roadmap", wantErr: true},
+		{name: "user only colon", user: ":", relation: "viewer", object: "document:roadmap", wantErr: true},
+		{name: "user empty userset relation", user: "team:eng#", relation: "viewer", object: "document:roadmap", wantErr: true},
+		{name: "user userset empty id", user: "team:#member", relation: "viewer", object: "document:roadmap", wantErr: true},
 		{name: "object missing type", user: "user:anne", relation: "viewer", object: "roadmap", wantErr: true},
 		{name: "object missing id", user: "user:anne", relation: "viewer", object: "document:", wantErr: true},
 		{name: "object wildcard rejected", user: "user:anne", relation: "viewer", object: "document:*", wantErr: true},
