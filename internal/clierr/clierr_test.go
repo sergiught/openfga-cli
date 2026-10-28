@@ -272,3 +272,14 @@ func TestWithPartialResult(t *testing.T) {
 		t.Errorf("Code(err) = %d, want %d", got, CodeCanceled)
 	}
 }
+
+func TestFriendlyShowsAHintTheMessageLacks(t *testing.T) {
+	err := WithHint("do the thing", errors.New("it broke"))
+	if got := Friendly(err); got != "it broke\n  do the thing" {
+		t.Errorf("Friendly = %q", got)
+	}
+	err = WithHint("pass --force", errors.New("refusing; pass --force"))
+	if got := Friendly(err); got != "refusing; pass --force" {
+		t.Errorf("Friendly repeated a hint already in the message: %q", got)
+	}
+}

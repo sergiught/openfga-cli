@@ -242,6 +242,12 @@ func friendlyParts(err error) (headline, hint, cause string) {
 		return "cannot reach the OpenFGA server. Is it running, and is the API URL correct?",
 			"set the URL with OPENFGA_API_URL or `ofga profiles set api_url <url>`", err.Error()
 	}
+	// A WithHint remediation the message does not already spell out is shown
+	// to the human too, so it is not visible only in the machine envelope.
+	var he *hintError
+	if errors.As(err, &he) && !strings.Contains(err.Error(), he.hint) {
+		return err.Error(), he.hint, ""
+	}
 	return err.Error(), "", ""
 }
 

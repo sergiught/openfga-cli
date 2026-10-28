@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/mapping"
 )
 
@@ -25,7 +26,11 @@ func loadMappingFile(path string) (*mapping.File, []mapping.Finding, error) {
 	case errors.As(err, &le):
 		return nil, mapping.FindingsFrom(le.Diagnostics), nil
 	case errors.Is(err, os.ErrNotExist):
-		return nil, nil, fmt.Errorf("%s not found: pass a mapping file, or create one with 'ofga mappings %s'", path, shellQuote(path))
+		// 'ofga mappings <file>' is the interactive workspace, so the hint says a
+		// person runs it; scripts and agents must pass an existing file.
+		return nil, nil, clierr.WithKind(clierr.KindNotFound, clierr.WithHint(
+			"pass an existing mapping file; to create one, a person runs 'ofga mappings "+shellQuote(path)+"' in a terminal (it's interactive)",
+			fmt.Errorf("%s not found", path)))
 	case err != nil:
 		return nil, nil, err
 	}
