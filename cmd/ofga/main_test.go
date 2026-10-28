@@ -138,6 +138,26 @@ func TestMainFileRunsStandalone(t *testing.T) {
 	}
 }
 
+func TestConfigPathFromArgsLastWins(t *testing.T) {
+	tests := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--config", "a.yaml"}, "a.yaml"},
+		{[]string{"--config=a.yaml"}, "a.yaml"},
+		{[]string{"--config", "a.yaml", "--config", "b.yaml"}, "b.yaml"},
+		{[]string{"--config=a.yaml", "--config=b.yaml"}, "b.yaml"},
+		{[]string{"--config=a.yaml", "--config", "b.yaml"}, "b.yaml"},
+		{[]string{"--config", "a.yaml", "--", "--config", "b.yaml"}, "a.yaml"},
+		{[]string{"stores", "list"}, ""},
+	}
+	for _, tt := range tests {
+		if got := configPathFromArgs(tt.args); got != tt.want {
+			t.Errorf("configPathFromArgs(%q) = %q, want %q", tt.args, got, tt.want)
+		}
+	}
+}
+
 func TestMachineOutputFromArgs(t *testing.T) {
 	tests := []struct {
 		args []string

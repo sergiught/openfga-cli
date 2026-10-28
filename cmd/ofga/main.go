@@ -286,22 +286,10 @@ func valueFlagFromArgs(args []string, name string) string {
 }
 
 // configPathFromArgs extracts a --config value from raw args, before cobra
-// parses them (config must load first). Returns "" when the flag is absent.
+// parses them (config must load first). The last --config wins, as in pflag.
+// Returns "" when the flag is absent.
 func configPathFromArgs(args []string) string {
-	for i, a := range args {
-		// Stop at the `--` terminator: anything after it is a positional
-		// argument, not a flag, so a literal "--config" there isn't ours.
-		if a == "--" {
-			break
-		}
-		if a == "--config" && i+1 < len(args) {
-			return args[i+1]
-		}
-		if v, ok := strings.CutPrefix(a, "--config="); ok {
-			return v
-		}
-	}
-	return ""
+	return valueFlagFromArgs(args, "--config")
 }
 
 // configLoadHint is the remediation for a config that failed to load, naming
