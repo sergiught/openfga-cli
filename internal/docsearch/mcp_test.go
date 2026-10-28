@@ -333,6 +333,23 @@ func TestSearchRPCError(t *testing.T) {
 	}
 }
 
+func TestSearchNormalizesCRLF(t *testing.T) {
+	srv := mcpServer(t, false, "", func(id int) string {
+		return textResult(id, "Title: T\r\nLink: https://openfga.dev/docs/a\r\nContent: one\r\ntwo\rthree\r\n")
+	}, nil)
+	defer srv.Close()
+	res, err := docsearch.NewForTest(srv.URL, srv.Client()).Search(context.Background(), "q")
+	if err != nil || len(res) != 1 {
+		t.Fatalf("res=%v err=%v", res, err)
+	}
+	if want := "one\ntwo\nthree"; res[0].Snippet != want {
+		t.Errorf("snippet = %q, want %q", res[0].Snippet, want)
+	}
+	if res[0].Title != "T" || res[0].URL != "https://openfga.dev/docs/a" {
+		t.Errorf("title/url = %q/%q", res[0].Title, res[0].URL)
+	}
+}
+
 func TestSearchServerStatus(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(503) }))
 	defer srv.Close()

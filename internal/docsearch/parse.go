@@ -13,7 +13,7 @@ const errFormat = "unexpected response from the openfga.dev docs search; the for
 func parseResult(text string) (Result, bool) {
 	var r Result
 	var hasTitle, hasLink bool
-	rest := text
+	rest := strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(text)
 	for rest != "" {
 		line, tail, _ := strings.Cut(rest, "\n")
 		switch {
