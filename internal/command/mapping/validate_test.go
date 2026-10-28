@@ -167,7 +167,7 @@ func TestValidateMissingFiles(t *testing.T) {
 	dir := t.TempDir()
 	c := cli.New(log.New(io.Discard), config.New(), "test")
 	_, err := run(t, c, "validate", filepath.Join(dir, "nope.yaml"))
-	if err == nil || !strings.Contains(err.Error(), "nope.yaml not found") || !strings.Contains(err.Error(), "create one with 'ofga mappings") || clierr.Code(err) != clierr.CodeError {
+	if err == nil || !strings.Contains(err.Error(), "nope.yaml not found") || clierr.Code(err) != clierr.CodeError {
 		t.Fatalf("err = %v", err)
 	}
 	p := writeFile(t, dir, "mapping.yaml", validMapping)

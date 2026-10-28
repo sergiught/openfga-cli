@@ -291,7 +291,9 @@ func readEvents(cmd *cobra.Command, path string) ([]map[string]any, error) {
 	}
 	f, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("events file %s not found", path)
+		return nil, clierr.WithKind(clierr.KindNotFound, clierr.WithHint(
+			"pass an existing events file (JSON or JSONL), or - to read events from stdin",
+			fmt.Errorf("events file %s not found", path)))
 	}
 	if err != nil {
 		return nil, err
