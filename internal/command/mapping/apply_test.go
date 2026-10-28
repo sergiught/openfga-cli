@@ -241,6 +241,18 @@ func TestApplyMachineOutputNeverPrompts(t *testing.T) {
 	if clierr.Code(err) != clierr.CodeUsage {
 		t.Fatalf("code = %d err = %v", clierr.Code(err), err)
 	}
+	// Agent mode and --no-input reach this without any -o, so the message must
+	// not blame -o; the hint carries the remediation, and the human rendering
+	// must not repeat it.
+	if !strings.Contains(err.Error(), "non-interactive runs never prompt") || strings.Contains(err.Error(), "-o") {
+		t.Errorf("message = %q", err)
+	}
+	if h := clierr.NewEnvelope(err).Error.Hint; !strings.Contains(h, "--dry-run") || !strings.Contains(h, "--force") {
+		t.Errorf("hint = %q", h)
+	}
+	if got := clierr.Friendly(err); strings.Count(got, "--dry-run") != 1 {
+		t.Errorf("friendly output repeats the remediation: %q", got)
+	}
 
 	stdout, stderr, err := runApply(t, context.Background(), c, nil, mp, "--events", ep, "--dry-run")
 	if err != nil {
