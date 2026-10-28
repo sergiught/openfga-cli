@@ -317,6 +317,39 @@ func TestAssertionsTestWithNoAssertionsIsNotAFailure(t *testing.T) {
 	}
 }
 
+func TestAssertionsTestWithNoAssertionsEmitsEmptyDocument(t *testing.T) {
+	for _, mode := range []string{"json", "yaml"} {
+		t.Run(mode, func(t *testing.T) {
+			s := &stubFGA{modelID: latestID}
+			cmd := silenced(New(newAssertionsCLI(t, s.start(t), mode)).testCmd())
+			var out, errOut bytes.Buffer
+			cmd.SetOut(&out)
+			cmd.SetErr(&errOut)
+			cmd.SetArgs(nil)
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+
+			m := decodeStructured(t, mode, out.String())
+			if got := m["authorization_model_id"]; got != latestID {
+				t.Errorf("authorization_model_id = %v, want %q", got, latestID)
+			}
+			if got := numField(t, m, "passed"); got != 0 {
+				t.Errorf("passed = %d, want 0", got)
+			}
+			if got := numField(t, m, "total"); got != 0 {
+				t.Errorf("total = %d, want 0", got)
+			}
+			if results, ok := m["results"].([]any); !ok || len(results) != 0 {
+				t.Errorf("results = %#v, want an empty array, not null", m["results"])
+			}
+			if want := "no assertions to run for model " + latestID; !strings.Contains(errOut.String(), want) {
+				t.Errorf("stderr = %q, want it to contain %q", errOut.String(), want)
+			}
+		})
+	}
+}
+
 func TestAssertionsTestWrapsCheckFailure(t *testing.T) {
 	s := &stubFGA{
 		modelID:     latestID,
