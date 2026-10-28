@@ -20,9 +20,20 @@ import (
 // sharedBin builds the ofga binary once for the whole package's e2e tests.
 var (
 	binOnce sync.Once
+	binDir  string
 	binPath string
 	binErr  error
 )
+
+// TestMain removes the shared binary's directory once the package's tests are
+// done; it outlives any one test, so t.TempDir() can't own it.
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if binDir != "" {
+		_ = os.RemoveAll(binDir)
+	}
+	os.Exit(code)
+}
 
 func ofgaBin(t *testing.T) string {
 	t.Helper()
@@ -32,6 +43,7 @@ func ofgaBin(t *testing.T) string {
 			binErr = err
 			return
 		}
+		binDir = dir
 		binPath = dir + "/ofga"
 		out, err := exec.Command("go", "build", "-o", binPath, "github.com/sergiught/openfga-cli/cmd/ofga").CombinedOutput()
 		if err != nil {
