@@ -47,7 +47,7 @@ Manage stores, authorization models, relationship tuples, and run checks from yo
 
 It talks to any OpenFGA-compatible server and reuses your connection **profiles** so you can switch between local, staging, and production in one flag.
 
-> **Naming:** the official OpenFGA CLI is `fga`. This is a separate, independent reimagining focused on ergonomics and an interactive TUI, distributed as `ofga`. It is not affiliated with OpenFGA.
+> **Naming:** the official OpenFGA CLI is `fga`. This is a separate, independent reimagining focused on ergonomics and an interactive TUI, distributed as `ofga`. OpenFGA, Auth0 and Claude are trademarks of their respective owners; this project is not affiliated with or endorsed by them.
 
 ---
 
@@ -160,4 +160,4 @@ go test ./...
 
 ## ⚖️ License
 
-[MIT](LICENSE) © Sergiu Ghitea. Built for the excellent [OpenFGA](https://openfga.dev) project (not affiliated).
+[MIT](LICENSE) © Sergiu Ghitea. Built for the excellent [OpenFGA](https://openfga.dev) project (not affiliated with or endorsed by OpenFGA, Auth0 or Claude).

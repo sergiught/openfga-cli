@@ -16,7 +16,7 @@
           "provider": "custom",
           "isSocial": false,
           "profileData": {
-            "email": "john.doe@gmail.com",
+            "email": "john.doe@example.com",
             "email_verified": false,
             "name": "John Doe",
             "username": "johndoe",
@@ -33,7 +33,7 @@
           "isSocial": true
         }
       ],
-      "email": "john.doe@gmail.com",
+      "email": "john.doe@example.com",
       "email_verified": false,
       "username": "johndoe",
       "phone_number": "+15555555555",
@@ -68,7 +68,7 @@
           "provider": "custom",
           "isSocial": false,
           "profileData": {
-            "email": "john.doe@gmail.com",
+            "email": "john.doe@example.com",
             "email_verified": false,
             "name": "John Doe",
             "username": "johndoe",
@@ -79,7 +79,7 @@
           }
         }
       ],
-      "email": "john.doe@gmail.com",
+      "email": "john.doe@example.com",
       "email_verified": false,
       "username": "johndoe",
       "phone_number": "+15555555555",
