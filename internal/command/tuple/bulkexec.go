@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -19,6 +20,13 @@ import (
 // maxReportedFailures caps the per-tuple failure lines printed in human mode;
 // the full list is in --json/--yaml output and in --failed-file.
 const maxReportedFailures = 10
+
+// onDuplicateValues and onMissingValues are the conflict modes --on-duplicate
+// and --on-missing accept; completion, the catalog and validation all read them.
+var (
+	onDuplicateValues = []string{string(openfga.OnDuplicateError), string(openfga.OnDuplicateIgnore)}
+	onMissingValues   = []string{string(openfga.OnMissingError), string(openfga.OnMissingIgnore)}
+)
 
 // bulkOpts are the knobs the bulk --file write and delete paths share.
 type bulkOpts struct {
@@ -49,21 +57,17 @@ func (o bulkOpts) validate(del bool) error {
 			fmt.Errorf("--max-parallel-requests must be at least 1 (got %d)", o.maxParallel))
 	}
 	if del {
-		switch openfga.OnMissing(o.onMissing) {
-		case openfga.OnMissingError, openfga.OnMissingIgnore:
-			return nil
-		default:
+		if !slices.Contains(onMissingValues, o.onMissing) {
 			return clierr.WithCode(clierr.CodeUsage,
-				fmt.Errorf("--on-missing must be one of error, ignore (got %q)", o.onMissing))
+				fmt.Errorf("--on-missing must be one of %s (got %q)", strings.Join(onMissingValues, ", "), o.onMissing))
 		}
-	}
-	switch openfga.OnDuplicate(o.onDuplicate) {
-	case openfga.OnDuplicateError, openfga.OnDuplicateIgnore:
 		return nil
-	default:
-		return clierr.WithCode(clierr.CodeUsage,
-			fmt.Errorf("--on-duplicate must be one of error, ignore (got %q)", o.onDuplicate))
 	}
+	if !slices.Contains(onDuplicateValues, o.onDuplicate) {
+		return clierr.WithCode(clierr.CodeUsage,
+			fmt.Errorf("--on-duplicate must be one of %s (got %q)", strings.Join(onDuplicateValues, ", "), o.onDuplicate))
+	}
+	return nil
 }
 
 // requestOptions maps the CLI flags onto the SDK's bulk request options. The

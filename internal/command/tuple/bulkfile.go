@@ -31,8 +31,11 @@ const (
 	formatCSV   bulkFormat = "csv"
 )
 
-// bulkFormatList is the accepted --file-format values, in help/error order.
-const bulkFormatList = "json, jsonl, yaml, csv"
+// bulkFormatValues are the accepted --file-format values, in help/error order.
+var bulkFormatValues = []string{string(formatJSON), string(formatJSONL), string(formatYAML), string(formatCSV)}
+
+// bulkFormatList is bulkFormatValues as shown in error messages.
+var bulkFormatList = strings.Join(bulkFormatValues, ", ")
 
 // csvColumns is the CSV header contract, matching the official `fga` CLI.
 // Order in the file does not matter; csvRequired must all be present.
@@ -101,13 +104,12 @@ type exportInput struct {
 // always accepted.
 func resolveBulkFormat(file, override string) (bulkFormat, error) {
 	if override != "" {
-		switch f := bulkFormat(strings.ToLower(strings.TrimSpace(override))); f {
-		case formatJSON, formatJSONL, formatYAML, formatCSV:
-			return f, nil
-		default:
+		f := bulkFormat(strings.ToLower(strings.TrimSpace(override)))
+		if !slices.Contains(bulkFormatValues, string(f)) {
 			return "", clierr.WithCode(clierr.CodeUsage,
 				fmt.Errorf("--file-format must be one of %s (got %q)", bulkFormatList, override))
 		}
+		return f, nil
 	}
 	switch strings.ToLower(filepath.Ext(file)) {
 	case ".jsonl", ".ndjson":
