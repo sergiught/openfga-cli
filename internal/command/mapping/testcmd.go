@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -49,14 +50,18 @@ ofga mappings test --report junit --report-file mapping-tests.xml`,
 	cmd.Flags().BoolVar(&failFast, "fail-fast", false, "stop at the first failing test")
 	cmd.Flags().StringVar(&report, "report", "", `write a report in this format ("junit", "json", or "github"); to --report-file if set, otherwise printed to the terminal`)
 	cmd.Flags().StringVar(&reportFile, "report-file", "", "path to write the --report file to (requires --report)")
-	_ = cmd.RegisterFlagCompletionFunc("report", cobra.FixedCompletions([]string{"junit", "json", "github"}, cobra.ShellCompDirectiveNoFileComp))
-	cmdmeta.SetEnum(cmd, "report", "junit", "json", "github")
+	_ = cmd.RegisterFlagCompletionFunc("report", cobra.FixedCompletions(reportFormats, cobra.ShellCompDirectiveNoFileComp))
+	cmdmeta.SetEnum(cmd, "report", reportFormats...)
 	return cmd
 }
 
+// reportFormats are the values --report accepts; the completion list, the
+// catalog and the validation all read it.
+var reportFormats = []string{"junit", "json", "github"}
+
 func (c *Command) runTest(cmd *cobra.Command, path, filter string, failFast bool, report, reportFile string) error {
 	// Same rules and messages as `model test`.
-	if report != "" && report != "junit" && report != "json" && report != "github" {
+	if report != "" && !slices.Contains(reportFormats, report) {
 		return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("invalid --report %q (want \"junit\", \"json\", or \"github\")", report))
 	}
 	if report == "" && reportFile != "" {

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -27,6 +28,13 @@ import (
 	"github.com/sergiught/openfga-cli/internal/modeltest"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/style"
+)
+
+// reportFormats and explainModes are the values --report and --explain accept;
+// completion, the catalog and validation all read them.
+var (
+	reportFormats = []string{"junit", "json", "github"}
+	explainModes  = []string{"auto", "full"}
 )
 
 func (c *Command) testCmd() *cobra.Command {
@@ -106,7 +114,7 @@ func (c *Command) testCmd() *cobra.Command {
 			if coverageMinSet && (math.IsNaN(coverageMin) || math.IsInf(coverageMin, 0) || coverageMin < 0 || coverageMin > 100) {
 				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--coverage-min must be a finite percentage from 0 to 100"))
 			}
-			if explain != "" && explain != "auto" && explain != "full" {
+			if explain != "" && !slices.Contains(explainModes, explain) {
 				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("invalid --explain %q (want \"auto\" or \"full\")", explain))
 			}
 			if coverageDiff != "" {
@@ -125,7 +133,7 @@ func (c *Command) testCmd() *cobra.Command {
 			if remoteEngine && playground {
 				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--playground drills into an embedded seeded world and can't be combined with --openfga-image/--server-addr"))
 			}
-			if report != "" && report != "junit" && report != "json" && report != "github" {
+			if report != "" && !slices.Contains(reportFormats, report) {
 				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("invalid --report %q (want \"junit\", \"json\", or \"github\")", report))
 			}
 			if report == "" && reportFile != "" {
@@ -363,10 +371,10 @@ func (c *Command) testCmd() *cobra.Command {
 
 	// Shell completion: enum flags complete their choices; path-like flags and
 	// the positional workspace path complete files/dirs.
-	_ = cmd.RegisterFlagCompletionFunc("report", cobra.FixedCompletions([]string{"junit", "json", "github"}, cobra.ShellCompDirectiveNoFileComp))
-	cmdmeta.SetEnum(cmd, "report", "junit", "json", "github")
-	_ = cmd.RegisterFlagCompletionFunc("explain", cobra.FixedCompletions([]string{"auto", "full"}, cobra.ShellCompDirectiveNoFileComp))
-	cmdmeta.SetEnum(cmd, "explain", "auto", "full")
+	_ = cmd.RegisterFlagCompletionFunc("report", cobra.FixedCompletions(reportFormats, cobra.ShellCompDirectiveNoFileComp))
+	cmdmeta.SetEnum(cmd, "report", reportFormats...)
+	_ = cmd.RegisterFlagCompletionFunc("explain", cobra.FixedCompletions(explainModes, cobra.ShellCompDirectiveNoFileComp))
+	cmdmeta.SetEnum(cmd, "explain", explainModes...)
 	_ = cmd.MarkFlagFilename("file")
 	cmd.ValidArgsFunction = func(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
 		if len(args) > 0 {

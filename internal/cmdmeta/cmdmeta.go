@@ -70,8 +70,12 @@ func Get(cmd *cobra.Command) (Meta, bool) {
 	return m, true
 }
 
-// SetEnum records the closed set of values flag accepts. The flag must exist.
+// SetEnum records the closed set of values flag accepts. The flag must exist
+// and the set must not be empty.
 func SetEnum(cmd *cobra.Command, flag string, values ...string) {
+	if len(values) == 0 {
+		panic("cmdmeta: SetEnum with no values for --" + flag)
+	}
 	f := cmd.Flags().Lookup(flag)
 	if f == nil {
 		f = cmd.PersistentFlags().Lookup(flag)

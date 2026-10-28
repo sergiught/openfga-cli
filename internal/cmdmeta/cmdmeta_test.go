@@ -89,3 +89,16 @@ func TestLeavesExcludesGroupsKeepsInteractiveParents(t *testing.T) {
 		t.Errorf("Leaves = %v, want %v", got, want)
 	}
 }
+
+// An empty value list would put a flag in the catalog with no allowed values,
+// so SetEnum refuses it at registration, as it does an unknown flag.
+func TestSetEnumRejectsEmptyList(t *testing.T) {
+	cmd := &cobra.Command{Use: "x"}
+	cmd.Flags().String("mode", "", "")
+	defer func() {
+		if recover() == nil {
+			t.Error("SetEnum with no values did not panic")
+		}
+	}()
+	cmdmeta.SetEnum(cmd, "mode")
+}

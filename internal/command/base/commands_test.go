@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+
 	"github.com/sergiught/openfga-cli/internal/cmdmeta"
 	"github.com/sergiught/openfga-cli/internal/output"
 )
@@ -164,5 +167,42 @@ func TestCommandsTable(t *testing.T) {
 	out := runCatalog(t, "commands")
 	if !strings.Contains(out, "ofga tuples write") || !strings.Contains(out, "COMMAND") {
 		t.Fatalf("table output unexpected:\n%s", out)
+	}
+}
+
+// TestCommandEnumsWellFormed guards the enum lists recorded for the catalog:
+// each is duplicate-free and every value is mentioned in the flag's usage
+// text, so a value added to one place is noticed in the other. It visits
+// every command's own flags, so root persistent flags (--output, --theme)
+// are checked too. SetEnum itself rejects an empty list.
+func TestCommandEnumsWellFormed(t *testing.T) {
+	root := metaRoot(t).Command()
+	checked := 0
+	var walk func(cmd *cobra.Command)
+	walk = func(cmd *cobra.Command) {
+		for _, sub := range cmd.Commands() {
+			walk(sub)
+		}
+		cmd.LocalFlags().VisitAll(func(f *pflag.Flag) {
+			vals := cmdmeta.Enum(f)
+			if vals == nil {
+				return
+			}
+			checked++
+			seen := map[string]bool{}
+			for _, v := range vals {
+				if seen[v] {
+					t.Errorf("%s --%s: duplicate enum value %q", cmd.CommandPath(), f.Name, v)
+				}
+				seen[v] = true
+				if !strings.Contains(f.Usage, v) {
+					t.Errorf("%s --%s: enum value %q not in usage %q", cmd.CommandPath(), f.Name, v, f.Usage)
+				}
+			}
+		})
+	}
+	walk(root)
+	if checked == 0 {
+		t.Fatal("no enum flags found in the command tree")
 	}
 }

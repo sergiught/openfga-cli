@@ -174,9 +174,9 @@ func (c *Command) writeCmd() *cobra.Command {
 	registerBulkThroughputFlags(cmd, &bulk, "written")
 	registerBulkFormatCompletion(cmd)
 	_ = cmd.RegisterFlagCompletionFunc("on-duplicate", cobra.FixedCompletions(
-		[]string{string(openfga.OnDuplicateError), string(openfga.OnDuplicateIgnore)},
+		onDuplicateValues,
 		cobra.ShellCompDirectiveNoFileComp))
-	cmdmeta.SetEnum(cmd, "on-duplicate", string(openfga.OnDuplicateError), string(openfga.OnDuplicateIgnore))
+	cmdmeta.SetEnum(cmd, "on-duplicate", onDuplicateValues...)
 	return cmd
 }
 
@@ -203,9 +203,9 @@ func rejectInertBulkFlags(cmd *cobra.Command, verb string) error {
 // encodings; without it the flag falls back to filename completion.
 func registerBulkFormatCompletion(cmd *cobra.Command) {
 	_ = cmd.RegisterFlagCompletionFunc("file-format", cobra.FixedCompletions(
-		[]string{string(formatJSON), string(formatJSONL), string(formatYAML), string(formatCSV)},
+		bulkFormatValues,
 		cobra.ShellCompDirectiveNoFileComp))
-	cmdmeta.SetEnum(cmd, "file-format", string(formatJSON), string(formatJSONL), string(formatYAML), string(formatCSV))
+	cmdmeta.SetEnum(cmd, "file-format", bulkFormatValues...)
 }
 
 // registerBulkThroughputFlags adds the --file execution flags shared by write
@@ -326,9 +326,9 @@ func (c *Command) deleteCmd() *cobra.Command {
 	registerBulkThroughputFlags(cmd, &bulk, "deleted")
 	registerBulkFormatCompletion(cmd)
 	_ = cmd.RegisterFlagCompletionFunc("on-missing", cobra.FixedCompletions(
-		[]string{string(openfga.OnMissingError), string(openfga.OnMissingIgnore)},
+		onMissingValues,
 		cobra.ShellCompDirectiveNoFileComp))
-	cmdmeta.SetEnum(cmd, "on-missing", string(openfga.OnMissingError), string(openfga.OnMissingIgnore))
+	cmdmeta.SetEnum(cmd, "on-missing", onMissingValues...)
 	return cmd
 }
 
