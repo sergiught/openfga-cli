@@ -213,9 +213,14 @@ func (c *Command) testCmd() *cobra.Command {
 			}
 			if len(res.Assertions) == 0 {
 				output.Infof(cmd.ErrOrStderr(), "no assertions to run for model %s", modelID)
-				return nil
+				if !c.cli.JSON && !c.cli.YAML {
+					return nil
+				}
+				// Machine output still gets the schema's document, with an
+				// empty (not null) results array.
+			} else {
+				output.Progressf(cmd.ErrOrStderr(), "testing %d assertion(s)…", len(res.Assertions))
 			}
-			output.Progressf(cmd.ErrOrStderr(), "testing %d assertion(s)…", len(res.Assertions))
 
 			type result struct {
 				Assertion string `json:"assertion"`
@@ -223,7 +228,7 @@ func (c *Command) testCmd() *cobra.Command {
 				Got       bool   `json:"got"`
 				Pass      bool   `json:"pass"`
 			}
-			var results []result
+			results := []result{}
 			passed := 0
 			for _, a := range res.Assertions {
 				var ctxTuples *openfga.ContextualTupleKeys
