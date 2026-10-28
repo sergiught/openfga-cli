@@ -143,7 +143,8 @@ func skillPath(project bool, dir string) (string, error) {
 	default:
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return "", err
+			return "", clierr.WithHint("pass --dir <path> or --project to choose where to install",
+				fmt.Errorf("could not find your home directory: %w", err))
 		}
 		base = filepath.Join(home, ".claude", "skills")
 	}

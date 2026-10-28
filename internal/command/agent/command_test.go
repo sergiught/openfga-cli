@@ -244,6 +244,28 @@ func TestSkillInstallRechecksFileCreatedMidInstall(t *testing.T) {
 	}
 }
 
+// Without a home directory the default target is unknown, so the error points
+// at the flags that choose one and nothing is written.
+func TestSkillInstallHintsWhenHomeUnknown(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "") // os.UserHomeDir on Windows
+	_, _, err := run(t, true, "skill", "install")
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if got := clierr.Code(err); got != 1 {
+		t.Errorf("exit code = %d, want 1", got)
+	}
+	hint := clierr.NewEnvelope(err).Error.Hint
+	if !strings.Contains(hint, "--dir") || !strings.Contains(hint, "--project") {
+		t.Errorf("hint = %q, want it to suggest --dir or --project", hint)
+	}
+	if entries, _ := os.ReadDir("."); len(entries) != 0 {
+		t.Errorf("nothing should be written, found %v", entries)
+	}
+}
+
 // A dangling SKILL.md symlink is an existing entry: it needs confirmation and
 // --force replaces it, rather than every install failing on it.
 func TestSkillInstallReplacesDanglingSymlink(t *testing.T) {
