@@ -471,18 +471,23 @@ func createReportFile(path string) (*atomicfile.File, error) {
 	return f, nil
 }
 
+// stdoutIsTerminal reports whether stdout is a terminal; a var so tests can
+// reach the checks behind it.
+var stdoutIsTerminal = func() bool { return term.IsTerminal(os.Stdout.Fd()) }
+
 // runPlayground opens the playground on a failing test's seeded world (or the
 // first test's, when all passed) after a normal `model test` run, listing every
 // result in the Test Results section. It is a no-op — with a one-line stderr
 // note so the ignore isn't silent — in machine-output (-o json/yaml), non-TTY,
-// or --no-tui runs, so it never disturbs the scripted/CI contract. The
+// --no-tui, or --no-input/agent-mode runs, so it never disturbs the
+// scripted/CI contract. The
 // interactive session is the terminal action; the caller still returns exit 3
 // on failures once the TUI closes, keeping CI semantics for scripted callers.
 func (c *Command) runPlayground(cmd *cobra.Command, ws *modeltest.Workspace, res *modeltest.Results, dedupe, noTUI bool) error {
 	if len(res.Tests) == 0 {
 		return nil
 	}
-	if noTUI || c.cli.JSON || c.cli.YAML || !term.IsTerminal(os.Stdout.Fd()) {
+	if noTUI || c.cli.JSON || c.cli.YAML || c.cli.NoInput || c.cli.Agent.Enabled || !stdoutIsTerminal() {
 		output.Notef(cmd.ErrOrStderr(), "--playground needs an interactive terminal and human output; ignoring it")
 		return nil
 	}
