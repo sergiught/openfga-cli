@@ -192,6 +192,9 @@ func TestEmptyResultsYAMLAndJQ(t *testing.T) {
 			if strings.Contains(errb, "panic") {
 				t.Fatalf("panic: %q", errb)
 			}
+			if strings.TrimSpace(out) == "" {
+				t.Fatalf("empty --yaml output")
+			}
 			var v any
 			if err := yaml.Unmarshal([]byte(out), &v); err != nil {
 				t.Fatalf("stdout is not valid YAML: %v (%q)", err, out)
@@ -208,12 +211,10 @@ func TestEmptyResultsYAMLAndJQ(t *testing.T) {
 			if strings.TrimSpace(out) == "" {
 				t.Fatalf("empty --jq output")
 			}
-			dec := json.NewDecoder(strings.NewReader(out))
-			for dec.More() {
-				var v any
-				if err := dec.Decode(&v); err != nil {
-					t.Fatalf("--jq output is not valid JSON: %v (%q)", err, out)
-				}
+			// The identity filter emits exactly one JSON document.
+			var v any
+			if err := json.Unmarshal([]byte(out), &v); err != nil {
+				t.Fatalf("--jq output is not one valid JSON document: %v (%q)", err, out)
 			}
 		})
 	}
