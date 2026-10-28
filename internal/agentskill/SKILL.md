@@ -159,7 +159,9 @@ ofga mappings apply mapping.yaml --events events.jsonl --dry-run
 
 `validate` and `test` are read-only; run them freely (`test` exits 3 when a test
 fails). `apply` writes tuples to the store: run it only when the user asks, and
-dry-run first as in 4.
+dry-run first as in 4. It always asks before writing, even when the plan only
+adds tuples, so after you have read the plan and the user has agreed, repeat
+it with `--force` in place of `--dry-run`.
 
 ## 10. Look up OpenFGA itself
 
