@@ -94,9 +94,13 @@ func (c *Command) listCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg := c.cli.Config
 			if c.cli.JSON || c.cli.YAML {
+				masked := make(map[string]config.Profile, len(cfg.Profiles))
+				for name, p := range cfg.Profiles {
+					masked[name] = maskHeaders(p)
+				}
 				return output.Emit(cmd.OutOrStdout(), c.cli.YAML, map[string]any{
 					"active":   c.activeProfile(),
-					"profiles": cfg.Profiles,
+					"profiles": masked,
 				})
 			}
 			rows := [][]string{}
@@ -158,7 +162,7 @@ func (c *Command) showCmd() *cobra.Command {
 					return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("%w: %q", config.ErrNoProfile, args[0]))
 				}
 				if c.cli.JSON || c.cli.YAML {
-					return output.Emit(cmd.OutOrStdout(), c.cli.YAML, p)
+					return output.Emit(cmd.OutOrStdout(), c.cli.YAML, maskHeaders(p))
 				}
 				rows := [][2]string{
 					{"profile", args[0]},
@@ -818,6 +822,25 @@ func headerNames(headers []string) []string {
 		names = append(names, strings.TrimSpace(name))
 	}
 	return names
+}
+
+// maskHeaders returns a copy of p whose header values are replaced with
+// "<hidden>", for machine output: a stored header is there to authenticate
+// against a gateway, so its value is a credential. The original is untouched.
+func maskHeaders(p config.Profile) config.Profile {
+	if len(p.Headers) == 0 {
+		return p
+	}
+	masked := make([]string, len(p.Headers))
+	for i, h := range p.Headers {
+		if name, _, ok := strings.Cut(h, ":"); ok {
+			masked[i] = strings.TrimSpace(name) + ": <hidden>"
+		} else {
+			masked[i] = "<hidden>"
+		}
+	}
+	p.Headers = masked
+	return p
 }
 
 // headerSummary renders the configured headers for the human view: the names,

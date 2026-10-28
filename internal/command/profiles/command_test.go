@@ -661,3 +661,65 @@ func TestSplitScopesAcceptsCommasAndSpaces(t *testing.T) {
 		}
 	}
 }
+
+// headerProfileCLI builds a CLI whose prod profile carries a credential header.
+func headerProfileCLI() *cli.CLI {
+	return cli.New(charmlog.New(io.Discard), &config.Config{
+		Active: "prod",
+		Profiles: map[string]config.Profile{
+			"prod": {APIURL: "http://prod:8080", Headers: []string{"Authorization: Bearer s3cret", "X-Flag"}},
+		},
+	}, "test")
+}
+
+func runSub(t *testing.T, c *cli.CLI, name string, args ...string) string {
+	t.Helper()
+	cmd := subCmd(t, c, name)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	if err := cmd.RunE(cmd, args); err != nil {
+		t.Fatal(err)
+	}
+	return out.String()
+}
+
+func TestProfilesListAndShowMaskHeaderValues(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		run  func(*cli.CLI) string
+	}{
+		{"list json", func(c *cli.CLI) string { c.JSON = true; return runSub(t, c, "list") }},
+		{"list yaml", func(c *cli.CLI) string { c.YAML = true; return runSub(t, c, "list") }},
+		{"show json", func(c *cli.CLI) string { c.JSON = true; return runSub(t, c, "show", "prod") }},
+		{"show yaml", func(c *cli.CLI) string { c.YAML = true; return runSub(t, c, "show", "prod") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := headerProfileCLI()
+			out := tc.run(c)
+			if strings.Contains(out, "s3cret") {
+				t.Fatalf("output leaks a header value:\n%s", out)
+			}
+			if !strings.Contains(out, "Authorization: <hidden>") {
+				t.Fatalf("output lacks the masked header:\n%s", out)
+			}
+			if strings.Contains(out, "X-Flag") {
+				t.Fatalf("a header without ':' must be fully hidden:\n%s", out)
+			}
+			p, _ := c.Config.Get("prod")
+			if p.Headers[0] != "Authorization: Bearer s3cret" || p.Headers[1] != "X-Flag" {
+				t.Fatalf("loaded config was mutated: %v", p.Headers)
+			}
+		})
+	}
+}
+
+func TestProfilesListOmitsHeadersWhenNone(t *testing.T) {
+	c := cli.New(charmlog.New(io.Discard), &config.Config{
+		Active:   "default",
+		Profiles: map[string]config.Profile{"default": {APIURL: config.DefaultAPIURL}},
+	}, "test")
+	c.JSON = true
+	if out := runSub(t, c, "list"); strings.Contains(out, "headers") {
+		t.Fatalf("headers should be omitted when empty:\n%s", out)
+	}
+}
