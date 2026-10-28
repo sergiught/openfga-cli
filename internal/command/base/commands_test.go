@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
 	"github.com/sergiught/openfga-cli/internal/cmdmeta"
@@ -170,21 +171,24 @@ func TestCommandsTable(t *testing.T) {
 }
 
 // TestCommandEnumsWellFormed guards the enum lists recorded for the catalog:
-// each is non-empty and duplicate-free, and every value is mentioned in the
-// flag's usage text, so a value added to one place is noticed in the other.
+// each is duplicate-free and every value is mentioned in the flag's usage
+// text, so a value added to one place is noticed in the other. It visits
+// every command's own flags, so root persistent flags (--output, --theme)
+// are checked too. SetEnum itself rejects an empty list.
 func TestCommandEnumsWellFormed(t *testing.T) {
 	root := metaRoot(t).Command()
 	checked := 0
-	for _, cmd := range cmdmeta.Leaves(root) {
-		cmd.Flags().VisitAll(func(f *pflag.Flag) {
-			if _, ok := f.Annotations["ofga-enum"]; !ok && cmdmeta.Enum(f) == nil {
+	var walk func(cmd *cobra.Command)
+	walk = func(cmd *cobra.Command) {
+		for _, sub := range cmd.Commands() {
+			walk(sub)
+		}
+		cmd.LocalFlags().VisitAll(func(f *pflag.Flag) {
+			vals := cmdmeta.Enum(f)
+			if vals == nil {
 				return
 			}
 			checked++
-			vals := cmdmeta.Enum(f)
-			if len(vals) == 0 {
-				t.Errorf("%s --%s: empty enum", cmd.CommandPath(), f.Name)
-			}
 			seen := map[string]bool{}
 			for _, v := range vals {
 				if seen[v] {
@@ -197,6 +201,7 @@ func TestCommandEnumsWellFormed(t *testing.T) {
 			}
 		})
 	}
+	walk(root)
 	if checked == 0 {
 		t.Fatal("no enum flags found in the command tree")
 	}
