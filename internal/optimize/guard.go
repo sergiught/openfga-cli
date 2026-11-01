@@ -1,30 +1,36 @@
 package optimize
 
 import (
+	"maps"
+
 	openfgav1 "github.com/openfga/api/proto/openfga/v1"
 )
 
 // guardedRelations returns the relations ("type#rel") that no safe rule may
-// rewrite: those reachable from the subtracted side of an exclusion that can
-// also reach a cycle. OpenFGA's runtime cycle detection under an exclusion is
-// evaluation-shape dependent, so the least-fixpoint proof does not carry over.
+// rewrite: every relation reachable from a subtracted side of an exclusion
+// whose reachable region contains a cycle. When OpenFGA detects a cycle under
+// an exclusion, the exclusion denies, and whether it detects one depends on
+// the resolver it picks for each relation. It picks that resolver from the
+// weights of everything beneath the relation, so a rewrite anywhere in the
+// region, even on a relation that is not on or above the cycle, can change
+// the answer. The least-fixpoint proof does not carry over there.
 func guardedRelations(m *Model) map[string]bool {
 	graph, roots := dependencyGraph(m)
-	reach := func(from []string) map[string]bool { return reachable(graph, from) }
 
 	// A node is on a cycle when it reaches itself through at least one edge.
 	cyclic := map[string]bool{}
 	for n, succ := range graph {
-		if reach(succ)[n] {
+		if reachable(graph, succ)[n] {
 			cyclic[n] = true
 		}
 	}
 
 	guarded := map[string]bool{}
-	for n := range reach(roots) {
-		for r := range reach([]string{n}) {
-			if cyclic[r] {
-				guarded[n] = true
+	for _, root := range roots {
+		region := reachable(graph, []string{root})
+		for n := range region {
+			if cyclic[n] {
+				maps.Copy(guarded, region)
 				break
 			}
 		}

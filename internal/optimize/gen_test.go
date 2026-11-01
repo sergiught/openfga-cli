@@ -32,11 +32,36 @@ func genModel(r *rand.Rand) *openfgav1.AuthorizationModel {
 			fmt.Fprintf(&sb, "    define r%d: %s\n", ri, genDef(r, ti, ri, nTypes, nRels, parent))
 		}
 	}
+	if r.IntN(4) == 0 {
+		sb.WriteString(genExclusionCycleShape(r))
+	}
 	lm, err := modeltest.LoadModelBytes([]byte(sb.String()))
 	if err != nil {
 		return nil
 	}
 	return lm.Proto
+}
+
+// genExclusionCycleShape returns types where a recursive relation sits under
+// `but not` and its union has a sibling intersection with an operand of
+// weight >= 2. Simplifying that intersection lowers the weight beneath the
+// recursive relation, which changes how OpenFGA resolves it (and whether it
+// detects the cycle).
+func genExclusionCycleShape(r *rand.Rand) string {
+	heavy := "define b: [user, kg#member] or a"
+	if r.IntN(2) == 0 {
+		heavy = "define grp: [kg]\n    define b: a or member from grp"
+	}
+	and := "a and b"
+	if r.IntN(2) == 0 {
+		and = "b and a"
+	}
+	union := []string{"[user]", "viewer from parent", "y"}
+	r.Shuffle(len(union), func(i, j int) { union[i], union[j] = union[j], union[i] })
+	return "\ntype kg\n  relations\n    define member: [user]\n" +
+		"\ntype k\n  relations\n    define parent: [k]\n    define a: [user]\n    " + heavy +
+		"\n    define y: " + and + "\n    define viewer: " + strings.Join(union, " or ") + "\n" +
+		"\ntype kd\n  relations\n    define parent: [k]\n    define can_read: [user] but not viewer from parent\n"
 }
 
 func genDef(r *rand.Rand, ti, ri, nTypes int, nRels []int, parent int) string {
@@ -157,6 +182,23 @@ func genTuples(r *rand.Rand, m *openfgav1.AuthorizationModel, n int) []*openfgav
 					add(td.GetType()+":1", td.GetType()+":2")
 					add(td.GetType()+":2", td.GetType()+":1")
 				}
+			}
+		}
+	}
+	// Seed the genExclusionCycleShape types with a denied doc over a k cycle.
+	for _, td := range m.GetTypeDefinitions() {
+		if td.GetType() != "kd" {
+			continue
+		}
+		for _, tk := range []*openfgav1.TupleKey{
+			{Object: "kd:1", Relation: "parent", User: "k:1"},
+			{Object: "kd:1", Relation: "can_read", User: "user:2"},
+			{Object: "k:1", Relation: "parent", User: "k:2"},
+			{Object: "k:2", Relation: "parent", User: "k:1"},
+		} {
+			if k := tk.GetObject() + "|" + tk.GetRelation() + "|" + tk.GetUser(); !seen[k] {
+				seen[k] = true
+				out = append(out, tk)
 			}
 		}
 	}
