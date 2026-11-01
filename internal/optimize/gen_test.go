@@ -76,6 +76,16 @@ func genDef(r *rand.Rand, ti, ri, nTypes int, nRels []int, parent int) string {
 	case k < 8:
 		return operand(true) + " and " + operand(false)
 	case k < 9:
+		if ri >= 2 && r.IntN(2) == 0 {
+			// union base under exclusion, built from earlier relations
+			a := r.IntN(ri)
+			b := r.IntN(ri)
+			base := fmt.Sprintf("r%d or r%d", a, b)
+			if r.IntN(2) == 0 {
+				base += fmt.Sprintf(" or r%d", r.IntN(ri))
+			}
+			return "(" + base + ") but not " + operand(false)
+		}
 		return operand(true) + " but not " + operand(false)
 	default:
 		return fmt.Sprintf("r%d from parent", r.IntN(nRels[parent]))
