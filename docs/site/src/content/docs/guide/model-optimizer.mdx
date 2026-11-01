@@ -137,8 +137,11 @@ in-process, indicative only
 
 ## The equivalence guarantee
 
-A safe rewrite returns the same `true` or `false` as the original for every
-possible set of tuples, with the caveats below.
+"Safe" means equivalent under OpenFGA's semantics: a safe rewrite returns the
+same `true` or `false` as the original for every possible set of tuples. The
+OpenFGA server picks how to evaluate a Check from the model's shape, and some
+of those strategies have known defects. The tool steers around them rather
+than relying on them, which is why some rewrites are held back. The caveats:
 
 - **Conditions are handled conservatively.** A directly related type with a
   condition (or a wildcard) is only comparable to an identical one, so a
@@ -152,6 +155,12 @@ possible set of tuples, with the caveats below.
   OpenFGA's cycle handling under an exclusion depends on its evaluation
   strategy, which is chosen for the whole model, so a rewrite in any type can
   change the answer there. Advisory findings are still reported.
+- **Models with conditions or wildcards keep their relation weights.** If any
+  directly related type in the model has a condition or a wildcard, a rewrite
+  that would change a relation's weight in OpenFGA's weighted graph is
+  skipped. OpenFGA's fast path for some `from` relations can answer wrongly
+  when a tuple whose condition is false and a wildcard tuple share an object,
+  and lowering a weight can move a relation onto that path.
 - **Depth-limit errors are possible.** Equivalence is of the abstract
   semantics. A rewrite only removes branches, but near the server's
   resolve-node limit whether a Check errors can still change, from an error

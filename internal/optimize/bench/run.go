@@ -133,6 +133,7 @@ func splitUnstable(ctx context.Context, before, after *openfgav1.AuthorizationMo
 	stable = []Mismatch{}
 	for i, m := range mism {
 		typ, _, _ := strings.Cut(m.Object, ":")
+		// Unaffected ⇒ noise relies on Rewrite keeping buildability and, where strategy matters, weights.
 		if bVar[i] || !affected[typ+"#"+m.Relation] {
 			unstable = append(unstable, m)
 		} else {

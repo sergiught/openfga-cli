@@ -8,12 +8,16 @@ import (
 
 // recursiveExclusion returns an exclusion ("type#rel", the first in sorted
 // order) whose subtracted side can reach a cycle in the relation dependency
-// graph. When OpenFGA detects a cycle under an exclusion, the exclusion
-// denies, and whether it detects one depends on the resolver it picks. That
-// choice is model-wide: an AND or BUT NOT on a tuple cycle anywhere stops
-// OpenFGA building its weighted graph and disables the weight-based
-// resolvers everywhere. So a rewrite in any type can change such an answer,
-// and the least-fixpoint proof does not carry over to any of them.
+// graph.
+//
+// Safe rewrites are equivalent under OpenFGA's semantics (the least
+// fixpoint). The server's evaluation strategies do not all agree with it, so
+// Rewrite steers around the known gaps instead of modelling them. Here: when
+// OpenFGA detects a cycle under an exclusion, the exclusion denies, and
+// whether it detects one depends on the resolver it picks. That choice is
+// model-wide (an AND or BUT NOT on a tuple cycle anywhere stops OpenFGA
+// building its weighted graph and disables the weight-based resolvers
+// everywhere), so a model with such an exclusion gets no rewrite at all.
 func recursiveExclusion(m *Model) (site string, ok bool) {
 	graph := dependencyGraph(m)
 	cyclic := cyclicRelations(graph)
