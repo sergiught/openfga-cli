@@ -15,12 +15,22 @@ const minWideUnion = 4
 // type, relation, then ID.
 func advise(m *Model) []Finding {
 	// OpenFGA cannot build the weighted graph when an AND or BUT NOT sits on a
-	// tuple cycle. Findings then carry no weights, and recursion is read from
-	// the relation dependency graph's cycles instead of infinite weights.
+	// tuple cycle. Findings then carry no weights, and a relation counts as
+	// infinite when it can reach a cycle in the relation dependency graph,
+	// as an inherited infinite weight would on the weighted path.
 	w, err := Weights(m)
-	var cyclic map[string]bool
+	infinite := map[string]bool{}
 	if err != nil {
-		cyclic = cyclicRelations(dependencyGraph(m))
+		graph := dependencyGraph(m)
+		cyclic := cyclicRelations(graph)
+		for n := range graph {
+			for r := range reachable(graph, []string{n}) {
+				if cyclic[r] {
+					infinite[n] = true
+					break
+				}
+			}
+		}
 	}
 	var caller, tuple []Finding
 	for _, td := range m.Proto.GetTypeDefinitions() {
@@ -30,7 +40,7 @@ func advise(m *Model) []Finding {
 			add := func(dst *[]Finding, id string, tier Tier, reason string) {
 				*dst = append(*dst, Finding{ID: id, Type: typ, Relation: rel, Reason: reason, Tier: tier, Weights: wts})
 			}
-			inf := hasInfinite(w[typ+"#"+rel]) || cyclic[typ+"#"+rel]
+			inf := hasInfinite(w[typ+"#"+rel]) || infinite[typ+"#"+rel]
 			// Recursion is "inside" the operands only when the relation's own
 			// definition introduces it; relations that merely inherit an
 			// infinite weight are not reported.

@@ -116,6 +116,7 @@ func relationEdges(m *Model, typ, rel string, us *openfgav1.Userset, subtractOnl
 		case *openfgav1.Userset_TupleToUserset:
 			ts := v.TupleToUserset.GetTupleset().GetRelation()
 			x := v.TupleToUserset.GetComputedUserset().GetRelation()
+			emit(typ + "#" + ts)
 			for _, ref := range m.DirectTypes(typ, ts) {
 				if _, ok := m.Relation(ref.GetType(), x); ok {
 					emit(ref.GetType() + "#" + x)

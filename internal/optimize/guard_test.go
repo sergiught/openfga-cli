@@ -400,3 +400,25 @@ func TestRewrite_CWildcardConditionKeepsWeights(t *testing.T) {
 		}
 	}
 }
+
+// TestDependents_TTUReachesTupleset: a TTU reads its tupleset relation, so a
+// relation using `x from parent` depends on parent.
+func TestDependents_TTUReachesTupleset(t *testing.T) {
+	m := loadInline(t, `model
+  schema 1.1
+
+type user
+
+type folder
+  relations
+    define viewer: [user]
+
+type doc
+  relations
+    define parent: [folder]
+    define viewer: viewer from parent
+`)
+	if got := Dependents(m, []string{"doc#parent"}); !got["doc#viewer"] {
+		t.Fatalf("Dependents(doc#parent) = %v, want doc#viewer included", got)
+	}
+}

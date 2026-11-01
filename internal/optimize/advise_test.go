@@ -2,6 +2,7 @@ package optimize
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -215,5 +216,49 @@ type folder
 	}
 	if got, want := tierIDs(rep, TierTuple), []string{"T1 folder#viewer"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("tuple = %v, want %v", got, want)
+	}
+}
+
+// TestAnalyze_FallbackInheritsInfinity: doc#viewer only reaches the recursive
+// group#member, so its weight is infinite (inherited) on the weighted path and
+// its userset direct type makes it T1. Without a weighted graph (team's AND on
+// a tuple cycle) the fallback must report the same.
+func TestAnalyze_FallbackInheritsInfinity(t *testing.T) {
+	const base = `model
+  schema 1.1
+
+type user
+
+type group
+  relations
+    define member: [user, group#member]
+
+type doc
+  relations
+    define viewer: [group#member]
+`
+	const noGraph = `
+type team
+  relations
+    define parent: [team]
+    define member: [user] or both from parent
+    define wide: [user] or member
+    define both: member and wide
+`
+	if !weightedGraphBuilds(loadInline(t, base)) || weightedGraphBuilds(loadInline(t, base+noGraph)) {
+		t.Fatal("test needs base to build a weighted graph and base+noGraph not to")
+	}
+	want := tierIDs(analyzeDSL(t, base), TierTuple)
+	if !slices.Contains(want, "T1 doc#viewer") {
+		t.Fatalf("weighted path: tuple = %v, want T1 doc#viewer", want)
+	}
+	var got []string
+	for _, id := range tierIDs(analyzeDSL(t, base+noGraph), TierTuple) {
+		if !strings.Contains(id, " team#") {
+			got = append(got, id)
+		}
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("fallback: tuple = %v, want %v", got, want)
 	}
 }
