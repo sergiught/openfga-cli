@@ -20,8 +20,6 @@ type SynthOptions struct {
 	Noise          int
 }
 
-const userType = "user"
-
 // leaf is a synthesizable direct tuple template on a relation.
 type leaf struct {
 	relation string
@@ -56,6 +54,7 @@ func Synthesize(m *openfgav1.AuthorizationModel, o SynthOptions) (*Source, error
 	}
 
 	src := &Source{Kind: "synthesis", Seed: o.Seed}
+	probeUsers := map[string]bool{}
 	rng := rand.New(rand.NewPCG(o.Seed, o.Seed)) //nolint:gosec // deterministic synthesis, not security
 	seen := map[string]bool{}
 	add := func(user, relation, object string) {
@@ -125,6 +124,11 @@ func Synthesize(m *openfgav1.AuthorizationModel, o SynthOptions) (*Source, error
 		}
 
 		for _, l := range leaves {
+			if l.isUser {
+				for n := 1; n <= 2; n++ {
+					probeUsers[l.user(n, false)] = true
+				}
+			}
 			for n := 1; n <= o.ObjectsPerType; n++ {
 				add(l.user(n, false), l.relation, fmt.Sprintf("%s:t%d", typ, n))
 			}
@@ -139,8 +143,19 @@ func Synthesize(m *openfgav1.AuthorizationModel, o SynthOptions) (*Source, error
 		// Checks: one deny per relation a user can reach, one allow
 		// candidate per direct user leaf.
 		for _, rel := range names {
-			if _, ok := weights[typ+"#"+rel][userType]; ok {
-				src.Checks = append(src.Checks, Check{Name: fmt.Sprintf("deny %s#%s", typ, rel), User: userType + ":nobody", Relation: rel, Object: typ + ":t1"})
+			var subjects []string
+			for st := range weights[typ+"#"+rel] {
+				if isUserType(m, st) {
+					subjects = append(subjects, st)
+				}
+			}
+			sort.Strings(subjects)
+			for _, st := range subjects {
+				name := fmt.Sprintf("deny %s#%s", typ, rel)
+				if len(subjects) > 1 {
+					name += " (" + st + ")"
+				}
+				src.Checks = append(src.Checks, Check{Name: name, User: st + ":nobody", Relation: rel, Object: typ + ":t1"})
 			}
 			var userLeaves []leaf
 			for _, l := range leaves {
@@ -154,6 +169,28 @@ func Synthesize(m *openfgav1.AuthorizationModel, o SynthOptions) (*Source, error
 					name += " (" + l.userType + ")"
 				}
 				src.Checks = append(src.Checks, Check{Name: name, User: l.user(1, false), Relation: rel, Object: typ + ":t1"})
+			}
+		}
+	}
+
+	// Probes: every synthesized leaf user against every relation, so rewritten
+	// indirect paths are compared too (answers only, untimed).
+	users := make([]string, 0, len(probeUsers))
+	for u := range probeUsers {
+		users = append(users, u)
+	}
+	sort.Strings(users)
+	for _, u := range users {
+		for _, td := range tds {
+			names := make([]string, 0, len(td.GetMetadata().GetRelations()))
+			for r := range td.GetMetadata().GetRelations() {
+				names = append(names, r)
+			}
+			sort.Strings(names)
+			for _, r := range names {
+				src.Probes = append(src.Probes, Check{
+					Name: fmt.Sprintf("probe %s %s %s:t1", u, r, td.GetType()), User: u, Relation: r, Object: td.GetType() + ":t1",
+				})
 			}
 		}
 	}

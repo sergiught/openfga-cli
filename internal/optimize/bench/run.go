@@ -35,13 +35,17 @@ func Run(ctx context.Context, before, after *openfgav1.AuthorizationModel, src *
 	if iters <= 0 {
 		iters = 100
 	}
-	b, err := probeModel(ctx, before, src, iters, o.ServerOpts)
+	withProbes := after != nil
+	b, bAns, err := probeModel(ctx, before, src, iters, o.ServerOpts, withProbes)
 	if err != nil {
 		return nil, fmt.Errorf("before: %w", err)
 	}
-	var a []probe
+	var (
+		a    []probe
+		aAns []bool
+	)
 	if after != nil {
-		if a, err = probeModel(ctx, after, src, iters, o.ServerOpts); err != nil {
+		if a, aAns, err = probeModel(ctx, after, src, iters, o.ServerOpts, withProbes); err != nil {
 			return nil, fmt.Errorf("after: %w", err)
 		}
 	}
@@ -85,19 +89,27 @@ func Run(ctx context.Context, before, after *openfgav1.AuthorizationModel, src *
 		}
 		res.Checks = append(res.Checks, cr)
 	}
+	if after != nil {
+		res.Probes = len(src.Probes)
+		for i, c := range src.Probes {
+			if bAns[i] != aAns[i] {
+				res.Mismatches = append(res.Mismatches, Mismatch{Check: c, AllowedBefore: bAns[i], AllowedAfter: aAns[i]})
+			}
+		}
+	}
 	return res, nil
 }
 
-func probeModel(ctx context.Context, model *openfgav1.AuthorizationModel, src *Source, iters int, serverOpts map[string]any) ([]probe, error) {
+func probeModel(ctx context.Context, model *openfgav1.AuthorizationModel, src *Source, iters int, serverOpts map[string]any, withProbes bool) ([]probe, []bool, error) {
 	eng, counters, err := modeltest.NewCountingEmbeddedEngine(serverOpts)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrSetup, err)
+		return nil, nil, fmt.Errorf("%w: %w", ErrSetup, err)
 	}
 	defer func() { _ = eng.Close() }()
 
 	storeID, modelID, err := eng.Setup(ctx, model, src.Tuples)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrSetup, err)
+		return nil, nil, fmt.Errorf("%w: %w", ErrSetup, err)
 	}
 	scope := modeltest.Scope{StoreID: storeID, ModelID: modelID}
 
@@ -110,7 +122,7 @@ func probeModel(ctx context.Context, model *openfgav1.AuthorizationModel, src *S
 		tagCtx, dispatches := modeltest.WithDispatchTags(ctx)
 		allowed, err := eng.Check(tagCtx, scope, req)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", c.Name, err)
+			return nil, nil, fmt.Errorf("%s: %w", c.Name, err)
 		}
 		settle(counters)
 		p := probe{allowed: allowed, m: Metrics{Reads: counters.Reads(), Dispatches: dispatches()}}
@@ -119,7 +131,7 @@ func probeModel(ctx context.Context, model *openfgav1.AuthorizationModel, src *S
 		for range iters {
 			start := time.Now()
 			if _, err := eng.Check(ctx, scope, req); err != nil {
-				return nil, fmt.Errorf("%s: %w", c.Name, err)
+				return nil, nil, fmt.Errorf("%s: %w", c.Name, err)
 			}
 			durs = append(durs, float64(time.Since(start))/float64(time.Millisecond))
 		}
@@ -128,7 +140,18 @@ func probeModel(ctx context.Context, model *openfgav1.AuthorizationModel, src *S
 		p.m.P95Ms = percentile(durs, 95)
 		out = append(out, p)
 	}
-	return out, nil
+	var answers []bool
+	if withProbes {
+		answers = make([]bool, 0, len(src.Probes))
+		for _, c := range src.Probes {
+			allowed, err := eng.Check(ctx, scope, modeltest.CheckReq{User: c.User, Relation: c.Relation, Object: c.Object})
+			if err != nil {
+				return nil, nil, fmt.Errorf("%s: %w", c.Name, err)
+			}
+			answers = append(answers, allowed)
+		}
+	}
+	return out, answers, nil
 }
 
 // percentile returns the nearest-rank percentile of sorted values.

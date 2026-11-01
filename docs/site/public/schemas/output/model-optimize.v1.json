@@ -163,6 +163,9 @@
             "null"
           ]
         },
+        "probes": {
+          "type": "integer"
+        },
         "seed": {
           "type": "integer"
         },
@@ -190,10 +193,10 @@
       },
       "required": [
         "source",
-        "seed",
         "tupleCount",
         "checks",
         "totals",
+        "probes",
         "mismatches"
       ],
       "type": "object"

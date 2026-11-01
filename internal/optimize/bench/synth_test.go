@@ -101,3 +101,63 @@ condition cond(x: string) {
 		}
 	}
 }
+
+func TestSynthesize_DenyChecksUseModelSubjectType(t *testing.T) {
+	lm, err := modeltest.LoadModelBytes([]byte(`model
+  schema 1.1
+type employee
+type contractor
+type document
+  relations
+    define viewer: [employee]
+    define editor: [employee, contractor]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src, err := Synthesize(lm.Proto, SynthOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"deny document#viewer":              "employee:nobody",
+		"deny document#editor (contractor)": "contractor:nobody",
+		"deny document#editor (employee)":   "employee:nobody",
+	}
+	got := map[string]string{}
+	for _, c := range src.Checks {
+		if len(c.Name) > 4 && c.Name[:4] == "deny" {
+			got[c.Name] = c.User
+		}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("deny checks = %v, want %v", got, want)
+	}
+}
+
+func TestSynthesize_ProbesCoverIndirectPaths(t *testing.T) {
+	src, err := Synthesize(loadRef(t), SynthOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Check{
+		Name: "probe user:folder_viewer_1 can_view document:t1", User: "user:folder_viewer_1", Relation: "can_view", Object: "document:t1",
+	}
+	if !slices.Contains(src.Probes, want) {
+		t.Fatalf("probes lack %+v", want)
+	}
+	seen := map[Check]bool{}
+	for _, p := range src.Probes {
+		if seen[p] {
+			t.Fatalf("duplicate probe %+v", p)
+		}
+		seen[p] = true
+	}
+	again, err := Synthesize(loadRef(t), SynthOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(src.Probes, again.Probes) {
+		t.Fatal("probes not deterministic")
+	}
+}

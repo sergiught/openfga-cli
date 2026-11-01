@@ -127,3 +127,20 @@ func TestWorkspaceSource_SkipsContextChecks(t *testing.T) {
 		t.Fatalf("notices = %v", notices)
 	}
 }
+
+func TestFromWorkspace_DedupesChecksAcrossTests(t *testing.T) {
+	ws := &modeltest.Workspace{TestFiles: []*modeltest.TestFile{{
+		Path: "a.test.yaml",
+		Tests: []modeltest.Test{
+			{Name: "one", Check: []modeltest.CheckCase{{User: "user:a", Object: "doc:1", Assertions: map[string]bool{"viewer": true}}}},
+			{Name: "two", Check: []modeltest.CheckCase{{User: "user:a", Object: "doc:1", Assertions: map[string]bool{"viewer": true}}}},
+		},
+	}}}
+	src, _, err := FromWorkspace(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(src.Checks) != 1 || !strings.HasSuffix(src.Checks[0].Name, "one user:a viewer doc:1") {
+		t.Fatalf("checks = %+v, want one check named after the first test", src.Checks)
+	}
+}

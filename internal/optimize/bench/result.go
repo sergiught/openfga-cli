@@ -15,11 +15,13 @@ type Check struct {
 
 // Source is the tuple set and checks a benchmark runs over.
 type Source struct {
-	Kind    string                `json:"kind"` // "workspace" | "synthesis"
-	Seed    uint64                `json:"seed"`
-	Tuples  []*openfgav1.TupleKey `json:"-"`
-	Checks  []Check               `json:"checks"`
-	Skipped []string              `json:"skipped,omitempty"`
+	Kind   string                `json:"kind"` // "workspace" | "synthesis"
+	Seed   uint64                `json:"seed,omitempty"`
+	Tuples []*openfgav1.TupleKey `json:"-"`
+	Checks []Check               `json:"checks"`
+	// Probes are untimed answer-only checks compared between the models.
+	Probes  []Check  `json:"-"`
+	Skipped []string `json:"skipped,omitempty"`
 }
 
 // Tuple is a relationship tuple without proto types, for serialized output.
@@ -66,11 +68,12 @@ type Totals struct {
 // Result is the benchmark outcome.
 type Result struct {
 	Source     string        `json:"source"`
-	Seed       uint64        `json:"seed"`
+	Seed       uint64        `json:"seed,omitempty"`
 	TupleCount int           `json:"tupleCount"`
 	Tuples     []Tuple       `json:"tuples,omitempty"` // synthesis only
 	Skipped    []string      `json:"skipped,omitempty"`
 	Checks     []CheckResult `json:"checks"`
 	Totals     Totals        `json:"totals"`
+	Probes     int           `json:"probes"`
 	Mismatches []Mismatch    `json:"mismatches"`
 }

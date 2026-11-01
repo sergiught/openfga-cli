@@ -24,7 +24,7 @@ func FromWorkspace(ws *modeltest.Workspace) (*Source, []string, error) {
 	}
 
 	seen := map[string]string{} // triple -> full key (with condition)
-	seenChecks := map[Check]bool{}
+	seenChecks := map[[3]string]bool{}
 	var tuples []modeltest.TupleKey
 
 	for _, tf := range ws.TestFiles {
@@ -84,8 +84,8 @@ func FromWorkspace(ws *modeltest.Workspace) (*Source, []string, error) {
 								Relation: r,
 								Object:   o,
 							}
-							if !seenChecks[c] {
-								seenChecks[c] = true
+							if key := [3]string{u, r, o}; !seenChecks[key] {
+								seenChecks[key] = true
 								src.Checks = append(src.Checks, c)
 							}
 						}

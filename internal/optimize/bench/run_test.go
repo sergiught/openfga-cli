@@ -1,7 +1,12 @@
 package bench
 
 import (
+	"slices"
+	"strings"
+	"time"
+
 	"context"
+	"google.golang.org/protobuf/proto"
 	"testing"
 
 	openfgav1 "github.com/openfga/api/proto/openfga/v1"
@@ -196,5 +201,67 @@ func TestRun_ProfileOnly(t *testing.T) {
 		if c.After != nil {
 			t.Errorf("%s: After set in profile mode", c.Name)
 		}
+	}
+}
+
+func TestRun_ProbesCatchDroppedUnionOperand(t *testing.T) {
+	ref := loadRef(t)
+	m, err := optimize.NewModel(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	broken := proto.Clone(m.Proto).(*openfgav1.AuthorizationModel)
+	for _, td := range broken.GetTypeDefinitions() {
+		if td.GetType() != "document" {
+			continue
+		}
+		// Drop the "viewer from parent" operand (index 3) from viewer's union.
+		u := td.GetRelations()["viewer"].GetUnion()
+		u.Child = slices.Delete(u.GetChild(), 3, 4)
+	}
+	src, err := Synthesize(ref, SynthOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := Run(context.Background(), ref, broken, src, Options{Iterations: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Probes != len(src.Probes) || res.Probes == 0 {
+		t.Fatalf("Probes = %d, want %d", res.Probes, len(src.Probes))
+	}
+	found := false
+	for _, mm := range res.Mismatches {
+		if strings.HasPrefix(mm.Name, "probe ") && mm.AllowedBefore && !mm.AllowedAfter {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no probe mismatch in %+v", res.Mismatches)
+	}
+}
+
+func TestRun_ProbesAgreeOnSafeRewrite(t *testing.T) {
+	ref := loadRef(t)
+	m, err := optimize.NewModel(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rw, err := optimize.Rewrite(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src, err := Synthesize(ref, SynthOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	res, err := Run(context.Background(), ref, rw.After.Proto, src, Options{Iterations: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("probes=%d elapsed=%s", res.Probes, time.Since(start))
+	if len(res.Mismatches) != 0 {
+		t.Fatalf("mismatches: %+v", res.Mismatches)
 	}
 }
