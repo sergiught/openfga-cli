@@ -108,3 +108,9 @@ func toProtoTuples(tuples []TupleKey) ([]*openfgav1.TupleKey, error) {
 	}
 	return out, nil
 }
+
+// ToProtoTuples converts workspace tuple keys, conditions included, into the
+// proto form the engines expect.
+func ToProtoTuples(tuples []TupleKey) ([]*openfgav1.TupleKey, error) {
+	return toProtoTuples(tuples)
+}
