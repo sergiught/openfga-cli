@@ -25,4 +25,8 @@ type Finding struct {
 	// Weights maps user type to weight; Analyze substitutes -1 for
 	// graph.Infinite here and the command renders -1 as "inf".
 	Weights map[string]int `json:"weights"`
+
+	// apply performs the edit on a model structurally identical to the one
+	// the finding was derived from. Never serialized.
+	apply func(*Model)
 }
