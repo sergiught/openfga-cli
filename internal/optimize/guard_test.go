@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	openfgav1 "github.com/openfga/api/proto/openfga/v1"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/sergiught/openfga-cli/internal/modeltest"
 )
@@ -325,4 +326,77 @@ func findingFor(t *testing.T, m *Model, id, typ, rel string) Finding {
 	}
 	t.Fatalf("no %s finding on %s#%s", id, typ, rel)
 	return Finding{}
+}
+
+// cWildcardModel has a conditioned user and a user:* wildcard on folder#r0.
+// S2 can simplify y (r0 and heavy -> r0), which lowers y's weight and makes
+// OpenFGA take its weight-2 TTU fast path for doc#viewer. That path answers
+// flakily wrong when a condition-false tuple and a wildcard share an object.
+const cWildcardModel = `model
+  schema 1.1
+
+type user
+
+type group
+  relations
+    define member: [user]
+
+type folder
+  relations
+    define r0: [user with cx, user:*]
+    define heavy: [user, group#member] or r0
+    define y: r0 and heavy
+
+type doc
+  relations
+    define parent: [folder]
+    define viewer: y from parent
+
+condition cx(x: int) {
+  x < 10
+}
+`
+
+func TestRewrite_CWildcardConditionKeepsWeights(t *testing.T) {
+	m := loadInline(t, cWildcardModel)
+	findingFor(t, m, "S2", "folder", "y") // the rewrite the guard must refuse
+	rw, err := Rewrite(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range rw.Applied {
+		if f.Type == "folder" && f.Relation == "y" {
+			t.Fatalf("weight-changing rewrite applied: %+v", f)
+		}
+	}
+	ctx16, err := structpb.NewStruct(map[string]any{"x": 16})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tuples := []*openfgav1.TupleKey{
+		{Object: "doc:1", Relation: "parent", User: "folder:1"},
+		{Object: "folder:1", Relation: "r0", User: "user:1", Condition: &openfgav1.RelationshipCondition{Name: "cx", Context: ctx16}},
+		{Object: "folder:1", Relation: "r0", User: "user:*"},
+	}
+	eng, err := modeltest.NewEmbeddedEngine(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = eng.Close() }()
+	ctx := t.Context()
+	storeID, modelID, err := eng.Setup(ctx, rw.After.Proto, tuples)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = eng.DeleteStore(ctx, storeID) }()
+	sc := modeltest.Scope{StoreID: storeID, ModelID: modelID}
+	for i := range 20 {
+		ok, err := eng.Check(ctx, sc, modeltest.CheckReq{User: "user:1", Relation: "viewer", Object: "doc:1"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ok {
+			t.Fatalf("check %d: doc:1#viewer@user:1 = false, want true", i)
+		}
+	}
 }

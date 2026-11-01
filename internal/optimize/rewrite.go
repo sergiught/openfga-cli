@@ -1,6 +1,7 @@
 package optimize
 
 import (
+	"maps"
 	"sort"
 
 	"github.com/openfga/language/pkg/go/graph"
@@ -23,7 +24,9 @@ type RewriteResult struct {
 // the current model each pass, so dependent drops are re-derived rather than
 // assumed. A model with a recursive exclusion gets no rewrite at all (see
 // recursiveExclusion), and a rewrite that changes whether OpenFGA can build
-// the model's weighted graph is discarded.
+// the model's weighted graph is discarded. In a model with a conditioned or
+// wildcard direct type, a rewrite that changes any relation's weight is
+// discarded too: OpenFGA's weight-2 TTU fast path answers wrongly there.
 func Rewrite(m *Model) (*RewriteResult, error) {
 	cur := m.Clone()
 	rw := &RewriteResult{Before: m}
@@ -33,6 +36,13 @@ func Rewrite(m *Model) (*RewriteResult, error) {
 		return rw, nil
 	}
 	buildable := weightedGraphBuilds(m)
+	keepWeights := hasConditionOrWildcard(m)
+	var weights map[string]map[string]int
+	if keepWeights {
+		// Every accepted rewrite keeps these weights, so comparing against
+		// the input is comparing against the current model.
+		weights, _ = Weights(m)
+	}
 	for range maxPasses {
 		applied := len(rw.Applied)
 		l := BuildLattice(cur)
@@ -78,6 +88,11 @@ func Rewrite(m *Model) (*RewriteResult, error) {
 			if weightedGraphBuilds(validated) != buildable {
 				continue
 			}
+			// Without a weighted graph (equal failure, given the check
+			// above) there are no weights to change.
+			if keepWeights && buildable && !sameWeights(weights, validated) {
+				continue
+			}
 			next = validated
 			rw.Applied = append(rw.Applied, f)
 		}
@@ -94,4 +109,29 @@ func Rewrite(m *Model) (*RewriteResult, error) {
 func weightedGraphBuilds(m *Model) bool {
 	_, err := graph.NewWeightedAuthorizationModelGraphBuilder().Build(m.Proto)
 	return err == nil
+}
+
+// hasConditionOrWildcard reports whether any relation of m has a conditioned
+// or wildcard directly related type.
+func hasConditionOrWildcard(m *Model) bool {
+	for _, td := range m.Proto.GetTypeDefinitions() {
+		for _, meta := range td.GetMetadata().GetRelations() {
+			for _, ref := range meta.GetDirectlyRelatedUserTypes() {
+				if ref.GetCondition() != "" || ref.GetWildcard() != nil {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// sameWeights reports whether m's weighted graph gives every relation the
+// same weights as want.
+func sameWeights(want map[string]map[string]int, m *Model) bool {
+	got, err := Weights(m)
+	if err != nil {
+		return false
+	}
+	return maps.EqualFunc(want, got, maps.Equal)
 }
