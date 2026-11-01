@@ -102,6 +102,9 @@ func TestProperty_RewritePreservesCheck(t *testing.T) {
 		if ratio < 0.15 {
 			t.Errorf("true-answer ratio %.1f%% below 15%%: test would be weak", ratio*100)
 		}
+		if unstable > 3 {
+			t.Errorf("%d engine-unstable models skipped; the skip policy is hiding too much", unstable)
+		}
 		if withApplied < 20 {
 			t.Errorf("vacuous: only %d/%d models had applied findings", withApplied, models)
 		}
