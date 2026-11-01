@@ -152,6 +152,9 @@ func (c *Command) optimizeCmd() *cobra.Command {
 				}
 				res, err := benchRunFn(cmd.Context(), lm.Proto, afterModel, src, bench.Options{Iterations: iters, ServerOpts: serverOpts})
 				if err != nil {
+					if src.Kind == "workspace" && errors.Is(err, bench.ErrSetup) {
+						return usageHint("pass --synth to benchmark with synthesized tuples", fmt.Errorf("workspace tuples do not fit this model: %w", err))
+					}
 					return fmt.Errorf("benchmark: %w", err)
 				}
 				out.Bench = res
@@ -279,6 +282,13 @@ func benchSource(cmd *cobra.Command, m *openfgav1.AuthorizationModel, path strin
 	var serverOpts map[string]any
 	if ws.Manifest != nil {
 		serverOpts = ws.Manifest.Server
+		if ws.Manifest.Model != "" && !stdin {
+			wsModel := filepath.Clean(filepath.Join(ws.Root, ws.Manifest.Model))
+			given, err := filepath.Abs(path)
+			if err == nil && filepath.Clean(given) != wsModel {
+				output.Warnf(cmd.ErrOrStderr(), "workspace model is %s but optimizing %s; running the workspace's tuples and checks against the given model", wsModel, given)
+			}
+		}
 	}
 	return src, serverOpts, nil
 }

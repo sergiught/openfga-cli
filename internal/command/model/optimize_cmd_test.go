@@ -497,3 +497,26 @@ func TestOptimize_BenchFlagValidation(t *testing.T) {
 		wantUsage(t, err)
 	}
 }
+
+func TestOptimize_WorkspaceMismatchedModelIsUsageWithSynthHint(t *testing.T) {
+	dir := copyWorkspace(t)
+	sub := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(sub, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(sub, "other.fga")
+	const dsl = "model\n  schema 1.1\n\ntype user\n\ntype widget\n  relations\n    define owner: [user]\n"
+	if err := os.WriteFile(other, []byte(dsl), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr, err := runOptimize(t, "", false, other, "--bench", "--iterations", "1")
+	if clierr.Code(err) != clierr.CodeUsage {
+		t.Fatalf("code = %d, err = %v", clierr.Code(err), err)
+	}
+	if h := clierr.NewEnvelope(err).Error.Hint; !strings.Contains(h, "--synth") {
+		t.Errorf("hint = %q", h)
+	}
+	if !strings.Contains(stderr, "workspace model is") || !strings.Contains(stderr, other) {
+		t.Errorf("missing notice naming both paths: %q", stderr)
+	}
+}

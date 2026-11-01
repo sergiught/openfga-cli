@@ -2,6 +2,7 @@ package bench
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -10,6 +11,10 @@ import (
 
 	"github.com/sergiught/openfga-cli/internal/modeltest"
 )
+
+// ErrSetup marks failures creating the embedded server or writing the model
+// and tuples to it (e.g. tuples that do not fit the model); match with errors.Is.
+var ErrSetup = errors.New("benchmark setup failed")
 
 // Options configures Run.
 type Options struct {
@@ -86,13 +91,13 @@ func Run(ctx context.Context, before, after *openfgav1.AuthorizationModel, src *
 func probeModel(ctx context.Context, model *openfgav1.AuthorizationModel, src *Source, iters int, serverOpts map[string]any) ([]probe, error) {
 	eng, counters, err := modeltest.NewCountingEmbeddedEngine(serverOpts)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrSetup, err)
 	}
 	defer func() { _ = eng.Close() }()
 
 	storeID, modelID, err := eng.Setup(ctx, model, src.Tuples)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrSetup, err)
 	}
 	scope := modeltest.Scope{StoreID: storeID, ModelID: modelID}
 
