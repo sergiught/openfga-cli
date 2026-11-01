@@ -35,7 +35,7 @@ func newEmbeddedEngine(serverOpts map[string]any, wrap func(storage.OpenFGADatas
 		return nil, err
 	}
 
-	var ds storage.OpenFGADatastore = memory.New(dsOpts...)
+	ds := memory.New(dsOpts...)
 	if wrap != nil {
 		ds = wrap(ds)
 	}
