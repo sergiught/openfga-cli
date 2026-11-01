@@ -100,12 +100,14 @@ func probeModel(ctx context.Context, model *openfgav1.AuthorizationModel, src *S
 	for _, c := range src.Checks {
 		req := modeltest.CheckReq{User: c.User, Relation: c.Relation, Object: c.Object}
 
+		settle(counters)
 		counters.Reset()
 		tagCtx, dispatches := modeltest.WithDispatchTags(ctx)
 		allowed, err := eng.Check(tagCtx, scope, req)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", c.Name, err)
 		}
+		settle(counters)
 		p := probe{allowed: allowed, m: Metrics{Reads: counters.Reads(), Dispatches: dispatches()}}
 
 		durs := make([]float64, 0, iters)
@@ -131,4 +133,20 @@ func percentile(sorted []float64, p int) float64 {
 	}
 	idx := (len(sorted)*p + 99) / 100
 	return sorted[max(idx, 1)-1]
+}
+
+// settle waits for reads from goroutines a finished Check abandoned (short-
+// circuited branches) so they don't bleed into the next counting window.
+func settle(c *modeltest.Counters) {
+	const quiet, limit = 2 * time.Millisecond, 50 * time.Millisecond
+	deadline := time.Now().Add(limit)
+	last, since := c.Reads(), time.Now()
+	for time.Now().Before(deadline) {
+		time.Sleep(200 * time.Microsecond)
+		if cur := c.Reads(); cur != last {
+			last, since = cur, time.Now()
+		} else if time.Since(since) >= quiet {
+			return
+		}
+	}
 }

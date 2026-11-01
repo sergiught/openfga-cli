@@ -28,7 +28,8 @@ type leaf struct {
 	// user returns the tuple user for the n-th object (or noise object).
 	user func(n int, noise bool) string
 	// isUser marks leaves whose user is a synthesized user type object.
-	isUser bool
+	isUser   bool
+	userType string
 }
 
 // Synthesize builds a deterministic tuple set and checks from m.
@@ -97,7 +98,7 @@ func Synthesize(m *openfgav1.AuthorizationModel, o SynthOptions) (*Source, error
 				case orel == rel && ot == typ:
 					chainSet = true
 				case orel == "" && isUserType(m, ot):
-					leaves = append(leaves, leaf{relation: rel, isUser: true, user: func(n int, noise bool) string {
+					leaves = append(leaves, leaf{relation: rel, isUser: true, userType: ot, user: func(n int, noise bool) string {
 						if noise {
 							return fmt.Sprintf("%s:noise%d", ot, n)
 						}
@@ -141,11 +142,18 @@ func Synthesize(m *openfgav1.AuthorizationModel, o SynthOptions) (*Source, error
 			if _, ok := weights[typ+"#"+rel][userType]; ok {
 				src.Checks = append(src.Checks, Check{Name: fmt.Sprintf("deny %s#%s", typ, rel), User: userType + ":nobody", Relation: rel, Object: typ + ":t1"})
 			}
+			var userLeaves []leaf
 			for _, l := range leaves {
 				if l.relation == rel && l.isUser {
-					src.Checks = append(src.Checks, Check{Name: fmt.Sprintf("allow %s#%s", typ, rel), User: l.user(1, false), Relation: rel, Object: typ + ":t1"})
-					break
+					userLeaves = append(userLeaves, l)
 				}
+			}
+			for _, l := range userLeaves {
+				name := fmt.Sprintf("allow %s#%s", typ, rel)
+				if len(userLeaves) > 1 {
+					name += " (" + l.userType + ")"
+				}
+				src.Checks = append(src.Checks, Check{Name: name, User: l.user(1, false), Relation: rel, Object: typ + ":t1"})
 			}
 		}
 	}

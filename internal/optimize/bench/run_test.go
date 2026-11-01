@@ -71,15 +71,71 @@ func TestRun_DenyCountsDeterministic(t *testing.T) {
 		return r
 	}
 	a, b := run(), run()
-	// Deny checks through concurrent intersection or recursive usersets
-	// (folder#can_delete, group#member, ...) vary by a read or two between
-	// runs; the deny walks below are deterministic.
-	for _, name := range []string{"deny document#can_view", "deny document#can_edit", "deny document#viewer"} {
-		ra, rb := find(t, a.Checks, name).Before.Reads, find(t, b.Checks, name).Before.Reads
-		if ra != rb {
-			t.Errorf("%s: reads %d vs %d", name, ra, rb)
+	unstable := shortCircuitRelations(ref)
+	checked := 0
+	for i, c := range a.Checks {
+		if a.Checks[i].Allowed || unstable[c.Relation] {
+			continue
+		}
+		checked++
+		if ra, rb := c.Before.Reads, b.Checks[i].Before.Reads; ra != rb {
+			t.Errorf("%s: reads %d vs %d", c.Name, ra, rb)
 		}
 	}
+	if checked == 0 {
+		t.Fatal("no deny checks compared")
+	}
+}
+
+// shortCircuitRelations returns relation names whose definition reaches an
+// intersection or exclusion, directly or through a computed userset or TTU
+// (matched by name across types, conservatively). Their concurrent branches
+// short-circuit, so their read counts may legitimately vary.
+func shortCircuitRelations(m *openfgav1.AuthorizationModel) map[string]bool {
+	deps := map[string]map[string]bool{}
+	bad := map[string]bool{}
+	var walk func(rel string, u *openfgav1.Userset)
+	walk = func(rel string, u *openfgav1.Userset) {
+		switch v := u.GetUserset().(type) {
+		case *openfgav1.Userset_Intersection:
+			bad[rel] = true
+			for _, c := range v.Intersection.GetChild() {
+				walk(rel, c)
+			}
+		case *openfgav1.Userset_Difference:
+			bad[rel] = true
+			walk(rel, v.Difference.GetBase())
+			walk(rel, v.Difference.GetSubtract())
+		case *openfgav1.Userset_Union:
+			for _, c := range v.Union.GetChild() {
+				walk(rel, c)
+			}
+		case *openfgav1.Userset_ComputedUserset:
+			deps[rel][v.ComputedUserset.GetRelation()] = true
+		case *openfgav1.Userset_TupleToUserset:
+			deps[rel][v.TupleToUserset.GetComputedUserset().GetRelation()] = true
+			deps[rel][v.TupleToUserset.GetTupleset().GetRelation()] = true
+		}
+	}
+	for _, td := range m.GetTypeDefinitions() {
+		for rel, u := range td.GetRelations() {
+			if deps[rel] == nil {
+				deps[rel] = map[string]bool{}
+			}
+			walk(rel, u)
+		}
+	}
+	for changed := true; changed; {
+		changed = false
+		for rel, ds := range deps {
+			for d := range ds {
+				if bad[d] && !bad[rel] {
+					bad[rel], changed = true, true
+				}
+			}
+		}
+	}
+	return bad
 }
 
 func TestRun_ReportsMismatch(t *testing.T) {
@@ -132,6 +188,9 @@ func TestRun_ProfileOnly(t *testing.T) {
 	res, err := Run(context.Background(), ref, nil, src, Options{Iterations: 1})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(res.Checks) == 0 {
+		t.Fatal("no checks")
 	}
 	for _, c := range res.Checks {
 		if c.After != nil {
