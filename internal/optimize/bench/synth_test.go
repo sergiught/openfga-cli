@@ -1,0 +1,103 @@
+package bench
+
+import (
+	"os"
+	"reflect"
+	"slices"
+	"testing"
+
+	openfgav1 "github.com/openfga/api/proto/openfga/v1"
+
+	"github.com/sergiught/openfga-cli/internal/modeltest"
+)
+
+func loadRef(t *testing.T) *openfgav1.AuthorizationModel {
+	t.Helper()
+	data, err := os.ReadFile("../testdata/reference.fga")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lm, err := modeltest.LoadModelBytes(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return lm.Proto
+}
+
+func tk(user, relation, object string) *openfgav1.TupleKey {
+	return &openfgav1.TupleKey{User: user, Relation: relation, Object: object}
+}
+
+func hasTuple(ts []*openfgav1.TupleKey, want *openfgav1.TupleKey) bool {
+	return slices.ContainsFunc(ts, func(g *openfgav1.TupleKey) bool {
+		return g.GetUser() == want.GetUser() && g.GetRelation() == want.GetRelation() && g.GetObject() == want.GetObject()
+	})
+}
+
+func TestSynthesize_ReferenceModelIsDeterministic(t *testing.T) {
+	ref := loadRef(t)
+	a, err := Synthesize(ref, SynthOptions{Seed: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := Synthesize(ref, SynthOptions{Seed: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(a.Tuples) != len(b.Tuples) {
+		t.Fatalf("tuple counts differ: %d vs %d", len(a.Tuples), len(b.Tuples))
+	}
+	for i := range a.Tuples {
+		if a.Tuples[i].String() != b.Tuples[i].String() {
+			t.Fatalf("tuple %d differs: %v vs %v", i, a.Tuples[i], b.Tuples[i])
+		}
+	}
+	if !reflect.DeepEqual(a.Checks, b.Checks) {
+		t.Fatal("checks differ across runs")
+	}
+	for _, w := range []*openfgav1.TupleKey{
+		tk("folder:chain6", "parent", "folder:chain5"),
+		tk("folder:chain1", "parent", "folder:t1"),
+		tk("group:chain3#member", "member", "group:chain2"),
+		tk("group:chain1#member", "member", "group:t1"),
+	} {
+		if !hasTuple(a.Tuples, w) {
+			t.Errorf("missing tuple %v", w)
+		}
+	}
+	want := Check{Name: "deny document#can_view", User: "user:nobody", Relation: "can_view", Object: "document:t1"}
+	if !slices.Contains(a.Checks, want) {
+		t.Errorf("missing check %+v in %+v", want, a.Checks)
+	}
+}
+
+func TestSynthesize_SkipsWildcardAndConditioned(t *testing.T) {
+	data := []byte(`model
+  schema 1.1
+type user
+type doc
+  relations
+    define viewer: [user:*]
+    define owner: [user with cond]
+    define editor: [user, user with cond]
+condition cond(x: string) {
+  x == "a"
+}
+`)
+	lm, err := modeltest.LoadModelBytes(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src, err := Synthesize(lm.Proto, SynthOptions{Noise: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(src.Skipped) != 2 {
+		t.Fatalf("Skipped = %v, want 2 entries", src.Skipped)
+	}
+	for _, tu := range src.Tuples {
+		if tu.GetRelation() != "editor" {
+			t.Errorf("unexpected tuple %v", tu)
+		}
+	}
+}

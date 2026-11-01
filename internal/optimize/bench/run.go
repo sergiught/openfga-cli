@@ -1,0 +1,134 @@
+package bench
+
+import (
+	"context"
+	"fmt"
+	"slices"
+	"time"
+
+	openfgav1 "github.com/openfga/api/proto/openfga/v1"
+
+	"github.com/sergiught/openfga-cli/internal/modeltest"
+)
+
+// Options configures Run.
+type Options struct {
+	Iterations int            // timed checks per check; default 100
+	ServerOpts map[string]any // embedded server options
+}
+
+type probe struct {
+	allowed bool
+	m       Metrics
+}
+
+// Run benchmarks before (and after, when non-nil) over src. Checks run in
+// source order against sequential servers: one for before, then a fresh one
+// for after. Deny and allow are classified by the before answer.
+func Run(ctx context.Context, before, after *openfgav1.AuthorizationModel, src *Source, o Options) (*Result, error) {
+	iters := o.Iterations
+	if iters <= 0 {
+		iters = 100
+	}
+	b, err := probeModel(ctx, before, src, iters, o.ServerOpts)
+	if err != nil {
+		return nil, fmt.Errorf("before: %w", err)
+	}
+	var a []probe
+	if after != nil {
+		if a, err = probeModel(ctx, after, src, iters, o.ServerOpts); err != nil {
+			return nil, fmt.Errorf("after: %w", err)
+		}
+	}
+
+	res := &Result{
+		Source:     src.Kind,
+		Seed:       src.Seed,
+		TupleCount: len(src.Tuples),
+		Skipped:    src.Skipped,
+		Checks:     make([]CheckResult, 0, len(src.Checks)),
+		Mismatches: []Mismatch{},
+	}
+	if src.Kind == "synthesis" {
+		for _, t := range src.Tuples {
+			res.Tuples = append(res.Tuples, Tuple{User: t.GetUser(), Relation: t.GetRelation(), Object: t.GetObject()})
+		}
+	}
+	for i, c := range src.Checks {
+		cr := CheckResult{Check: c, Allowed: b[i].allowed, Before: b[i].m}
+		if a != nil {
+			m := a[i].m
+			cr.After = &m
+			if a[i].allowed != b[i].allowed {
+				res.Mismatches = append(res.Mismatches, Mismatch{Check: c, AllowedBefore: b[i].allowed, AllowedAfter: a[i].allowed})
+			}
+		}
+		t := &res.Totals
+		switch {
+		case b[i].allowed:
+			t.AllowReadsBefore += b[i].m.Reads
+			if a != nil {
+				t.AllowReadsAfter += a[i].m.Reads
+			}
+		default:
+			t.DenyReadsBefore += b[i].m.Reads
+			t.DenyDispatchesBefore += b[i].m.Dispatches
+			if a != nil {
+				t.DenyReadsAfter += a[i].m.Reads
+				t.DenyDispatchesAfter += a[i].m.Dispatches
+			}
+		}
+		res.Checks = append(res.Checks, cr)
+	}
+	return res, nil
+}
+
+func probeModel(ctx context.Context, model *openfgav1.AuthorizationModel, src *Source, iters int, serverOpts map[string]any) ([]probe, error) {
+	eng, counters, err := modeltest.NewCountingEmbeddedEngine(serverOpts)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = eng.Close() }()
+
+	storeID, modelID, err := eng.Setup(ctx, model, src.Tuples)
+	if err != nil {
+		return nil, err
+	}
+	scope := modeltest.Scope{StoreID: storeID, ModelID: modelID}
+
+	out := make([]probe, 0, len(src.Checks))
+	for _, c := range src.Checks {
+		req := modeltest.CheckReq{User: c.User, Relation: c.Relation, Object: c.Object}
+
+		counters.Reset()
+		tagCtx, dispatches := modeltest.WithDispatchTags(ctx)
+		allowed, err := eng.Check(tagCtx, scope, req)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", c.Name, err)
+		}
+		p := probe{allowed: allowed, m: Metrics{Reads: counters.Reads(), Dispatches: dispatches()}}
+
+		durs := make([]float64, 0, iters)
+		for range iters {
+			start := time.Now()
+			if _, err := eng.Check(ctx, scope, req); err != nil {
+				return nil, fmt.Errorf("%s: %w", c.Name, err)
+			}
+			durs = append(durs, float64(time.Since(start))/float64(time.Millisecond))
+		}
+		slices.Sort(durs)
+		p.m.P50Ms = percentile(durs, 50)
+		p.m.P95Ms = percentile(durs, 95)
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+// percentile returns the nearest-rank percentile of sorted values.
+func percentile(sorted []float64, p int) float64 {
+	if len(sorted) == 0 {
+		return 0
+	}
+	idx := (len(sorted)*p + 99) / 100
+	return sorted[max(idx, 1)-1]
+}
