@@ -1,0 +1,34 @@
+model
+  schema 1.1
+
+type user
+
+type group
+  relations
+    define member: [user, group#member]
+
+type organization
+  relations
+    define admin: [user]
+    define member: [user, group#member] or admin
+    define can_view: member or admin
+
+type folder
+  relations
+    define parent: [folder]
+    define owner: [user]
+    define editor: [user, group#member] or owner
+    define viewer: [user, group#member] or editor or owner or viewer from parent
+    define can_view: viewer
+    define can_delete: owner and editor
+
+type document
+  relations
+    define parent: [folder]
+    define org: [organization]
+    define owner: [user]
+    define blocked: [user]
+    define editor: [user] or owner or editor from parent
+    define viewer: [user] or editor or owner or viewer from parent or member from org
+    define can_view: viewer or can_view from parent
+    define can_edit: editor but not blocked
