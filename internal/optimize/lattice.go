@@ -185,14 +185,14 @@ func (l *Lattice) add(a, b Term) {
 // every directly related type P of the tupleset, P#x ⊆ P#y, or P lacks x.
 func (l *Lattice) ttuHolds(a, b Term) bool {
 	seen := map[string]bool{}
-	any := false
+	found := false
 	for _, ref := range l.m.DirectTypes(a.Type, a.TTU.Tupleset) {
 		p := ref.GetType()
 		if seen[p] {
 			continue
 		}
 		seen[p] = true
-		any = true
+		found = true
 		if _, ok := l.m.Relation(p, a.TTU.Computed); !ok {
 			continue // empty term, vacuously contained
 		}
@@ -200,7 +200,7 @@ func (l *Lattice) ttuHolds(a, b Term) bool {
 			return false
 		}
 	}
-	return any
+	return found
 }
 
 // Subset reports whether a ⊆ b is proven.

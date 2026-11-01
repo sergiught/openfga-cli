@@ -47,8 +47,8 @@ func TestLattice_ReferenceModel(t *testing.T) {
 	// Nothing is derived about intersection operands.
 	wantSubset(t, l, comp("folder", "owner"), comp("folder", "can_delete"), false)
 	wantSubset(t, l, comp("document", "editor"), comp("document", "can_edit"), false)
-	// viewer from parent on document: parent is [folder]; folder editor ⊆ viewer
-	// but the TTU pair (editor from parent) ⊆ (viewer from parent) holds.
+	// document#parent is [folder], and folder#editor is a subset of
+	// folder#viewer, so (editor from parent) is a subset of (viewer from parent).
 	wantSubset(t, l, ttu("document", "parent", "editor"), ttu("document", "parent", "viewer"), true)
 	wantSubset(t, l, ttu("document", "parent", "viewer"), ttu("document", "parent", "editor"), false)
 }
@@ -216,4 +216,66 @@ type doc
 	wantSubset(t, l, comp("doc", "i"), comp("doc", "a"), false)
 	wantSubset(t, l, comp("doc", "a"), comp("doc", "e"), false)
 	wantSubset(t, l, comp("doc", "b"), comp("doc", "e"), false)
+}
+
+func TestLattice_TTUPartiallyMissingRelationIsNotVacuous(t *testing.T) {
+	// org has x but lacks y: x is non-empty there while y is empty, so no
+	// containment, even though folder#x is a subset of folder#y.
+	m := loadInline(t, `model
+  schema 1.1
+type user
+type org
+  relations
+    define x: [user]
+type folder
+  relations
+    define x: [user]
+    define y: [user] or x
+type doc
+  relations
+    define parent: [folder, org]
+    define a: [user] or x from parent or y from parent
+`)
+	l := BuildLattice(m)
+	wantSubset(t, l, ttu("doc", "parent", "x"), ttu("doc", "parent", "y"), false)
+}
+
+func TestLattice_TTUTupleset_DuplicateAndUsersetEntries(t *testing.T) {
+	// The tupleset lists folder twice (plain and conditioned); the dedupe must
+	// not change the answer, and folder#x subset folder#y still gives a result.
+	m := loadInline(t, `model
+  schema 1.1
+type user
+type folder
+  relations
+    define x: [user]
+    define y: [user] or x
+type doc
+  relations
+    define parent: [folder, folder with c]
+    define a: [user] or x from parent or y from parent
+condition c(n: int) {
+  n > 1
+}
+`)
+	l := BuildLattice(m)
+	wantSubset(t, l, ttu("doc", "parent", "x"), ttu("doc", "parent", "y"), true)
+	wantSubset(t, l, ttu("doc", "parent", "y"), ttu("doc", "parent", "x"), false)
+}
+
+func TestLattice_TTUAndComputedStayUnrelated(t *testing.T) {
+	// viewer's definition does not contain the TTU, so no fact relates them.
+	m := loadInline(t, `model
+  schema 1.1
+type user
+type doc
+  relations
+    define parent: [doc]
+    define viewer: [user]
+    define reader: [user] or viewer from parent
+`)
+	l := BuildLattice(m)
+	wantSubset(t, l, ttu("doc", "parent", "viewer"), comp("doc", "viewer"), false)
+	wantSubset(t, l, comp("doc", "viewer"), ttu("doc", "parent", "viewer"), false)
+	wantSubset(t, l, ttu("doc", "parent", "viewer"), comp("doc", "reader"), true)
 }
