@@ -2,6 +2,7 @@ package model
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	"charm.land/log/v2"
+	openfgav1 "github.com/openfga/api/proto/openfga/v1"
 
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
@@ -19,6 +21,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/configtest"
 	"github.com/sergiught/openfga-cli/internal/modeltest"
 	"github.com/sergiught/openfga-cli/internal/optimize"
+	"github.com/sergiught/openfga-cli/internal/optimize/bench"
 )
 
 const optimizeReference = "../../optimize/testdata/reference.fga"
@@ -303,5 +306,194 @@ func TestOptimize_WritePreservesMode(t *testing.T) {
 	}
 	if st, err := os.Stat(p); err != nil || st.Mode().Perm() != 0o640 {
 		t.Errorf("mode = %v, %v", st.Mode().Perm(), err)
+	}
+}
+
+func benchJSON(t *testing.T, args ...string) optimizeOutput {
+	t.Helper()
+	out, _, err := runOptimize(t, "", true, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got optimizeOutput
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("decode: %v\n%s", err, out)
+	}
+	if got.Bench == nil {
+		t.Fatalf("bench missing:\n%s", out)
+	}
+	return got
+}
+
+func copyWorkspace(t *testing.T) string {
+	t.Helper()
+	dst := t.TempDir()
+	src := "../../modeltest/testdata/access-control"
+	err := filepath.WalkDir(src, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(src, p)
+		if d.IsDir() {
+			return os.MkdirAll(filepath.Join(dst, rel), 0o750)
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(dst, rel), b, 0o600)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dst
+}
+
+func TestOptimize_BenchSynthesisTable(t *testing.T) {
+	out, _, err := runOptimize(t, "", false, optimizeReference, "--bench", "--iterations", "3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"reads/dispatches/p50/p95", "in-process, indicative only", "deny reads "} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	lastDeny, firstAllow := -1, -1
+	for i, l := range strings.Split(out, "\n") {
+		f := strings.Fields(l)
+		if len(f) < 2 || !strings.Contains(l, " / ") {
+			continue
+		}
+		switch f[0] {
+		case "deny":
+			lastDeny = i
+		case "allow":
+			if firstAllow < 0 {
+				firstAllow = i
+			}
+		}
+	}
+	if lastDeny < 0 || (firstAllow >= 0 && firstAllow < lastDeny) {
+		t.Errorf("deny rows must come first (lastDeny=%d firstAllow=%d):\n%s", lastDeny, firstAllow, out)
+	}
+}
+
+func TestOptimize_BenchUsesWorkspaceWhenPresent(t *testing.T) {
+	dir := copyWorkspace(t)
+	got := benchJSON(t, filepath.Join(dir, "model.fga"), "--bench", "--iterations", "2")
+	if got.Bench.Source != "workspace" {
+		t.Errorf("source = %q", got.Bench.Source)
+	}
+	got = benchJSON(t, filepath.Join(dir, "model.fga"), "--bench", "--iterations", "2", "--workspace", dir)
+	if got.Bench.Source != "workspace" {
+		t.Errorf("explicit source = %q", got.Bench.Source)
+	}
+}
+
+func TestOptimize_SynthOverridesWorkspace(t *testing.T) {
+	dir := copyWorkspace(t)
+	got := benchJSON(t, filepath.Join(dir, "model.fga"), "--bench", "--synth", "--iterations", "2")
+	if got.Bench.Source != "synthesis" {
+		t.Errorf("source = %q", got.Bench.Source)
+	}
+}
+
+func TestOptimize_BenchProfilesWhenNothingToRewrite(t *testing.T) {
+	const dsl = "model\n  schema 1.1\n\ntype user\n\ntype doc\n  relations\n    define viewer: [user]\n"
+	out, _, err := runOptimize(t, dsl, true, "-", "--bench", "--iterations", "2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got optimizeOutput
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Rewrite != nil || got.Bench == nil || len(got.Bench.Checks) == 0 {
+		t.Fatalf("unexpected: %+v", got)
+	}
+	for _, c := range got.Bench.Checks {
+		if c.After != nil {
+			t.Errorf("%s: after must be nil", c.Name)
+		}
+	}
+}
+
+func TestOptimize_BenchMismatchExits3AndDoesNotWrite(t *testing.T) {
+	orig := benchRunFn
+	t.Cleanup(func() { benchRunFn = orig })
+	benchRunFn = func(ctx context.Context, b, a *openfgav1.AuthorizationModel, src *bench.Source, o bench.Options) (*bench.Result, error) {
+		return &bench.Result{Source: "synthesis", Checks: []bench.CheckResult{}, Mismatches: []bench.Mismatch{{
+			Check: bench.Check{Name: "x"}, AllowedBefore: true,
+		}}}, nil
+	}
+	p := copyReference(t)
+	before, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range [][]string{{"--write"}, {"--output-file", filepath.Join(t.TempDir(), "o.fga")}} {
+		out, _, err := runOptimize(t, "", true, append([]string{p, "--bench"}, mode...)...)
+		if clierr.Code(err) != clierr.CodeTestFailed {
+			t.Fatalf("code = %d, err = %v", clierr.Code(err), err)
+		}
+		if !strings.Contains(err.Error(), "benchmark found 1 checks whose result changed; rewrite was NOT written") {
+			t.Errorf("message = %v", err)
+		}
+		var got optimizeOutput
+		if jerr := json.Unmarshal([]byte(out), &got); jerr != nil || got.Bench == nil || len(got.Bench.Mismatches) != 1 {
+			t.Fatalf("json bench not emitted (%v):\n%s", jerr, out)
+		}
+		after, _ := os.ReadFile(p)
+		if !bytes.Equal(before, after) {
+			t.Error("model file changed")
+		}
+		if len(mode) == 2 {
+			if _, err := os.Stat(mode[1]); err == nil {
+				t.Error("output file written")
+			}
+		}
+	}
+}
+
+func TestOptimize_SeedIsReproducible(t *testing.T) {
+	sig := func(seed string) string {
+		got := benchJSON(t, optimizeReference, "--bench", "--iterations", "1", "--seed", seed)
+		b, err := json.Marshal(struct {
+			T []bench.Tuple
+			C []bench.Check
+		}{got.Bench.Tuples, checksOf(got.Bench)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	a, b := sig("7"), sig("7")
+	if a != b {
+		t.Error("same seed produced different tuples/checks")
+	}
+	if a == sig("8") {
+		t.Error("different seeds produced identical tuples")
+	}
+}
+
+func checksOf(r *bench.Result) []bench.Check {
+	var cs []bench.Check
+	for _, c := range r.Checks {
+		cs = append(cs, c.Check)
+	}
+	return cs
+}
+
+func TestOptimize_BenchFlagValidation(t *testing.T) {
+	for _, args := range [][]string{
+		{"--bench", "--depth", "0"},
+		{"--bench", "--iterations", "0"},
+		{"--bench", "--synth", "--workspace", "."},
+		{"--seed", "3"},
+		{"--synth"},
+	} {
+		_, _, err := runOptimize(t, "", false, append([]string{optimizeReference}, args...)...)
+		wantUsage(t, err)
 	}
 }

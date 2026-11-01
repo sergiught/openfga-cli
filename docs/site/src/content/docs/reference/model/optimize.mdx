@@ -35,8 +35,14 @@ ofga model optimize <model-file|-> [flags]
 
 | Flag | Description | Default |
 | --- | --- | --- |
+| `--bench` | benchmark the model before/after the rewrite on an embedded server (exit 3 and no write if any check result changes) | `false` |
+| `--depth` | with --bench, synthesized parent-chain depth | `6` |
+| `--iterations` | with --bench, timed samples per check | `100` |
 | `--output-file` | write the rewritten DSL to this path (nothing is written when no safe rewrite applies) |   |
+| `--seed` | with --bench, synthesis seed | `1` |
+| `--synth` | with --bench, synthesize tuples even when a workspace is found | `false` |
 | `--tier` | tiers to report: safe, caller, tuple (default all; never changes what is written) | `[]` |
+| `--workspace` | workspace directory supplying tuples and checks for --bench (default: ofga.yaml found above the model file) |   |
 | `--write` | overwrite the model file with the rewritten DSL (reformats and drops comments; DSL files only) | `false` |
 
 <details>

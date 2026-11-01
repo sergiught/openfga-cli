@@ -5,10 +5,12 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/aymanbagabas/go-udiff"
 
 	"github.com/sergiught/openfga-cli/internal/optimize"
+	"github.com/sergiught/openfga-cli/internal/optimize/bench"
 	"github.com/sergiught/openfga-cli/internal/style"
 )
 
@@ -136,4 +138,54 @@ func formatWeights(m map[string]int) string {
 		parts = append(parts, k+"="+v)
 	}
 	return strings.Join(parts, " ")
+}
+
+// renderBench prints the benchmark table: deny rows first, then allow rows.
+// The headline covers deny checks only; allow read totals are noise.
+func renderBench(w io.Writer, r *bench.Result) error {
+	if r == nil {
+		return nil
+	}
+	if _, err := fmt.Fprintf(w, "\n%s\n", style.Heading.Render(fmt.Sprintf("Benchmark (%s, %d tuples, %d checks)", r.Source, r.TupleCount, len(r.Checks)))); err != nil {
+		return err
+	}
+	profile := len(r.Checks) > 0 && r.Checks[0].After == nil
+	cell := func(m *bench.Metrics) string {
+		return fmt.Sprintf("%d / %.1f / %.2fms / %.2fms", m.Reads, m.Dispatches, m.P50Ms, m.P95Ms)
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	head := "CHECK\tANSWER\tBEFORE reads/dispatches/p50/p95"
+	if !profile {
+		head += "\tAFTER reads/dispatches/p50/p95"
+	}
+	_, _ = fmt.Fprintln(tw, head)
+	for _, deny := range []bool{true, false} {
+		for _, c := range r.Checks {
+			if c.Allowed == deny {
+				continue
+			}
+			ans := "allow"
+			if deny {
+				ans = "deny"
+			}
+			row := fmt.Sprintf("%s\t%s\t%s", c.Name, ans, cell(&c.Before))
+			if c.After != nil {
+				row += "\t" + cell(c.After)
+			}
+			_, _ = fmt.Fprintln(tw, row)
+		}
+	}
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	t := r.Totals
+	var line string
+	if profile {
+		line = fmt.Sprintf("deny reads %d, deny dispatches %.1f", t.DenyReadsBefore, t.DenyDispatchesBefore)
+	} else {
+		line = fmt.Sprintf("deny reads %d %s %d (deny dispatches %.1f %s %.1f)",
+			t.DenyReadsBefore, style.IconArrow, t.DenyReadsAfter, t.DenyDispatchesBefore, style.IconArrow, t.DenyDispatchesAfter)
+	}
+	_, err := fmt.Fprintf(w, "%s\n%s\n", style.Bold.Render(line), style.Faint.Render("in-process, indicative only"))
+	return err
 }

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	openfgav1 "github.com/openfga/api/proto/openfga/v1"
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/openfga-cli/internal/atomicfile"
@@ -48,9 +49,15 @@ func usageHint(hint string, err error) error {
 
 func (c *Command) optimizeCmd() *cobra.Command {
 	var (
-		write   bool
-		outPath string
-		tiers   []string
+		write    bool
+		outPath  string
+		runBench bool
+		wsPath   string
+		synth    bool
+		seed     uint64
+		depth    int
+		iters    int
+		tiers    []string
 	)
 	cmd := &cobra.Command{
 		Use:   "optimize <model-file|->",
@@ -79,6 +86,10 @@ func (c *Command) optimizeCmd() *cobra.Command {
 			}
 			if write && stdin {
 				return usageHint("use --output-file <path> to write the rewritten model", errors.New("--write cannot rewrite stdin"))
+			}
+
+			if err := validateBenchFlags(cmd, runBench, wsPath, synth, depth, iters); err != nil {
+				return err
 			}
 
 			var data []byte
@@ -130,12 +141,39 @@ func (c *Command) optimizeCmd() *cobra.Command {
 				out.Rewrite = &rewriteOutput{Applied: ids, DSL: after, Diff: unifiedDiff(path, before, after)}
 			}
 
+			if runBench {
+				var afterModel *openfgav1.AuthorizationModel
+				if report.Rewrite != nil {
+					afterModel = report.Rewrite.After.Proto
+				}
+				src, serverOpts, err := benchSource(cmd, lm.Proto, path, stdin, wsPath, synth, seed, depth)
+				if err != nil {
+					return err
+				}
+				res, err := benchRunFn(cmd.Context(), lm.Proto, afterModel, src, bench.Options{Iterations: iters, ServerOpts: serverOpts})
+				if err != nil {
+					return fmt.Errorf("benchmark: %w", err)
+				}
+				out.Bench = res
+			}
+
 			if c.cli.JSON || c.cli.YAML {
 				if err := output.Emit(cmd.OutOrStdout(), c.cli.YAML, out); err != nil {
 					return err
 				}
-			} else if err := renderOptimize(cmd.OutOrStdout(), findings, out.Rewrite); err != nil {
-				return err
+			} else {
+				if err := renderOptimize(cmd.OutOrStdout(), findings, out.Rewrite); err != nil {
+					return err
+				}
+				if err := renderBench(cmd.OutOrStdout(), out.Bench); err != nil {
+					return err
+				}
+			}
+
+			if out.Bench != nil && len(out.Bench.Mismatches) > 0 {
+				return clierr.WithCode(clierr.CodeTestFailed, fmt.Errorf(
+					"benchmark found %d checks whose result changed; rewrite was NOT written — please report model bug",
+					len(out.Bench.Mismatches)))
 			}
 
 			if out.Rewrite == nil {
@@ -167,7 +205,82 @@ func (c *Command) optimizeCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&tiers, "tier", nil, "tiers to report: safe, caller, tuple (default all; never changes what is written)")
 	_ = cmd.RegisterFlagCompletionFunc("tier", cobra.FixedCompletions([]string{"safe", "caller", "tuple"}, cobra.ShellCompDirectiveNoFileComp))
 	_ = cmd.MarkFlagFilename("output-file")
+	cmd.Flags().BoolVar(&runBench, "bench", false, "benchmark the model before/after the rewrite on an embedded server (exit 3 and no write if any check result changes)")
+	cmd.Flags().StringVar(&wsPath, "workspace", "", "workspace directory supplying tuples and checks for --bench (default: ofga.yaml found above the model file)")
+	cmd.Flags().BoolVar(&synth, "synth", false, "with --bench, synthesize tuples even when a workspace is found")
+	cmd.Flags().Uint64Var(&seed, "seed", 1, "with --bench, synthesis seed")
+	cmd.Flags().IntVar(&depth, "depth", 6, "with --bench, synthesized parent-chain depth")
+	cmd.Flags().IntVar(&iters, "iterations", 100, "with --bench, timed samples per check")
+	_ = cmd.MarkFlagDirname("workspace")
 	return cmd
+}
+
+// benchRunFn is bench.Run; tests replace it to inject results.
+var benchRunFn = bench.Run
+
+// validateBenchFlags rejects bench-only flags without --bench and bad values.
+func validateBenchFlags(cmd *cobra.Command, runBench bool, wsPath string, synth bool, depth, iters int) error {
+	if !runBench {
+		for _, f := range []string{"workspace", "synth", "seed", "depth", "iterations"} {
+			if cmd.Flags().Changed(f) {
+				return usageHint("add --bench", fmt.Errorf("--%s only applies with --bench", f))
+			}
+		}
+		return nil
+	}
+	if wsPath != "" && synth {
+		return usageHint("use either --workspace <dir> or --synth", errors.New("--workspace and --synth are mutually exclusive"))
+	}
+	if depth < 1 {
+		return clierr.WithCode(clierr.CodeUsage, errors.New("--depth must be at least 1"))
+	}
+	if iters < 1 {
+		return clierr.WithCode(clierr.CodeUsage, errors.New("--iterations must be at least 1"))
+	}
+	return nil
+}
+
+// benchSource picks the benchmark tuples and checks: an explicit or
+// auto-detected workspace, else synthesis. It also returns the workspace's
+// embedded-server options.
+func benchSource(cmd *cobra.Command, m *openfgav1.AuthorizationModel, path string, stdin bool, wsPath string, synth bool, seed uint64, depth int) (*bench.Source, map[string]any, error) {
+	synthesize := func() (*bench.Source, map[string]any, error) {
+		src, err := bench.Synthesize(m, bench.SynthOptions{Seed: seed, Depth: depth})
+		return src, nil, err
+	}
+	if synth {
+		return synthesize()
+	}
+	dir := wsPath
+	if dir == "" {
+		if stdin {
+			return synthesize()
+		}
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return nil, nil, err
+		}
+		dir = filepath.Dir(abs)
+	}
+	ws, err := modeltest.LoadWorkspace(dir)
+	if err != nil {
+		if wsPath == "" && errors.Is(err, modeltest.ErrWorkspaceNotFound) {
+			return synthesize()
+		}
+		return nil, nil, clierr.WithCode(clierr.CodeUsage, fmt.Errorf("load workspace: %w", err))
+	}
+	src, notices, err := bench.FromWorkspace(ws)
+	if err != nil {
+		return nil, nil, fmt.Errorf("workspace benchmark source: %w", err)
+	}
+	for _, n := range notices {
+		output.Warnf(cmd.ErrOrStderr(), "%s", n)
+	}
+	var serverOpts map[string]any
+	if ws.Manifest != nil {
+		serverOpts = ws.Manifest.Server
+	}
+	return src, serverOpts, nil
 }
 
 // parseTiers validates --tier; an empty list selects every tier (nil).
