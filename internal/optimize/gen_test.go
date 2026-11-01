@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	openfgav1 "github.com/openfga/api/proto/openfga/v1"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/sergiught/openfga-cli/internal/modeltest"
 )
@@ -14,7 +15,9 @@ import (
 // genModel returns a random, validated model. Operands are biased towards
 // relations defined earlier in the same type so the rewrite rules have
 // redundancy to fire on. It returns nil when the draw fails validation.
-func genModel(r *rand.Rand) *openfgav1.AuthorizationModel {
+// Conditions and wildcards are drawn from rc, a separate stream, so the
+// other draws for a seed do not depend on them.
+func genModel(r, rc *rand.Rand) *openfgav1.AuthorizationModel {
 	nTypes := 2 + r.IntN(3)
 	nRels := make([]int, nTypes)
 	for i := range nRels {
@@ -38,7 +41,11 @@ func genModel(r *rand.Rand) *openfgav1.AuthorizationModel {
 			sb.WriteString(genCycleAndShape(r))
 		}
 	}
-	lm, err := modeltest.LoadModelBytes([]byte(sb.String()))
+	dsl := sb.String()
+	if rc.IntN(3) == 0 {
+		dsl = genConditionsAndWildcards(rc, dsl)
+	}
+	lm, err := modeltest.LoadModelBytes([]byte(dsl))
 	if err != nil {
 		return nil
 	}
@@ -79,6 +86,37 @@ func genCycleAndShape(r *rand.Rand) string {
 	}
 	return "\ntype kt\n  relations\n    define parent: [kt]\n    define member: [user] or both from parent\n" +
 		"    define wide: [user] or member\n    define both: " + and + "\n"
+}
+
+// genConditionsAndWildcards rewrites some `[user` restrictions in dsl to
+// `[user, user:*`, `[user with cx, user:*` or `[user with cx`, and declares
+// the cx condition when it is used. OpenFGA's weight-2 TTU fast path answers
+// wrongly when a condition-false tuple and a wildcard share an object, so
+// these are the models where a weight change can flip an answer.
+func genConditionsAndWildcards(r *rand.Rand, dsl string) string {
+	var out strings.Builder
+	for {
+		before, after, ok := strings.Cut(dsl, "[user")
+		out.WriteString(before)
+		if !ok {
+			break
+		}
+		dsl = after
+		switch r.IntN(4) {
+		case 0:
+			out.WriteString("[user, user:*")
+		case 1:
+			out.WriteString("[user with cx, user:*")
+		case 2:
+			out.WriteString("[user with cx")
+		default:
+			out.WriteString("[user")
+		}
+	}
+	if strings.Contains(out.String(), "with cx") {
+		out.WriteString("\ncondition cx(x: int) {\n  x < 10\n}\n")
+	}
+	return out.String()
 }
 
 func genDef(r *rand.Rand, ti, ri, nTypes int, nRels []int, parent int) string {
@@ -135,8 +173,10 @@ func genDef(r *rand.Rand, ti, ri, nTypes int, nRels []int, parent int) string {
 }
 
 // genTuples draws up to n tuples, each valid against the model's declared
-// direct types. Objects are T:1..3 and users user:1..4.
-func genTuples(r *rand.Rand, m *openfgav1.AuthorizationModel, n int) []*openfgav1.TupleKey {
+// direct types. Objects are T:1..3 and users user:1..4 or user:*; a
+// conditioned type gets a context, drawn from rc, that makes its condition
+// true or false.
+func genTuples(r, rc *rand.Rand, m *openfgav1.AuthorizationModel, n int) []*openfgav1.TupleKey {
 	type slot struct {
 		typ, rel string
 		refs     []*openfgav1.RelationReference
@@ -164,6 +204,8 @@ func genTuples(r *rand.Rand, m *openfgav1.AuthorizationModel, n int) []*openfgav
 		ref := s.refs[r.IntN(len(s.refs))]
 		user := fmt.Sprintf("%s:%d", ref.GetType(), 1+r.IntN(4))
 		switch {
+		case ref.GetWildcard() != nil:
+			user = ref.GetType() + ":*"
 		case ref.GetType() == "user":
 		case ref.GetRelation() != "":
 			user = fmt.Sprintf("%s:%d#%s", ref.GetType(), 1+r.IntN(3), ref.GetRelation())
@@ -176,6 +218,12 @@ func genTuples(r *rand.Rand, m *openfgav1.AuthorizationModel, n int) []*openfgav
 		}
 		if k := tk.GetObject() + "|" + tk.GetRelation() + "|" + user; !seen[k] {
 			seen[k] = true
+			if c := ref.GetCondition(); c != "" {
+				// x < 10 holds for half the draws. The tuple carries the
+				// whole context, so checks need none.
+				ctx, _ := structpb.NewStruct(map[string]any{"x": rc.IntN(20)})
+				tk.Condition = &openfgav1.RelationshipCondition{Name: c, Context: ctx}
+			}
 			out = append(out, tk)
 		}
 	}

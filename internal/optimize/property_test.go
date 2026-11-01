@@ -28,7 +28,8 @@ func TestProperty_RewritePreservesCheck(t *testing.T) {
 		}
 		seed, custom = v, true
 	}
-	r := rand.New(rand.NewPCG(seed, 0)) //nolint:gosec // deterministic test generator
+	r := rand.New(rand.NewPCG(seed, 0))  //nolint:gosec // deterministic test generator
+	rc := rand.New(rand.NewPCG(seed, 1)) //nolint:gosec // conditions and wildcards
 	t.Logf("seed=%d", seed)
 
 	eng, err := modeltest.NewEmbeddedEngine(nil)
@@ -40,11 +41,11 @@ func TestProperty_RewritePreservesCheck(t *testing.T) {
 	const models = 150
 	withApplied := 0
 	perRule := map[string]int{}
-	totalChecks, trueChecks, diffUnion, unstable, blocked, combined := 0, 0, 0, 0, 0, 0
+	totalChecks, trueChecks, diffUnion, unstable, blocked, combined, condWild := 0, 0, 0, 0, 0, 0, 0
 	for range models {
 		var m *Model
 		for m == nil {
-			if p := genModel(r); p != nil {
+			if p := genModel(r, rc); p != nil {
 				m, _ = NewModel(p)
 			}
 		}
@@ -69,7 +70,13 @@ func TestProperty_RewritePreservesCheck(t *testing.T) {
 		if len(rw.Applied) == 0 {
 			continue
 		}
-		tuples := genTuples(r, m.Proto, 30)
+		if hasConditionOrWildcard(m) {
+			condWild++
+			if w, err := Weights(m); err == nil && !sameWeights(w, rw.After) {
+				t.Fatalf("seed=%d weights changed in a model with conditions or wildcards\nmodel:\n%s\napplied=%+v", seed, dsl, rw.Applied)
+			}
+		}
+		tuples := genTuples(r, rc, m.Proto, 30)
 		checks := allChecks(m.Proto)
 		before := runChecks(t, eng, rw.Before.Proto, tuples, checks)
 		withApplied++
@@ -115,6 +122,7 @@ func TestProperty_RewritePreservesCheck(t *testing.T) {
 	t.Logf("skipped engine-unstable models: %d", unstable)
 	t.Logf("models blocked by a recursive exclusion: %d (%d with an AND on a tuple cycle elsewhere)", blocked, combined)
 	t.Logf("findings on difference-with-union-base relations: %d", diffUnion)
+	t.Logf("models with applied findings and conditions or wildcards: %d", condWild)
 	if !custom && diffUnion == 0 {
 		t.Error("no finding landed on a union base under exclusion")
 	}
@@ -129,6 +137,9 @@ func TestProperty_RewritePreservesCheck(t *testing.T) {
 		}
 		if combined == 0 {
 			t.Error("no model combined a recursive exclusion with an AND on a tuple cycle")
+		}
+		if condWild == 0 {
+			t.Error("no rewritten model had conditions or wildcards")
 		}
 		if withApplied < 20 {
 			t.Errorf("vacuous: only %d/%d models had applied findings", withApplied, models)
