@@ -652,3 +652,17 @@ func TestOptimize_NothingToDoCountHonorsTier(t *testing.T) {
 		t.Errorf("--tier caller stderr = %q", errCaller)
 	}
 }
+
+func TestOptimize_SynthWithoutWeightedGraphIsUsage(t *testing.T) {
+	_, _, err := runOptimize(t, recursiveExclusionModel, false, "-", "--bench", "--synth", "--iterations", "1")
+	if clierr.Code(err) != clierr.CodeUsage {
+		t.Fatalf("code = %d, err = %v", clierr.Code(err), err)
+	}
+	if !errors.Is(err, optimize.ErrNoWeightedGraph) {
+		t.Errorf("err = %v, want it to wrap optimize.ErrNoWeightedGraph", err)
+	}
+	const want = "this model's weighted graph cannot be built (an AND or BUT NOT sits on a tuple cycle), so tuples cannot be synthesized; benchmark with --workspace instead"
+	if h := clierr.NewEnvelope(err).Error.Hint; h != want {
+		t.Errorf("hint = %q, want %q", h, want)
+	}
+}

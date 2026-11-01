@@ -257,6 +257,9 @@ func validateBenchFlags(cmd *cobra.Command, runBench bool, wsPath string, synth 
 func benchSource(cmd *cobra.Command, m *openfgav1.AuthorizationModel, path string, stdin bool, wsPath string, synth bool, seed uint64, depth int) (*bench.Source, map[string]any, error) {
 	synthesize := func() (*bench.Source, map[string]any, error) {
 		src, err := bench.Synthesize(m, bench.SynthOptions{Seed: seed, Depth: depth})
+		if errors.Is(err, optimize.ErrNoWeightedGraph) {
+			return nil, nil, usageHint("this model's weighted graph cannot be built (an AND or BUT NOT sits on a tuple cycle), so tuples cannot be synthesized; benchmark with --workspace instead", err)
+		}
 		return src, nil, err
 	}
 	if synth {
