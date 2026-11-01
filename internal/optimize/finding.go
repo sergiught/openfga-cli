@@ -24,7 +24,7 @@ type Finding struct {
 	Tier     Tier   `json:"tier"`
 	// Weights maps user type to weight; Analyze substitutes -1 for
 	// graph.Infinite here and the command renders -1 as "inf".
-	Weights map[string]int `json:"weights"`
+	Weights map[string]int `json:"weights" jsonschema_description:"Weight per user type; -1 means unbounded (infinite) weight."`
 
 	// apply performs the edit on a model structurally identical to the one
 	// the finding was derived from. Never serialized.

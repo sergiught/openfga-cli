@@ -1,0 +1,347 @@
+{
+  "$defs": {
+    "CheckResult": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "$ref": "#/$defs/Metrics"
+        },
+        "allowed": {
+          "type": "boolean"
+        },
+        "before": {
+          "$ref": "#/$defs/Metrics"
+        },
+        "name": {
+          "type": "string"
+        },
+        "object": {
+          "type": "string"
+        },
+        "relation": {
+          "type": "string"
+        },
+        "user": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "user",
+        "relation",
+        "object",
+        "allowed",
+        "before"
+      ],
+      "type": "object"
+    },
+    "Finding": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "type": "string"
+        },
+        "before": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "proof": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "relation": {
+          "type": "string"
+        },
+        "tier": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "weights": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "description": "Weight per user type; -1 means unbounded (infinite) weight.",
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "relation",
+        "before",
+        "after",
+        "reason",
+        "proof",
+        "tier",
+        "weights"
+      ],
+      "type": "object"
+    },
+    "Metrics": {
+      "additionalProperties": false,
+      "properties": {
+        "dispatches": {
+          "type": "number"
+        },
+        "p50Ms": {
+          "type": "number"
+        },
+        "p95Ms": {
+          "type": "number"
+        },
+        "reads": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "reads",
+        "dispatches",
+        "p50Ms",
+        "p95Ms"
+      ],
+      "type": "object"
+    },
+    "Mismatch": {
+      "additionalProperties": false,
+      "properties": {
+        "allowedAfter": {
+          "type": "boolean"
+        },
+        "allowedBefore": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "object": {
+          "type": "string"
+        },
+        "relation": {
+          "type": "string"
+        },
+        "user": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "user",
+        "relation",
+        "object",
+        "allowedBefore",
+        "allowedAfter"
+      ],
+      "type": "object"
+    },
+    "Result": {
+      "additionalProperties": false,
+      "properties": {
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/CheckResult"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "mismatches": {
+          "items": {
+            "$ref": "#/$defs/Mismatch"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "seed": {
+          "type": "integer"
+        },
+        "skipped": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "source": {
+          "type": "string"
+        },
+        "totals": {
+          "$ref": "#/$defs/Totals"
+        },
+        "tupleCount": {
+          "type": "integer"
+        },
+        "tuples": {
+          "items": {
+            "$ref": "#/$defs/Tuple"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "source",
+        "seed",
+        "tupleCount",
+        "checks",
+        "totals",
+        "mismatches"
+      ],
+      "type": "object"
+    },
+    "Totals": {
+      "additionalProperties": false,
+      "properties": {
+        "allowReadsAfter": {
+          "type": "integer"
+        },
+        "allowReadsBefore": {
+          "type": "integer"
+        },
+        "denyDispatchesAfter": {
+          "type": "number"
+        },
+        "denyDispatchesBefore": {
+          "type": "number"
+        },
+        "denyReadsAfter": {
+          "type": "integer"
+        },
+        "denyReadsBefore": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "denyReadsBefore",
+        "denyReadsAfter",
+        "denyDispatchesBefore",
+        "denyDispatchesAfter",
+        "allowReadsBefore",
+        "allowReadsAfter"
+      ],
+      "type": "object"
+    },
+    "Tuple": {
+      "additionalProperties": false,
+      "properties": {
+        "object": {
+          "type": "string"
+        },
+        "relation": {
+          "type": "string"
+        },
+        "user": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "user",
+        "relation",
+        "object"
+      ],
+      "type": "object"
+    },
+    "optimizeModelInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "file",
+        "format"
+      ],
+      "type": "object"
+    },
+    "optimizeOutput": {
+      "additionalProperties": false,
+      "properties": {
+        "bench": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Result"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "findings": {
+          "items": {
+            "$ref": "#/$defs/Finding"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "model": {
+          "$ref": "#/$defs/optimizeModelInfo"
+        },
+        "rewrite": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/rewriteOutput"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "schemaVersion": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "model",
+        "findings",
+        "rewrite",
+        "bench"
+      ],
+      "type": "object"
+    },
+    "rewriteOutput": {
+      "additionalProperties": false,
+      "properties": {
+        "applied": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "diff": {
+          "type": "string"
+        },
+        "dsl": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "applied",
+        "dsl",
+        "diff"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/model-optimize.v1.json",
+  "$ref": "#/$defs/optimizeOutput",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

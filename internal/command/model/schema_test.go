@@ -69,6 +69,7 @@ func TestSchemasValidateRealOutput(t *testing.T) {
 		{"ofga model test", "test", []string{"--file", passingWorkspace}},
 		{"ofga model test", "test", []string{"--file", passingWorkspace, "--coverage"}},
 		{"ofga model test schema", "schema", nil},
+		{"ofga model optimize", "optimize", []string{optimizeReference}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.path+" "+strings.Join(tc.args, " "), func(t *testing.T) {
@@ -77,6 +78,7 @@ func TestSchemasValidateRealOutput(t *testing.T) {
 			cmd := map[string]func() *cobra.Command{
 				"write": c.writeCmd, "list": c.listCmd, "get": c.getCmd, "latest": c.latestCmd,
 				"graph": c.graphCmd, "test": c.testCmd, "schema": c.testSchemaCmd,
+				"optimize": c.optimizeCmd,
 			}[tc.sub]()
 			var out bytes.Buffer
 			cmd.SetOut(&out)

@@ -1,0 +1,79 @@
+---
+title: "ofga model optimize"
+description: "Find equivalence-preserving rewrites and other optimizations for a model"
+sidebar:
+  order: 104
+---
+
+Analyze an authorization model and report optimization findings in three tiers: safe (rewrites that never change any Check answer), caller (changes in how callers use the model) and tuple (changes in stored tuples). The safe rewrite is shown as a unified diff.
+
+Input: a DSL or JSON model file, or '-' for stdin. The format is auto-detected.
+
+Writing: --write overwrites the model file with the rewritten DSL (DSL files only; it reformats the file and drops comments). --output-file writes the rewritten DSL to another path and also accepts JSON or stdin input. --tier filters only what is reported, never what is written.
+
+Weights: in --json/--yaml output a finding weight of -1 means unbounded (infinite); human output renders it as inf.
+
+Exit codes: 0 success · 1 error · 2 usage (including an invalid model).
+
+## Usage
+
+```sh
+ofga model optimize <model-file|-> [flags]
+```
+
+## Examples
+
+```sh
+  ofga model optimize model.fga
+  ofga model optimize model.fga --write
+  ofga model optimize model.json --output-file optimized.fga
+  ofga model optimize model.fga --tier safe,caller
+  cat model.fga | ofga model optimize - --json
+```
+
+## Flags
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--output-file` | write the rewritten DSL to this path |   |
+| `--tier` | tiers to report: safe, caller, tuple (default all; never changes what is written) | `[]` |
+| `--write` | overwrite the model file with the rewritten DSL (reformats and drops comments; DSL files only) | `false` |
+
+<details>
+<summary>Global flags</summary>
+
+```
+      --agent                            agent mode: compact JSON, no prompts, no color, no success chatter (also OPENFGA_AGENT_MODE=1)
+      --api-url string                   OpenFGA API URL (overrides profile/env)
+      --auth-client-secret-file string   read the process-scoped OAuth client secret from a file
+      --auth-private-key-file string     read the process-scoped private-key JWT signing key from a file
+      --auth-token-file string           read the process-scoped API token from a file
+      --config string                    path to the config file (overrides OPENFGA_CONFIG)
+  -d, --debug                            enable debug logging
+      --header stringArray               extra request header as 'Name: value' (repeatable; adds to the profile's headers)
+      --jq string                        filter machine-readable output through this jq expression (implies -o json)
+      --json                             output machine-readable JSON (alias for --output json)
+      --model-id string                  authorization model ID (overrides profile/env)
+      --no-color                         disable colored output
+      --no-input                         never prompt or launch the interactive TUI
+  -o, --output string                    output format: json, jsonl, yaml, plain or table (takes precedence over --json/--yaml/--plain)
+      --plain                            output unstyled, tab-separated rows (alias for --output plain)
+  -p, --profile string                   configuration profile to use
+  -q, --quiet                            suppress incidental output
+      --store-id string                  store ID (overrides profile/env)
+      --theme string                     color theme (aurora, catppuccin, charm, dracula, gruvbox, nord, tokyonight, mono)
+      --timeout duration                 per-request timeout (0 disables) (default 30s)
+  -v, --verbose                          alias for --debug
+      --yaml                             output machine-readable YAML (alias for --output yaml)
+```
+
+</details>
+
+## Related
+
+- [ofga model get](../get/)
+- [ofga model graph](../graph/)
+- [ofga model latest](../latest/)
+- [ofga model list](../list/)
+- [ofga model test](../test/)
+- [ofga model write](../write/)
