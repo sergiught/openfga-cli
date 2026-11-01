@@ -9,30 +9,8 @@ import (
 // also reach a cycle. OpenFGA's runtime cycle detection under an exclusion is
 // evaluation-shape dependent, so the least-fixpoint proof does not carry over.
 func guardedRelations(m *Model) map[string]bool {
-	graph := map[string][]string{}
-	var roots []string
-	for _, td := range m.Proto.GetTypeDefinitions() {
-		for rel, us := range td.GetRelations() {
-			node := td.GetType() + "#" + rel
-			graph[node] = relationEdges(m, td.GetType(), rel, us, false, nil)
-			roots = relationEdges(m, td.GetType(), rel, us, true, roots)
-		}
-	}
-
-	reach := func(from []string) map[string]bool {
-		seen := map[string]bool{}
-		queue := append([]string{}, from...)
-		for len(queue) > 0 {
-			n := queue[0]
-			queue = queue[1:]
-			if seen[n] {
-				continue
-			}
-			seen[n] = true
-			queue = append(queue, graph[n]...)
-		}
-		return seen
-	}
+	graph, roots := dependencyGraph(m)
+	reach := func(from []string) map[string]bool { return reachable(graph, from) }
 
 	// A node is on a cycle when it reaches itself through at least one edge.
 	cyclic := map[string]bool{}
@@ -52,6 +30,37 @@ func guardedRelations(m *Model) map[string]bool {
 		}
 	}
 	return guarded
+}
+
+// dependencyGraph returns the relation dependency graph and the subtract-side
+// roots described on guardedRelations.
+func dependencyGraph(m *Model) (graph map[string][]string, roots []string) {
+	graph = map[string][]string{}
+	for _, td := range m.Proto.GetTypeDefinitions() {
+		for rel, us := range td.GetRelations() {
+			node := td.GetType() + "#" + rel
+			graph[node] = relationEdges(m, td.GetType(), rel, us, false, nil)
+			roots = relationEdges(m, td.GetType(), rel, us, true, roots)
+		}
+	}
+	return graph, roots
+}
+
+// reachable returns every node reachable from the given nodes, themselves
+// included.
+func reachable(graph map[string][]string, from []string) map[string]bool {
+	seen := map[string]bool{}
+	queue := append([]string{}, from...)
+	for len(queue) > 0 {
+		n := queue[0]
+		queue = queue[1:]
+		if seen[n] {
+			continue
+		}
+		seen[n] = true
+		queue = append(queue, graph[n]...)
+	}
+	return seen
 }
 
 // relationEdges lists the dependency edges of typ#rel's userset. With
