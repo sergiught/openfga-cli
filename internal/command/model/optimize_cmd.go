@@ -71,7 +71,7 @@ func (c *Command) optimizeCmd() *cobra.Command {
 			"Input: a DSL or JSON model file, or '-' for stdin. The format is auto-detected.\n\n" +
 			"Writing: --write overwrites the model file with the rewritten DSL (DSL files only; it reformats the file and drops comments). --output-file writes the rewritten DSL to another path and also accepts JSON or stdin input. --tier filters only what is reported, never what is written.\n\n" +
 			"Weights: in --json/--yaml output a finding weight of -1 means unbounded (infinite); human output renders it as inf.\n\n" +
-			"Exit codes: 0 success · 1 error · 2 usage (including an invalid model) · 3 benchmark found a check whose answer changed.",
+			"Exit codes: 0 success · 1 error · 2 usage (including an invalid model) · 3 benchmark found a check whose answer changed. A changed answer that also varies when the same model is re-run is reported as unstable (engine nondeterminism) and does not set exit code 3.",
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {

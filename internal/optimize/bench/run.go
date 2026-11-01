@@ -57,6 +57,7 @@ func Run(ctx context.Context, before, after *openfgav1.AuthorizationModel, src *
 		Skipped:    src.Skipped,
 		Checks:     make([]CheckResult, 0, len(src.Checks)),
 		Mismatches: []Mismatch{},
+		Unstable:   []Mismatch{},
 	}
 	if src.Kind == "synthesis" {
 		for _, t := range src.Tuples {
@@ -96,8 +97,71 @@ func Run(ctx context.Context, before, after *openfgav1.AuthorizationModel, src *
 				res.Mismatches = append(res.Mismatches, Mismatch{Check: c, AllowedBefore: bAns[i], AllowedAfter: aAns[i]})
 			}
 		}
+		if res.Mismatches, res.Unstable, err = splitUnstable(ctx, before, after, src, o.ServerOpts, res.Mismatches); err != nil {
+			return nil, err
+		}
 	}
 	return res, nil
+}
+
+// reruns is how many times splitUnstable re-checks a mismatch on each model.
+const reruns = 5
+
+// splitUnstable re-runs each mismatch on the before and then the after model.
+// A mismatch whose answer varies on either model is engine nondeterminism (a
+// cycle under an exclusion can make OpenFGA answer differently run to run), so
+// it moves to unstable.
+func splitUnstable(ctx context.Context, before, after *openfgav1.AuthorizationModel, src *Source, serverOpts map[string]any, mism []Mismatch) (stable, unstable []Mismatch, err error) {
+	unstable = []Mismatch{}
+	if len(mism) == 0 {
+		return mism, unstable, nil
+	}
+	bVar, err := varies(ctx, before, src, serverOpts, mism, func(m Mismatch) bool { return m.AllowedBefore })
+	if err != nil {
+		return nil, nil, fmt.Errorf("before: %w", err)
+	}
+	aVar, err := varies(ctx, after, src, serverOpts, mism, func(m Mismatch) bool { return m.AllowedAfter })
+	if err != nil {
+		return nil, nil, fmt.Errorf("after: %w", err)
+	}
+	stable = []Mismatch{}
+	for i, m := range mism {
+		if bVar[i] || aVar[i] {
+			unstable = append(unstable, m)
+		} else {
+			stable = append(stable, m)
+		}
+	}
+	return stable, unstable, nil
+}
+
+// varies reports, per mismatch, whether any of reruns checks on model answers
+// other than want.
+func varies(ctx context.Context, model *openfgav1.AuthorizationModel, src *Source, serverOpts map[string]any, mism []Mismatch, want func(Mismatch) bool) ([]bool, error) {
+	eng, err := modeltest.NewEmbeddedEngine(serverOpts)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrSetup, err)
+	}
+	defer func() { _ = eng.Close() }()
+	storeID, modelID, err := eng.Setup(ctx, model, src.Tuples)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrSetup, err)
+	}
+	scope := modeltest.Scope{StoreID: storeID, ModelID: modelID}
+	out := make([]bool, len(mism))
+	for i, m := range mism {
+		for range reruns {
+			allowed, err := eng.Check(ctx, scope, modeltest.CheckReq{User: m.User, Relation: m.Relation, Object: m.Object})
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", m.Name, err)
+			}
+			if allowed != want(m) {
+				out[i] = true
+				break
+			}
+		}
+	}
+	return out, nil
 }
 
 func probeModel(ctx context.Context, model *openfgav1.AuthorizationModel, src *Source, iters int, serverOpts map[string]any, withProbes bool) ([]probe, []bool, error) {

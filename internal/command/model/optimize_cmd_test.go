@@ -543,6 +543,41 @@ func TestRenderBench_ListsChangedAnswers(t *testing.T) {
 	}
 }
 
+func TestOptimize_UnstableAnswersAreNoticedNotFailed(t *testing.T) {
+	orig := benchRunFn
+	t.Cleanup(func() { benchRunFn = orig })
+	benchRunFn = func(ctx context.Context, b, a *openfgav1.AuthorizationModel, src *bench.Source, o bench.Options) (*bench.Result, error) {
+		return &bench.Result{Source: "synthesis", Checks: []bench.CheckResult{}, Mismatches: []bench.Mismatch{}, Unstable: []bench.Mismatch{{
+			Check: bench.Check{Name: "probe u", User: "user:a", Relation: "viewer", Object: "document:t1"}, AllowedAfter: true,
+		}}}, nil
+	}
+	out, _, err := runOptimize(t, "", false, optimizeReference, "--bench")
+	if err != nil {
+		t.Fatalf("unstable answers must not fail the run: %v", err)
+	}
+	for _, want := range []string{"Unstable answers (1)", "probe u: user:a viewer document:t1  deny"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Changed answers") {
+		t.Errorf("unstable answers listed as changed:\n%s", out)
+	}
+}
+
+func TestOptimize_AnalyzeFailureExits1(t *testing.T) {
+	// OpenFGA accepts a tuple cycle through `and`, but the weighted graph the
+	// optimizer analyzes cannot be built for it.
+	const dsl = "model\n  schema 1.1\n\ntype user\n\ntype folder\n  relations\n    define parent: [folder]\n    define a: [user] or b from parent\n    define b: [user] and a\n"
+	_, _, err := runOptimize(t, dsl, false, "-")
+	if err == nil || clierr.Code(err) != clierr.CodeError {
+		t.Fatalf("want exit 1, got code %d: %v", clierr.Code(err), err)
+	}
+	if errors.Is(err, optimize.ErrInvalidModel) {
+		t.Fatalf("error should not be ErrInvalidModel: %v", err)
+	}
+}
+
 func TestOptimize_NothingToDoCountHonorsTier(t *testing.T) {
 	const dsl = "model\n  schema 1.1\n\ntype user\n\ntype folder\n  relations\n    define parent: [folder]\n    define viewer: [user] or viewer from parent\n"
 	_, errAll, err := runOptimize(t, dsl, false, "-")

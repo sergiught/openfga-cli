@@ -140,6 +140,36 @@ func formatWeights(m map[string]int) string {
 	return strings.Join(parts, " ")
 }
 
+// renderAnswers lists differing answers under a "<heading> (N)" heading, with
+// an optional faint note; nothing when ms is empty.
+func renderAnswers(w io.Writer, heading, note string, ms []bench.Mismatch) error {
+	if len(ms) == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintf(w, "\n%s\n", style.Heading.Render(fmt.Sprintf("%s (%d)", heading, len(ms)))); err != nil {
+		return err
+	}
+	if note != "" {
+		if _, err := fmt.Fprintf(w, "%s\n", style.Faint.Render(note)); err != nil {
+			return err
+		}
+	}
+	answer := func(allowed bool) string {
+		if allowed {
+			return "allow"
+		}
+		return "deny"
+	}
+	for _, m := range ms {
+		if _, err := fmt.Fprintf(w, "  %s: %s %s %s  %s %s %s\n", m.Name, m.User, m.Relation, m.Object,
+			answer(m.AllowedBefore), style.IconArrow, answer(m.AllowedAfter)); err != nil {
+			return err
+		}
+	}
+	_, err := fmt.Fprintln(w)
+	return err
+}
+
 // renderBench prints the benchmark table: deny rows first, then allow rows.
 // The headline covers deny checks only; allow read totals are noise.
 func renderBench(w io.Writer, r *bench.Result) error {
@@ -178,25 +208,12 @@ func renderBench(w io.Writer, r *bench.Result) error {
 	if err := tw.Flush(); err != nil {
 		return err
 	}
-	if len(r.Mismatches) > 0 {
-		if _, err := fmt.Fprintf(w, "\n%s\n", style.Heading.Render(fmt.Sprintf("Changed answers (%d)", len(r.Mismatches)))); err != nil {
-			return err
-		}
-		answer := func(allowed bool) string {
-			if allowed {
-				return "allow"
-			}
-			return "deny"
-		}
-		for _, m := range r.Mismatches {
-			if _, err := fmt.Fprintf(w, "  %s: %s %s %s  %s %s %s\n", m.Name, m.User, m.Relation, m.Object,
-				answer(m.AllowedBefore), style.IconArrow, answer(m.AllowedAfter)); err != nil {
-				return err
-			}
-		}
-		if _, err := fmt.Fprintln(w); err != nil {
-			return err
-		}
+	if err := renderAnswers(w, "Changed answers", "", r.Mismatches); err != nil {
+		return err
+	}
+	if err := renderAnswers(w, "Unstable answers",
+		"the engine answered these differently across re-runs of the same model; not counted as changed", r.Unstable); err != nil {
+		return err
 	}
 	t := r.Totals
 	var line string

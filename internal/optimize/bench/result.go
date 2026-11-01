@@ -76,4 +76,7 @@ type Result struct {
 	Totals     Totals        `json:"totals"`
 	Probes     int           `json:"probes"`
 	Mismatches []Mismatch    `json:"mismatches"`
+	// Unstable are differing answers that also varied between re-runs of the
+	// same model: engine nondeterminism, not an effect of the rewrite.
+	Unstable []Mismatch `json:"unstable"`
 }

@@ -265,3 +265,53 @@ func TestRun_ProbesAgreeOnSafeRewrite(t *testing.T) {
 		t.Fatalf("mismatches: %+v", res.Mismatches)
 	}
 }
+
+// TestRun_SynthCycleCatchesK1 runs the pre-guard K1 rewrite (folder#y: a and b
+// -> a) through synthesis: lowering y's weight switches OpenFGA's resolver for
+// folder#viewer and drops cycle detection under the exclusion, so the
+// synthesized 2-cycle must expose a changed answer.
+func TestRun_SynthCycleCatchesK1(t *testing.T) {
+	const k1 = `model
+  schema 1.1
+type user
+type group
+  relations
+    define member: [user]
+type folder
+  relations
+    define parent: [folder]
+    define a: [user]
+    define b: [user, group#member] or a
+    define y: %s
+    define viewer: [user] or viewer from parent or y
+type doc
+  relations
+    define parent: [folder]
+    define can_read: [user] but not viewer from parent
+`
+	load := func(y string) *openfgav1.AuthorizationModel {
+		lm, err := modeltest.LoadModelBytes([]byte(strings.Replace(k1, "%s", y, 1)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return lm.Proto
+	}
+	before, after := load("a and b"), load("a")
+	src, err := Synthesize(before, SynthOptions{Noise: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := Run(context.Background(), before, after, src, Options{Iterations: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, mm := range res.Mismatches {
+		if mm.Relation == "can_read" && mm.Object == "doc:t1" && !mm.AllowedBefore && mm.AllowedAfter {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no doc:t1 can_read deny->allow mismatch; mismatches=%+v unstable=%+v", res.Mismatches, res.Unstable)
+	}
+}

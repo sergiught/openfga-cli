@@ -189,6 +189,15 @@
             "$ref": "#/$defs/Tuple"
           },
           "type": "array"
+        },
+        "unstable": {
+          "items": {
+            "$ref": "#/$defs/Mismatch"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
         }
       },
       "required": [
@@ -197,7 +206,8 @@
         "checks",
         "totals",
         "probes",
-        "mismatches"
+        "mismatches",
+        "unstable"
       ],
       "type": "object"
     },

@@ -114,6 +114,11 @@ func Synthesize(m *openfgav1.AuthorizationModel, o SynthOptions) (*Source, error
 					add(fmt.Sprintf("%s:chain%d", typ, i+1), rel, fmt.Sprintf("%s:chain%d", typ, i))
 				}
 				add(typ+":chain1", rel, typ+":t1")
+				// A 2-cycle under t1 so checks and probes exercise OpenFGA's
+				// cycle detection, which the optimizer's guard depends on.
+				add(typ+":cyc2", rel, typ+":cyc1")
+				add(typ+":cyc1", rel, typ+":cyc2")
+				add(typ+":cyc1", rel, typ+":t1")
 			}
 			if chainSet {
 				for i := 1; i <= 2; i++ {
