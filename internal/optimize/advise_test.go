@@ -121,3 +121,68 @@ func TestAnalyze_NoSafeFindingsNilRewrite(t *testing.T) {
 		t.Fatalf("got %+v", rep)
 	}
 }
+
+func analyzeDSL(t *testing.T, dsl string) *Report {
+	t.Helper()
+	lm, err := modeltest.LoadModelBytes([]byte(dsl))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep, err := Analyze(lm.Proto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rep
+}
+
+func TestAnalyze_C1AndT1Cases(t *testing.T) {
+	const head = "model\n  schema 1.1\ntype user\n"
+	tests := []struct {
+		name       string
+		dsl        string
+		caller     []string
+		tuple      []string
+		wantNoSafe bool
+	}{
+		{
+			name:   "inherited recursion in intersection is not C1",
+			dsl:    head + "type group\n  relations\n    define a: [user, group#member]\n    define member: [user, group#member]\n    define b: [user]\n    define x: a and b\n",
+			caller: nil,
+			tuple:  []string{"T1 group#a", "T1 group#member"},
+		},
+		{
+			name:   "own recursion in exclusion is C1",
+			dsl:    head + "type group\n  relations\n    define member: [user, group#member]\n    define b: [user]\n    define x: [user, group#member] but not b\n",
+			caller: []string{"C1 group#x", "C2 group#x"},
+			tuple:  []string{"T1 group#member", "T1 group#x"},
+		},
+		{
+			name:   "non-recursive userset and cross-type TTU are not T1",
+			dsl:    head + "type team\n  relations\n    define member: [user]\ntype folder\n  relations\n    define viewer: [user]\ntype document\n  relations\n    define parent: [folder]\n    define viewer: [team#member] or viewer from parent\n",
+			caller: nil,
+			tuple:  nil,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rep := analyzeDSL(t, tc.dsl)
+			if got := tierIDs(rep, TierCaller); !reflect.DeepEqual(got, tc.caller) {
+				t.Fatalf("caller = %v, want %v", got, tc.caller)
+			}
+			if got := tierIDs(rep, TierTuple); !reflect.DeepEqual(got, tc.tuple) {
+				t.Fatalf("tuple = %v, want %v", got, tc.tuple)
+			}
+		})
+	}
+}
+
+func TestAnalyze_T2Boundary(t *testing.T) {
+	const head = "model\n  schema 1.1\ntype user\ntype doc\n  relations\n    define a: [user]\n    define b: [user]\n    define c: [user]\n    define d: [user]\n"
+	if got := tierIDs(analyzeDSL(t, head+"    define v: a or b or c\n"), TierTuple); got != nil {
+		t.Fatalf("3 operands: tuple = %v, want none", got)
+	}
+	got := tierIDs(analyzeDSL(t, head+"    define v: a or b or c or d\n"), TierTuple)
+	if want := []string{"T2 doc#v"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("4 operands: tuple = %v, want %v", got, want)
+	}
+}
