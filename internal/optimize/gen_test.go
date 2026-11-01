@@ -137,6 +137,29 @@ func genTuples(r *rand.Rand, m *openfgav1.AuthorizationModel, n int) []*openfgav
 			out = append(out, tk)
 		}
 	}
+	// Often add cyclic parent data (2-cycles and self-loops): cycles are where
+	// OpenFGA's runtime cycle detection can diverge from the lattice proof.
+	if r.IntN(2) == 0 {
+		add := func(obj, user string) {
+			if k := obj + "|parent|" + user; !seen[k] {
+				seen[k] = true
+				out = append(out, &openfgav1.TupleKey{Object: obj, Relation: "parent", User: user})
+			}
+		}
+		for _, td := range m.GetTypeDefinitions() {
+			for _, ref := range td.GetMetadata().GetRelations()["parent"].GetDirectlyRelatedUserTypes() {
+				if ref.GetType() != td.GetType() {
+					continue
+				}
+				if r.IntN(2) == 0 {
+					add(td.GetType()+":1", td.GetType()+":1")
+				} else {
+					add(td.GetType()+":1", td.GetType()+":2")
+					add(td.GetType()+":2", td.GetType()+":1")
+				}
+			}
+		}
+	}
 	return out
 }
 

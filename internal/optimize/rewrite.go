@@ -22,6 +22,7 @@ type RewriteResult struct {
 func Rewrite(m *Model) (*RewriteResult, error) {
 	cur := m.Clone()
 	rw := &RewriteResult{Before: m}
+	guarded := guardedRelations(m)
 	for range maxPasses {
 		l := BuildLattice(cur)
 		typeIdx := map[string]int{}
@@ -30,7 +31,11 @@ func Rewrite(m *Model) (*RewriteResult, error) {
 		}
 		var all []Finding
 		for _, r := range safeRules {
-			all = append(all, r(cur, l)...)
+			for _, f := range r(cur, l) {
+				if !guarded[f.Type+"#"+f.Relation] {
+					all = append(all, f)
+				}
+			}
 		}
 		sort.SliceStable(all, func(i, j int) bool {
 			a, b := all[i], all[j]
