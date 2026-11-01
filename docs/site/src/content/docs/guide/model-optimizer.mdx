@@ -60,6 +60,9 @@ These are reported and never applied.
 | T1 | tuple | A relation introduces recursion: each nesting level in the tuple data costs one more datastore read and one more dispatch |
 | T2 | tuple | A union with 4 or more operands, where each operand is a separate dispatch |
 
+Advisory findings are computed on the rewritten model, after the safe
+rewrites are applied.
+
 Advisory findings carry weights. An infinite weight is `-1` in JSON and YAML
 output and `inf` in human output.
 
@@ -105,27 +108,31 @@ will differ by machine and run:
 
 ```text
 CHECK                       ANSWER  BEFORE reads/dispatches/p50/p95  AFTER reads/dispatches/p50/p95
-deny document#can_view      deny    130 / 22.0 / 1.05ms / 1.85ms     66 / 13.0 / 0.89ms / 1.60ms
-deny document#viewer        deny    74 / 13.0 / 0.95ms / 1.84ms      66 / 13.0 / 0.71ms / 1.39ms
-deny folder#can_view        deny    55 / 8.0 / 0.81ms / 1.19ms       48 / 8.0 / 0.77ms / 1.23ms
-deny organization#can_view  deny    7 / 1.0 / 0.21ms / 0.28ms        6 / 1.0 / 0.48ms / 0.75ms
+deny document#can_view      deny    130 / 22.0 / 1.53ms / 3.69ms     66 / 13.0 / 1.14ms / 1.94ms
+deny document#viewer        deny    74 / 13.0 / 1.42ms / 2.62ms      66 / 13.0 / 1.46ms / 3.02ms
+deny folder#can_view        deny    55 / 8.0 / 1.03ms / 1.21ms       48 / 8.0 / 0.96ms / 1.92ms
+deny organization#can_view  deny    7 / 1.0 / 0.43ms / 0.99ms        6 / 1.0 / 0.60ms / 0.75ms
+...
+deny reads 360 → 273 (deny dispatches 58.0 → 49.0)
 ```
 
 ## The equivalence guarantee
 
 A safe rewrite returns the same `true` or `false` as the original for every
-possible set of tuples. Two caveats apply.
+possible set of tuples, with the caveats below.
 
 - **Conditions are handled conservatively.** A directly related type with a
   condition (or a wildcard) is only comparable to an identical one, so a
   conditioned term blocks every rule that would need to compare it. You may
   miss a rewrite; you will not get a wrong one.
+- **Relations beneath `but not` can recurse and are never rewritten.**
+  OpenFGA's cycle detection depends on the shape of the evaluation, so a
+  rewrite there could change whether a Check errors. You may miss a rewrite;
+  you will not get a wrong one.
 - **Depth-limit errors are possible.** Equivalence is of the abstract
-  semantics. Near the server's resolve-node limit, a rewrite can change
-  resolution depth, so the original and the rewrite may differ in whether a
-  Check fails with a depth error. A rewrite only removes branches, so it never
-  makes depth worse, but the answer to a Check that errors can change from
-  error to a result.
+  semantics. A rewrite only removes branches, but near the server's
+  resolve-node limit whether a Check errors can still change, from an error
+  to a result or the reverse.
 
 ## Reading the benchmark
 
@@ -140,9 +147,12 @@ same tuples, and runs the same Checks against both.
   sub-millisecond and noisy. Do not make decisions on it.
 - **Dispatch counts are informational.** They can be 0 for a purely
   self-recursive model.
-- **The oracle.** Every Check must give the same answer on both models. If
-  one differs, the command exits `3`, writes nothing, and still emits JSON
-  output so you can see the offending check.
+- **The oracle.** Every Check must give the same answer on both models. For
+  synthesized tuples, extra untimed probes (every synthesized leaf user
+  against every relation) also compare answers on paths the timed checks do not
+  reach; the result's `probes` field counts them. If one differs, the command
+  prints a `Changed answers` section, exits `3`, writes nothing, and still
+  emits JSON output so you can see the offending check.
 
 ### Where the tuples come from
 
@@ -173,6 +183,9 @@ ofga model optimize model.json --output-file optimized.fga
   output format and has nothing to do with the destination.
 - **The rewrite is regenerated from the parsed model, so `--write` reformats
   the file and drops comments.** Review the diff first.
+- The diff and the `--write` output are the normalized DSL: relations are
+  sorted and the file is reformatted, so the diff can show lines that moved
+  without a rewrite.
 - Nothing is written when no safe rewrite applies, or when the benchmark finds
   a changed answer.
 
@@ -181,6 +194,7 @@ ofga model optimize model.json --output-file optimized.fga
 | Exit | Meaning |
 | --- | --- |
 | 0 | ok |
+| 1 | error |
 | 2 | usage error, including an invalid model |
 | 3 | the benchmark found a check whose answer changed |
 
