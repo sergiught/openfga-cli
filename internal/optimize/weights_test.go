@@ -1,7 +1,9 @@
 package optimize
 
 import (
+	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/openfga/language/pkg/go/graph"
@@ -51,11 +53,17 @@ func TestWeights_ReferenceModel(t *testing.T) {
 func TestNewModel_RejectsInvalid(t *testing.T) {
 	p, err := transformer.TransformDSLToProto("model\n  schema 1.1\ntype user\ntype doc\n  relations\n    define viewer: [nope]\n")
 	if err != nil {
-		// parser itself may reject; build via proto instead
-		t.Skipf("parser rejected: %v", err)
+		t.Fatalf("parser rejected: %v", err)
 	}
-	if _, err := NewModel(p); err == nil {
+	_, err = NewModel(p)
+	if err == nil {
 		t.Fatal("expected error for unknown type")
+	}
+	if !errors.Is(err, ErrInvalidModel) {
+		t.Fatalf("error %v does not wrap ErrInvalidModel", err)
+	}
+	if !strings.HasPrefix(err.Error(), "invalid authorization model: ") {
+		t.Fatalf("unexpected message %q", err.Error())
 	}
 }
 

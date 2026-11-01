@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	openfgav1 "github.com/openfga/api/proto/openfga/v1"
 )
 
 func TestRewrite_ReferenceModelAppliesExactlyFive(t *testing.T) {
@@ -76,4 +78,60 @@ func itoa(i int) string {
 		return digits[i : i+1]
 	}
 	return itoa(i/10) + digits[i%10:i%10+1]
+}
+
+const seed11Model = `model
+  schema 1.1
+type user
+type t1
+  relations
+    define parent: [t1]
+    define r0: [user] or r0 from parent or r3 from parent or r3 from parent
+    define r1: r2 from parent or r0 or r2 from parent or r2 from parent
+    define r2: (r1 or r1) but not r3 from parent
+    define r3: (r0 or r1) but not r1 from parent
+`
+
+func TestRewrite_Seed11ProducesValidModel(t *testing.T) {
+	rw, err := Rewrite(loadInline(t, seed11Model))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewModel(rw.After.Proto); err != nil {
+		t.Fatalf("after does not validate: %v", err)
+	}
+}
+
+func TestRewrite_SkipsFindingThatInvalidatesModel(t *testing.T) {
+	m := loadInline(t, "model\n  schema 1.1\ntype user\ntype doc\n  relations\n    define a: [user]\n    define b: a\n    define c: a or b\n")
+	good := ruleS1(m, BuildLattice(m))
+	if len(good) != 1 {
+		t.Fatalf("expected one S1 finding, got %d", len(good))
+	}
+	bad := Finding{ID: "S1", Type: "doc", Relation: "a", Tier: TierSafe, apply: func(m *Model) {
+		for _, td := range m.Proto.GetTypeDefinitions() {
+			if td.GetType() != "doc" {
+				continue
+			}
+			td.GetRelations()["a"] = &openfgav1.Userset{Userset: &openfgav1.Userset_ComputedUserset{
+				ComputedUserset: &openfgav1.ObjectRelation{Relation: "a"},
+			}}
+		}
+	}}
+	orig := safeRules
+	defer func() { safeRules = orig }()
+	calls := 0
+	safeRules = []rule{func(*Model, *Lattice) []Finding {
+		if calls++; calls > 1 {
+			return nil
+		}
+		return append([]Finding{bad}, good...)
+	}}
+	rw, err := Rewrite(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rw.Applied) != 1 || rw.Applied[0].Relation != "c" {
+		t.Fatalf("applied = %+v, want only the valid finding on c", rw.Applied)
+	}
 }

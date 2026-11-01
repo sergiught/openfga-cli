@@ -1,9 +1,6 @@
 package optimize
 
-import (
-	"fmt"
-	"sort"
-)
+import "sort"
 
 // maxPasses caps the rewrite fixpoint loop.
 const maxPasses = 10
@@ -24,6 +21,7 @@ func Rewrite(m *Model) (*RewriteResult, error) {
 	rw := &RewriteResult{Before: m}
 	guarded := guardedRelations(m)
 	for range maxPasses {
+		applied := len(rw.Applied)
 		l := BuildLattice(cur)
 		typeIdx := map[string]int{}
 		for i, td := range cur.Proto.GetTypeDefinitions() {
@@ -50,7 +48,7 @@ func Rewrite(m *Model) (*RewriteResult, error) {
 		if len(all) == 0 {
 			break
 		}
-		next := cur.Clone()
+		next := cur
 		seen := map[string]bool{}
 		for _, f := range all {
 			key := f.Type + "#" + f.Relation
@@ -58,14 +56,21 @@ func Rewrite(m *Model) (*RewriteResult, error) {
 				continue
 			}
 			seen[key] = true
-			f.apply(next)
+			cand := next.Clone()
+			f.apply(cand)
+			// An edit that is sound in the lattice can still leave the model
+			// invalid (e.g. no entrypoints); discard it rather than fail.
+			validated, err := NewModel(cand.Proto)
+			if err != nil {
+				continue
+			}
+			next = validated
 			rw.Applied = append(rw.Applied, f)
 		}
-		validated, err := NewModel(next.Proto)
-		if err != nil {
-			return nil, fmt.Errorf("rewrite produced an invalid model: %w", err)
+		if len(rw.Applied) == applied {
+			break
 		}
-		cur = validated
+		cur = next
 	}
 	rw.After = cur
 	return rw, nil

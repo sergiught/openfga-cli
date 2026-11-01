@@ -116,7 +116,10 @@ func (c *Command) optimizeCmd() *cobra.Command {
 			}
 			report, err := optimize.Analyze(lm.Proto)
 			if err != nil {
-				return clierr.WithCode(clierr.CodeUsage, err)
+				if errors.Is(err, optimize.ErrInvalidModel) {
+					return clierr.WithCode(clierr.CodeUsage, err)
+				}
+				return err
 			}
 
 			findings := filterTiers(report.Findings, want)

@@ -4,6 +4,7 @@ package optimize
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	openfgav1 "github.com/openfga/api/proto/openfga/v1"
@@ -12,13 +13,16 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// ErrInvalidModel is wrapped by NewModel when validation fails.
+var ErrInvalidModel = errors.New("invalid authorization model")
+
 // Model wraps the proto with lookups the rewrite rules need.
 type Model struct{ Proto *openfgav1.AuthorizationModel }
 
 // NewModel validates p and wraps it.
 func NewModel(p *openfgav1.AuthorizationModel) (*Model, error) {
 	if _, err := typesystem.NewAndValidate(context.Background(), p); err != nil {
-		return nil, fmt.Errorf("invalid authorization model: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidModel, err)
 	}
 	return &Model{Proto: p}, nil
 }
