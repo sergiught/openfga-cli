@@ -7,6 +7,7 @@ import (
 
 	openfgav1 "github.com/openfga/api/proto/openfga/v1"
 	"github.com/openfga/openfga/pkg/server"
+	"github.com/openfga/openfga/pkg/storage"
 	"github.com/openfga/openfga/pkg/storage/memory"
 	"google.golang.org/grpc"
 )
@@ -23,12 +24,21 @@ const defaultListMaxResults uint32 = 1_000_000
 // options; an unknown key is an error. A nil/empty map uses the
 // datastore/server defaults.
 func NewEmbeddedEngine(serverOpts map[string]any) (Engine, error) {
+	return newEmbeddedEngine(serverOpts, nil)
+}
+
+// newEmbeddedEngine is NewEmbeddedEngine with an optional wrap hook that
+// lets callers decorate the in-memory datastore (e.g. to count reads).
+func newEmbeddedEngine(serverOpts map[string]any, wrap func(storage.OpenFGADatastore) storage.OpenFGADatastore) (Engine, error) {
 	dsOpts, srvOpts, err := parseServerOpts(serverOpts)
 	if err != nil {
 		return nil, err
 	}
 
-	ds := memory.New(dsOpts...)
+	var ds storage.OpenFGADatastore = memory.New(dsOpts...)
+	if wrap != nil {
+		ds = wrap(ds)
+	}
 	// Raised list caps come first so a manifest `server:` override (appended
 	// after) still wins.
 	base := []server.OpenFGAServiceV1Option{
