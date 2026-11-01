@@ -315,3 +315,104 @@ type doc
 		t.Fatalf("no doc:t1 can_read deny->allow mismatch; mismatches=%+v unstable=%+v", res.Mismatches, res.Unstable)
 	}
 }
+
+// TestSplitUnstable_AfterOnlyFlipIsMismatch feeds splitUnstable recorded
+// mismatches for checks both models really answer alike, so re-running after
+// contradicts the recorded after answer, as if after had flapped. Such a flip
+// on a relation the rewrite changed must stay a mismatch; one on an unchanged
+// relation, or one where before itself varies, is unstable.
+func TestSplitUnstable_AfterOnlyFlipIsMismatch(t *testing.T) {
+	load := func(dsl string) *openfgav1.AuthorizationModel {
+		lm, err := modeltest.LoadModelBytes([]byte(dsl))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return lm.Proto
+	}
+	before := load(`model
+  schema 1.1
+type user
+type document
+  relations
+    define blocked: [user]
+    define viewer: [user]
+    define can_view: viewer
+`)
+	after := load(`model
+  schema 1.1
+type user
+type document
+  relations
+    define blocked: [user]
+    define viewer: [user] but not blocked
+    define can_view: viewer
+`)
+	src := &Source{Tuples: []*openfgav1.TupleKey{
+		tk("user:a", "blocked", "document:1"),
+		tk("user:b", "viewer", "document:1"),
+	}}
+	mism := func(name, user, rel string, before bool) Mismatch {
+		return Mismatch{Check: Check{Name: name, User: user, Relation: rel, Object: "document:1"}, AllowedBefore: before, AllowedAfter: !before}
+	}
+	in := []Mismatch{
+		mism("rewritten", "user:b", "viewer", true),           // only after varies
+		mism("reaches rewritten", "user:b", "can_view", true), // likewise, via can_view -> viewer
+		mism("unchanged", "user:a", "blocked", true),          // blocked cannot reach viewer
+		mism("before varies", "user:b", "viewer", false),      // before really allows
+	}
+	stable, unstable, err := splitUnstable(context.Background(), before, after, src, nil, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := func(ms []Mismatch) (out []string) {
+		for _, m := range ms {
+			out = append(out, m.Name)
+		}
+		return out
+	}
+	if got, want := names(stable), []string{"rewritten", "reaches rewritten"}; !slices.Equal(got, want) {
+		t.Errorf("stable = %v, want %v", got, want)
+	}
+	if got, want := names(unstable), []string{"unchanged", "before varies"}; !slices.Equal(got, want) {
+		t.Errorf("unstable = %v, want %v", got, want)
+	}
+}
+
+func TestChangedRelations_DirectTypesAndDefinitions(t *testing.T) {
+	load := func(dsl string) *openfgav1.AuthorizationModel {
+		lm, err := modeltest.LoadModelBytes([]byte(dsl))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return lm.Proto
+	}
+	before := load(`model
+  schema 1.1
+type user
+type group
+  relations
+    define member: [user]
+type document
+  relations
+    define owner: [user]
+    define editor: [user]
+    define viewer: [user] or editor
+`)
+	after := load(`model
+  schema 1.1
+type user
+type group
+  relations
+    define member: [user]
+type document
+  relations
+    define owner: [user, group#member]
+    define editor: [user]
+    define viewer: [user]
+`)
+	got := changedRelations(before, after)
+	slices.Sort(got)
+	if want := []string{"document#owner", "document#viewer"}; !slices.Equal(got, want) {
+		t.Fatalf("changed = %v, want %v", got, want)
+	}
+}

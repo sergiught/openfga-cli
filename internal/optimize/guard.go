@@ -34,6 +34,23 @@ func recursiveExclusion(m *Model) (site string, ok bool) {
 	return slices.Min(sites), true
 }
 
+// Dependents returns every relation ("type#rel") of m that can reach one of
+// targets in the relation dependency graph, targets included.
+func Dependents(m *Model, targets []string) map[string]bool {
+	graph := dependencyGraph(m)
+	out := map[string]bool{}
+	for n := range graph {
+		reach := reachable(graph, []string{n})
+		for _, t := range targets {
+			if reach[t] {
+				out[n] = true
+				break
+			}
+		}
+	}
+	return out
+}
+
 // cyclicRelations returns the nodes of graph that lie on a cycle, i.e. reach
 // themselves through at least one edge.
 func cyclicRelations(graph map[string][]string) map[string]bool {

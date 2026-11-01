@@ -212,7 +212,7 @@ func renderBench(w io.Writer, r *bench.Result) error {
 		return err
 	}
 	if err := renderAnswers(w, "Unstable answers",
-		"the engine answered these differently across re-runs of the same model; not counted as changed", r.Unstable); err != nil {
+		"the original model answered these differently across re-runs, or they cannot reach a rewritten relation; not counted as changed", r.Unstable); err != nil {
 		return err
 	}
 	t := r.Totals

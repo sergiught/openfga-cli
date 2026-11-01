@@ -5,11 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	openfgav1 "github.com/openfga/api/proto/openfga/v1"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/sergiught/openfga-cli/internal/modeltest"
+	"github.com/sergiught/openfga-cli/internal/optimize"
 )
 
 // ErrSetup marks failures creating the embedded server or writing the model
@@ -104,35 +107,74 @@ func Run(ctx context.Context, before, after *openfgav1.AuthorizationModel, src *
 	return res, nil
 }
 
-// reruns is how many times splitUnstable re-checks a mismatch on each model.
+// reruns is how many times splitUnstable re-checks a mismatch on the before
+// model.
 const reruns = 5
 
-// splitUnstable re-runs each mismatch on the before and then the after model.
-// A mismatch whose answer varies on either model is engine nondeterminism (a
-// cycle under an exclusion can make OpenFGA answer differently run to run), so
-// it moves to unstable.
+// splitUnstable moves engine nondeterminism to unstable: a mismatch whose
+// answer varies when the before model is re-run (a cycle under an exclusion
+// can make OpenFGA answer differently run to run), or whose relation cannot
+// reach any relation the rewrite changed, so both models evaluate the same
+// tree. A mismatch where only the after model varies on a rewritten path is
+// kept: the rewrite may be what made the answer unstable.
 func splitUnstable(ctx context.Context, before, after *openfgav1.AuthorizationModel, src *Source, serverOpts map[string]any, mism []Mismatch) (stable, unstable []Mismatch, err error) {
 	unstable = []Mismatch{}
 	if len(mism) == 0 {
 		return mism, unstable, nil
 	}
+	// A relation that reached a changed one only in before reaches, in
+	// after, the first changed relation on that path, so after's graph is
+	// enough.
+	affected := optimize.Dependents(&optimize.Model{Proto: after}, changedRelations(before, after))
 	bVar, err := varies(ctx, before, src, serverOpts, mism, func(m Mismatch) bool { return m.AllowedBefore })
 	if err != nil {
 		return nil, nil, fmt.Errorf("before: %w", err)
 	}
-	aVar, err := varies(ctx, after, src, serverOpts, mism, func(m Mismatch) bool { return m.AllowedAfter })
-	if err != nil {
-		return nil, nil, fmt.Errorf("after: %w", err)
-	}
 	stable = []Mismatch{}
 	for i, m := range mism {
-		if bVar[i] || aVar[i] {
+		typ, _, _ := strings.Cut(m.Object, ":")
+		if bVar[i] || !affected[typ+"#"+m.Relation] {
 			unstable = append(unstable, m)
 		} else {
 			stable = append(stable, m)
 		}
 	}
 	return stable, unstable, nil
+}
+
+// changedRelations lists the relations ("type#rel") whose definition or
+// directly related types differ between before and after, including any that
+// exist in only one of them.
+func changedRelations(before, after *openfgav1.AuthorizationModel) []string {
+	type def struct {
+		us     *openfgav1.Userset
+		direct *openfgav1.RelationMetadata
+	}
+	defs := func(m *openfgav1.AuthorizationModel) map[string]def {
+		out := map[string]def{}
+		for _, td := range m.GetTypeDefinitions() {
+			for rel, us := range td.GetRelations() {
+				out[td.GetType()+"#"+rel] = def{us, td.GetMetadata().GetRelations()[rel]}
+			}
+		}
+		return out
+	}
+	b, a := defs(before), defs(after)
+	var changed []string
+	for k, ad := range a {
+		bd, ok := b[k]
+		if !ok || !proto.Equal(bd.us, ad.us) ||
+			!slices.EqualFunc(bd.direct.GetDirectlyRelatedUserTypes(), ad.direct.GetDirectlyRelatedUserTypes(),
+				func(x, y *openfgav1.RelationReference) bool { return proto.Equal(x, y) }) {
+			changed = append(changed, k)
+		}
+	}
+	for k := range b {
+		if _, ok := a[k]; !ok {
+			changed = append(changed, k)
+		}
+	}
+	return changed
 }
 
 // varies reports, per mismatch, whether any of reruns checks on model answers
