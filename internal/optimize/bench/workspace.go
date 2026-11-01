@@ -24,12 +24,17 @@ func FromWorkspace(ws *modeltest.Workspace) (*Source, []string, error) {
 	}
 
 	seen := map[string]string{} // triple -> full key (with condition)
+	seenChecks := map[Check]bool{}
 	var tuples []modeltest.TupleKey
 
 	for _, tf := range ws.TestFiles {
 		id := ws.TestFileID(tf)
 		if tf.Model != "" && filepath.Clean(filepath.Join(filepath.Dir(tf.Path), tf.Model)) != manifestModel {
-			notices = append(notices, fmt.Sprintf("skipped test file %s: it uses its own model %q, not the workspace model", id, tf.Model))
+			why := "not the workspace model"
+			if manifestModel == "" {
+				why = "manifest has no model"
+			}
+			notices = append(notices, fmt.Sprintf("skipped test file %s: it uses its own model %q, %s", id, tf.Model, why))
 			continue
 		}
 		for _, tt := range tf.Tests {
@@ -54,6 +59,13 @@ func FromWorkspace(ws *modeltest.Workspace) (*Source, []string, error) {
 			}
 
 			for _, cc := range tt.Check {
+				if len(cc.Context) > 0 || len(cc.ContextualTuples) > 0 {
+					n := fmt.Sprintf("skipped %s/%s check: uses context or contextual tuples", id, tt.Name)
+					if !slices.Contains(notices, n) {
+						notices = append(notices, n)
+					}
+					continue
+				}
 				users, objects, err := cc.Subjects()
 				if err != nil {
 					return nil, nil, fmt.Errorf("%s/%s: %w", id, tt.Name, err)
@@ -66,12 +78,16 @@ func FromWorkspace(ws *modeltest.Workspace) (*Source, []string, error) {
 				for _, u := range users {
 					for _, o := range objects {
 						for _, r := range relations {
-							src.Checks = append(src.Checks, Check{
+							c := Check{
 								Name:     fmt.Sprintf("%s/%s %s %s %s", id, tt.Name, u, r, o),
 								User:     u,
 								Relation: r,
 								Object:   o,
-							})
+							}
+							if !seenChecks[c] {
+								seenChecks[c] = true
+								src.Checks = append(src.Checks, c)
+							}
 						}
 					}
 				}

@@ -106,3 +106,24 @@ func TestWorkspaceSource_OneCheckPerAssertion(t *testing.T) {
 		t.Fatalf("checks = %+v\nwant %+v", src.Checks, want)
 	}
 }
+
+func TestWorkspaceSource_SkipsContextChecks(t *testing.T) {
+	ws := writeWS(t, map[string]string{
+		"tuples.yaml": "- user:anne owner document:1\n",
+		"tests/a.test.yaml": "tests:\n  - name: t1\n    check:\n" +
+			"      - {user: user:anne, object: document:1, context: {x: 2}, assertions: {viewer: true}}\n" +
+			"      - {user: user:anne, object: document:1, assertions: {viewer: true}}\n" +
+			"      - {user: user:anne, object: document:1, assertions: {viewer: true}}\n",
+	})
+	src, notices, err := FromWorkspace(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(src.Checks) != 1 {
+		t.Fatalf("checks = %+v", src.Checks)
+	}
+	want := []string{"skipped a/t1 check: uses context or contextual tuples"}
+	if !slices.Equal(notices, want) {
+		t.Fatalf("notices = %v", notices)
+	}
+}
