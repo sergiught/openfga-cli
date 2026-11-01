@@ -71,7 +71,7 @@ func (c *Command) optimizeCmd() *cobra.Command {
 			"Input: a DSL or JSON model file, or '-' for stdin. The format is auto-detected.\n\n" +
 			"Writing: --write overwrites the model file with the rewritten DSL (DSL files only; it reformats the file and drops comments). --output-file writes the rewritten DSL to another path and also accepts JSON or stdin input. --tier filters only what is reported, never what is written.\n\n" +
 			"Weights: in --json/--yaml output a finding weight of -1 means unbounded (infinite); human output renders it as inf.\n\n" +
-			"Exit codes: 0 success · 1 error · 2 usage (including an invalid model).",
+			"Exit codes: 0 success · 1 error · 2 usage (including an invalid model) · 3 benchmark found a check whose answer changed.",
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -178,12 +178,12 @@ func (c *Command) optimizeCmd() *cobra.Command {
 
 			if out.Bench != nil && len(out.Bench.Mismatches) > 0 {
 				return clierr.WithCode(clierr.CodeTestFailed, fmt.Errorf(
-					"benchmark found %d checks whose result changed; rewrite was NOT written — please report model bug",
-					len(out.Bench.Mismatches)))
+					"benchmark found %s whose answer changed; rewrite was NOT written — please report this model bug",
+					plural(len(out.Bench.Mismatches), "check")))
 			}
 
 			if out.Rewrite == nil {
-				output.Infof(cmd.ErrOrStderr(), "no safe rewrites; %d recommendations", len(report.Findings))
+				output.Infof(cmd.ErrOrStderr(), "no safe rewrites; %s", plural(len(findings), "recommendation"))
 				return nil
 			}
 			dest := outPath

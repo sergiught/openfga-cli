@@ -437,7 +437,7 @@ func TestOptimize_BenchMismatchExits3AndDoesNotWrite(t *testing.T) {
 		if clierr.Code(err) != clierr.CodeTestFailed {
 			t.Fatalf("code = %d, err = %v", clierr.Code(err), err)
 		}
-		if !strings.Contains(err.Error(), "benchmark found 1 checks whose result changed; rewrite was NOT written") {
+		if !strings.Contains(err.Error(), "benchmark found 1 check whose answer changed; rewrite was NOT written") {
 			t.Errorf("message = %v", err)
 		}
 		var got optimizeOutput
@@ -518,5 +518,45 @@ func TestOptimize_WorkspaceMismatchedModelIsUsageWithSynthHint(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "workspace model is") || !strings.Contains(stderr, other) {
 		t.Errorf("missing notice naming both paths: %q", stderr)
+	}
+}
+
+func TestRenderBench_ListsChangedAnswers(t *testing.T) {
+	r := &bench.Result{
+		Source:     "synthesis",
+		TupleCount: 1,
+		Checks:     []bench.CheckResult{{Check: bench.Check{Name: "c"}, After: &bench.Metrics{}}},
+		Mismatches: []bench.Mismatch{{
+			Check:         bench.Check{Name: "probe 1", User: "user:a", Relation: "viewer", Object: "document:t1"},
+			AllowedBefore: true,
+		}},
+	}
+	var buf bytes.Buffer
+	if err := renderBench(&buf, r); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{"Benchmark (synthesis, 1 tuple, 1 check)", "Changed answers (1)", "probe 1: user:a viewer document:t1  allow", "deny"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestOptimize_NothingToDoCountHonorsTier(t *testing.T) {
+	const dsl = "model\n  schema 1.1\n\ntype user\n\ntype folder\n  relations\n    define parent: [folder]\n    define viewer: [user] or viewer from parent\n"
+	_, errAll, err := runOptimize(t, dsl, false, "-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, errCaller, err := runOptimize(t, dsl, false, "-", "--tier", "caller")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(errAll, "no safe rewrites; 0 recommendations") {
+		t.Fatalf("unfiltered stderr = %q, want a nonzero count", errAll)
+	}
+	if !strings.Contains(errCaller, "no safe rewrites; 0 recommendations") {
+		t.Errorf("--tier caller stderr = %q", errCaller)
 	}
 }

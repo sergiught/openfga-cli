@@ -146,7 +146,7 @@ func renderBench(w io.Writer, r *bench.Result) error {
 	if r == nil {
 		return nil
 	}
-	if _, err := fmt.Fprintf(w, "\n%s\n", style.Heading.Render(fmt.Sprintf("Benchmark (%s, %d tuples, %d checks)", r.Source, r.TupleCount, len(r.Checks)))); err != nil {
+	if _, err := fmt.Fprintf(w, "\n%s\n", style.Heading.Render(fmt.Sprintf("Benchmark (%s, %s, %s)", r.Source, plural(r.TupleCount, "tuple"), plural(len(r.Checks), "check")))); err != nil {
 		return err
 	}
 	profile := len(r.Checks) > 0 && r.Checks[0].After == nil
@@ -178,6 +178,26 @@ func renderBench(w io.Writer, r *bench.Result) error {
 	if err := tw.Flush(); err != nil {
 		return err
 	}
+	if len(r.Mismatches) > 0 {
+		if _, err := fmt.Fprintf(w, "\n%s\n", style.Heading.Render(fmt.Sprintf("Changed answers (%d)", len(r.Mismatches)))); err != nil {
+			return err
+		}
+		answer := func(allowed bool) string {
+			if allowed {
+				return "allow"
+			}
+			return "deny"
+		}
+		for _, m := range r.Mismatches {
+			if _, err := fmt.Fprintf(w, "  %s: %s %s %s  %s %s %s\n", m.Name, m.User, m.Relation, m.Object,
+				answer(m.AllowedBefore), style.IconArrow, answer(m.AllowedAfter)); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprintln(w); err != nil {
+			return err
+		}
+	}
 	t := r.Totals
 	var line string
 	if profile {
@@ -188,4 +208,12 @@ func renderBench(w io.Writer, r *bench.Result) error {
 	}
 	_, err := fmt.Fprintf(w, "%s\n%s\n", style.Bold.Render(line), style.Faint.Render("in-process, indicative only"))
 	return err
+}
+
+// plural renders a count with its noun, adding an "s" unless the count is 1.
+func plural(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("1 %s", noun)
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
