@@ -5,6 +5,10 @@ sidebar:
   order: 104
 ---
 
+import CommandDemo from '../../../../components/CommandDemo.astro';
+
+<CommandDemo slug="model-optimize" />
+
 Analyze an authorization model and report optimization findings in three tiers: safe (rewrites that never change any Check answer), caller (changes in how callers use the model) and tuple (changes in stored tuples). The safe rewrite is shown as a unified diff.
 
 Input: a DSL or JSON model file, or '-' for stdin. The format is auto-detected.

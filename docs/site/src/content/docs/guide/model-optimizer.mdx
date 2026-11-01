@@ -1,0 +1,189 @@
+---
+title: Optimizing authorization models
+description: Find redundant rewrites that never change a Check answer, get advice on recursion and exclusions, and prove the effect with an embedded before/after benchmark.
+sidebar:
+  order: 6
+---
+
+import CommandDemo from '../../../components/CommandDemo.astro';
+
+`ofga model optimize` analyzes an authorization model and reports what could
+be cheaper to evaluate. It applies only rewrites it can prove equivalent,
+recommends the changes it cannot prove, and can run the original and rewritten
+models side by side on an embedded OpenFGA server to show the effect.
+
+<CommandDemo slug="model-optimize" />
+
+```sh
+ofga model optimize model.fga            # findings and a diff of the safe rewrite
+ofga model optimize model.fga --bench    # also measure before and after
+ofga model optimize model.fga --write    # overwrite the file with the safe rewrite
+```
+
+The input is a DSL or JSON model file, or `-` for stdin. The model is never
+sent to a server unless you benchmark, and then only to a disposable in-memory
+one.
+
+## The three tiers
+
+| Tier | What it is | Who acts |
+| --- | --- | --- |
+| `safe` | A rewrite that never changes any Check answer. Rules S1 to S4. | The tool can apply it |
+| `caller` | A pattern that makes Checks costlier or slower to short-circuit | You, in how the model is queried |
+| `tuple` | A shape that makes Checks cost more reads as stored data nests | You, in how tuples are stored |
+
+Use `--tier safe,caller` to filter what is **reported**. The filter never
+changes what is written.
+
+### Safe rules
+
+| Rule | Rewrite |
+| --- | --- |
+| S1 | In a union, drop an operand already included by another operand (`editor or owner` becomes `editor` when `owner` is part of `editor`) |
+| S2 | In an intersection, drop an operand implied by the other (`owner and editor` becomes `owner`) |
+| S3 | Drop a duplicated operand (`A or A` becomes `A`) |
+| S4 | In a union, drop a `X from parent` operand already included by another operand |
+
+Each finding states its proof, such as `folder#owner ⊆ folder#editor`. No rule
+removes or renames a relation or changes the directly related types of one:
+every relation is a Check entry point, so even one nothing references is a live
+permission. Rewrites are applied to a fixpoint (at most 10 passes).
+
+### Advisory findings
+
+These are reported and never applied.
+
+| ID | Tier | Meaning |
+| --- | --- | --- |
+| C1 | caller | Recursion introduced inside an intersection or exclusion operand |
+| C2 | caller | An exclusion (`but not`) is present, so the subtracted side is always evaluated |
+| T1 | tuple | A relation introduces recursion: each nesting level in the tuple data costs one more datastore read and one more dispatch |
+| T2 | tuple | A union with 4 or more operands, where each operand is a separate dispatch |
+
+Advisory findings carry weights. An infinite weight is `-1` in JSON and YAML
+output and `inf` in human output.
+
+## Worked example
+
+The repository's reference model (`internal/optimize/testdata/reference.fga`)
+has an organization, groups, a folder hierarchy and documents.
+
+```sh
+ofga model optimize internal/optimize/testdata/reference.fga
+```
+
+```text
+Safe rewrites (5)
+  organization#can_view [S1]  member or admin → member
+    proof: organization#admin ⊆ organization#member
+  folder#can_delete [S2]  owner and editor → owner
+    proof: folder#owner ⊆ folder#editor
+  document#can_view [S4]  viewer or can_view from parent → viewer
+    proof: document#can_view from parent ⊆ document#viewer
+  ...
+Caller recommendations (1)
+  document#can_edit [C2]
+Tuple recommendations (5)
+  document#viewer [T2]
+  folder#editor [T1]
+  ...
+```
+
+The safe rewrite is also printed as a unified diff. `document#can_view` was
+`viewer or can_view from parent`; because the folder's `can_view` is an alias
+of its `viewer`, the TTU operand walks the same folder chain a second time and
+adds nothing.
+
+### Benchmark
+
+```sh
+ofga model optimize internal/optimize/testdata/reference.fga --bench --iterations 20 --plain
+```
+
+An excerpt of a real run (454 synthesized tuples, 25 checks). Your numbers
+will differ by machine and run:
+
+```text
+CHECK                       ANSWER  BEFORE reads/dispatches/p50/p95  AFTER reads/dispatches/p50/p95
+deny document#can_view      deny    130 / 22.0 / 1.05ms / 1.85ms     66 / 13.0 / 0.89ms / 1.60ms
+deny document#viewer        deny    74 / 13.0 / 0.95ms / 1.84ms      66 / 13.0 / 0.71ms / 1.39ms
+deny folder#can_view        deny    55 / 8.0 / 0.81ms / 1.19ms       48 / 8.0 / 0.77ms / 1.23ms
+deny organization#can_view  deny    7 / 1.0 / 0.21ms / 0.28ms        6 / 1.0 / 0.48ms / 0.75ms
+```
+
+## The equivalence guarantee
+
+A safe rewrite returns the same `true` or `false` as the original for every
+possible set of tuples. Two caveats apply.
+
+- **Conditions are handled conservatively.** A directly related type with a
+  condition (or a wildcard) is only comparable to an identical one, so a
+  conditioned term blocks every rule that would need to compare it. You may
+  miss a rewrite; you will not get a wrong one.
+- **Depth-limit errors are possible.** Equivalence is of the abstract
+  semantics. Near the server's resolve-node limit, a rewrite can change
+  resolution depth, so the original and the rewrite may differ in whether a
+  Check fails with a depth error. A rewrite only removes branches, so it never
+  makes depth worse, but the answer to a Check that errors can change from
+  error to a result.
+
+## Reading the benchmark
+
+`--bench` is opt-in. It builds two embedded servers, one per model, loads the
+same tuples, and runs the same Checks against both.
+
+- **The headline counts deny checks only.** A deny has to evaluate every
+  branch, so its datastore reads are stable from run to run. Allow checks stop
+  early while parallel branches race, so their reads vary and are shown but
+  not summarized.
+- **Latency (p50 and p95) is in-process and indicative only.** It is
+  sub-millisecond and noisy. Do not make decisions on it.
+- **Dispatch counts are informational.** They can be 0 for a purely
+  self-recursive model.
+- **The oracle.** Every Check must give the same answer on both models. If
+  one differs, the command exits `3`, writes nothing, and still emits JSON
+  output so you can see the offending check.
+
+### Where the tuples come from
+
+| Flag | Meaning |
+| --- | --- |
+| `--workspace` | Use the tuples of an `ofga.yaml` workspace. By default one is auto-detected by walking up from the model file's directory |
+| `--synth` | Ignore any workspace and synthesize tuples |
+| `--seed` | Seed for synthesis (default `1`) |
+| `--depth` | Synthesized parent-chain depth (default `6`) |
+| `--iterations` | Timed samples per check for latency (default `100`) |
+
+All of these require `--bench`. Workspace checks that use context or contextual
+tuples are skipped, each with a notice. If the workspace's tuples do not fit
+the model, the command fails with a usage error and a hint to try `--synth`.
+
+## Writing the result
+
+```sh
+ofga model optimize model.fga --write
+ofga model optimize model.json --output-file optimized.fga
+```
+
+- `--write` overwrites the model file in place and follows symlinks. It
+  refuses stdin and JSON input.
+- `--output-file <path>` writes the rewritten DSL elsewhere and also accepts
+  JSON or stdin input.
+- The two flags are mutually exclusive. The global `--output/-o` selects the
+  output format and has nothing to do with the destination.
+- **The rewrite is regenerated from the parsed model, so `--write` reformats
+  the file and drops comments.** Review the diff first.
+- Nothing is written when no safe rewrite applies, or when the benchmark finds
+  a changed answer.
+
+## Exit codes
+
+| Exit | Meaning |
+| --- | --- |
+| 0 | ok |
+| 2 | usage error, including an invalid model |
+| 3 | the benchmark found a check whose answer changed |
+
+See [Testing authorization models](../model-testing/) for checking a model
+against your own expectations, and [Output schemas](../output-schemas/) for the
+`--json` shape.
