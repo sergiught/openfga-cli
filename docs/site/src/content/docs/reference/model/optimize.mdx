@@ -35,7 +35,7 @@ ofga model optimize <model-file|-> [flags]
 
 | Flag | Description | Default |
 | --- | --- | --- |
-| `--output-file` | write the rewritten DSL to this path |   |
+| `--output-file` | write the rewritten DSL to this path (nothing is written when no safe rewrite applies) |   |
 | `--tier` | tiers to report: safe, caller, tuple (default all; never changes what is written) | `[]` |
 | `--write` | overwrite the model file with the rewritten DSL (reformats and drops comments; DSL files only) | `false` |
 

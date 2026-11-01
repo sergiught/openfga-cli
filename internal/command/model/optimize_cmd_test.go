@@ -237,3 +237,71 @@ func TestOptimize_InvalidModelIsUsage(t *testing.T) {
 		t.Errorf("error should wrap its cause: %v", err)
 	}
 }
+
+func TestOptimize_WriteFollowsSymlink(t *testing.T) {
+	target := copyReference(t)
+	link := filepath.Join(t.TempDir(), "link.fga")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, _, err := runOptimize(t, "", false, link, "--write"); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := os.Lstat(link); err != nil || st.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("symlink was replaced: %v %v", st, err)
+	}
+	data, _ := os.ReadFile(target)
+	if strings.Contains(string(data), "define can_delete: owner and editor") {
+		t.Errorf("target not rewritten:\n%s", data)
+	}
+}
+
+func TestOptimize_WriteAndOutputFileExclusive(t *testing.T) {
+	p := copyReference(t)
+	_, _, err := runOptimize(t, "", false, p, "--write", "--output-file", filepath.Join(t.TempDir(), "o.fga"))
+	wantUsage(t, err)
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestOptimize_JSONWriteRefusalLeavesFileUntouched(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "model.json")
+	js := []byte(`{"schema_version":"1.1","type_definitions":[{"type":"user"}]}`)
+	if err := os.WriteFile(p, js, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := runOptimize(t, "", false, p, "--write"); err == nil {
+		t.Fatal("want error")
+	}
+	if got, _ := os.ReadFile(p); !bytes.Equal(got, js) {
+		t.Errorf("file changed: %s", got)
+	}
+}
+
+func TestOptimize_WriteWithNoRewriteLeavesFileUntouched(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "model.fga")
+	dsl := []byte("model\n  schema 1.1\n\n# keep me\ntype user\n\ntype doc\n  relations\n    define viewer: [user]\n")
+	if err := os.WriteFile(p, dsl, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := runOptimize(t, "", false, p, "--write"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(p); !bytes.Equal(got, dsl) {
+		t.Errorf("file changed: %s", got)
+	}
+}
+
+func TestOptimize_WritePreservesMode(t *testing.T) {
+	p := copyReference(t)
+	if err := os.Chmod(p, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := runOptimize(t, "", false, p, "--write"); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := os.Stat(p); err != nil || st.Mode().Perm() != 0o640 {
+		t.Errorf("mode = %v, %v", st.Mode().Perm(), err)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -73,6 +74,9 @@ func (c *Command) optimizeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if write && outPath != "" {
+				return usageHint("use either --write (in place) or --output-file <path>", errors.New("--write and --output-file are mutually exclusive"))
+			}
 			if write && stdin {
 				return usageHint("use --output-file <path> to write the rewritten model", errors.New("--write cannot rewrite stdin"))
 			}
@@ -87,7 +91,7 @@ func (c *Command) optimizeCmd() *cobra.Command {
 				return err
 			}
 			format := "dsl"
-			if strings.HasPrefix(strings.TrimSpace(string(data)), "{") {
+			if isJSONModel(data) {
 				format = "json"
 			}
 			if write && format == "json" {
@@ -140,7 +144,10 @@ func (c *Command) optimizeCmd() *cobra.Command {
 			}
 			dest := outPath
 			if write {
-				dest = path
+				dest, err = filepath.EvalSymlinks(path)
+				if err != nil {
+					return fmt.Errorf("write %s: %w", path, err)
+				}
 			}
 			if dest == "" {
 				return nil
@@ -156,7 +163,7 @@ func (c *Command) optimizeCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&write, "write", false, "overwrite the model file with the rewritten DSL (reformats and drops comments; DSL files only)")
-	cmd.Flags().StringVar(&outPath, "output-file", "", "write the rewritten DSL to this path")
+	cmd.Flags().StringVar(&outPath, "output-file", "", "write the rewritten DSL to this path (nothing is written when no safe rewrite applies)")
 	cmd.Flags().StringSliceVar(&tiers, "tier", nil, "tiers to report: safe, caller, tuple (default all; never changes what is written)")
 	_ = cmd.RegisterFlagCompletionFunc("tier", cobra.FixedCompletions([]string{"safe", "caller", "tuple"}, cobra.ShellCompDirectiveNoFileComp))
 	_ = cmd.MarkFlagFilename("output-file")
@@ -200,7 +207,7 @@ func writeFileAtomic(dest, content string) error {
 	}
 	f, err := atomicfile.Create(dest, perm)
 	if err != nil {
-		return err
+		return fmt.Errorf("write %s: %w", dest, err)
 	}
 	defer f.Abort()
 	if _, err := f.Write([]byte(content)); err != nil {
