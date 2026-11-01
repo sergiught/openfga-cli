@@ -2,15 +2,17 @@ package modeltest
 
 import (
 	"context"
-	openfgav1 "github.com/openfga/api/proto/openfga/v1"
 	"sync/atomic"
 
 	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
+	openfgav1 "github.com/openfga/api/proto/openfga/v1"
 	"github.com/openfga/openfga/pkg/storage"
 )
 
 // Counters tallies datastore tuple reads. The caller resets it between
-// checks; Reads reports the total since the last Reset.
+// checks; Reads reports the total since the last Reset. Only the four
+// Check-path tuple reads are counted: Read, ReadUserTuple,
+// ReadUsersetTuples and ReadStartingWithUser.
 type Counters struct{ reads atomic.Int64 }
 
 // Reset zeroes the counters.
