@@ -231,6 +231,62 @@ func TestOptimize_NothingToDoExitsZero(t *testing.T) {
 	if m["rewrite"] != nil || !reflect.DeepEqual(m["findings"], []any{}) {
 		t.Errorf("rewrite/findings = %v / %v", m["rewrite"], m["findings"])
 	}
+	if v, ok := m["safeRewritesBlocked"]; ok {
+		t.Errorf("safeRewritesBlocked = %v, want it omitted", v)
+	}
+}
+
+// recursiveExclusionModel has a recursive exclusion (doc#can_read) and an AND
+// on a tuple cycle in an unrelated type; the gate must block every rewrite.
+const recursiveExclusionModel = `model
+  schema 1.1
+
+type user
+
+type folder
+  relations
+    define parent: [folder]
+    define viewer: [user] or viewer from parent
+
+type doc
+  relations
+    define parent: [folder]
+    define can_read: [user] but not viewer from parent
+
+type team
+  relations
+    define parent: [team]
+    define member: [user] or both from parent
+    define wide: [user] or member
+    define both: member and wide
+`
+
+func TestOptimize_RecursiveExclusionBlocksRewrites(t *testing.T) {
+	const reason = "doc#can_read subtracts a recursive relation"
+	out, stderr, err := runOptimize(t, recursiveExclusionModel, false, "-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr, "safe rewrites disabled: "+reason) {
+		t.Errorf("stderr = %q, want the blocked notice", stderr)
+	}
+	if strings.Contains(out, "Diff") {
+		t.Errorf("unexpected diff:\n%s", out)
+	}
+	jsonOut, _, err := runOptimize(t, recursiveExclusionModel, true, "-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(jsonOut), &m); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := m["safeRewritesBlocked"].(string); !strings.HasPrefix(got, reason) {
+		t.Errorf("safeRewritesBlocked = %q, want it to start with %q", got, reason)
+	}
+	if m["rewrite"] != nil {
+		t.Errorf("rewrite = %v, want null", m["rewrite"])
+	}
 }
 
 func TestOptimize_InvalidModelIsUsage(t *testing.T) {
@@ -565,16 +621,17 @@ func TestOptimize_UnstableAnswersAreNoticedNotFailed(t *testing.T) {
 	}
 }
 
-func TestOptimize_AnalyzeFailureExits1(t *testing.T) {
+func TestOptimize_AnalyzesWithoutWeightedGraph(t *testing.T) {
 	// OpenFGA accepts a tuple cycle through `and`, but the weighted graph the
-	// optimizer analyzes cannot be built for it.
-	const dsl = "model\n  schema 1.1\n\ntype user\n\ntype folder\n  relations\n    define parent: [folder]\n    define a: [user] or b from parent\n    define b: [user] and a\n"
-	_, _, err := runOptimize(t, dsl, false, "-")
-	if err == nil || clierr.Code(err) != clierr.CodeError {
-		t.Fatalf("want exit 1, got code %d: %v", clierr.Code(err), err)
+	// optimizer reads weights from cannot be built for it; the advisories
+	// must still be reported.
+	const dsl = "model\n  schema 1.1\n\ntype user\n\ntype folder\n  relations\n    define parent: [folder]\n    define allowed: [user]\n    define direct: [user]\n    define viewer: allowed and (direct or viewer from parent)\n"
+	out, _, err := runOptimize(t, dsl, false, "-")
+	if err != nil {
+		t.Fatalf("want success, got code %d: %v", clierr.Code(err), err)
 	}
-	if errors.Is(err, optimize.ErrInvalidModel) {
-		t.Fatalf("error should not be ErrInvalidModel: %v", err)
+	if !strings.Contains(out, "Caller recommendations") {
+		t.Errorf("output lacks the caller recommendations:\n%s", out)
 	}
 }
 

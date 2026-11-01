@@ -13,10 +13,14 @@ const minWideUnion = 4
 
 // advise returns caller- and tuple-tier findings for m, each tier sorted by
 // type, relation, then ID.
-func advise(m *Model) ([]Finding, error) {
+func advise(m *Model) []Finding {
+	// OpenFGA cannot build the weighted graph when an AND or BUT NOT sits on a
+	// tuple cycle. Findings then carry no weights, and recursion is read from
+	// the relation dependency graph's cycles instead of infinite weights.
 	w, err := Weights(m)
+	var cyclic map[string]bool
 	if err != nil {
-		return nil, err
+		cyclic = cyclicRelations(dependencyGraph(m))
 	}
 	var caller, tuple []Finding
 	for _, td := range m.Proto.GetTypeDefinitions() {
@@ -26,7 +30,7 @@ func advise(m *Model) ([]Finding, error) {
 			add := func(dst *[]Finding, id string, tier Tier, reason string) {
 				*dst = append(*dst, Finding{ID: id, Type: typ, Relation: rel, Reason: reason, Tier: tier, Weights: wts})
 			}
-			inf := hasInfinite(w[typ+"#"+rel])
+			inf := hasInfinite(w[typ+"#"+rel]) || cyclic[typ+"#"+rel]
 			// Recursion is "inside" the operands only when the relation's own
 			// definition introduces it; relations that merely inherit an
 			// infinite weight are not reported.
@@ -50,7 +54,7 @@ func advise(m *Model) ([]Finding, error) {
 	}
 	sortFindings(caller)
 	sortFindings(tuple)
-	return append(caller, tuple...), nil
+	return append(caller, tuple...)
 }
 
 func sortFindings(fs []Finding) {

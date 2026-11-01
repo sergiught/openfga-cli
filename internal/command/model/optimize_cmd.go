@@ -22,11 +22,12 @@ import (
 // optimizeOutput is what `model optimize` prints under --json/--yaml.
 // A finding weight of -1 means an unbounded (infinite) weight.
 type optimizeOutput struct {
-	SchemaVersion int                `json:"schemaVersion"`
-	Model         optimizeModelInfo  `json:"model"`
-	Findings      []optimize.Finding `json:"findings"`
-	Rewrite       *rewriteOutput     `json:"rewrite"`
-	Bench         *bench.Result      `json:"bench"`
+	SchemaVersion       int                `json:"schemaVersion"`
+	Model               optimizeModelInfo  `json:"model"`
+	Findings            []optimize.Finding `json:"findings"`
+	Rewrite             *rewriteOutput     `json:"rewrite"`
+	SafeRewritesBlocked string             `json:"safeRewritesBlocked,omitempty" jsonschema_description:"Why no safe rewrite was applied at all; set only when an exclusion subtracts a recursive relation."`
+	Bench               *bench.Result      `json:"bench"`
 }
 
 // optimizeModelInfo identifies the analysed input.
@@ -124,9 +125,13 @@ func (c *Command) optimizeCmd() *cobra.Command {
 
 			findings := filterTiers(report.Findings, want)
 			out := optimizeOutput{
-				SchemaVersion: 1,
-				Model:         optimizeModelInfo{File: path, Format: format},
-				Findings:      findings,
+				SchemaVersion:       1,
+				Model:               optimizeModelInfo{File: path, Format: format},
+				Findings:            findings,
+				SafeRewritesBlocked: report.Blocked,
+			}
+			if report.Blocked != "" {
+				output.Warnf(cmd.ErrOrStderr(), "safe rewrites disabled: %s", report.Blocked)
 			}
 			if rw := report.Rewrite; rw != nil {
 				before, err := rw.Before.DSL()

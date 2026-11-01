@@ -186,3 +186,34 @@ func TestAnalyze_T2Boundary(t *testing.T) {
 		t.Fatalf("4 operands: tuple = %v, want %v", got, want)
 	}
 }
+
+// TestAnalyze_AdvisesWithoutWeightedGraph has an AND on a tuple cycle, so
+// OpenFGA cannot build the weighted graph; advisories must still be reported,
+// with recursion taken from the dependency graph.
+func TestAnalyze_AdvisesWithoutWeightedGraph(t *testing.T) {
+	m := loadInline(t, `model
+  schema 1.1
+
+type user
+
+type folder
+  relations
+    define parent: [folder]
+    define allowed: [user]
+    define direct: [user]
+    define viewer: allowed and (direct or viewer from parent)
+`)
+	if weightedGraphBuilds(m) {
+		t.Fatal("weighted graph builds; the test needs a model where it does not")
+	}
+	rep, err := Analyze(m.Proto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := tierIDs(rep, TierCaller), []string{"C1 folder#viewer"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("caller = %v, want %v", got, want)
+	}
+	if got, want := tierIDs(rep, TierTuple), []string{"T1 folder#viewer"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("tuple = %v, want %v", got, want)
+	}
+}

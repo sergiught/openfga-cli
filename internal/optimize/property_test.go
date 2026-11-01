@@ -40,7 +40,7 @@ func TestProperty_RewritePreservesCheck(t *testing.T) {
 	const models = 150
 	withApplied := 0
 	perRule := map[string]int{}
-	totalChecks, trueChecks, diffUnion, unstable := 0, 0, 0, 0
+	totalChecks, trueChecks, diffUnion, unstable, blocked, combined := 0, 0, 0, 0, 0, 0
 	for range models {
 		var m *Model
 		for m == nil {
@@ -52,6 +52,19 @@ func TestProperty_RewritePreservesCheck(t *testing.T) {
 		dsl, _ := m.DSL()
 		if err != nil {
 			t.Fatalf("seed=%d rewrite: %v\nmodel:\n%s", seed, err, dsl)
+		}
+		if rw.Blocked != "" {
+			blocked++
+		}
+		// A recursive exclusion plus an AND on a tuple cycle elsewhere: the
+		// model-wide gate must stop every rewrite.
+		if _, ok := m.Relation("kd", "can_read"); ok {
+			if _, ok := m.Relation("kt", "both"); ok {
+				combined++
+				if len(rw.Applied) != 0 || rw.Blocked == "" {
+					t.Fatalf("seed=%d gate open on recursive exclusion: blocked=%q applied=%+v\nmodel:\n%s", seed, rw.Blocked, rw.Applied, dsl)
+				}
+			}
 		}
 		if len(rw.Applied) == 0 {
 			continue
@@ -100,6 +113,7 @@ func TestProperty_RewritePreservesCheck(t *testing.T) {
 	}
 	t.Logf("models with applied findings: %d/%d; per rule: %v", withApplied, models, perRule)
 	t.Logf("skipped engine-unstable models: %d", unstable)
+	t.Logf("models blocked by a recursive exclusion: %d (%d with an AND on a tuple cycle elsewhere)", blocked, combined)
 	t.Logf("findings on difference-with-union-base relations: %d", diffUnion)
 	if !custom && diffUnion == 0 {
 		t.Error("no finding landed on a union base under exclusion")
@@ -112,6 +126,9 @@ func TestProperty_RewritePreservesCheck(t *testing.T) {
 		}
 		if unstable > 3 {
 			t.Errorf("%d engine-unstable models skipped; the skip policy is hiding too much", unstable)
+		}
+		if combined == 0 {
+			t.Error("no model combined a recursive exclusion with an AND on a tuple cycle")
 		}
 		if withApplied < 20 {
 			t.Errorf("vacuous: only %d/%d models had applied findings", withApplied, models)
@@ -127,7 +144,7 @@ func TestProperty_RewritePreservesCheck(t *testing.T) {
 // onlyUnaffectedDiffer reports whether every differing check is on a relation
 // that cannot reach any relation rewritten in rw.
 func onlyUnaffectedDiffer(rw *RewriteResult, before, after map[checkKey]bool) bool {
-	graph, _ := dependencyGraph(rw.Before)
+	graph := dependencyGraph(rw.Before)
 	var rewritten []string
 	for _, f := range rw.Applied {
 		rewritten = append(rewritten, f.Type+"#"+f.Relation)

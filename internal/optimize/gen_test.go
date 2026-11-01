@@ -34,6 +34,9 @@ func genModel(r *rand.Rand) *openfgav1.AuthorizationModel {
 	}
 	if r.IntN(4) == 0 {
 		sb.WriteString(genExclusionCycleShape(r))
+		if r.IntN(2) == 0 {
+			sb.WriteString(genCycleAndShape(r))
+		}
 	}
 	lm, err := modeltest.LoadModelBytes([]byte(sb.String()))
 	if err != nil {
@@ -62,6 +65,20 @@ func genExclusionCycleShape(r *rand.Rand) string {
 		"\ntype k\n  relations\n    define parent: [k]\n    define a: [user]\n    " + heavy +
 		"\n    define y: " + and + "\n    define viewer: " + strings.Join(union, " or ") + "\n" +
 		"\ntype kd\n  relations\n    define parent: [k]\n    define can_read: [user] but not viewer from parent\n"
+}
+
+// genCycleAndShape returns a type with an AND on a tuple cycle, which stops
+// OpenFGA building the model's weighted graph and so disables its
+// weight-based resolvers everywhere. S2 can drop that AND. Combined with
+// genExclusionCycleShape it is the shape where a rewrite in one type changed
+// an exclusion's answer in another.
+func genCycleAndShape(r *rand.Rand) string {
+	and := "member and wide"
+	if r.IntN(2) == 0 {
+		and = "wide and member"
+	}
+	return "\ntype kt\n  relations\n    define parent: [kt]\n    define member: [user] or both from parent\n" +
+		"    define wide: [user] or member\n    define both: " + and + "\n"
 }
 
 func genDef(r *rand.Rand, ti, ri, nTypes int, nRels []int, parent int) string {

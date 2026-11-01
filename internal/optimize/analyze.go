@@ -9,6 +9,8 @@ type Report struct {
 	Findings []Finding
 	// Rewrite is nil when no safe findings were applied.
 	Rewrite *RewriteResult
+	// Blocked, when set, says why no safe rewrite could be applied.
+	Blocked string
 }
 
 // Analyze validates p, applies the safe rewrites and reports advisory
@@ -22,17 +24,13 @@ func Analyze(p *openfgav1.AuthorizationModel) (*Report, error) {
 	if err != nil {
 		return nil, err
 	}
-	rep := &Report{}
+	rep := &Report{Blocked: rw.Blocked}
 	target := m
 	if len(rw.Applied) > 0 {
 		rep.Rewrite = rw
 		rep.Findings = append(rep.Findings, rw.Applied...)
 		target = rw.After
 	}
-	adv, err := advise(target)
-	if err != nil {
-		return nil, err
-	}
-	rep.Findings = append(rep.Findings, adv...)
+	rep.Findings = append(rep.Findings, advise(target)...)
 	return rep, nil
 }

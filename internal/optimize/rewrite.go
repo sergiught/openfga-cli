@@ -1,6 +1,10 @@
 package optimize
 
-import "sort"
+import (
+	"sort"
+
+	"github.com/openfga/language/pkg/go/graph"
+)
 
 // maxPasses caps the rewrite fixpoint loop.
 const maxPasses = 10
@@ -10,16 +14,25 @@ type RewriteResult struct {
 	Applied []Finding
 	Before  *Model // original, untouched
 	After   *Model // rewritten and validated
+	// Blocked, when set, says why no safe rewrite was applied at all.
+	Blocked string
 }
 
 // Rewrite applies the safe rules to fixpoint (at most 10 passes). At most one
 // finding is applied per relation per pass, and the lattice is rebuilt from
 // the current model each pass, so dependent drops are re-derived rather than
-// assumed.
+// assumed. A model with a recursive exclusion gets no rewrite at all (see
+// recursiveExclusion), and a rewrite that changes whether OpenFGA can build
+// the model's weighted graph is discarded.
 func Rewrite(m *Model) (*RewriteResult, error) {
 	cur := m.Clone()
 	rw := &RewriteResult{Before: m}
-	guarded := guardedRelations(m)
+	if site, ok := recursiveExclusion(m); ok {
+		rw.Blocked = site + " subtracts a recursive relation; OpenFGA's cycle handling there depends on evaluation strategy, so no rewrite can be proven safe"
+		rw.After = cur
+		return rw, nil
+	}
+	buildable := weightedGraphBuilds(m)
 	for range maxPasses {
 		applied := len(rw.Applied)
 		l := BuildLattice(cur)
@@ -29,11 +42,7 @@ func Rewrite(m *Model) (*RewriteResult, error) {
 		}
 		var all []Finding
 		for _, r := range safeRules {
-			for _, f := range r(cur, l) {
-				if !guarded[f.Type+"#"+f.Relation] {
-					all = append(all, f)
-				}
-			}
+			all = append(all, r(cur, l)...)
 		}
 		sort.SliceStable(all, func(i, j int) bool {
 			a, b := all[i], all[j]
@@ -64,6 +73,11 @@ func Rewrite(m *Model) (*RewriteResult, error) {
 			if err != nil {
 				continue
 			}
+			// The weighted graph decides which resolvers OpenFGA uses for
+			// the whole model; keep that choice unchanged.
+			if weightedGraphBuilds(validated) != buildable {
+				continue
+			}
 			next = validated
 			rw.Applied = append(rw.Applied, f)
 		}
@@ -74,4 +88,10 @@ func Rewrite(m *Model) (*RewriteResult, error) {
 	}
 	rw.After = cur
 	return rw, nil
+}
+
+// weightedGraphBuilds reports whether OpenFGA can build m's weighted graph.
+func weightedGraphBuilds(m *Model) bool {
+	_, err := graph.NewWeightedAuthorizationModelGraphBuilder().Build(m.Proto)
+	return err == nil
 }

@@ -1,55 +1,61 @@
 package optimize
 
 import (
-	"maps"
+	"slices"
 
 	openfgav1 "github.com/openfga/api/proto/openfga/v1"
 )
 
-// guardedRelations returns the relations ("type#rel") that no safe rule may
-// rewrite: every relation reachable from a subtracted side of an exclusion
-// whose reachable region contains a cycle. When OpenFGA detects a cycle under
-// an exclusion, the exclusion denies, and whether it detects one depends on
-// the resolver it picks for each relation. It picks that resolver from the
-// weights of everything beneath the relation, so a rewrite anywhere in the
-// region, even on a relation that is not on or above the cycle, can change
-// the answer. The least-fixpoint proof does not carry over there.
-func guardedRelations(m *Model) map[string]bool {
-	graph, roots := dependencyGraph(m)
+// recursiveExclusion returns an exclusion ("type#rel", the first in sorted
+// order) whose subtracted side can reach a cycle in the relation dependency
+// graph. When OpenFGA detects a cycle under an exclusion, the exclusion
+// denies, and whether it detects one depends on the resolver it picks. That
+// choice is model-wide: an AND or BUT NOT on a tuple cycle anywhere stops
+// OpenFGA building its weighted graph and disables the weight-based
+// resolvers everywhere. So a rewrite in any type can change such an answer,
+// and the least-fixpoint proof does not carry over to any of them.
+func recursiveExclusion(m *Model) (site string, ok bool) {
+	graph := dependencyGraph(m)
+	cyclic := cyclicRelations(graph)
+	var sites []string
+	for _, td := range m.Proto.GetTypeDefinitions() {
+		for rel, us := range td.GetRelations() {
+			for n := range reachable(graph, relationEdges(m, td.GetType(), rel, us, true)) {
+				if cyclic[n] {
+					sites = append(sites, td.GetType()+"#"+rel)
+					break
+				}
+			}
+		}
+	}
+	if len(sites) == 0 {
+		return "", false
+	}
+	return slices.Min(sites), true
+}
 
-	// A node is on a cycle when it reaches itself through at least one edge.
+// cyclicRelations returns the nodes of graph that lie on a cycle, i.e. reach
+// themselves through at least one edge.
+func cyclicRelations(graph map[string][]string) map[string]bool {
 	cyclic := map[string]bool{}
 	for n, succ := range graph {
 		if reachable(graph, succ)[n] {
 			cyclic[n] = true
 		}
 	}
-
-	guarded := map[string]bool{}
-	for _, root := range roots {
-		region := reachable(graph, []string{root})
-		for n := range region {
-			if cyclic[n] {
-				maps.Copy(guarded, region)
-				break
-			}
-		}
-	}
-	return guarded
+	return cyclic
 }
 
-// dependencyGraph returns the relation dependency graph and the subtract-side
-// roots described on guardedRelations.
-func dependencyGraph(m *Model) (graph map[string][]string, roots []string) {
-	graph = map[string][]string{}
+// dependencyGraph returns the relation dependency graph: an edge from each
+// "type#rel" to every relation its definition can evaluate.
+func dependencyGraph(m *Model) map[string][]string {
+	graph := map[string][]string{}
 	for _, td := range m.Proto.GetTypeDefinitions() {
 		for rel, us := range td.GetRelations() {
-			node := td.GetType() + "#" + rel
-			graph[node] = relationEdges(m, td.GetType(), rel, us, false, nil)
-			roots = relationEdges(m, td.GetType(), rel, us, true, roots)
+			graph[td.GetType()+"#"+rel] = relationEdges(m, td.GetType(), rel, us, false)
 		}
 	}
-	return graph, roots
+	return graph
 }
 
 // reachable returns every node reachable from the given nodes, themselves
@@ -71,8 +77,8 @@ func reachable(graph map[string][]string, from []string) map[string]bool {
 
 // relationEdges lists the dependency edges of typ#rel's userset. With
 // subtractOnly it returns only edges found inside a difference's subtract
-// side, appended to acc.
-func relationEdges(m *Model, typ, rel string, us *openfgav1.Userset, subtractOnly bool, acc []string) []string {
+// side.
+func relationEdges(m *Model, typ, rel string, us *openfgav1.Userset, subtractOnly bool) []string {
 	var out []string
 	var walk func(u *openfgav1.Userset, inSub bool)
 	walk = func(u *openfgav1.Userset, inSub bool) {
@@ -112,5 +118,5 @@ func relationEdges(m *Model, typ, rel string, us *openfgav1.Userset, subtractOnl
 		}
 	}
 	walk(us, false)
-	return append(acc, out...)
+	return out
 }

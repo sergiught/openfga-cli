@@ -314,6 +314,10 @@
             }
           ]
         },
+        "safeRewritesBlocked": {
+          "description": "Why no safe rewrite was applied at all; set only when an exclusion subtracts a recursive relation.",
+          "type": "string"
+        },
         "schemaVersion": {
           "type": "integer"
         }
