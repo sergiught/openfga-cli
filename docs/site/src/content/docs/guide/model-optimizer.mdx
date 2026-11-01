@@ -75,20 +75,31 @@ has an organization, groups, a folder hierarchy and documents.
 ofga model optimize internal/optimize/testdata/reference.fga
 ```
 
+An excerpt of the output (`...` marks skipped lines):
+
 ```text
 Safe rewrites (5)
-  organization#can_view [S1]  member or admin → member
+  organization#can_view  [S1]  member or admin → member
+    reason: operand is already included by another operand of the union
     proof: organization#admin ⊆ organization#member
-  folder#can_delete [S2]  owner and editor → owner
-    proof: folder#owner ⊆ folder#editor
-  document#can_view [S4]  viewer or can_view from parent → viewer
-    proof: document#can_view from parent ⊆ document#viewer
   ...
+  folder#can_delete  [S2]  owner and editor → owner
+    reason: intersection operand is already implied by the other
+    proof: folder#owner ⊆ folder#editor
+  ...
+  document#can_view  [S4]  viewer or can_view from parent → viewer
+    reason: tuple-to-userset operand is already included by another operand of the union
+    proof: document#can_view from parent ⊆ document#viewer
+
 Caller recommendations (1)
-  document#can_edit [C2]
+  document#can_edit  [C2]
+    reason: Exclusion present: the subtracted side is always evaluated, so a Check on this relation costs at least one extra dispatch.
+    weights: user=inf
+
 Tuple recommendations (5)
-  document#viewer [T2]
-  folder#editor [T1]
+  document#viewer  [T2]
+    reason: Union with 4 operands: each operand is a separate dispatch; consider consolidating roles.
+    weights: user=inf
   ...
 ```
 
@@ -103,17 +114,23 @@ adds nothing.
 ofga model optimize internal/optimize/testdata/reference.fga --bench --iterations 20 --plain
 ```
 
-An excerpt of a real run (454 synthesized tuples, 25 checks). Your numbers
-will differ by machine and run:
+An excerpt of a real run (457 synthesized tuples, 25 checks; `...` marks
+skipped lines). Your numbers will differ by machine and run:
 
 ```text
+Benchmark (synthesis, 457 tuples, 25 checks)
 CHECK                       ANSWER  BEFORE reads/dispatches/p50/p95  AFTER reads/dispatches/p50/p95
-deny document#can_view      deny    130 / 22.0 / 1.53ms / 3.69ms     66 / 13.0 / 1.14ms / 1.94ms
-deny document#viewer        deny    74 / 13.0 / 1.42ms / 2.62ms      66 / 13.0 / 1.46ms / 3.02ms
-deny folder#can_view        deny    55 / 8.0 / 1.03ms / 1.21ms       48 / 8.0 / 0.96ms / 1.92ms
-deny organization#can_view  deny    7 / 1.0 / 0.43ms / 0.99ms        6 / 1.0 / 0.60ms / 0.75ms
 ...
-deny reads 360 → 273 (deny dispatches 58.0 → 49.0)
+deny document#can_view      deny    158 / 28.0 / 1.81ms / 5.56ms     78 / 16.0 / 1.39ms / 2.17ms
+...
+deny document#viewer        deny    88 / 16.0 / 1.41ms / 3.52ms      78 / 16.0 / 1.34ms / 4.00ms
+...
+deny folder#can_view        deny    69 / 11.0 / 1.24ms / 2.01ms      60 / 11.0 / 1.10ms / 2.39ms
+...
+deny organization#can_view  deny    7 / 1.0 / 0.28ms / 0.58ms        6 / 1.0 / 0.65ms / 0.83ms
+...
+deny reads 430 → 321 (deny dispatches 73.0 → 61.0)
+in-process, indicative only
 ```
 
 ## The equivalence guarantee
@@ -125,10 +142,13 @@ possible set of tuples, with the caveats below.
   condition (or a wildcard) is only comparable to an identical one, so a
   conditioned term blocks every rule that would need to compare it. You may
   miss a rewrite; you will not get a wrong one.
-- **Relations beneath `but not` can recurse and are never rewritten.**
-  OpenFGA's cycle detection depends on the shape of the evaluation, so a
-  rewrite there could change whether a Check errors. You may miss a rewrite;
-  you will not get a wrong one.
+- **Relations beneath a `but not` that can recurse are never rewritten.** If
+  the subtracted side of a `but not` can reach a cycle, no relation reachable
+  from that subtracted side is rewritten. When OpenFGA detects a cycle there,
+  the exclusion denies, and whether it detects one depends on the shape of the
+  model beneath, including relations that are not part of the cycle. So a
+  rewrite there could change the answer itself, not raise an error. You may
+  miss a rewrite; you will not get a wrong one.
 - **Depth-limit errors are possible.** Equivalence is of the abstract
   semantics. A rewrite only removes branches, but near the server's
   resolve-node limit whether a Check errors can still change, from an error
@@ -140,7 +160,7 @@ possible set of tuples, with the caveats below.
 same tuples, and runs the same Checks against both.
 
 - **The headline counts deny checks only.** A deny has to evaluate every
-  branch, so its datastore reads are stable from run to run. Allow checks stop
+  branch, so its datastore reads are nearly stable from run to run. Allow checks stop
   early while parallel branches race, so their reads vary and are shown but
   not summarized.
 - **Latency (p50 and p95) is in-process and indicative only.** It is
@@ -153,6 +173,15 @@ same tuples, and runs the same Checks against both.
   reach; the result's `probes` field counts them. If one differs, the command
   prints a `Changed answers` section, exits `3`, writes nothing, and still
   emits JSON output so you can see the offending check.
+- **Cyclic data.** Synthesis adds a two-object cycle beside each
+  self-referencing parent chain (for example `folder:cyc1` and `folder:cyc2`,
+  each the other's parent, with `folder:cyc1` also a parent of `folder:t1`), so
+  checks and probes exercise OpenFGA's cycle detection.
+- **Unstable answers.** A differing answer is re-run 5 times on each model. If
+  either model disagrees with itself, the difference is engine
+  nondeterminism, not the rewrite: it is listed under an
+  `Unstable answers (N)` notice (and in the result's `unstable` field) and
+  does not affect the exit code.
 
 ### Where the tuples come from
 
