@@ -30,3 +30,24 @@ type Finding struct {
 	// the finding was derived from. Never serialized.
 	apply func(*Model)
 }
+
+// FindingKey identifies one applied finding within a rewrite run. N counts
+// the findings with the same (Type, Relation, ID) applied earlier in the run.
+type FindingKey struct {
+	Type, Relation, ID string
+	N                  int
+}
+
+// Keys returns the key of each applied finding, in order.
+func Keys(applied []Finding) []FindingKey {
+	keys := make([]FindingKey, 0, len(applied))
+	count := map[FindingKey]int{}
+	for _, f := range applied {
+		k := FindingKey{Type: f.Type, Relation: f.Relation, ID: f.ID}
+		n := count[k]
+		count[k]++
+		k.N = n
+		keys = append(keys, k)
+	}
+	return keys
+}

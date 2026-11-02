@@ -186,3 +186,66 @@ func engineUnstable(t *testing.T, eng modeltest.Engine, m *openfgav1.Authorizati
 	}
 	return false
 }
+
+func TestProperty_RewriteSubsetPreservesCheck(t *testing.T) {
+	if testing.Short() {
+		t.Skip("property test is slow")
+	}
+	eng, err := modeltest.NewEmbeddedEngine(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = eng.Close() }()
+
+	withSubset := 0
+	for seed := uint64(1); seed <= 40; seed++ {
+		r := rand.New(rand.NewPCG(seed, 0))  //nolint:gosec // deterministic test generator
+		rc := rand.New(rand.NewPCG(seed, 1)) //nolint:gosec // conditions and wildcards
+		var m *Model
+		for m == nil {
+			if p := genModel(r, rc); p != nil {
+				m, _ = NewModel(p)
+			}
+		}
+		full, err := Rewrite(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pick := rand.New(rand.NewPCG(seed, 2)) //nolint:gosec // deterministic test generator
+		accept := map[FindingKey]bool{}
+		for _, k := range Keys(full.Applied) {
+			if pick.IntN(2) == 0 {
+				accept[k] = true
+			}
+		}
+		rw, err := RewriteSubset(m, accept)
+		dsl, _ := m.DSL()
+		if err != nil {
+			t.Fatalf("seed=%d rewrite subset: %v\nmodel:\n%s", seed, err, dsl)
+		}
+		for _, k := range Keys(rw.Applied) {
+			if !accept[k] {
+				t.Fatalf("seed=%d applied unaccepted %v", seed, k)
+			}
+		}
+		if len(rw.Applied) == 0 {
+			continue
+		}
+		withSubset++
+		tuples := genTuples(r, rc, m.Proto, 30)
+		checks := allChecks(m.Proto)
+		before := runChecks(t, eng, rw.Before.Proto, tuples, checks)
+		after := runChecks(t, eng, rw.After.Proto, tuples, checks)
+		if maps.Equal(before, after) {
+			continue
+		}
+		if onlyUnaffectedDiffer(rw, before, after) || engineUnstable(t, eng, rw.Before.Proto, tuples, checks, before) {
+			continue
+		}
+		t.Fatalf("seed=%d subset answers differ\nmodel:\n%s\napplied=%+v\ntuples=%v", seed, dsl, rw.Applied, tuples)
+	}
+	t.Logf("seeds with a non-empty subset: %d/40", withSubset)
+	if withSubset < 5 {
+		t.Errorf("vacuous: only %d/40 seeds applied a subset", withSubset)
+	}
+}

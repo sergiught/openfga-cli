@@ -27,7 +27,25 @@ type RewriteResult struct {
 // the model's weighted graph is discarded. In a model with a conditioned or
 // wildcard direct type, a rewrite that changes any relation's weight is
 // discarded too: OpenFGA's weight-2 TTU fast path answers wrongly there.
+//
+// RewriteSubset applies the same loop under the same gates but only for the
+// findings the caller accepts.
 func Rewrite(m *Model) (*RewriteResult, error) {
+	return rewrite(m, nil)
+}
+
+// RewriteSubset is Rewrite restricted to the findings named in accept. A nil
+// or empty map accepts nothing. Every gate of Rewrite still applies, so an
+// accepted finding is skipped if it would be unsafe in this combination.
+func RewriteSubset(m *Model, accept map[FindingKey]bool) (*RewriteResult, error) {
+	if accept == nil {
+		accept = map[FindingKey]bool{}
+	}
+	return rewrite(m, accept)
+}
+
+// rewrite is the shared loop; a nil accept map accepts every finding.
+func rewrite(m *Model, accept map[FindingKey]bool) (*RewriteResult, error) {
 	cur := m.Clone()
 	rw := &RewriteResult{Before: m}
 	if site, ok := recursiveExclusion(m); ok {
@@ -70,6 +88,18 @@ func Rewrite(m *Model) (*RewriteResult, error) {
 		next := cur
 		seen := map[string]bool{}
 		for _, f := range all {
+			// A rejected finding must not take the relation's slot for this pass.
+			if accept != nil {
+				n := 0
+				for _, a := range rw.Applied {
+					if a.Type == f.Type && a.Relation == f.Relation && a.ID == f.ID {
+						n++
+					}
+				}
+				if !accept[FindingKey{Type: f.Type, Relation: f.Relation, ID: f.ID, N: n}] {
+					continue
+				}
+			}
 			key := f.Type + "#" + f.Relation
 			if seen[key] {
 				continue

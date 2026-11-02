@@ -135,3 +135,111 @@ func TestRewrite_SkipsFindingThatInvalidatesModel(t *testing.T) {
 		t.Fatalf("applied = %+v, want only the valid finding on c", rw.Applied)
 	}
 }
+
+func keySet(keys []FindingKey) map[FindingKey]bool {
+	s := map[FindingKey]bool{}
+	for _, k := range keys {
+		s[k] = true
+	}
+	return s
+}
+
+func TestRewriteSubset_AllEqualsRewrite(t *testing.T) {
+	m := LoadReferenceModel(t)
+	full, err := Rewrite(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, err := RewriteSubset(m, keySet(Keys(full.Applied)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(Keys(sub.Applied), Keys(full.Applied)) {
+		t.Fatalf("keys differ: got %v want %v", Keys(sub.Applied), Keys(full.Applied))
+	}
+	got, _ := sub.After.DSL()
+	want, _ := full.After.DSL()
+	if got != want {
+		t.Fatalf("DSL differs:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestRewriteSubset_NoneIsIdentity(t *testing.T) {
+	m := LoadReferenceModel(t)
+	for _, accept := range []map[FindingKey]bool{{}, nil} {
+		sub, err := RewriteSubset(m, accept)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(sub.Applied) != 0 {
+			t.Fatalf("applied = %+v, want none", sub.Applied)
+		}
+		got, _ := sub.After.DSL()
+		want, _ := m.DSL()
+		if got != want {
+			t.Fatalf("After differs from input:\n%s", got)
+		}
+	}
+}
+
+func TestRewriteSubset_OnlyAccepted(t *testing.T) {
+	m := LoadReferenceModel(t)
+	full, err := Rewrite(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := Keys(full.Applied)
+	if len(all) != 5 {
+		t.Fatalf("want 5 keys, got %d", len(all))
+	}
+	for _, k := range all {
+		accept := keySet(all)
+		delete(accept, k)
+		sub, err := RewriteSubset(m, accept)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, got := range Keys(sub.Applied) {
+			if !accept[got] {
+				t.Errorf("rejecting %v: applied unaccepted %v", k, got)
+			}
+		}
+		if slices.Contains(Keys(sub.Applied), k) {
+			t.Errorf("rejected %v was applied", k)
+		}
+		if _, err := NewModel(sub.After.Proto); err != nil {
+			t.Errorf("rejecting %v: invalid After: %v", k, err)
+		}
+	}
+}
+
+func TestRewriteSubset_BlockedModel(t *testing.T) {
+	m := loadInline(t, c1Model)
+	full, err := Rewrite(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, accept := range []map[FindingKey]bool{nil, {}, keySet(Keys(full.Applied)), {{Type: "doc", Relation: "can_read", ID: "S1"}: true}} {
+		sub, err := RewriteSubset(m, accept)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertBlocked(t, sub)
+	}
+}
+
+func TestKeys_Occurrence(t *testing.T) {
+	got := Keys([]Finding{
+		{ID: "S1", Type: "doc", Relation: "viewer"},
+		{ID: "S2", Type: "doc", Relation: "editor"},
+		{ID: "S1", Type: "doc", Relation: "viewer"},
+	})
+	want := []FindingKey{
+		{Type: "doc", Relation: "viewer", ID: "S1", N: 0},
+		{Type: "doc", Relation: "editor", ID: "S2", N: 0},
+		{Type: "doc", Relation: "viewer", ID: "S1", N: 1},
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+}
