@@ -216,6 +216,8 @@ func (m Model) dialogContent() (string, string) {
 		w, _ := m.sh.DialogSize()
 		return "Error", style.Failure.Width(w).Render(safeMultiline(m.formErr)) +
 			"\n\n" + style.Faint.Render("enter or esc to dismiss")
+	case m.opt.dialog:
+		return "Write optimized model?", m.writeDialogBody()
 	case m.confirm != nil:
 		c := m.confirm
 		body := style.Value.Render(safeText(c.action)+" ") +

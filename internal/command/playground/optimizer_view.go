@@ -262,3 +262,76 @@ func (m Model) reviewCard(cur int) (string, string) {
 	}
 	return title, strings.Join(b, "\n")
 }
+
+// writeDialogLayout builds the write dialog's fixed lines above the diff and
+// its footer, plus how many diff lines fit between them.
+func (m Model) writeDialogLayout() (head []string, foot string, diffH int) {
+	o := m.opt
+	w, h := m.sh.DialogSize()
+	store := m.currentStoreName()
+	if store == "" {
+		store = m.storeID
+	}
+	n := len(o.subset.Applied)
+	head = []string{style.Value.Render(fmt.Sprintf("%s · new model version on %s", benchfmt.Plural(n, "rewrite"), safeText(store))), ""}
+	wrap := func(s string) {
+		head = append(head, strings.Split(ansi.Wrap(s, max(1, w), ""), "\n")...)
+	}
+	switch {
+	case o.running:
+		head = append(head, m.spinner.View()+" checking answers…")
+	case o.err != "":
+		wrap(style.Failure.Render(o.err))
+	case o.writeNoGraph:
+		wrap(style.Warn.Render(noGraphMsg + " — rewrites are proven safe by the rules but not double-checked against answers"))
+	case o.writeBench != nil && len(o.writeBench.Mismatches) > 0:
+		ms := o.writeBench.Mismatches
+		head = append(head, style.Failure.Render(benchfmt.Plural(len(ms), "answer")+" changed — not writing"))
+		for _, mm := range ms[:min(5, len(ms))] {
+			head = append(head, ansi.Truncate(fmt.Sprintf("  %s: %s %s %s", mm.Name, mm.User, mm.Relation, mm.Object), w, "…"))
+		}
+		head = append(head, style.Faint.Render("please report this as a bug"))
+	case o.writeBench != nil:
+		head = append(head, benchfmt.Totals(o.writeBench)...)
+	}
+	if o.writeBench != nil && len(o.writeBench.Unstable) > 0 && !o.running {
+		head = append(head, style.Faint.Render(benchfmt.Plural(len(o.writeBench.Unstable), "unstable answer")+" differ between runs (engine nondeterminism, not blocking)"))
+	}
+	if o.writeErr != "" {
+		wrap(style.Failure.Render("write failed: " + o.writeErr))
+	}
+	foot = style.Faint.Render("esc cancel")
+	if o.canWrite() {
+		foot = style.Faint.Render("y write · esc cancel")
+	}
+	return head, foot, max(0, h-len(head)-2)
+}
+
+// writeDialogBody renders the write dialog.
+func (m Model) writeDialogBody() string {
+	w, h := m.sh.DialogSize()
+	head, foot, diffH := m.writeDialogLayout()
+	lines := append([]string{}, head...)
+	lines = append(lines, "")
+	d := m.opt.dialogDiff
+	start := max(0, min(m.opt.dialogScroll, len(d)-diffH))
+	for _, l := range d[start:min(len(d), start+diffH)] {
+		switch {
+		case strings.HasPrefix(l, "+"):
+			l = style.Success.Render(l)
+		case strings.HasPrefix(l, "-"):
+			l = style.Failure.Render(l)
+		case strings.HasPrefix(l, "@@"):
+			l = style.Faint.Render(l)
+		}
+		lines = append(lines, l)
+	}
+	lines = append(lines, foot)
+	if len(lines) > h {
+		lines = lines[:h]
+	}
+	for i, l := range lines {
+		lines[i] = ansi.Truncate(l, w, "…")
+	}
+	return strings.Join(lines, "\n")
+}

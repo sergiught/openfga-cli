@@ -10,7 +10,7 @@ import (
 // split out of update.go's message dispatch to keep that file focused.
 func (m Model) handleWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	// Don't scroll under a modal/overlay or while editing text.
-	if m.helpOpen || m.formErr != "" || m.confirm != nil || m.paletteOpen || m.editorOpen || m.wb.newPromptOpen || m.editing || m.formKind != formNone {
+	if m.helpOpen || m.formErr != "" || m.confirm != nil || m.opt.dialog || m.paletteOpen || m.editorOpen || m.wb.newPromptOpen || m.editing || m.formKind != formNone {
 		return m, nil
 	}
 	up := msg.Button == tea.MouseWheelUp

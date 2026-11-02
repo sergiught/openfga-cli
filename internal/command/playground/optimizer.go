@@ -3,8 +3,10 @@ package playground
 import (
 	"context"
 	"errors"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/aymanbagabas/go-udiff"
 	openfgav1 "github.com/openfga/api/proto/openfga/v1"
 
 	"github.com/sergiught/openfga-cli/internal/modeltest"
@@ -58,6 +60,14 @@ type optimizer struct {
 	subset   *optimize.RewriteResult // RewriteSubset(model, accepted)
 	advice   []optimize.Finding      // findings that are not safe rewrites
 	selBench *bench.Result           // last review-B result; cleared on toggle or cursor move
+
+	// Write dialog (w).
+	dialog       bool          // the dialog is open over the review
+	dialogScroll int           // first diff line shown
+	dialogDiff   []string      // unified diff of the applied rewrites, built on open
+	writeBench   *bench.Result // answer check of the applied rewrites
+	writeNoGraph bool          // no weighted graph: the check can't run, write is allowed
+	writeErr     string        // last write failure, shown in the dialog
 }
 
 // appliedKeys is the set of accepted rewrites that actually apply; an
@@ -215,6 +225,15 @@ func (m *Model) handleOptBench(msg optBenchMsg) {
 		default:
 			m.opt.selBench = msg.result
 		}
+	case optKindWrite:
+		switch {
+		case msg.noGraph:
+			m.opt.writeNoGraph = true
+		case msg.err != nil:
+			m.opt.err = errStr(msg.err)
+		default:
+			m.opt.writeBench = msg.result
+		}
 	}
 }
 
@@ -287,6 +306,98 @@ func (m *Model) invalidateSelection() {
 	m.opt.err = ""
 }
 
+// openWriteDialog handles w in the review: confirm writing the applied
+// rewrites, gated on an answer check of exactly that selection.
+func (m *Model) openWriteDialog() tea.Cmd {
+	if m.opt.subset == nil || len(m.opt.subset.Applied) == 0 {
+		m.status = "accept a rewrite first"
+		if len(m.opt.accepted) > 0 {
+			m.status = "accepted rewrites depend on rejected ones"
+		}
+		return nil
+	}
+	before, err := m.opt.subset.Before.DSL()
+	if err != nil {
+		m.status = "optimize: " + errStr(err)
+		return nil
+	}
+	after, err := m.opt.subset.After.DSL()
+	if err != nil {
+		m.status = "optimize: " + errStr(err)
+		return nil
+	}
+	m.opt.dialog, m.opt.dialogScroll = true, 0
+	m.opt.writeBench, m.opt.writeNoGraph, m.opt.writeErr = nil, false, ""
+	m.opt.dialogDiff = strings.Split(strings.TrimRight(udiff.Unified("model", "model (optimized)", before, after), "\n"), "\n")
+	return m.startBench(optKindWrite, m.opt.proto, m.opt.subset.After.Proto)
+}
+
+// closeWriteDialog returns to the review with the accepted set intact; the
+// answer check is cancelled, so a late result arrives stale.
+func (m *Model) closeWriteDialog() {
+	m.opt.dialog, m.opt.dialogScroll, m.opt.dialogDiff = false, 0, nil
+	m.opt.writeBench, m.opt.writeNoGraph, m.opt.writeErr = nil, false, ""
+	m.invalidateSelection()
+}
+
+// canWrite reports whether the dialog's Write is enabled: the answer check
+// finished with no changed answer, or it cannot run at all.
+func (o optimizer) canWrite() bool {
+	if o.running || o.err != "" {
+		return false
+	}
+	return o.writeNoGraph || (o.writeBench != nil && len(o.writeBench.Mismatches) == 0)
+}
+
+// handleDialogKey handles keys while the write dialog is open; it swallows
+// every key.
+func (m *Model) handleDialogKey(key string) tea.Cmd {
+	switch key {
+	case "esc":
+		m.closeWriteDialog()
+	case "up", "k":
+		m.scrollDialog(-1)
+	case "down", "j":
+		m.scrollDialog(1)
+	case "y":
+		if m.modelApplying {
+			m.status = "model apply already in progress"
+			return nil
+		}
+		if !m.opt.canWrite() {
+			return nil
+		}
+		dsl, err := m.opt.subset.After.DSL()
+		if err != nil {
+			m.opt.writeErr = errStr(err)
+			return nil
+		}
+		m.opt.writeErr = ""
+		m.beginLoad()
+		m.modelApplying = true
+		m.modelApplyGen++
+		n := len(m.opt.subset.Applied)
+		m.mutationStatus = "writing optimized model…"
+		m.status = m.mutationStatus
+		apply := applyModelCmd(m.ctx, m.client, m.mutationOrigin(m.storeID, m.modelID, m.modelApplyGen), dsl)
+		return func() tea.Msg {
+			msg := apply()
+			if am, ok := msg.(modelAppliedMsg); ok {
+				am.optimized = n
+				return am
+			}
+			return msg
+		}
+	}
+	return nil
+}
+
+func (m *Model) scrollDialog(d int) {
+	_, _, diffH := m.writeDialogLayout()
+	maxScroll := max(0, len(m.opt.dialogDiff)-diffH)
+	m.opt.dialogScroll = max(0, min(m.opt.dialogScroll+d, maxScroll))
+}
+
 func (m *Model) handleReviewKey(key string) (tea.Cmd, bool) {
 	switch key {
 	case "up", "k":
@@ -324,7 +435,7 @@ func (m *Model) handleReviewKey(key string) (tea.Cmd, bool) {
 		m.opt.selBench = nil
 		return m.startBench(optKindSelection, m.opt.proto, m.opt.subset.After.Proto), true
 	case "w":
-		// Writing the new model arrives with the write dialog.
+		return m.openWriteDialog(), true
 	case "o":
 	default:
 		return nil, false

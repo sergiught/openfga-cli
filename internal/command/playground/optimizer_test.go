@@ -1,16 +1,24 @@
 package playground
 
 import (
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/openfga/language/pkg/go/transformer"
 	"github.com/sergiught/go-openfga/openfga"
 
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/configtest"
+	"github.com/sergiught/openfga-cli/internal/optimize/bench"
+	"github.com/sergiught/openfga-cli/internal/optimize/benchfmt"
 )
 
 const noGraphDSL = "model\n  schema 1.1\n\ntype user\n\ntype kt\n  relations\n" +
@@ -382,5 +390,239 @@ func TestOptimizer_LateSelectionBenchDropped(t *testing.T) {
 	}
 	if o.pendingLoads != before-1 || o.loading {
 		t.Errorf("pending loads unbalanced: before=%d after=%d loading=%v", before, o.pendingLoads, o.loading)
+	}
+}
+
+// pressW presses w in the review and returns the write-bench messages it
+// started; with deliver they are applied to the model first.
+func pressW(t *testing.T, m tea.Model, deliver bool) (tea.Model, []optBenchMsg) {
+	t.Helper()
+	m, cmd := m.Update(key("w"))
+	msgs := benchMsgs(cmd)
+	if deliver {
+		for _, msg := range msgs {
+			m, _ = m.Update(msg)
+		}
+	}
+	return m, msgs
+}
+
+// writeDialog accepts every rewrite of dsl and opens the write dialog.
+func writeDialog(t *testing.T, dsl string, deliver bool) (tea.Model, []optBenchMsg) {
+	t.Helper()
+	m := review(t, dsl)
+	m, _ = m.Update(key("a"))
+	m, msgs := pressW(t, m, deliver)
+	if len(msgs) != 1 || msgs[0].kind != optKindWrite {
+		t.Fatalf("want one write msg, got %+v", msgs)
+	}
+	return m, msgs
+}
+
+func TestOptimizer_WDisabledWhenNoneApplied(t *testing.T) {
+	m := review(t, referenceDSL(t))
+	m, msgs := pressW(t, m, false)
+	o := m.(Model)
+	if o.opt.dialog || len(msgs) != 0 || o.status != "accept a rewrite first" {
+		t.Errorf("dialog=%v msgs=%d status=%q", o.opt.dialog, len(msgs), o.status)
+	}
+}
+
+func TestOptimizer_DialogGatesOnBenchmark(t *testing.T) {
+	m, msgs := writeDialog(t, referenceDSL(t), false)
+	out := view(m)
+	for _, want := range []string{"Write optimized model?", "5 rewrites · new model version on demo", "checking answers"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+	if _, cmd := m.Update(key("y")); cmd != nil {
+		t.Error("y wrote before the check finished")
+	}
+	m, _ = m.Update(msgs[0])
+	out = view(m)
+	if !strings.Contains(out, "Answers          all ") || !strings.Contains(out, " unchanged") {
+		t.Errorf("totals missing:\n%s", out)
+	}
+	if !strings.Contains(out, "+++ model (optimized)") || !strings.Contains(out, "│  -  ") || !strings.Contains(out, "│  +  ") {
+		t.Errorf("diff missing:\n%s", out)
+	}
+	if !strings.Contains(out, "y write · esc cancel") {
+		t.Errorf("footer missing:\n%s", out)
+	}
+	if _, cmd := m.Update(key("y")); cmd == nil {
+		t.Error("y did not write")
+	}
+}
+
+func TestOptimizer_MismatchBlocksWrite(t *testing.T) {
+	m, msgs := writeDialog(t, referenceDSL(t), false)
+	msgs[0].result.Mismatches = []bench.Mismatch{{Check: bench.Check{Name: "chk-one", User: "user:a", Relation: "viewer", Object: "doc:1"}}}
+	m, _ = m.Update(msgs[0])
+	out := view(m)
+	for _, want := range []string{"1 answer changed — not writing", "chk-one", "please report this as a bug"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+	if _, cmd := m.Update(key("y")); cmd != nil {
+		t.Error("y wrote despite a changed answer")
+	}
+}
+
+func TestOptimizer_UnstableDoesNotBlock(t *testing.T) {
+	m, msgs := writeDialog(t, referenceDSL(t), false)
+	msgs[0].result.Unstable = []bench.Mismatch{{Check: bench.Check{Name: "flaky"}}}
+	m, _ = m.Update(msgs[0])
+	if out := view(m); !strings.Contains(out, "1 unstable") {
+		t.Errorf("unstable note missing:\n%s", out)
+	}
+	if _, cmd := m.Update(key("y")); cmd == nil {
+		t.Error("unstable answers blocked the write")
+	}
+}
+
+func TestOptimizer_NoGraphWarnsAndAllowsWrite(t *testing.T) {
+	m, msgs := writeDialog(t, referenceDSL(t), false)
+	m, _ = m.Update(optBenchMsg{origin: msgs[0].origin, kind: optKindWrite, noGraph: true})
+	out := strings.Join(strings.Fields(view(m)), " ")
+	// The dialog box borders break the wrapped lines; compare word by word.
+	for _, w := range strings.Fields("couldn't benchmark this model (an AND or BUT NOT sits on a tuple cycle) — rewrites are proven safe by the rules but not double-checked against answers") {
+		if !strings.Contains(out, w) {
+			t.Fatalf("warning word %q missing:\n%s", w, view(m))
+		}
+	}
+	if _, cmd := m.Update(key("y")); cmd == nil {
+		t.Error("no-graph model could not be written")
+	}
+}
+
+func TestOptimizer_WriteCountsApplied(t *testing.T) {
+	var body []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body = make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(body)
+		_, _ = w.Write([]byte(`{"authorization_model_id":"01NEW"}`))
+	}))
+	defer srv.Close()
+	m := review(t, dependentDSL)
+	mm := m.(Model)
+	cl, err := openfga.NewClient(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mm.client = cl
+	m = mm
+	// Accepting the first rewrite only applies it; the dependent one is not ticked.
+	m, _ = m.Update(key(" "))
+	m, msgs := pressW(t, m, true)
+	if len(msgs) != 1 {
+		t.Fatalf("want one write msg, got %d", len(msgs))
+	}
+	sub := m.(Model).opt.subset
+	if out := view(m); !strings.Contains(out, benchfmt.Plural(len(sub.Applied), "rewrite")+" · new model version") {
+		t.Errorf("dialog does not count applied rewrites:\n%s", out)
+	}
+	_, cmd := m.Update(key("y"))
+	if cmd == nil {
+		t.Fatal("y did not write")
+	}
+	applied, ok := cmd().(modelAppliedMsg)
+	if !ok || applied.err != nil || applied.optimized != len(sub.Applied) {
+		t.Fatalf("msg=%+v", applied)
+	}
+	wantDSL, err := sub.After.DSL()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantJSON, err := transformer.TransformDSLToJSON(wantDSL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got, want map[string]any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("body %q: %v", body, err)
+	}
+	if err := json.Unmarshal([]byte(wantJSON), &want); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got["type_definitions"], want["type_definitions"]) {
+		t.Errorf("written model differs:\n got %v\nwant %v", got["type_definitions"], want["type_definitions"])
+	}
+}
+
+func TestOptimizer_WriteSuccess(t *testing.T) {
+	configtest.Isolate(t)
+	m, msgs := writeDialog(t, referenceDSL(t), true)
+	_ = msgs
+	m, cmd := m.Update(key("y"))
+	if cmd == nil {
+		t.Fatal("y did not write")
+	}
+	mm := m.(Model)
+	m, cmd = m.Update(modelAppliedMsg{origin: mm.mutationOrigin(mm.storeID, mm.modelID, mm.modelApplyGen), modelID: "01NEWMODELIDLONGERTHANFOURTEEN", optimized: 3})
+	o := m.(Model)
+	if want := "wrote model " + short("01NEWMODELIDLONGERTHANFOURTEEN") + " · 3 rewrites"; o.status != want {
+		t.Errorf("status=%q want %q", o.status, want)
+	}
+	if o.opt.view != optNone || o.opt.dialog || cmd == nil || o.modelApplying {
+		t.Errorf("view=%v dialog=%v cmd=%v applying=%v", o.opt.view, o.opt.dialog, cmd != nil, o.modelApplying)
+	}
+}
+
+func TestOptimizer_WriteErrorKeepsDialog(t *testing.T) {
+	m, _ := writeDialog(t, referenceDSL(t), true)
+	m, _ = m.Update(key("y"))
+	mm := m.(Model)
+	mm.editorErr = "untouched"
+	m, _ = mm.Update(modelAppliedMsg{origin: mm.mutationOrigin(mm.storeID, mm.modelID, mm.modelApplyGen), err: errors.New("boom"), optimized: 5})
+	if out := view(m); !strings.Contains(out, "boom") || !m.(Model).opt.dialog {
+		t.Errorf("error not shown in dialog:\n%s", out)
+	}
+	if m.(Model).editorErr != "untouched" {
+		t.Errorf("editorErr changed: %q", m.(Model).editorErr)
+	}
+	m, _ = m.Update(key("esc"))
+	o := m.(Model)
+	if o.opt.dialog || o.opt.view != optReview || len(o.opt.accepted) != 5 {
+		t.Errorf("dialog=%v view=%v accepted=%d", o.opt.dialog, o.opt.view, len(o.opt.accepted))
+	}
+}
+
+func TestOptimizer_WriteWhileApplying(t *testing.T) {
+	m, _ := writeDialog(t, referenceDSL(t), true)
+	mm := m.(Model)
+	mm.modelApplying = true
+	m, cmd := mm.Update(key("y"))
+	if cmd != nil || m.(Model).status != "model apply already in progress" {
+		t.Errorf("cmd=%v status=%q", cmd != nil, m.(Model).status)
+	}
+}
+
+func TestOptimizer_DialogEscCancelsBench(t *testing.T) {
+	m, msgs := writeDialog(t, referenceDSL(t), false)
+	if !m.(Model).opt.running {
+		t.Fatal("bench not running")
+	}
+	m, _ = m.Update(key("esc"))
+	o := m.(Model)
+	if o.opt.running || o.opt.dialog {
+		t.Errorf("running=%v dialog=%v", o.opt.running, o.opt.dialog)
+	}
+	m, _ = m.Update(msgs[0])
+	if m.(Model).opt.writeBench != nil || m.(Model).opt.writeNoGraph {
+		t.Error("late write result landed")
+	}
+}
+
+func TestOptimizer_DialogScrolls(t *testing.T) {
+	m, _ := writeDialog(t, referenceDSL(t), true)
+	m, _ = m.Update(key("down"))
+	if m.(Model).opt.dialogScroll != 1 {
+		t.Errorf("scroll=%d", m.(Model).opt.dialogScroll)
+	}
+	m, _ = m.Update(key("k"))
+	if m.(Model).opt.dialogScroll != 0 {
+		t.Errorf("scroll=%d", m.(Model).opt.dialogScroll)
 	}
 }

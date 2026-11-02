@@ -1,6 +1,7 @@
 package playground
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/sergiught/openfga-cli/internal/dsl"
 	"github.com/sergiught/openfga-cli/internal/fga"
+	"github.com/sergiught/openfga-cli/internal/optimize/benchfmt"
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/list"
 	shell "github.com/sergiught/openfga-cli/internal/ui/shell"
@@ -248,6 +250,15 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.modelApplying = false
 		m.mutationStatus = ""
+		if msg.err != nil && msg.optimized > 0 {
+			// An optimizer write: report in its dialog, leaving the DSL editor alone.
+			m.connLost = isConnErr(msg.err)
+			m.opt.writeErr = errStr(msg.err)
+			if m.opt.dialog {
+				return m, nil
+			}
+			return m, m.toasts.Push(toast.Error, "write optimized model: "+m.opt.writeErr)
+		}
 		if msg.err != nil {
 			m.connLost = isConnErr(msg.err)
 			m.editorErr = errStr(msg.err)
@@ -263,6 +274,10 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.editorOpen = false
 		m.editor.Blur()
 		m.status = "model applied"
+		if msg.optimized > 0 {
+			m.stopOptimizer()
+			m.status = fmt.Sprintf("wrote model %s · %s", short(msg.modelID), benchfmt.Plural(msg.optimized, "rewrite"))
+		}
 		// A fresh reload of the just-applied model follows; begin its slot and
 		// bump modelGen so a slow in-flight model load from before the apply
 		// can't clobber it.
@@ -938,6 +953,11 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.confirm = nil
 		}
 		return m, nil
+	}
+	// The write dialog captures input until written or closed.
+	if m.opt.dialog {
+		cmd := m.handleDialogKey(msg.String())
+		return m, cmd
 	}
 	if m.paletteOpen {
 		switch msg.String() {
