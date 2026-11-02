@@ -7,6 +7,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/sergiught/go-openfga/openfga"
+
+	"github.com/sergiught/openfga-cli/internal/config"
+	"github.com/sergiught/openfga-cli/internal/configtest"
 )
 
 const noGraphDSL = "model\n  schema 1.1\n\ntype user\n\ntype kt\n  relations\n" +
@@ -175,5 +179,28 @@ func TestOptimizer_HelpListsKeys(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("help missing %q", want)
 		}
+	}
+}
+
+func TestOptimizer_ReconnectStopsBench(t *testing.T) {
+	configtest.Isolate(t)
+	m := optModel(t, referenceDSL(t))
+	m, msgs := shiftB(t, m, false)
+	if len(msgs) != 1 {
+		t.Fatalf("want one optBenchMsg, got %d", len(msgs))
+	}
+	mm := m.(Model)
+	other, _ := openfga.NewClient("http://localhost:9090")
+	mm.activateResolved(config.Resolved{StoreID: "store-1", APIURL: "http://localhost:9090"}, other, "switched")
+	m = mm
+	// The reconnect's own reloads stay pending; only the bench slot must free.
+	pending := mm.pendingLoads
+	m, _ = m.Update(msgs[0])
+	o := m.(Model)
+	if o.opt.view != optNone || o.opt.running {
+		t.Errorf("reconnect left optimizer active: %+v", o.opt)
+	}
+	if o.pendingLoads != pending-1 {
+		t.Errorf("pending loads unbalanced: before=%d after=%d", pending, o.pendingLoads)
 	}
 }

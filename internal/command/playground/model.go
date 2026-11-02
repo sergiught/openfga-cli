@@ -1525,6 +1525,7 @@ func (m *Model) activateResolved(r config.Resolved, cl *openfga.Client, status s
 	// arrival.
 	m.renewReqCtx()
 	m.connGen++
+	m.stopOptimizer()
 	m.storeCreateGen++
 	m.storeDeleteGen++
 	m.modelApplyGen++
