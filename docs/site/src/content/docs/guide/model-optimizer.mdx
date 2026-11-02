@@ -122,19 +122,20 @@ machine and run:
 ```text
 Benchmark · synthesis · 457 tuples · 25 checks · 20 runs
 
-  Deny reads       430 → 321 -25%
-  Deny dispatches  73 → 61 -16%
+  Deny reads       430 → 321   -25%
+  Deny dispatches   73 →  61   -16%
   Answers          all 25 unchanged
 
 Deny checks whose cost changed (5)
   CHECK                  READS           DISPATCHES        P50 ms
-  document#can_view      158 → 78  -51%  28 → 16     -43%  2.66 → 2.22
-  organization#can_view  7 → 6     -14%  1 → 1             0.55 → 0.54
-  folder#can_view        69 → 60   -13%  11 → 11           2.16 → 1.95
-  folder#viewer          69 → 60   -13%  11 → 11           2.37 → 1.89
-  document#viewer        88 → 78   -11%  16 → 16           2.26 → 1.78
+  document#can_view      158 → 78  -51%  28 → 16     -43%  3.00 → 2.39
+  organization#can_view    7 →  6  -14%   1 →  1           0.65 → 0.53
+  folder#can_view         69 → 60  -13%  11 → 11           2.30 → 1.93
+  folder#viewer           69 → 60  -13%  11 → 11           2.57 → 1.70
+  document#viewer         88 → 78  -11%  16 → 16           2.58 → 2.33
 
-10 deny checks unchanged · 10 allow checks not compared (allow checks stop early, so read counts are noise)
+  10 deny checks unchanged · 10 allow checks not compared
+  (allow checks stop early, so their read counts are noise)
 in-process, indicative only
 ```
 

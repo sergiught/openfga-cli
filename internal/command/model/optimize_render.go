@@ -192,9 +192,12 @@ func renderBench(w io.Writer, r *bench.Result) error {
 	if profile {
 		_, _ = fmt.Fprintf(w, "  Deny reads       %d\n  Deny dispatches  %s\n", t.DenyReadsBefore, dispatch(t.DenyDispatchesBefore))
 	} else {
+		rb, ra := fmt.Sprint(t.DenyReadsBefore), fmt.Sprint(t.DenyReadsAfter)
+		db, da := dispatch(t.DenyDispatchesBefore), dispatch(t.DenyDispatchesAfter)
+		wb, wa := max(len(rb), len(db)), max(len(ra), len(da))
 		_, _ = fmt.Fprintf(w, "  Deny reads       %s\n  Deny dispatches  %s\n",
-			change(fmt.Sprint(t.DenyReadsBefore), fmt.Sprint(t.DenyReadsAfter), float64(t.DenyReadsBefore), float64(t.DenyReadsAfter)),
-			change(dispatch(t.DenyDispatchesBefore), dispatch(t.DenyDispatchesAfter), t.DenyDispatchesBefore, t.DenyDispatchesAfter))
+			change(rb, ra, wb, wa, float64(t.DenyReadsBefore), float64(t.DenyReadsAfter)),
+			change(db, da, wb, wa, t.DenyDispatchesBefore, t.DenyDispatchesAfter))
 		answers := fmt.Sprintf("all %d unchanged", len(r.Checks))
 		if len(r.Mismatches) > 0 {
 			answers = style.Failure.Render(fmt.Sprintf("%d changed", len(r.Mismatches)))
@@ -241,16 +244,30 @@ func renderBench(w io.Writer, r *bench.Result) error {
 		} else {
 			_, _ = fmt.Fprintln(tw, "  CHECK\tREADS\t\tDISPATCHES\t\tP50 ms")
 		}
-		for _, c := range rows {
+		// Each metric is a before/after pair; right-align both halves across
+		// rows so the arrows line up.
+		cells := make([][6]string, len(rows))
+		var wd [6]int
+		for i, c := range rows {
+			cells[i] = [6]string{fmt.Sprint(c.Before.Reads), dispatch(c.Before.Dispatches), fmt.Sprintf("%.2f", c.Before.P50Ms)}
+			if !profile {
+				cells[i][3], cells[i][4], cells[i][5] = fmt.Sprint(c.After.Reads), dispatch(c.After.Dispatches), fmt.Sprintf("%.2f", c.After.P50Ms)
+			}
+			for k, v := range cells[i] {
+				wd[k] = max(wd[k], len(v))
+			}
+		}
+		for i, c := range rows {
 			name := strings.TrimPrefix(c.Name, "deny ")
+			v := cells[i]
 			if profile {
-				_, _ = fmt.Fprintf(tw, "  %s\t%d\t%s\t%.2f\n", name, c.Before.Reads, dispatch(c.Before.Dispatches), c.Before.P50Ms)
+				_, _ = fmt.Fprintf(tw, "  %s\t%*s\t%*s\t%*s\n", name, wd[0], v[0], wd[1], v[1], wd[2], v[2])
 				continue
 			}
-			_, _ = fmt.Fprintf(tw, "  %s\t%d %s %d\t%s\t%s %s %s\t%s\t%.2f %s %.2f\n", name,
-				c.Before.Reads, style.IconArrow, c.After.Reads, pctLabel(float64(c.Before.Reads), float64(c.After.Reads)),
-				dispatch(c.Before.Dispatches), style.IconArrow, dispatch(c.After.Dispatches), pctLabel(c.Before.Dispatches, c.After.Dispatches),
-				c.Before.P50Ms, style.IconArrow, c.After.P50Ms)
+			_, _ = fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\n", name,
+				pair(v[0], v[3], wd[0], wd[3]), pctLabel(float64(c.Before.Reads), float64(c.After.Reads)),
+				pair(v[1], v[4], wd[1], wd[4]), pctLabel(c.Before.Dispatches, c.After.Dispatches),
+				pair(v[2], v[5], wd[2], wd[5]))
 		}
 		if err := tw.Flush(); err != nil {
 			return err
@@ -273,12 +290,13 @@ func renderBench(w io.Writer, r *bench.Result) error {
 		parts = append(parts, plural(allow, "allow check")+" not compared")
 	}
 	if len(parts) > 0 {
-		line := strings.Join(parts, " · ")
-		if allow > 0 {
-			line += " (allow checks stop early, so read counts are noise)"
-		}
-		if _, err := fmt.Fprintf(w, "\n%s\n", style.Faint.Render(line)); err != nil {
+		if _, err := fmt.Fprintf(w, "\n  %s\n", style.Faint.Render(strings.Join(parts, " · "))); err != nil {
 			return err
+		}
+		if allow > 0 {
+			if _, err := fmt.Fprintf(w, "  %s\n", style.Faint.Render("(allow checks stop early, so their read counts are noise)")); err != nil {
+				return err
+			}
 		}
 	} else if _, err := fmt.Fprintln(w); err != nil {
 		return err
@@ -287,11 +305,17 @@ func renderBench(w io.Writer, r *bench.Result) error {
 	return err
 }
 
-// change renders "before → after -12%", omitting the percent when equal.
-func change(before, after string, b, a float64) string {
-	s := before + " " + style.IconArrow + " " + after
+// pair renders "before → after" with each half right-aligned to its width.
+func pair(before, after string, wb, wa int) string {
+	return fmt.Sprintf("%*s %s %*s", wb, before, style.IconArrow, wa, after)
+}
+
+// change renders an aligned "before → after   -12%", omitting the percent
+// when the values are equal.
+func change(before, after string, wb, wa int, b, a float64) string {
+	s := pair(before, after, wb, wa)
 	if l := pctLabel(b, a); l != "" {
-		s += " " + l
+		s += "   " + l
 	}
 	return s
 }

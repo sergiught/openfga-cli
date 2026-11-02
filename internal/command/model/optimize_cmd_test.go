@@ -675,13 +675,13 @@ func TestRenderBench_ChangedUnchangedAllowAndOrder(t *testing.T) {
 	out := buf.String()
 	wants := []string{
 		"Benchmark · synthesis · 10 tuples · 5 checks · 20 runs",
-		"Deny reads       217 → 158 -27%",
-		"Deny dispatches  12 → 9.5 -21%",
+		"Deny reads       217 → 158   -27%",
+		"Deny dispatches   12 → 9.5   -21%",
 		"all 5 unchanged",
 		"Deny checks whose cost changed (3)",
 		"big", "100 → 50", "-50%", "4 → 2", "-50%", "3.17 → 2.42",
 		"small", "100 → 90", "-10%",
-		"worse", "10 → 11", "+10%",
+		"worse", " 10 → 11", "+10%",
 		"1 deny check unchanged · 1 allow check not compared",
 		"allow checks stop early",
 		"in-process, indicative only",
