@@ -57,6 +57,7 @@ func Run(ctx context.Context, before, after *openfgav1.AuthorizationModel, src *
 		Source:     src.Kind,
 		Seed:       src.Seed,
 		TupleCount: len(src.Tuples),
+		Iterations: iters,
 		Skipped:    src.Skipped,
 		Checks:     make([]CheckResult, 0, len(src.Checks)),
 		Mismatches: []Mismatch{},

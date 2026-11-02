@@ -154,6 +154,9 @@
             "null"
           ]
         },
+        "iterations": {
+          "type": "integer"
+        },
         "mismatches": {
           "items": {
             "$ref": "#/$defs/Mismatch"
@@ -203,6 +206,7 @@
       "required": [
         "source",
         "tupleCount",
+        "iterations",
         "checks",
         "totals",
         "probes",

@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"io"
+	"math"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -170,44 +171,92 @@ func renderAnswers(w io.Writer, heading, note string, ms []bench.Mismatch) error
 	return err
 }
 
-// renderBench prints the benchmark table: deny rows first, then allow rows.
-// The headline covers deny checks only; allow read totals are noise.
+// renderBench prints the benchmark report: deny-check totals, then the deny
+// checks whose cost changed (or all of them in profile mode). Allow checks
+// stop early, so their read counts are noise and only appear in the footer.
 func renderBench(w io.Writer, r *bench.Result) error {
 	if r == nil {
 		return nil
 	}
-	if _, err := fmt.Fprintf(w, "\n%s\n", style.Heading.Render(fmt.Sprintf("Benchmark (%s, %s, %s)", r.Source, plural(r.TupleCount, "tuple"), plural(len(r.Checks), "check")))); err != nil {
+	profile := len(r.Checks) > 0 && r.Checks[0].After == nil
+	head := []string{"Benchmark", r.Source, plural(r.TupleCount, "tuple"), plural(len(r.Checks), "check")}
+	if r.Iterations > 0 {
+		head = append(head, plural(r.Iterations, "run"))
+	}
+	if _, err := fmt.Fprintf(w, "\n%s\n\n", style.Heading.Render(strings.Join(head, " · "))); err != nil {
 		return err
 	}
-	profile := len(r.Checks) > 0 && r.Checks[0].After == nil
-	cell := func(m *bench.Metrics) string {
-		return fmt.Sprintf("%d / %.1f / %.2fms / %.2fms", m.Reads, m.Dispatches, m.P50Ms, m.P95Ms)
+
+	t := r.Totals
+	dispatch := func(f float64) string { return strings.TrimSuffix(fmt.Sprintf("%.1f", f), ".0") }
+	if profile {
+		_, _ = fmt.Fprintf(w, "  Deny reads       %d\n  Deny dispatches  %s\n", t.DenyReadsBefore, dispatch(t.DenyDispatchesBefore))
+	} else {
+		_, _ = fmt.Fprintf(w, "  Deny reads       %s\n  Deny dispatches  %s\n",
+			change(fmt.Sprint(t.DenyReadsBefore), fmt.Sprint(t.DenyReadsAfter), float64(t.DenyReadsBefore), float64(t.DenyReadsAfter)),
+			change(dispatch(t.DenyDispatchesBefore), dispatch(t.DenyDispatchesAfter), t.DenyDispatchesBefore, t.DenyDispatchesAfter))
+		answers := fmt.Sprintf("all %d unchanged", len(r.Checks))
+		if len(r.Mismatches) > 0 {
+			answers = style.Failure.Render(fmt.Sprintf("%d changed", len(r.Mismatches)))
+		}
+		if len(r.Unstable) > 0 {
+			answers += fmt.Sprintf(" · %d unstable", len(r.Unstable))
+		}
+		_, _ = fmt.Fprintf(w, "  Answers          %s\n", answers)
 	}
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	head := "CHECK\tANSWER\tBEFORE reads/dispatches/p50/p95"
-	if !profile {
-		head += "\tAFTER reads/dispatches/p50/p95"
-	}
-	_, _ = fmt.Fprintln(tw, head)
-	for _, deny := range []bool{true, false} {
-		for _, c := range r.Checks {
-			if c.Allowed == deny {
-				continue
-			}
-			ans := "allow"
-			if deny {
-				ans = "deny"
-			}
-			row := fmt.Sprintf("%s\t%s\t%s", c.Name, ans, cell(&c.Before))
-			if c.After != nil {
-				row += "\t" + cell(c.After)
-			}
-			_, _ = fmt.Fprintln(tw, row)
+
+	var rows []bench.CheckResult
+	unchanged, allow := 0, 0
+	for _, c := range r.Checks {
+		switch {
+		case c.Allowed:
+			allow++
+		case profile || c.After.Reads != c.Before.Reads || c.After.Dispatches != c.Before.Dispatches:
+			rows = append(rows, c)
+		default:
+			unchanged++
 		}
 	}
-	if err := tw.Flush(); err != nil {
-		return err
+	sort.SliceStable(rows, func(i, j int) bool {
+		if profile {
+			if rows[i].Before.Reads != rows[j].Before.Reads {
+				return rows[i].Before.Reads > rows[j].Before.Reads
+			}
+		} else if pi, pj := pct(rows[i].Before.Reads, rows[i].After.Reads), pct(rows[j].Before.Reads, rows[j].After.Reads); pi != pj {
+			return pi < pj
+		}
+		return rows[i].Name < rows[j].Name
+	})
+	if len(rows) > 0 {
+		title := "Deny checks whose cost changed"
+		if profile {
+			title = "Deny checks"
+		}
+		if _, err := fmt.Fprintf(w, "\n%s\n", style.Heading.Render(fmt.Sprintf("%s (%d)", title, len(rows)))); err != nil {
+			return err
+		}
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		if profile {
+			_, _ = fmt.Fprintln(tw, "  CHECK\tREADS\tDISPATCHES\tP50 ms")
+		} else {
+			_, _ = fmt.Fprintln(tw, "  CHECK\tREADS\t\tDISPATCHES\t\tP50 ms")
+		}
+		for _, c := range rows {
+			name := strings.TrimPrefix(c.Name, "deny ")
+			if profile {
+				_, _ = fmt.Fprintf(tw, "  %s\t%d\t%s\t%.2f\n", name, c.Before.Reads, dispatch(c.Before.Dispatches), c.Before.P50Ms)
+				continue
+			}
+			_, _ = fmt.Fprintf(tw, "  %s\t%d %s %d\t%s\t%s %s %s\t%s\t%.2f %s %.2f\n", name,
+				c.Before.Reads, style.IconArrow, c.After.Reads, pctLabel(float64(c.Before.Reads), float64(c.After.Reads)),
+				dispatch(c.Before.Dispatches), style.IconArrow, dispatch(c.After.Dispatches), pctLabel(c.Before.Dispatches, c.After.Dispatches),
+				c.Before.P50Ms, style.IconArrow, c.After.P50Ms)
+		}
+		if err := tw.Flush(); err != nil {
+			return err
+		}
 	}
+
 	if err := renderAnswers(w, "Changed answers", "", r.Mismatches); err != nil {
 		return err
 	}
@@ -215,16 +264,57 @@ func renderBench(w io.Writer, r *bench.Result) error {
 		"the original model answered these differently across re-runs, or they cannot reach a rewritten relation; not counted as changed", r.Unstable); err != nil {
 		return err
 	}
-	t := r.Totals
-	var line string
-	if profile {
-		line = fmt.Sprintf("deny reads %d, deny dispatches %.1f", t.DenyReadsBefore, t.DenyDispatchesBefore)
-	} else {
-		line = fmt.Sprintf("deny reads %d %s %d (deny dispatches %.1f %s %.1f)",
-			t.DenyReadsBefore, style.IconArrow, t.DenyReadsAfter, t.DenyDispatchesBefore, style.IconArrow, t.DenyDispatchesAfter)
+
+	var parts []string
+	if unchanged > 0 {
+		parts = append(parts, plural(unchanged, "deny check")+" unchanged")
 	}
-	_, err := fmt.Fprintf(w, "%s\n%s\n", style.Bold.Render(line), style.Faint.Render("in-process, indicative only"))
+	if allow > 0 {
+		parts = append(parts, plural(allow, "allow check")+" not compared")
+	}
+	if len(parts) > 0 {
+		line := strings.Join(parts, " · ")
+		if allow > 0 {
+			line += " (allow checks stop early, so read counts are noise)"
+		}
+		if _, err := fmt.Fprintf(w, "\n%s\n", style.Faint.Render(line)); err != nil {
+			return err
+		}
+	} else if _, err := fmt.Fprintln(w); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(w, "%s\n", style.Faint.Render("in-process, indicative only"))
 	return err
+}
+
+// change renders "before → after -12%", omitting the percent when equal.
+func change(before, after string, b, a float64) string {
+	s := before + " " + style.IconArrow + " " + after
+	if l := pctLabel(b, a); l != "" {
+		s += " " + l
+	}
+	return s
+}
+
+// pct is the rounded percent change from b to a (0 when b is 0).
+func pct(b, a int64) int {
+	if b == 0 {
+		return 0
+	}
+	return int(math.Round(float64(a-b) / float64(b) * 100))
+}
+
+// pctLabel is the signed rounded percent change, blank when the values are
+// equal or the baseline is zero.
+func pctLabel(b, a float64) string {
+	if b == 0 || a == b {
+		return ""
+	}
+	p := int(math.Round((a - b) / b * 100))
+	if p == 0 {
+		return "0%"
+	}
+	return fmt.Sprintf("%+d%%", p)
 }
 
 // plural renders a count with its noun, adding an "s" unless the count is 1.

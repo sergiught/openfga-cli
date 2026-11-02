@@ -70,6 +70,7 @@ type Result struct {
 	Source     string        `json:"source"`
 	Seed       uint64        `json:"seed,omitempty"`
 	TupleCount int           `json:"tupleCount"`
+	Iterations int           `json:"iterations"`
 	Tuples     []Tuple       `json:"tuples,omitempty"` // synthesis only
 	Skipped    []string      `json:"skipped,omitempty"`
 	Checks     []CheckResult `json:"checks"`

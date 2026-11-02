@@ -116,24 +116,30 @@ adds nothing.
 ofga model optimize internal/optimize/testdata/reference.fga --bench --iterations 20 --plain
 ```
 
-An excerpt of a real run (457 synthesized tuples, 25 checks; `...` marks
-skipped lines). Your numbers will differ by machine and run:
+A real run (457 synthesized tuples, 25 checks). Your numbers will differ by
+machine and run:
 
 ```text
-Benchmark (synthesis, 457 tuples, 25 checks)
-CHECK                       ANSWER  BEFORE reads/dispatches/p50/p95  AFTER reads/dispatches/p50/p95
-...
-deny document#can_view      deny    158 / 28.0 / 1.81ms / 5.56ms     78 / 16.0 / 1.39ms / 2.17ms
-...
-deny document#viewer        deny    88 / 16.0 / 1.41ms / 3.52ms      78 / 16.0 / 1.34ms / 4.00ms
-...
-deny folder#can_view        deny    69 / 11.0 / 1.24ms / 2.01ms      60 / 11.0 / 1.10ms / 2.39ms
-...
-deny organization#can_view  deny    7 / 1.0 / 0.28ms / 0.58ms        6 / 1.0 / 0.65ms / 0.83ms
-...
-deny reads 430 → 321 (deny dispatches 73.0 → 61.0)
+Benchmark · synthesis · 457 tuples · 25 checks · 20 runs
+
+  Deny reads       430 → 321 -25%
+  Deny dispatches  73 → 61 -16%
+  Answers          all 25 unchanged
+
+Deny checks whose cost changed (5)
+  CHECK                  READS           DISPATCHES        P50 ms
+  document#can_view      158 → 78  -51%  28 → 16     -43%  2.66 → 2.22
+  organization#can_view  7 → 6     -14%  1 → 1             0.55 → 0.54
+  folder#can_view        69 → 60   -13%  11 → 11           2.16 → 1.95
+  folder#viewer          69 → 60   -13%  11 → 11           2.37 → 1.89
+  document#viewer        88 → 78   -11%  16 → 16           2.26 → 1.78
+
+10 deny checks unchanged · 10 allow checks not compared (allow checks stop early, so read counts are noise)
 in-process, indicative only
 ```
+
+Only deny checks whose cost changed are listed; allow checks are counted in
+the footer because they stop early and their read counts are noise.
 
 ## The equivalence guarantee
 
@@ -173,9 +179,9 @@ same tuples, and runs the same Checks against both.
 
 - **The headline counts deny checks only.** A deny has to evaluate every
   branch, so its datastore reads are nearly stable from run to run. Allow checks stop
-  early while parallel branches race, so their reads vary and are shown but
-  not summarized.
-- **Latency (p50 and p95) is in-process and indicative only.** It is
+  early while parallel branches race, so their reads vary and are not
+  compared.
+- **Latency (p50) is in-process and indicative only.** It is
   sub-millisecond and noisy. Do not make decisions on it.
 - **Dispatch counts are informational.** They can be 0 for a purely
   self-recursive model.
