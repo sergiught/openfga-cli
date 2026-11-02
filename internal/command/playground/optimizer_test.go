@@ -18,7 +18,6 @@ import (
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/configtest"
 	"github.com/sergiught/openfga-cli/internal/optimize/bench"
-	"github.com/sergiught/openfga-cli/internal/optimize/benchfmt"
 )
 
 const noGraphDSL = "model\n  schema 1.1\n\ntype user\n\ntype kt\n  relations\n" +
@@ -497,6 +496,11 @@ func TestOptimizer_NoGraphWarnsAndAllowsWrite(t *testing.T) {
 	}
 }
 
+// twoDependentDSL is dependentDSL plus an independent copy of its type, so
+// ticking the copy's rewrite and the dependent one alone gives K=2, M=1.
+const twoDependentDSL = dependentDSL + "\ntype t2\n  relations\n" +
+	"    define a: [user]\n    define b: [user] or a\n    define c: [user] or b\n    define d: a or c or b\n"
+
 func TestOptimizer_WriteCountsApplied(t *testing.T) {
 	var body []byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -505,7 +509,7 @@ func TestOptimizer_WriteCountsApplied(t *testing.T) {
 		_, _ = w.Write([]byte(`{"authorization_model_id":"01NEW"}`))
 	}))
 	defer srv.Close()
-	m := review(t, dependentDSL)
+	m := review(t, twoDependentDSL)
 	mm := m.(Model)
 	cl, err := openfga.NewClient(srv.URL)
 	if err != nil {
@@ -513,14 +517,21 @@ func TestOptimizer_WriteCountsApplied(t *testing.T) {
 	}
 	mm.client = cl
 	m = mm
-	// Accepting the first rewrite only applies it; the dependent one is not ticked.
+	// Tick the independent t2 rewrite (row 1) and the dependent t rewrite
+	// (row 2) but not its prerequisite: K=2 ticked, M=1 applied.
+	m, _ = m.Update(key("down"))
 	m, _ = m.Update(key(" "))
+	m, _ = m.Update(key("down"))
+	m, _ = m.Update(key(" "))
+	if o := m.(Model).opt; len(o.accepted) != 2 || len(o.subset.Applied) != 1 {
+		t.Fatalf("fixture: K=%d M=%d, want 2 and 1", len(o.accepted), len(o.subset.Applied))
+	}
 	m, msgs := pressW(t, m, true)
 	if len(msgs) != 1 {
 		t.Fatalf("want one write msg, got %d", len(msgs))
 	}
 	sub := m.(Model).opt.subset
-	if out := view(m); !strings.Contains(out, benchfmt.Plural(len(sub.Applied), "rewrite")+" · new model version") {
+	if out := view(m); !strings.Contains(out, "1 rewrite · new model version on demo") {
 		t.Errorf("dialog does not count applied rewrites:\n%s", out)
 	}
 	_, cmd := m.Update(key("y"))
@@ -624,5 +635,33 @@ func TestOptimizer_DialogScrolls(t *testing.T) {
 	m, _ = m.Update(key("k"))
 	if m.(Model).opt.dialogScroll != 0 {
 		t.Errorf("scroll=%d", m.(Model).opt.dialogScroll)
+	}
+}
+
+func TestOptimizer_ReopenDropsOldWriteBench(t *testing.T) {
+	m, first := writeDialog(t, referenceDSL(t), false)
+	m, _ = m.Update(key("esc"))
+	m, second := pressW(t, m, false)
+	if len(second) != 1 {
+		t.Fatalf("want one write msg, got %d", len(second))
+	}
+	before := m.(Model).pendingLoads
+	m, _ = m.Update(first[0])
+	o := m.(Model)
+	if o.opt.writeBench != nil || !o.opt.running {
+		t.Errorf("old result landed: bench=%v running=%v", o.opt.writeBench != nil, o.opt.running)
+	}
+	if _, cmd := m.Update(key("y")); cmd != nil {
+		t.Error("y wrote on a stale result")
+	}
+	m, _ = m.Update(second[0])
+	if out := view(m); !strings.Contains(out, "Answers          all ") {
+		t.Errorf("totals missing:\n%s", out)
+	}
+	if got := m.(Model).pendingLoads; got != before-2 {
+		t.Errorf("pending loads unbalanced: before=%d after=%d", before, got)
+	}
+	if m.(Model).loading {
+		t.Error("spinner still on")
 	}
 }
