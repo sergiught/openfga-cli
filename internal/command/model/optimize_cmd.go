@@ -15,6 +15,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/modeltest"
 	"github.com/sergiught/openfga-cli/internal/optimize"
 	"github.com/sergiught/openfga-cli/internal/optimize/bench"
+	"github.com/sergiught/openfga-cli/internal/optimize/benchfmt"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/readlimit"
 )
@@ -176,7 +177,7 @@ func (c *Command) optimizeCmd() *cobra.Command {
 				if err := renderOptimize(cmd.OutOrStdout(), findings, out.Rewrite); err != nil {
 					return err
 				}
-				if err := renderBench(cmd.OutOrStdout(), out.Bench); err != nil {
+				if err := benchfmt.Render(cmd.OutOrStdout(), out.Bench); err != nil {
 					return err
 				}
 			}
@@ -184,11 +185,11 @@ func (c *Command) optimizeCmd() *cobra.Command {
 			if out.Bench != nil && len(out.Bench.Mismatches) > 0 {
 				return clierr.WithCode(clierr.CodeTestFailed, fmt.Errorf(
 					"benchmark found %s whose answer changed; rewrite was NOT written — please report this model bug",
-					plural(len(out.Bench.Mismatches), "check")))
+					benchfmt.Plural(len(out.Bench.Mismatches), "check")))
 			}
 
 			if out.Rewrite == nil {
-				output.Infof(cmd.ErrOrStderr(), "no safe rewrites; %s", plural(len(findings), "recommendation"))
+				output.Infof(cmd.ErrOrStderr(), "no safe rewrites; %s", benchfmt.Plural(len(findings), "recommendation"))
 				return nil
 			}
 			dest := outPath
