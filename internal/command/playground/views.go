@@ -108,7 +108,7 @@ func (m Model) helpBody() string {
 	case secStores:
 		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"↵", "select store"}, {"a", "add"}, {"d", "delete"}, {"r", "reload"}}
 	case secModel:
-		section = [][2]string{{"↑↓ k/j", "scroll"}, {"←→ h/l", "pan"}, {"pgup/pgdn b/f/space", "page"}, {"g/G home/end", "top/bottom"}, {"v", "weighted graph"}, {"e", "edit DSL"}, {"m", "switch model"}, {"r", "reload"}}
+		section = [][2]string{{"↑↓ k/j", "scroll"}, {"←→ h/l", "pan"}, {"pgup/pgdn b/f/space", "page"}, {"g/G home/end", "top/bottom"}, {"v", "weighted graph"}, {"B", "benchmark the model"}, {"o", "review optimizations"}, {"e", "edit DSL"}, {"m", "switch model"}, {"r", "reload"}}
 	case secTuples:
 		section = [][2]string{
 			{"↑↓", "move"},
@@ -371,6 +371,9 @@ func (m Model) sectionBody() string {
 			body = m.spinner.View() + " loading model…"
 		} else if len(m.graph.Types) == 0 {
 			body = style.Faint.Render("No authorization model in this store")
+		} else if m.opt.view != optNone {
+			w, h := m.contentSize()
+			body = m.optimizerBody(w, h)
 		} else {
 			body = m.graphVP.View()
 		}
@@ -1004,7 +1007,10 @@ func (m Model) statusKeys() []string {
 	case secStores:
 		return []string{"↑↓", "/ filter", "↵ select", "a add", "d delete", "r reload", "esc"}
 	case secModel:
-		return []string{"↑↓/hjkl pan", m.graphViewHint(), "e edit DSL", "m switch", "r reload", "esc"}
+		if m.opt.view == optBench {
+			return []string{"o optimize", "B re-run", "↑↓ move", "esc back to graph"}
+		}
+		return []string{"↑↓/hjkl pan", m.graphViewHint(), "B benchmark · o optimize", "e edit DSL", "m switch", "r reload", "esc"}
 	case secTuples:
 		if m.width < 120 {
 			// The count on the other side of the footer is worth more than the

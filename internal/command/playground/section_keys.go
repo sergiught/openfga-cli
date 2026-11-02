@@ -159,7 +159,13 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 		return m, cmd
 
 	case secModel:
+		if cmd, ok := m.handleOptKey(key); ok {
+			return m, cmd
+		}
 		switch key {
+		case "B":
+			cmd := m.openBench()
+			return m, cmd
 		case "e":
 			if m.storeID == "" {
 				m.status = "select a store first"
@@ -197,6 +203,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			if len(m.graph.Types) == 0 {
 				return m, nil
 			}
+			m.stopOptimizer()
 			m.graphView = 1 - m.graphView
 			m.graphVP.SetContent(m.renderGraph())
 			m.resetGraphScroll()

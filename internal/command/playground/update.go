@@ -217,6 +217,9 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.modelID != "" && msg.modelID != m.modelID {
 			m.clearResourcePending()
 		}
+		if msg.modelID != m.modelID || msg.dsl != m.modelDSL {
+			m.stopOptimizer()
+		}
 		m.modelID = msg.modelID
 		// ReadLatest flags it directly; a picked model is latest only if it is
 		// the newest in the (already loaded) models list.
@@ -232,6 +235,10 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.configSaveErrCmd(err)
 		}
 		m.status = "model " + short(msg.modelID) + " · " + m.graph.Summary()
+		return m, nil
+
+	case optBenchMsg:
+		m.handleOptBench(msg)
 		return m, nil
 
 	case modelAppliedMsg:
@@ -1064,6 +1071,10 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// is section-specific logic. The query resolution view is a sub-mode, so Esc
 	// closes it first (layered).
 	if key == "esc" {
+		if m.section == secModel && m.opt.view != optNone {
+			m.stopOptimizer()
+			return m, nil
+		}
 		if m.section == secQuery && m.showRes {
 			m.showRes = false
 			return m, nil
@@ -1132,6 +1143,9 @@ func (m Model) gotoSection(to section) (tea.Model, tea.Cmd) {
 	// onEnterSection re-enters the query form either way, so leaving the tree
 	// up would paint it over a focused, invisible form.
 	m.showRes = false
+	if to != secModel {
+		m.stopOptimizer()
+	}
 	m.section = to
 	m.fading = true
 	nm, cmd := m.onEnterSection()

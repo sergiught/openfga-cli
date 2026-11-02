@@ -33,6 +33,13 @@ func (m Model) handleWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 			dir = "up"
 		}
 		return m, m.historyList.Update(keyMsg(dir))
+	case m.section == secModel && m.opt.view == optBench:
+		if up {
+			m.moveOptCursor(-1)
+		} else {
+			m.moveOptCursor(1)
+		}
+		return m, nil
 	case m.section == secModel:
 		if up {
 			return m.scrollGraph(-graphLineStep)
