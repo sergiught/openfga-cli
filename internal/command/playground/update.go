@@ -271,8 +271,10 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.toasts.Push(toast.Error, "apply model: "+m.editorErr)
 		}
 		m.connLost = false
-		m.editorOpen = false
-		m.editor.Blur()
+		if msg.optimized == 0 {
+			m.editorOpen = false
+			m.editor.Blur()
+		}
 		m.status = "model applied"
 		if msg.optimized > 0 {
 			m.stopOptimizer()

@@ -306,14 +306,19 @@ func (m *Model) invalidateSelection() {
 	m.opt.err = ""
 }
 
+// noApplyHint explains why nothing can be benchmarked or written yet.
+func (o optimizer) noApplyHint() string {
+	if len(o.accepted) > 0 {
+		return "accepted rewrites depend on rejected ones"
+	}
+	return "accept a rewrite first"
+}
+
 // openWriteDialog handles w in the review: confirm writing the applied
 // rewrites, gated on an answer check of exactly that selection.
 func (m *Model) openWriteDialog() tea.Cmd {
 	if m.opt.subset == nil || len(m.opt.subset.Applied) == 0 {
-		m.status = "accept a rewrite first"
-		if len(m.opt.accepted) > 0 {
-			m.status = "accepted rewrites depend on rejected ones"
-		}
+		m.status = m.opt.noApplyHint()
 		return nil
 	}
 	before, err := m.opt.subset.Before.DSL()
@@ -426,10 +431,7 @@ func (m *Model) handleReviewKey(key string) (tea.Cmd, bool) {
 		}
 	case "B":
 		if m.opt.subset == nil || len(m.opt.subset.Applied) == 0 {
-			m.status = "accept a rewrite first"
-			if len(m.opt.accepted) > 0 {
-				m.status = "accepted rewrites depend on rejected ones"
-			}
+			m.status = m.opt.noApplyHint()
 			return nil, true
 		}
 		m.opt.selBench = nil

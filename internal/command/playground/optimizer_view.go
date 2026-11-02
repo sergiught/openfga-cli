@@ -162,14 +162,17 @@ func (m Model) reviewBody(w, h int) string {
 		}
 	case o.report != nil && o.report.Blocked != "":
 		lines = append(lines, strings.Split(ansi.Wrap(style.Warn.Render(o.report.Blocked), max(1, lw), ""), "\n")...)
-	case o.report != nil:
+	case o.report != nil && len(o.advice) == 0:
 		lines = append(lines, style.Faint.Render("Nothing to optimize"))
+	case o.report != nil:
+		lines = append(lines, wrapLines(style.Faint.Render("No safe rewrites — nothing to change automatically"), lw)...)
 	}
 	if len(o.advice) > 0 {
 		if len(lines) > 0 {
 			lines = append(lines, "")
 		}
-		lines = append(lines, style.Heading.Render("Advice (not applied)"))
+		lines = append(lines, style.Heading.Render(fmt.Sprintf("Worth a look · %d", len(o.advice))))
+		lines = append(lines, wrapLines(style.Faint.Render("can't be rewritten safely — select one for details"), lw)...)
 		for i, f := range o.advice {
 			lines = append(lines, o.reviewRow(f.ID+" "+f.Type+"#"+f.Relation, len(o.rows)+i == cur, false))
 			if len(o.rows)+i == cur {
@@ -205,6 +208,19 @@ func (o optimizer) reviewRow(s string, selected, dim bool) string {
 	return s
 }
 
+// wrapLines wraps s to width w and splits it into lines.
+func wrapLines(s string, w int) []string {
+	return strings.Split(ansi.Wrap(s, max(1, w), ""), "\n")
+}
+
+// adviceNames are the short names shown in an advice card's title.
+var adviceNames = map[string]string{
+	"C1": "recursion under and/but not",
+	"C2": "exclusion",
+	"T1": "recursive relation",
+	"T2": "wide union",
+}
+
 // reviewCard returns the right pane's title and body for the row at cur.
 func (m Model) reviewCard(cur int) (string, string) {
 	o := m.opt
@@ -232,6 +248,12 @@ func (m Model) reviewCard(cur int) (string, string) {
 		return "", ""
 	}
 	title := f.ID + " " + f.Type + "#" + f.Relation
+	if cur >= len(o.rows) {
+		title = f.Type + "#" + f.Relation + " · " + f.ID
+		if n := adviceNames[f.ID]; n != "" {
+			title += " · " + n
+		}
+	}
 	var b []string
 	if cur < len(o.rows) {
 		for _, l := range strings.Split(f.Before, "\n") {
@@ -258,7 +280,7 @@ func (m Model) reviewCard(cur int) (string, string) {
 			}
 			parts[i] = k + ": " + v
 		}
-		b = append(b, "", style.Heading.Render("weights"), strings.Join(parts, ", "))
+		b = append(b, "", style.Heading.Render("cost per user type (inf = grows with your data)"), strings.Join(parts, ", "))
 	}
 	return title, strings.Join(b, "\n")
 }
@@ -326,10 +348,10 @@ func (m Model) writeDialogBody() string {
 		}
 		lines = append(lines, l)
 	}
-	lines = append(lines, foot)
-	if len(lines) > h {
-		lines = lines[:h]
+	if len(lines) > h-1 {
+		lines = lines[:max(0, h-1)]
 	}
+	lines = append(lines, foot)
 	for i, l := range lines {
 		lines[i] = ansi.Truncate(l, w, "…")
 	}

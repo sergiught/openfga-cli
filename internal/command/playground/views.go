@@ -152,7 +152,7 @@ func (m Model) helpBody() string {
 	}
 	var optGroup string
 	if m.section == secModel {
-		optGroup = "\n\n" + style.Faint.Render("MODEL · OPTIMIZE") + "\n" + render([][2]string{{"space", "accept a rewrite"}, {"a", "accept / clear all"}, {"w", "write new model"}, {"B", "benchmark selection"}})
+		optGroup = "\n\n" + style.Faint.Render("MODEL · OPTIMIZE") + "\n" + render([][2]string{{"space", "accept a rewrite"}, {"a", "accept / clear all"}, {"w", "write new model"}, {"B", "benchmark selection"}, {"esc", "back to graph"}})
 	}
 	return style.Faint.Render("GLOBAL") + "\n" + render(global) +
 		"\n\n" + style.Faint.Render(strings.ToUpper(sectionNames[m.section])) + "\n" + render(section) + optGroup +

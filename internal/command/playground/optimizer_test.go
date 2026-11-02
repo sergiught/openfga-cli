@@ -3,6 +3,8 @@ package playground
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -231,7 +233,7 @@ func TestOptimizer_ReviewListsRewrites(t *testing.T) {
 	out := view(m)
 	for _, want := range []string{
 		"Safe rewrites · 0 of 5 accepted", "[ ] organization#can_view S1", "[ ] document#can_view S4",
-		"Advice (not applied)", "why it's safe",
+		"Worth a look · ", "why it's safe",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("view missing %q:\n%s", want, out)
@@ -504,8 +506,7 @@ const twoDependentDSL = dependentDSL + "\ntype t2\n  relations\n" +
 func TestOptimizer_WriteCountsApplied(t *testing.T) {
 	var body []byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body = make([]byte, r.ContentLength)
-		_, _ = r.Body.Read(body)
+		body, _ = io.ReadAll(r.Body)
 		_, _ = w.Write([]byte(`{"authorization_model_id":"01NEW"}`))
 	}))
 	defer srv.Close()
@@ -663,5 +664,78 @@ func TestOptimizer_ReopenDropsOldWriteBench(t *testing.T) {
 	}
 	if m.(Model).loading {
 		t.Error("spinner still on")
+	}
+}
+
+func TestOptimizer_WriteSuccessKeepsEditor(t *testing.T) {
+	configtest.Isolate(t)
+	m, _ := writeDialog(t, referenceDSL(t), true)
+	m, _ = m.Update(key("y"))
+	m, _ = m.Update(key("esc"))
+	m, _ = m.Update(key("e"))
+	if !m.(Model).editorOpen {
+		t.Fatal("editor did not open")
+	}
+	m, _ = m.Update(key("Z"))
+	mm := m.(Model)
+	m, _ = m.Update(modelAppliedMsg{origin: mm.mutationOrigin(mm.storeID, mm.modelID, mm.modelApplyGen), modelID: "01NEWMODELIDLONGERTHANFOURTEEN", optimized: 3})
+	o := m.(Model)
+	if !o.editorOpen || !strings.Contains(o.editor.Value(), "Z") {
+		t.Errorf("editor lost: open=%v", o.editorOpen)
+	}
+	if want := "wrote model " + short("01NEWMODELIDLONGERTHANFOURTEEN") + " · 3 rewrites"; o.status != want {
+		t.Errorf("status=%q want %q", o.status, want)
+	}
+}
+
+func TestOptimizer_WriteErrorAfterEscToasts(t *testing.T) {
+	m, _ := writeDialog(t, referenceDSL(t), true)
+	m, _ = m.Update(key("y"))
+	m, _ = m.Update(key("esc"))
+	mm := m.(Model)
+	m, cmd := m.Update(modelAppliedMsg{origin: mm.mutationOrigin(mm.storeID, mm.modelID, mm.modelApplyGen), err: errors.New("boom"), optimized: 5})
+	o := m.(Model)
+	if o.opt.dialog || cmd == nil || o.opt.writeErr != "boom" {
+		t.Errorf("dialog=%v cmd=%v writeErr=%q", o.opt.dialog, cmd != nil, o.opt.writeErr)
+	}
+}
+
+const adviceOnlyDSL = "model\n  schema 1.1\n\ntype user\n\ntype doc\n  relations\n" +
+	"    define owner: [user]\n    define banned: [user]\n    define allowed: owner but not banned\n"
+
+func TestOptimizer_AdviceOnly(t *testing.T) {
+	m := review(t, adviceOnlyDSL)
+	out := view(m)
+	flat := strings.Join(strings.Fields(out), " ")
+	for _, want := range []string{"No safe rewrites — nothing to change", "Worth a look · 1"} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Nothing to optimize") {
+		t.Errorf("unexpected Nothing to optimize:\n%s", out)
+	}
+	m, _ = m.Update(key("down"))
+	out = view(m)
+	flat = strings.Join(strings.Fields(out), " ")
+	for _, want := range []string{"doc#allowed · C2 · exclusion", "cost per user type (inf = grows"} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestOptimizer_DialogFooterOnShortTerminal(t *testing.T) {
+	m, msgs := writeDialog(t, referenceDSL(t), false)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 60, Height: 10})
+	var ms []bench.Mismatch
+	for i := range 5 {
+		ms = append(ms, bench.Mismatch{Check: bench.Check{Name: fmt.Sprintf("chk-%d", i), User: "user:a", Relation: "viewer", Object: "doc:1"}})
+	}
+	msgs[0].result.Mismatches = ms
+	m, _ = m.Update(msgs[0])
+	lines := strings.Split(ansi.Strip(m.(Model).writeDialogBody()), "\n")
+	if last := lines[len(lines)-1]; !strings.Contains(last, "esc cancel") {
+		t.Errorf("footer clipped:\n%s", strings.Join(lines, "\n"))
 	}
 }

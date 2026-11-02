@@ -43,7 +43,7 @@ The `?` overlay renders this same list, filtered to the global keys plus whateve
 | `shift+tab` / `←` `↑` / `k` / `h` | Sidebar (tab bar) | Move to the previous tab |
 | `1`–`9` | Sidebar and panels (not in a text field or a dialog) | Jump straight to a section; `9` is Tests. While you're typing — a form, the DSL editor, an active `/` filter — a digit is just a digit, and dialogs keep their own keys |
 | `enter` | Sidebar (tab bar) | Enter the focused panel |
-| `esc` | Panel | Return focus to the sidebar tabs (closes the resolution tree first if it's open) |
+| `esc` | Panel | Return focus to the sidebar tabs (closes the resolution tree first if it's open; in the Model tab's benchmark and review views it returns to the graph) |
 | `ctrl+k` | Global | Open the command palette |
 | `ctrl+l` | Global | Redraw the screen (always active, even inside overlays and forms) |
 | `ctrl+g` | Global | Cycle glyph styles: nerdfont / unicode / off (always active, even inside overlays and forms) |
@@ -77,6 +77,9 @@ The `?` overlay renders this same list, filtered to the global keys plus whateve
 | `a` | Model → Optimize review | Accept all rewrites, or clear them |
 | `w` | Model → Optimize review | Open the write dialog |
 | `B` | Model → Optimize review | Benchmark the selection (needs at least one applied rewrite) |
+| `↑` `↓` | Model → Benchmark | Move through the check rows |
+| `esc` | Model → Benchmark | Back to the graph |
+| `esc` | Model → Optimize review | Back to the graph (discards ticks) |
 | `y` | Model → Optimize write dialog | Write the optimized model |
 | `esc` | Model → Optimize write dialog | Back to the review |
 | `↑` `↓` / `k` `j` | Model → Optimize write dialog | Scroll the diff |
@@ -158,7 +161,7 @@ The Model tab can run the same analysis as [`ofga model optimize`](../model-opti
 **Review (`o`).** Lists the safe rewrites as a checklist you can tick with `space`, or tick or clear all at once with `a`.
 
 - A row that depends on a rewrite you rejected is dimmed with "depends on a rejected rewrite", and it is not applied. When that makes M applied rewrites differ from K ticked, the header shows "(M apply)".
-- Advice, the findings the optimizer cannot prove safe, is read-only.
+- "Worth a look" lists the findings the optimizer cannot rewrite safely; they are read-only, and selecting one shows its cost per user type, where `inf` means the cost grows with your data.
 - If the model is blocked, the review shows the reason instead of the checklist, and `w` does nothing.
 - `B` in the review benchmarks the selection, and needs at least one applied rewrite.
 
