@@ -48,6 +48,29 @@ type optimizer struct {
 	err     string                        // inline error for the current view
 	cursor  int                           // selected row in the current view
 	safeN   int                           // number of safe rewrites found by Analyze (for the hint)
+
+	// Review view (o).
+	report   *optimize.Report
+	model    *optimize.Model
+	rows     []optimize.Finding // safe rewrites, report.Rewrite.Applied
+	keys     []optimize.FindingKey
+	accepted map[optimize.FindingKey]bool
+	subset   *optimize.RewriteResult // RewriteSubset(model, accepted)
+	advice   []optimize.Finding      // findings that are not safe rewrites
+	selBench *bench.Result           // last review-B result; cleared on toggle or cursor move
+}
+
+// appliedKeys is the set of accepted rewrites that actually apply; an
+// accepted rewrite that depends on a rejected one drops out.
+func (o optimizer) appliedKeys() map[optimize.FindingKey]bool {
+	out := map[optimize.FindingKey]bool{}
+	if o.subset == nil {
+		return out
+	}
+	for _, k := range optimize.Keys(o.subset.Applied) {
+		out[k] = true
+	}
+	return out
 }
 
 // optBenchMsg carries a finished benchmark back to the update loop.
@@ -127,12 +150,20 @@ func (m *Model) openBench() tea.Cmd {
 // handleOptKey handles keys in the optimizer views; it reports whether the
 // key was consumed.
 func (m *Model) handleOptKey(key string) (tea.Cmd, bool) {
-	if m.opt.view != optBench {
+	switch m.opt.view {
+	case optNone:
+		if key == "o" {
+			return m.openReview(), true
+		}
 		return nil, false
+	case optReview:
+		return m.handleReviewKey(key)
 	}
 	switch key {
 	case "B":
 		return m.openBench(), true
+	case "o":
+		return m.openReview(), true
 	case "up", "k":
 		m.moveOptCursor(-1)
 		return nil, true
@@ -145,6 +176,10 @@ func (m *Model) handleOptKey(key string) (tea.Cmd, bool) {
 
 func (m *Model) moveOptCursor(d int) {
 	n := len(denyRows(m.opt.profile))
+	if m.opt.view == optReview {
+		n = len(m.opt.rows) + len(m.opt.advice)
+		m.opt.selBench = nil
+	}
 	m.opt.cursor = max(0, min(m.opt.cursor+d, n-1))
 }
 
@@ -171,5 +206,125 @@ func (m *Model) handleOptBench(msg optBenchMsg) {
 			m.opt.profile = msg.result
 			m.opt.cursor = 0
 		}
+	case optKindSelection:
+		switch {
+		case msg.noGraph:
+			m.opt.err = noGraphMsg
+		case msg.err != nil:
+			m.opt.err = errStr(msg.err)
+		default:
+			m.opt.selBench = msg.result
+		}
 	}
+}
+
+// openReview handles o on the Model tab: list the loaded model's safe
+// rewrites for the user to accept.
+func (m *Model) openReview() tea.Cmd {
+	if m.storeID == "" {
+		m.status = "select a store first"
+		return nil
+	}
+	if m.modelDSL == "" {
+		m.status = "no model loaded"
+		return nil
+	}
+	lm, err := modeltest.LoadModelBytes([]byte(m.modelDSL))
+	if err != nil {
+		m.status = "optimize: " + errStr(err)
+		return nil
+	}
+	m.stopOptimizer()
+	m.opt.view = optReview
+	m.opt.proto = lm.Proto
+	m.opt.accepted = map[optimize.FindingKey]bool{}
+	rep, err := optimize.Analyze(lm.Proto)
+	if err != nil {
+		m.opt.err = errStr(err)
+		return nil
+	}
+	om, err := optimize.NewModel(lm.Proto)
+	if err != nil {
+		m.opt.err = errStr(err)
+		return nil
+	}
+	m.opt.report, m.opt.model = rep, om
+	if rep.Rewrite != nil {
+		m.opt.rows = rep.Rewrite.Applied
+		m.opt.keys = optimize.Keys(m.opt.rows)
+	}
+	for _, f := range rep.Findings {
+		if f.Tier != optimize.TierSafe {
+			m.opt.advice = append(m.opt.advice, f)
+		}
+	}
+	m.recomputeSubset()
+	return nil
+}
+
+// recomputeSubset re-derives what the accepted set would apply, and drops any
+// benchmark of the previous selection.
+func (m *Model) recomputeSubset() {
+	m.invalidateSelection()
+	sub, err := optimize.RewriteSubset(m.opt.model, m.opt.accepted)
+	if err != nil {
+		m.opt.err = errStr(err)
+		return
+	}
+	m.opt.subset = sub
+}
+
+// invalidateSelection forgets the selection benchmark, cancelling one in
+// flight (its result arrives stale).
+func (m *Model) invalidateSelection() {
+	if m.opt.cancel != nil {
+		m.opt.cancel()
+		m.opt.cancel = nil
+		m.opt.gen++
+	}
+	m.opt.running = false
+	m.opt.selBench = nil
+	m.opt.err = ""
+}
+
+func (m *Model) handleReviewKey(key string) (tea.Cmd, bool) {
+	switch key {
+	case "up", "k":
+		m.moveOptCursor(-1)
+	case "down", "j":
+		m.moveOptCursor(1)
+	case "space", " ":
+		if c := m.opt.cursor; c < len(m.opt.keys) {
+			if k := m.opt.keys[c]; m.opt.accepted[k] {
+				delete(m.opt.accepted, k)
+			} else {
+				m.opt.accepted[k] = true
+			}
+			m.recomputeSubset()
+		}
+	case "a":
+		if len(m.opt.keys) > 0 {
+			all := len(m.opt.accepted) < len(m.opt.keys)
+			m.opt.accepted = map[optimize.FindingKey]bool{}
+			if all {
+				for _, k := range m.opt.keys {
+					m.opt.accepted[k] = true
+				}
+			}
+			m.recomputeSubset()
+		}
+	case "B":
+		if m.opt.subset == nil || len(m.opt.subset.Applied) == 0 {
+			m.status = "accept a rewrite first"
+			return nil, true
+		}
+		m.opt.selBench = nil
+		return m.startBench(optKindSelection, m.opt.proto, m.opt.subset.After.Proto), true
+	case "w":
+		// Writing the new model arrives with the write dialog.
+	case "o":
+	default:
+		return nil, false
+	}
+	return nil, true
 }

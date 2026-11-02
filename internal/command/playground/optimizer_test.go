@@ -204,3 +204,154 @@ func TestOptimizer_ReconnectStopsBench(t *testing.T) {
 		t.Errorf("pending loads unbalanced: before=%d after=%d", pending, o.pendingLoads)
 	}
 }
+
+const dependentDSL = "model\n  schema 1.1\n\ntype user\n\ntype t\n  relations\n" +
+	"    define a: [user]\n    define b: [user] or a\n    define c: [user] or b\n    define d: a or c or b\n"
+
+const blockedDSL = "model\n  schema 1.1\n\ntype user\n\ntype folder\n  relations\n" +
+	"    define parent: [folder]\n    define owner: [user]\n" +
+	"    define viewer: [user] or viewer from parent\n    define allowed: owner but not viewer\n"
+
+// review presses o on the Model tab.
+func review(t *testing.T, dsl string) tea.Model {
+	t.Helper()
+	m, _ := optModel(t, dsl).Update(key("o"))
+	return m
+}
+
+func TestOptimizer_ReviewListsRewrites(t *testing.T) {
+	m := review(t, referenceDSL(t))
+	out := view(m)
+	for _, want := range []string{
+		"Safe rewrites · 0 of 5 accepted", "[ ] organization#can_view S1", "[ ] document#can_view S4",
+		"Advice (not applied)", "why it's safe",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("view missing %q:\n%s", want, out)
+		}
+	}
+	o := m.(Model).opt
+	f := o.rows[0]
+	for _, want := range []string{"- " + f.Before, "+ " + f.After} {
+		if !strings.Contains(out, want) {
+			t.Errorf("card missing %q:\n%s", want, out)
+		}
+	}
+	if o.view != optReview || len(o.accepted) != 0 {
+		t.Errorf("state: %+v", o)
+	}
+}
+
+func TestOptimizer_SpaceAndA(t *testing.T) {
+	m := review(t, referenceDSL(t))
+	m, _ = m.Update(key(" "))
+	out := view(m)
+	if !strings.Contains(out, "1 of 5 accepted") || !strings.Contains(out, "[✓] organization#can_view") {
+		t.Errorf("space did not accept row 0:\n%s", out)
+	}
+	m, _ = m.Update(key("a"))
+	if !strings.Contains(view(m), "5 of 5 accepted") {
+		t.Error("a did not accept all")
+	}
+	m, _ = m.Update(key("a"))
+	if !strings.Contains(view(m), "0 of 5 accepted") {
+		t.Error("second a did not clear all")
+	}
+}
+
+func TestOptimizer_DependentRowDimmed(t *testing.T) {
+	m := review(t, dependentDSL)
+	o := m.(Model).opt
+	if len(o.rows) != 2 {
+		t.Fatalf("want 2 rewrites, got %d", len(o.rows))
+	}
+	m, _ = m.Update(key("down"))
+	m, _ = m.Update(key(" ")) // accept only the dependent row
+	out := view(m)
+	if !strings.Contains(out, "depends on a rejected rewrite") {
+		t.Errorf("dependent row not flagged:\n%s", out)
+	}
+	if !strings.Contains(out, "1 of 2 accepted (0 apply)") {
+		t.Errorf("header missing apply count:\n%s", out)
+	}
+}
+
+func TestOptimizer_BlockedModel(t *testing.T) {
+	m := review(t, blockedDSL)
+	out := view(m)
+	if !strings.Contains(out, "subtracts a recursive") {
+		t.Errorf("blocked reason missing:\n%s", out)
+	}
+	if strings.Contains(out, "Safe rewrites") {
+		t.Errorf("checklist shown for blocked model:\n%s", out)
+	}
+	m, _ = m.Update(key("w"))
+	mm := m.(Model)
+	if mm.opt.view != optReview || mm.opt.running {
+		t.Error("w changed state on a blocked model")
+	}
+}
+
+func TestOptimizer_NothingToOptimize(t *testing.T) {
+	m := review(t, "model\n  schema 1.1\n\ntype user\n")
+	if out := view(m); !strings.Contains(out, "Nothing to optimize") {
+		t.Errorf("missing message:\n%s", out)
+	}
+}
+
+func TestOptimizer_ReviewBNeedsSelection(t *testing.T) {
+	m := review(t, referenceDSL(t))
+	m, msgs := shiftB(t, m, false)
+	if len(msgs) != 0 || m.(Model).opt.running || m.(Model).status != "accept a rewrite first" {
+		t.Errorf("running=%v status=%q msgs=%d", m.(Model).opt.running, m.(Model).status, len(msgs))
+	}
+}
+
+func TestOptimizer_ReviewBShowsSummary(t *testing.T) {
+	m := review(t, referenceDSL(t))
+	m, _ = m.Update(key("a"))
+	m, msgs := shiftB(t, m, true)
+	if len(msgs) != 1 || msgs[0].kind != optKindSelection {
+		t.Fatalf("want one selection msg, got %+v", msgs)
+	}
+	if out := view(m); !strings.Contains(out, "Deny checks whose cost changed") {
+		t.Errorf("summary missing:\n%s", out)
+	}
+	m, _ = m.Update(key("down"))
+	if m.(Model).opt.selBench != nil {
+		t.Error("cursor move kept the summary")
+	}
+}
+
+func TestOptimizer_EscFromReview(t *testing.T) {
+	m := review(t, referenceDSL(t))
+	m, _ = m.Update(key("a"))
+	m, _ = m.Update(key("esc"))
+	if m.(Model).opt.view != optNone {
+		t.Fatal("esc stayed in review")
+	}
+	m, _ = m.Update(key("o"))
+	if o := m.(Model).opt; o.view != optReview || len(o.accepted) != 0 {
+		t.Errorf("reopened with accepted=%v", o.accepted)
+	}
+}
+
+func TestOptimizer_NarrowTerminal(t *testing.T) {
+	check := func(name string, m tea.Model) {
+		t.Helper()
+		for i, l := range strings.Split(m.(Model).viewString(), "\n") {
+			if w := ansi.StringWidth(l); w > 40 {
+				t.Errorf("%s: line %d is %d cells: %q", name, i, w, ansi.Strip(l))
+			}
+		}
+	}
+	m := optModel(t, referenceDSL(t))
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 40, Height: 12})
+	b, _ := shiftB(t, m, true)
+	check("bench", b)
+	r, _ := b.Update(key("o"))
+	check("review", r)
+	r, _ = r.Update(key("a"))
+	r, _ = shiftB(t, r, true)
+	check("review+selection", r)
+}

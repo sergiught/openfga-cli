@@ -108,7 +108,7 @@ func (m Model) helpBody() string {
 	case secStores:
 		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"↵", "select store"}, {"a", "add"}, {"d", "delete"}, {"r", "reload"}}
 	case secModel:
-		section = [][2]string{{"↑↓ k/j", "scroll"}, {"←→ h/l", "pan"}, {"pgup/pgdn b/f/space", "page"}, {"g/G home/end", "top/bottom"}, {"v", "weighted graph"}, {"B", "benchmark the model"}, {"o", "review optimizations"}, {"e", "edit DSL"}, {"m", "switch model"}, {"r", "reload"}}
+		section = [][2]string{{"↑↓ k/j", "scroll"}, {"←→ h/l", "pan"}, {"pgup/pgdn b/f/space", "page"}, {"g/G home/end", "top/bottom"}, {"v", "weighted graph"}, {"B", "benchmark the model"}, {"o", "review optimizations"}, {"o · space", "accept a rewrite"}, {"o · a", "accept / clear all"}, {"o · w", "write new model"}, {"o · B", "benchmark selection"}, {"e", "edit DSL"}, {"m", "switch model"}, {"r", "reload"}}
 	case secTuples:
 		section = [][2]string{
 			{"↑↓", "move"},
@@ -1007,6 +1007,9 @@ func (m Model) statusKeys() []string {
 	case secStores:
 		return []string{"↑↓", "/ filter", "↵ select", "a add", "d delete", "r reload", "esc"}
 	case secModel:
+		if m.opt.view == optReview {
+			return []string{"space accept", "a all", "w write new model", "B benchmark selection", "esc cancel"}
+		}
 		if m.opt.view == optBench {
 			return []string{"o optimize", "B re-run", "↑↓ move", "esc back to graph"}
 		}
