@@ -316,6 +316,9 @@ func (m *Model) handleReviewKey(key string) (tea.Cmd, bool) {
 	case "B":
 		if m.opt.subset == nil || len(m.opt.subset.Applied) == 0 {
 			m.status = "accept a rewrite first"
+			if len(m.opt.accepted) > 0 {
+				m.status = "accepted rewrites depend on rejected ones"
+			}
 			return nil, true
 		}
 		m.opt.selBench = nil

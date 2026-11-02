@@ -108,7 +108,7 @@ func (m Model) helpBody() string {
 	case secStores:
 		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"↵", "select store"}, {"a", "add"}, {"d", "delete"}, {"r", "reload"}}
 	case secModel:
-		section = [][2]string{{"↑↓ k/j", "scroll"}, {"←→ h/l", "pan"}, {"pgup/pgdn b/f/space", "page"}, {"g/G home/end", "top/bottom"}, {"v", "weighted graph"}, {"B", "benchmark the model"}, {"o", "review optimizations"}, {"o · space", "accept a rewrite"}, {"o · a", "accept / clear all"}, {"o · w", "write new model"}, {"o · B", "benchmark selection"}, {"e", "edit DSL"}, {"m", "switch model"}, {"r", "reload"}}
+		section = [][2]string{{"↑↓ k/j", "scroll"}, {"←→ h/l", "pan"}, {"pgup/pgdn b/f/space", "page"}, {"g/G home/end", "top/bottom"}, {"v", "weighted graph"}, {"B", "benchmark the model"}, {"o", "review optimizations"}, {"e", "edit DSL"}, {"m", "switch model"}, {"r", "reload"}}
 	case secTuples:
 		section = [][2]string{
 			{"↑↓", "move"},
@@ -150,8 +150,12 @@ func (m Model) helpBody() string {
 		}
 		return strings.TrimRight(b.String(), "\n")
 	}
+	var optGroup string
+	if m.section == secModel {
+		optGroup = "\n\n" + style.Faint.Render("MODEL · OPTIMIZE") + "\n" + render([][2]string{{"space", "accept a rewrite"}, {"a", "accept / clear all"}, {"w", "write new model"}, {"B", "benchmark selection"}})
+	}
 	return style.Faint.Render("GLOBAL") + "\n" + render(global) +
-		"\n\n" + style.Faint.Render(strings.ToUpper(sectionNames[m.section])) + "\n" + render(section) +
+		"\n\n" + style.Faint.Render(strings.ToUpper(sectionNames[m.section])) + "\n" + render(section) + optGroup +
 		"\n\n" + style.Faint.Render("? or esc to close")
 }
 

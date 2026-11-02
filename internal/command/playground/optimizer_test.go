@@ -355,3 +355,32 @@ func TestOptimizer_NarrowTerminal(t *testing.T) {
 	r, _ = shiftB(t, r, true)
 	check("review+selection", r)
 }
+
+func TestOptimizer_ReviewBDependentOnly(t *testing.T) {
+	m := review(t, dependentDSL)
+	m, _ = m.Update(key("down"))
+	m, _ = m.Update(key(" "))
+	m, msgs := shiftB(t, m, false)
+	if len(msgs) != 0 || m.(Model).status != "accepted rewrites depend on rejected ones" {
+		t.Errorf("status=%q msgs=%d", m.(Model).status, len(msgs))
+	}
+}
+
+func TestOptimizer_LateSelectionBenchDropped(t *testing.T) {
+	m := review(t, referenceDSL(t))
+	m, _ = m.Update(key("a"))
+	m, msgs := shiftB(t, m, false)
+	if len(msgs) != 1 {
+		t.Fatalf("want one msg, got %d", len(msgs))
+	}
+	before := m.(Model).pendingLoads
+	m, _ = m.Update(key(" "))
+	m, _ = m.Update(msgs[0])
+	o := m.(Model)
+	if o.opt.selBench != nil || o.opt.running {
+		t.Errorf("late result landed: %+v", o.opt)
+	}
+	if o.pendingLoads != before-1 || o.loading {
+		t.Errorf("pending loads unbalanced: before=%d after=%d loading=%v", before, o.pendingLoads, o.loading)
+	}
+}

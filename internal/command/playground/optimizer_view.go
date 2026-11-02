@@ -146,19 +146,16 @@ func (m Model) reviewBody(w, h int) string {
 		lines = append(lines, style.Heading.Render(head))
 		for i, f := range o.rows {
 			box := "[ ]"
-			l := f.Type + "#" + f.Relation + " " + f.ID
 			if o.accepted[o.keys[i]] {
 				box = "[✓]"
-				if !applied[o.keys[i]] {
-					l += " depends on a rejected rewrite"
-					lines = append(lines, o.reviewRow(box+" "+l, i == cur, true))
-					if i == cur {
-						curLine = len(lines) - 1
-					}
-					continue
-				}
 			}
-			lines = append(lines, o.reviewRow(box+" "+l, i == cur, false))
+			l := box + " " + f.Type + "#" + f.Relation + " " + f.ID
+			dep := o.accepted[o.keys[i]] && !applied[o.keys[i]]
+			if dep {
+				const suffix = " depends on a rejected rewrite"
+				l = ansi.Truncate(l, max(0, lw-lipgloss.Width(suffix)), "…") + suffix
+			}
+			lines = append(lines, o.reviewRow(l, i == cur, dep))
 			if i == cur {
 				curLine = len(lines) - 1
 			}
@@ -181,7 +178,9 @@ func (m Model) reviewBody(w, h int) string {
 		}
 	}
 	// Window the list around the cursor.
-	if len(lines) > h {
+	if h < 1 {
+		lines = nil
+	} else if len(lines) > h {
 		start := max(0, min(curLine-h/2, len(lines)-h))
 		lines = lines[start : start+h]
 	}
@@ -196,6 +195,8 @@ func (m Model) reviewBody(w, h int) string {
 
 func (o optimizer) reviewRow(s string, selected, dim bool) string {
 	switch {
+	case selected && dim:
+		return lipgloss.NewStyle().Reverse(true).Faint(true).Render(s)
 	case selected:
 		return lipgloss.NewStyle().Reverse(true).Render(s)
 	case dim:
