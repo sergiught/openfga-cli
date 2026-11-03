@@ -103,10 +103,12 @@ func TestProperty_RewritePreservesCheck(t *testing.T) {
 			unstable++
 			continue
 		}
-		if !maps.Equal(before, after) && engineUnstable(t, eng, rw.Before.Proto, tuples, checks, before) {
-			// A cycle through exclusion makes the engine's own answer vary
-			// between runs of the SAME model (seeds 3 and 5), so there is
-			// nothing for a rewrite to preserve.
+		if !maps.Equal(before, after) && (engineUnstable(t, eng, rw.Before.Proto, tuples, checks, before) ||
+			engineUnstable(t, eng, rw.After.Proto, tuples, checks, after)) {
+			// The engine's own answer can vary between runs of the SAME
+			// model (seeds 3 and 5), on either side of the rewrite, so each
+			// model is rerun against its own reference; there is nothing
+			// for a rewrite to preserve.
 			unstable++
 			continue
 		}
@@ -178,7 +180,7 @@ func onlyUnaffectedDiffer(rw *RewriteResult, before, after map[checkKey]answer) 
 	return true
 }
 
-// engineUnstable reports whether re-running the original model ever yields
+// engineUnstable reports whether re-running model m ever yields
 // answers other than ref.
 func engineUnstable(t *testing.T, eng modeltest.Engine, m *openfgav1.AuthorizationModel, tuples []*openfgav1.TupleKey, checks []checkKey, ref map[checkKey]answer) bool {
 	t.Helper()
@@ -242,7 +244,8 @@ func TestProperty_RewriteSubsetPreservesCheck(t *testing.T) {
 		if maps.Equal(before, after) {
 			continue
 		}
-		if onlyUnaffectedDiffer(rw, before, after) || engineUnstable(t, eng, rw.Before.Proto, tuples, checks, before) {
+		if onlyUnaffectedDiffer(rw, before, after) || engineUnstable(t, eng, rw.Before.Proto, tuples, checks, before) ||
+			engineUnstable(t, eng, rw.After.Proto, tuples, checks, after) {
 			continue
 		}
 		t.Fatalf("seed=%d subset answers differ\nmodel:\n%s\napplied=%+v\ntuples=%v", seed, dsl, rw.Applied, tuples)
