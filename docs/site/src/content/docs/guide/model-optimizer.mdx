@@ -82,7 +82,7 @@ ofga model optimize internal/optimize/testdata/reference.fga
 An excerpt of the output (`...` marks skipped lines):
 
 ```text
-Safe rewrites (5)
+Safe rewrites (4)
   organization#can_view  [S1]  member or admin → member
     reason: operand is already included by another operand of the union
     proof: organization#admin ⊆ organization#member
@@ -91,9 +91,6 @@ Safe rewrites (5)
     reason: intersection operand is already implied by the other
     proof: folder#owner ⊆ folder#editor
   ...
-  document#can_view  [S4]  viewer or can_view from parent → viewer
-    reason: tuple-to-userset operand is already included by another operand of the union
-    proof: document#can_view from parent ⊆ document#viewer
 
 Caller recommendations (1)
   document#can_edit  [C2]
@@ -107,10 +104,10 @@ Tuple recommendations (5)
   ...
 ```
 
-The safe rewrite is also printed as a unified diff. `document#can_view` was
-`viewer or can_view from parent`; because the folder's `can_view` is an alias
-of its `viewer`, the TTU operand walks the same folder chain a second time and
-adds nothing.
+The safe rewrites are also printed as a unified diff. `document#can_view:
+viewer or can_view from parent` is not rewritten, even though `folder#can_view`
+is an alias of `folder#viewer`, because the userset `folder:1#can_view`
+satisfies `can_view` but not `viewer`.
 
 ### Benchmark
 
@@ -118,25 +115,25 @@ adds nothing.
 ofga model optimize internal/optimize/testdata/reference.fga --bench --iterations 20 --plain
 ```
 
-A real run (457 synthesized tuples, 25 checks). Your numbers will differ by
+A real run (457 synthesized tuples, 117 checks). Your numbers will differ by
 machine and run:
 
 ```text
-Benchmark · synthesis · 457 tuples · 25 checks · 20 runs
+Benchmark · synthesis · 457 tuples · 117 checks · 20 runs
 
-  Deny reads       430 → 321   -25%
-  Deny dispatches   73 →  61   -16%
-  Answers          all 25 unchanged
+  Deny reads       430 → 382   -11%
+  Deny dispatches   73 →  73     0%
+  Answers          all 117 unchanged
 
 Deny checks whose cost changed (5)
-  CHECK                  READS           DISPATCHES        P50 ms
-  document#can_view      158 → 78  -51%  28 → 16     -43%  3.00 → 2.39
-  organization#can_view    7 →  6  -14%   1 →  1           0.65 → 0.53
-  folder#can_view         69 → 60  -13%  11 → 11           2.30 → 1.93
-  folder#viewer           69 → 60  -13%  11 → 11           2.57 → 1.70
-  document#viewer         88 → 78  -11%  16 → 16           2.58 → 2.33
+  CHECK                  READS            DISPATCHES        P50 ms
+  organization#can_view    7 →   6  -14%   1 →  1           0.51 → 0.52
+  folder#can_view         69 →  60  -13%  11 → 11           2.43 → 1.23
+  folder#viewer           69 →  60  -13%  11 → 11           2.03 → 1.43
+  document#can_view      158 → 139  -12%  28 → 28           3.29 → 2.66
+  document#viewer         88 →  78  -11%  16 → 16           2.62 → 2.36
 
-  10 deny checks unchanged · 10 allow checks not compared
+  84 deny checks unchanged · 28 allow checks not compared
   (allow checks stop early, so their read counts are noise)
 in-process, indicative only
 ```
@@ -147,11 +144,22 @@ the footer because they stop early and their read counts are noise.
 ## The equivalence guarantee
 
 "Safe" means equivalent under OpenFGA's semantics: a safe rewrite returns the
-same `true` or `false` as the original for every possible set of tuples. The
+same `true` or `false` as the original for every possible set of tuples and
+**every valid Check request, including userset subjects such as
+`folder:1#viewer`**, whichever evaluation strategy OpenFGA picks. The
 OpenFGA server picks how to evaluate a Check from the model's shape, and some
 of those strategies have known defects. The tool steers around them rather
 than relying on them, which is why some rewrites are held back. The caveats:
 
+- **Aliases are one-way.** `define can_view: viewer` proves that every viewer
+  can view, not the reverse: OpenFGA answers
+  `Check(folder:1#can_view, can_view, folder:1)` with `true` by definition, and
+  that userset is not a viewer. Rewrites that would need the reverse are not
+  proposed.
+- **Rewrites never change OpenFGA's resolver choice.** For every relation and
+  user type the server picks an evaluation strategy from the model's shape; a
+  rewrite that would change that choice for any surviving edge is skipped, on
+  every model.
 - **Conditions are handled conservatively.** A directly related type with a
   condition (or a wildcard) is only comparable to an identical one, so a
   conditioned term blocks every rule that would need to compare it. You may
@@ -169,7 +177,8 @@ than relying on them, which is why some rewrites are held back. The caveats:
   that would change a relation's weight in OpenFGA's weighted graph is
   skipped. OpenFGA's fast path for some `from` relations can answer wrongly
   when a tuple whose condition is false and a wildcard tuple share an object,
-  and lowering a weight can move a relation onto that path.
+  and lowering a weight can move a relation onto that path. This weight gate
+  applies in addition to the resolver-choice gate above.
 - **Depth-limit errors are possible.** Equivalence is of the abstract
   semantics. A rewrite only removes branches, but near the server's
   resolve-node limit whether a Check errors can still change, from an error
