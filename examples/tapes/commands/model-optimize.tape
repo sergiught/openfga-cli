@@ -19,5 +19,5 @@ Type "clear" Enter
 Show
 
 Sleep 1s
-Type "ofga model optimize internal/optimize/testdata/reference.fga --bench --iterations 20" Sleep 400ms Enter
-Sleep 8s
+Type "ofga model optimize examples/model-optimize/hierarchy.fga --bench --iterations 20 --tier safe" Sleep 400ms Enter
+Sleep 6s

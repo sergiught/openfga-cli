@@ -26,6 +26,18 @@ The input is a DSL or JSON model file, or `-` for stdin. The model is never
 sent to a server unless you benchmark, and then only to a disposable in-memory
 one.
 
+Try it on the three small models shipped in the repository (see
+[`examples/model-optimize/`](https://github.com/sergiught/openfga-cli/blob/main/examples/model-optimize)
+and its README): one with redundant roles (S1, S2, S3), one with a redundant
+`from parent` operand (S4), and one where an exclusion disables every safe
+rewrite.
+
+```sh
+ofga model optimize examples/model-optimize/roles.fga
+ofga model optimize examples/model-optimize/hierarchy.fga --bench --iterations 20
+ofga model optimize examples/model-optimize/exclusion.fga
+```
+
 ## The three tiers
 
 | Tier | What it is | Who acts |
