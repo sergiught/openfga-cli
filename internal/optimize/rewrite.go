@@ -26,7 +26,9 @@ type RewriteResult struct {
 // recursiveExclusion), and a rewrite that changes whether OpenFGA can build
 // the model's weighted graph is discarded. In a model with a conditioned or
 // wildcard direct type, a rewrite that changes any relation's weight is
-// discarded too: OpenFGA's weight-2 TTU fast path answers wrongly there.
+// discarded too: OpenFGA's weight-2 TTU fast path answers wrongly there. On
+// every model, a rewrite that changes which resolver OpenFGA picks for any
+// surviving edge (the four TypeSystem resolver predicates) is discarded.
 //
 // RewriteSubset applies the same loop under the same gates but only for the
 // findings the caller accepts.
@@ -64,6 +66,7 @@ func rewrite(m *Model, accept map[FindingKey]bool) (*RewriteResult, error) {
 	for range maxPasses {
 		applied := len(rw.Applied)
 		l := BuildLattice(cur)
+		beforeProfile, profileOK := resolverProfile(cur)
 		typeIdx := map[string]int{}
 		for i, td := range cur.Proto.GetTypeDefinitions() {
 			typeIdx[td.GetType()] = i
@@ -122,6 +125,12 @@ func rewrite(m *Model, accept map[FindingKey]bool) (*RewriteResult, error) {
 			// above) there are no weights to change.
 			if keepWeights && buildable && !sameWeights(weights, validated) {
 				continue
+			}
+			if profileOK {
+				afterProfile, ok := resolverProfile(validated)
+				if !ok || !sameResolvers(beforeProfile, afterProfile) {
+					continue
+				}
 			}
 			next = validated
 			rw.Applied = append(rw.Applied, f)

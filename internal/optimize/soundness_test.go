@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"google.golang.org/protobuf/types/known/structpb"
+
 	openfgav1 "github.com/openfga/api/proto/openfga/v1"
 
 	"github.com/sergiught/openfga-cli/internal/modeltest"
@@ -44,6 +46,17 @@ func TestSoundness_KnownCounterexamples(t *testing.T) {
 	tuple := func(user, rel, obj string) []*openfgav1.TupleKey {
 		return []*openfgav1.TupleKey{{User: user, Relation: rel, Object: obj}}
 	}
+	class2Tuples := func(t *testing.T) []*openfgav1.TupleKey {
+		ctx, err := structpb.NewStruct(map[string]any{"x": 16})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return []*openfgav1.TupleKey{
+			{User: "user:anne", Relation: "viewer", Object: "folder:1", Condition: &openfgav1.RelationshipCondition{Name: "cx", Context: ctx}},
+			{User: "user:*", Relation: "viewer", Object: "folder:1"},
+			{User: "folder:1", Relation: "parent", Object: "folder:2"},
+		}
+	}
 	tests := []struct {
 		name      string
 		model     func(t *testing.T) *Model
@@ -82,6 +95,13 @@ func TestSoundness_KnownCounterexamples(t *testing.T) {
 			tuples: tuple("folder:1", "parent", "document:1"),
 			req:    modeltest.CheckReq{User: "folder:1#can_view", Relation: "can_view", Object: "document:1"},
 			typ:    "document", rel: "can_view", wantOK: false,
+		},
+		{
+			name:   "conditioned wildcard resolver class",
+			model:  func(t *testing.T) *Model { return loadInline(t, class2DSL) },
+			tuples: class2Tuples(t),
+			req:    modeltest.CheckReq{User: "user:anne", Relation: "can_view", Object: "folder:2"},
+			typ:    "folder", rel: "can_view", wantOK: false,
 		},
 	}
 	eng, err := modeltest.NewEmbeddedEngine(nil)

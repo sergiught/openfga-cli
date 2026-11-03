@@ -242,3 +242,14 @@ func TestKeys_Occurrence(t *testing.T) {
 		t.Fatalf("got %v want %v", got, want)
 	}
 }
+
+func TestRewrite_ResolverGateKeepsDuplicateTTUDrop(t *testing.T) {
+	m := loadInline(t, "model\n  schema 1.1\ntype user\ntype folder\n  relations\n    define parent: [folder]\n    define x: [user]\n    define v: x from parent or x from parent\n")
+	rw, err := Rewrite(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rw.Applied) != 1 || rw.Applied[0].ID != "S3" || rw.Applied[0].After != "x from parent" {
+		t.Errorf("applied = %+v, want one S3 with After %q", rw.Applied, "x from parent")
+	}
+}
