@@ -24,8 +24,8 @@ func TestAnalyze_ReferenceModelTiers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := len(tierIDs(rep, TierSafe)); n != 5 {
-		t.Fatalf("safe findings = %d, want 5", n)
+	if n := len(tierIDs(rep, TierSafe)); n != 4 {
+		t.Fatalf("safe findings = %d, want 4", n)
 	}
 	if got, want := tierIDs(rep, TierCaller), []string{"C2 document#can_edit"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("caller = %v, want %v", got, want)

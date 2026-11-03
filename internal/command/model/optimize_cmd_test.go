@@ -69,7 +69,7 @@ func TestOptimize_ReferenceHumanOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"Safe rewrites (5)",
+		"Safe rewrites (4)",
 		"folder#can_delete",
 		"reason:",
 		"proof:",
@@ -85,7 +85,7 @@ func TestOptimize_ReferenceHumanOutput(t *testing.T) {
 	}
 }
 
-func TestOptimize_JSONHasFiveApplied(t *testing.T) {
+func TestOptimize_JSONHasFourApplied(t *testing.T) {
 	out, _, err := runOptimize(t, "", true, optimizeReference)
 	if err != nil {
 		t.Fatal(err)
@@ -94,7 +94,7 @@ func TestOptimize_JSONHasFiveApplied(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("decode: %v\n%s", err, out)
 	}
-	if got.SchemaVersion != 1 || got.Model.Format != "dsl" || got.Rewrite == nil || len(got.Rewrite.Applied) != 5 {
+	if got.SchemaVersion != 1 || got.Model.Format != "dsl" || got.Rewrite == nil || len(got.Rewrite.Applied) != 4 {
 		t.Fatalf("unexpected output: %+v", got)
 	}
 	if got.Bench != nil {
@@ -198,7 +198,7 @@ func TestOptimize_TierFiltersReportOnly(t *testing.T) {
 			t.Errorf("finding %s has tier %s", f.ID, f.Tier)
 		}
 	}
-	if got.Rewrite == nil || len(got.Rewrite.Applied) != 5 {
+	if got.Rewrite == nil || len(got.Rewrite.Applied) != 4 {
 		t.Errorf("rewrite must be reported regardless of --tier: %+v", got.Rewrite)
 	}
 }

@@ -40,10 +40,12 @@ func TestLattice_ReferenceModel(t *testing.T) {
 	wantSubset(t, l, comp("folder", "owner"), comp("folder", "editor"), true)
 	wantSubset(t, l, comp("folder", "owner"), comp("folder", "viewer"), true) // transitive
 	wantSubset(t, l, comp("folder", "viewer"), comp("folder", "owner"), false)
-	// can_view is an alias of viewer.
-	if !l.Equivalent(comp("folder", "can_view"), comp("folder", "viewer")) {
-		t.Fatal("folder can_view should be equivalent to viewer")
-	}
+	// can_view is an alias of viewer: the alias is one-way, see
+	// docs/superpowers/specs/2026-11-03-optimizer-soundness-design.md.
+	wantSubset(t, l, comp("folder", "viewer"), comp("folder", "can_view"), true)
+	wantSubset(t, l, comp("folder", "can_view"), comp("folder", "viewer"), false)
+	wantSubset(t, l, ttu("document", "parent", "viewer"), ttu("document", "parent", "can_view"), true)
+	wantSubset(t, l, ttu("document", "parent", "can_view"), ttu("document", "parent", "viewer"), false)
 	// Nothing is derived about intersection operands.
 	wantSubset(t, l, comp("folder", "owner"), comp("folder", "can_delete"), false)
 	wantSubset(t, l, comp("document", "editor"), comp("document", "can_edit"), false)

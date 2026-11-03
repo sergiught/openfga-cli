@@ -232,7 +232,7 @@ func TestOptimizer_ReviewListsRewrites(t *testing.T) {
 	m := review(t, referenceDSL(t))
 	out := view(m)
 	for _, want := range []string{
-		"Safe rewrites · 0 of 5 accepted", "[ ] organization#can_view S1", "[ ] document#can_view S4",
+		"Safe rewrites · 0 of 4 accepted", "[ ] organization#can_view S1",
 		"Worth a look · ", "why it's safe",
 	} {
 		if !strings.Contains(out, want) {
@@ -255,15 +255,15 @@ func TestOptimizer_SpaceAndA(t *testing.T) {
 	m := review(t, referenceDSL(t))
 	m, _ = m.Update(key(" "))
 	out := view(m)
-	if !strings.Contains(out, "1 of 5 accepted") || !strings.Contains(out, "[✓] organization#can_view") {
+	if !strings.Contains(out, "1 of 4 accepted") || !strings.Contains(out, "[✓] organization#can_view") {
 		t.Errorf("space did not accept row 0:\n%s", out)
 	}
 	m, _ = m.Update(key("a"))
-	if !strings.Contains(view(m), "5 of 5 accepted") {
+	if !strings.Contains(view(m), "4 of 4 accepted") {
 		t.Error("a did not accept all")
 	}
 	m, _ = m.Update(key("a"))
-	if !strings.Contains(view(m), "0 of 5 accepted") {
+	if !strings.Contains(view(m), "0 of 4 accepted") {
 		t.Error("second a did not clear all")
 	}
 }
@@ -432,7 +432,7 @@ func TestOptimizer_WDisabledWhenNoneApplied(t *testing.T) {
 func TestOptimizer_DialogGatesOnBenchmark(t *testing.T) {
 	m, msgs := writeDialog(t, referenceDSL(t), false)
 	out := view(m)
-	for _, want := range []string{"Write optimized model?", "5 rewrites · new model version on demo", "checking answers"} {
+	for _, want := range []string{"Write optimized model?", "4 rewrites · new model version on demo", "checking answers"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q:\n%s", want, out)
 		}
@@ -596,7 +596,7 @@ func TestOptimizer_WriteErrorKeepsDialog(t *testing.T) {
 	}
 	m, _ = m.Update(key("esc"))
 	o := m.(Model)
-	if o.opt.dialog || o.opt.view != optReview || len(o.opt.accepted) != 5 {
+	if o.opt.dialog || o.opt.view != optReview || len(o.opt.accepted) != 4 {
 		t.Errorf("dialog=%v view=%v accepted=%d", o.opt.dialog, o.opt.view, len(o.opt.accepted))
 	}
 }

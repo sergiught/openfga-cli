@@ -8,7 +8,7 @@ import (
 	openfgav1 "github.com/openfga/api/proto/openfga/v1"
 )
 
-func TestRewrite_ReferenceModelAppliesExactlyFive(t *testing.T) {
+func TestRewrite_ReferenceModelAppliesExactlyFour(t *testing.T) {
 	rw, err := Rewrite(LoadReferenceModel(t))
 	if err != nil {
 		t.Fatal(err)
@@ -22,7 +22,6 @@ func TestRewrite_ReferenceModelAppliesExactlyFive(t *testing.T) {
 		"S1 folder#viewer: [user, group#member] or editor or owner or viewer from parent -> [user, group#member] or editor or viewer from parent",
 		"S2 folder#can_delete: owner and editor -> owner",
 		"S1 document#viewer: [user] or editor or owner or viewer from parent or member from org -> [user] or editor or viewer from parent or member from org",
-		"S4 document#can_view: viewer or can_view from parent -> viewer",
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("applied findings:\n got %q\nwant %q", got, want)
@@ -54,7 +53,7 @@ func TestRewrite_FixpointCap(t *testing.T) {
 	for i := 1; i <= 12; i++ {
 		b.WriteString("    define r" + itoa(i) + ": r" + itoa(i-1) + "\n")
 	}
-	// Wide union of aliases that are all equivalent: one drop per pass.
+	// Wide union over a chain of aliases, each contained in the next: one drop per pass.
 	b.WriteString("    define v: r0")
 	for i := 1; i <= 12; i++ {
 		b.WriteString(" or r" + itoa(i))
@@ -189,8 +188,8 @@ func TestRewriteSubset_OnlyAccepted(t *testing.T) {
 		t.Fatal(err)
 	}
 	all := Keys(full.Applied)
-	if len(all) != 5 {
-		t.Fatalf("want 5 keys, got %d", len(all))
+	if len(all) != 4 {
+		t.Fatalf("want 4 keys, got %d", len(all))
 	}
 	for _, k := range all {
 		accept := keySet(all)

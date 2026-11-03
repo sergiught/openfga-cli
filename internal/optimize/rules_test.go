@@ -50,7 +50,7 @@ func TestS1_SkipsInsideIntersection(t *testing.T) {
 	}
 }
 
-func TestS1_EquivalentOperandsKeepOne(t *testing.T) {
+func TestS1_AliasOperandKeepsTheAlias(t *testing.T) {
 	m := loadInline(t, hdr+"    define a: [user]\n    define b: a\n    define v: a or b\n")
 	rw, err := Rewrite(m)
 	if err != nil {
@@ -59,8 +59,8 @@ func TestS1_EquivalentOperandsKeepOne(t *testing.T) {
 	if len(rw.Applied) != 1 {
 		t.Fatalf("applied = %+v, want exactly one", rw.Applied)
 	}
-	if f := rw.Applied[0]; f.Relation != "v" || f.After != "a" {
-		t.Fatalf("got %+v, want v: a or b -> a", f)
+	if f := rw.Applied[0]; f.Relation != "v" || f.After != "b" {
+		t.Fatalf("got %+v, want v: a or b -> b", f)
 	}
 }
 

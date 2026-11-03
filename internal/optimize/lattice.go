@@ -69,6 +69,10 @@ func TermOf(typ, rel string, us *openfgav1.Userset, md *openfgav1.RelationMetada
 }
 
 // Lattice is a set of proven (A ⊆ B) pairs. Reflexivity is implicit.
+//
+// Contract: A ⊆ B is recorded only when it holds for every subject of every
+// kind, including userset subjects (obj#rel), on OpenFGA v1.22.0. See
+// docs/superpowers/specs/2026-11-03-optimizer-soundness-design.md.
 type Lattice struct {
 	m     *Model
 	pairs map[string]map[string]bool
@@ -76,6 +80,9 @@ type Lattice struct {
 
 // BuildLattice computes the least fixpoint of the derivation rules: union
 // member, alias, transitivity and TTU, starting from the empty set.
+//
+// An alias `define r: s` proves only s ⊆ r, never r ⊆ s: the self-defining
+// rule makes Check(obj#r, r, obj) true, while Check(obj#r, s, obj) is not.
 func BuildLattice(m *Model) *Lattice {
 	l := &Lattice{m: m, pairs: map[string]map[string]bool{}}
 	terms := map[string]Term{}
@@ -91,7 +98,6 @@ func BuildLattice(m *Model) *Lattice {
 			case *openfgav1.Userset_ComputedUserset: // alias
 				if s, ok := TermOf(typ, rel, us, md); ok {
 					add(s)
-					l.add(rt, s)
 					l.add(s, rt)
 				}
 			case *openfgav1.Userset_Union:
