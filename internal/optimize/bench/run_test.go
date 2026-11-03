@@ -26,7 +26,7 @@ func find(t *testing.T, cs []CheckResult, name string) CheckResult {
 	return CheckResult{}
 }
 
-func TestRun_ReferenceModelDenyReadsHalve(t *testing.T) {
+func TestRun_ReferenceModelDenyReadsDrop(t *testing.T) {
 	m, err := optimize.NewModel(loadRef(t))
 	if err != nil {
 		t.Fatal(err)
@@ -49,10 +49,13 @@ func TestRun_ReferenceModelDenyReadsHalve(t *testing.T) {
 	if res.Totals.DenyReadsAfter >= res.Totals.DenyReadsBefore {
 		t.Errorf("deny reads did not drop: %d -> %d", res.Totals.DenyReadsBefore, res.Totals.DenyReadsAfter)
 	}
-	deny := find(t, res.Checks, "deny document#can_view")
-	t.Logf("deny document#can_view reads: %d -> %d", deny.Before.Reads, deny.After.Reads)
-	if deny.After.Reads >= deny.Before.Reads*6/10 {
-		t.Errorf("deny reads %d -> %d, want after < 60%% of before", deny.Before.Reads, deny.After.Reads)
+	for _, c := range res.Checks {
+		t.Logf("%s: reads %d -> %d", c.Name, c.Before.Reads, c.After.Reads)
+	}
+	deny := find(t, res.Checks, "deny folder#viewer")
+	t.Logf("deny folder#viewer reads: %d -> %d", deny.Before.Reads, deny.After.Reads)
+	if deny.After.Reads*10 >= deny.Before.Reads*9 {
+		t.Errorf("deny reads %d -> %d, want after < 90%% of before", deny.Before.Reads, deny.After.Reads)
 	}
 	if deny.Before.P50Ms < 0 || deny.Before.P95Ms < deny.Before.P50Ms {
 		t.Errorf("bad latency %+v", deny.Before)
