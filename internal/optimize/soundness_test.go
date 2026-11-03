@@ -119,6 +119,10 @@ func TestSoundness_KnownCounterexamples(t *testing.T) {
 			if after != tc.wantAfter || ok != tc.wantOK {
 				t.Errorf("appliedAfter(%s#%s) = (%q, %v), want (%q, %v); applied: %+v", tc.typ, tc.rel, after, ok, tc.wantAfter, tc.wantOK, rw.Applied)
 			}
+			if len(rw.Applied) == 0 {
+				// Nothing applied: both runs use the same nondeterministic model.
+				return
+			}
 			b, a := checkBoth(t, eng, rw, tc.tuples, tc.req)
 			if b != a {
 				t.Errorf("answer changed: before=%v after=%v; applied: %+v", b, a, rw.Applied)

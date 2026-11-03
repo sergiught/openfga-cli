@@ -161,7 +161,13 @@ same `true` or `false` as the original for every possible set of tuples and
 `folder:1#viewer`**, whichever evaluation strategy OpenFGA picks. The
 OpenFGA server picks how to evaluate a Check from the model's shape, and some
 of those strategies have known defects. The tool steers around them rather
-than relying on them, which is why some rewrites are held back. The caveats:
+than relying on them, which is why some rewrites are held back.
+
+This is proven and tested against OpenFGA v1.22.0 in its default
+configuration (the version the embedded benchmark server runs), and for
+Check only. Experimental check strategies, other server versions, and
+ListObjects and ListUsers are not covered by the gates or by any test. The
+caveats:
 
 - **Aliases are one-way.** `define can_view: viewer` proves that every viewer
   can view, not the reverse: OpenFGA answers

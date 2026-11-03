@@ -23,16 +23,28 @@ func resolverProfile(m *Model) (map[string]bool, bool) {
 		typ := td.GetType()
 		for rel, meta := range td.GetMetadata().GetRelations() {
 			ttus := collectTTUProtos(td.GetRelations()[rel], nil)
+			// UsersetUseWeight2Resolver keys on the userset node's weights, so
+			// a user type present only there (e.g. an intersection operand
+			// lacking it on the object relation) must be profiled too.
+			for _, ref := range meta.GetDirectlyRelatedUserTypes() {
+				if ref.GetRelation() == "" {
+					continue
+				}
+				userTypes := map[string]bool{}
+				for u := range weights[typ+"#"+rel] {
+					userTypes[u] = true
+				}
+				for u := range weights[ref.GetType()+"#"+ref.GetRelation()] {
+					userTypes[u] = true
+				}
+				for userType := range userTypes {
+					out[typ+"#"+rel+"|"+userType+"|userset-weight2|"+ref.GetType()+"#"+ref.GetRelation()] =
+						ts.UsersetUseWeight2Resolver(typ, rel, userType, ref)
+				}
+			}
 			for userType := range weights[typ+"#"+rel] {
 				pre := typ + "#" + rel + "|" + userType + "|"
 				out[pre+"userset-recursive|"] = ts.UsersetUseRecursiveResolver(typ, rel, userType)
-				for _, ref := range meta.GetDirectlyRelatedUserTypes() {
-					if ref.GetRelation() == "" {
-						continue
-					}
-					out[pre+"userset-weight2|"+ref.GetType()+"#"+ref.GetRelation()] =
-						ts.UsersetUseWeight2Resolver(typ, rel, userType, ref)
-				}
 				for _, ttu := range ttus {
 					id := ttu.GetTupleset().GetRelation() + "→" + ttu.GetComputedUserset().GetRelation()
 					out[pre+"ttu-weight2|"+id] = ts.TTUUseWeight2Resolver(typ, rel, userType, ttu)

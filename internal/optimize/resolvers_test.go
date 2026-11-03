@@ -73,3 +73,37 @@ func TestSameResolvers_KeyOnlyInAfterIsAChange(t *testing.T) {
 		t.Error("key only in before must not be a change")
 	}
 }
+
+// T#r is an intersection whose second operand lacks user type "emp", so the
+// object relation has no weight for emp while the userset node U#s does.
+const usersetOnlyDSL = `model
+  schema 1.1
+type user
+type emp
+type U
+  relations
+    define s: [user, emp]
+type T
+  relations
+    define o: [user]
+    define r: [U#s] and o
+`
+
+func TestResolverProfile_UsersetWeight2CoversUsersetOnlyUserType(t *testing.T) {
+	m := loadInline(t, usersetOnlyDSL)
+	w, err := Weights(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := w["T#r"]["emp"]; ok {
+		t.Fatalf("precondition: T#r unexpectedly has weight for emp: %v", w["T#r"])
+	}
+	p, ok := resolverProfile(m)
+	if !ok {
+		t.Fatal("profile not ok")
+	}
+	const key = "T#r|emp|userset-weight2|U#s"
+	if _, ok := p[key]; !ok {
+		t.Errorf("profile lacks %s; keys: %v", key, p)
+	}
+}

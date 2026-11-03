@@ -124,7 +124,10 @@ func termString(t Term) string {
 }
 
 // unionRule finds union operands (selected by droppable) contained in another
-// operand of the same union. Equivalent operands keep the earlier one.
+// operand of the same union. The equivalent-operands branch (keep the earlier
+// one) is defensive: aliases are one-way and OpenFGA rejects computed cycles,
+// so Equivalent holds only for identical keys, already excluded as syntactic
+// duplicates, and degenerate TTU pairs.
 func unionRule(m *Model, l *Lattice, id, reason string, droppable func(Term) bool) []Finding {
 	var out []Finding
 	for _, td := range m.Proto.GetTypeDefinitions() {

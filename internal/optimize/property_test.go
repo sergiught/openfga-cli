@@ -43,7 +43,7 @@ func TestProperty_RewritePreservesCheck(t *testing.T) {
 	const models = 150
 	withApplied := 0
 	perRule := map[string]int{}
-	totalChecks, trueChecks, diffUnion, unstable, blocked, combined, condWild := 0, 0, 0, 0, 0, 0, 0
+	totalChecks, trueChecks, diffUnion, unstableChecks, blocked, combined, condWild := 0, 0, 0, 0, 0, 0, 0
 	for range models {
 		var m *Model
 		for m == nil {
@@ -100,17 +100,16 @@ func TestProperty_RewritePreservesCheck(t *testing.T) {
 			// Checks on relations that cannot reach a rewritten relation
 			// evaluate identical trees in both models, so a difference there
 			// is engine nondeterminism.
-			unstable++
+			unstableChecks += countDiffering(before, after)
 			continue
 		}
-		if !maps.Equal(before, after) && (engineUnstable(t, eng, rw.Before.Proto, tuples, checks, before) ||
-			engineUnstable(t, eng, rw.After.Proto, tuples, checks, after)) {
+		if !maps.Equal(before, after) {
 			// The engine's own answer can vary between runs of the SAME
-			// model (seeds 3 and 5), on either side of the rewrite, so each
-			// model is rerun against its own reference; there is nothing
-			// for a rewrite to preserve.
-			unstable++
-			continue
+			// model (seeds 3 and 5), on either side of the rewrite. Drop only
+			// the checks that vary; the rest must still agree.
+			unstableChecks += dropUnstable(before, after,
+				engineUnstable(t, eng, rw.Before.Proto, tuples, checks, before),
+				engineUnstable(t, eng, rw.After.Proto, tuples, checks, after))
 		}
 		if !maps.Equal(before, after) {
 			var diff []string
@@ -124,7 +123,7 @@ func TestProperty_RewritePreservesCheck(t *testing.T) {
 		}
 	}
 	t.Logf("models with applied findings: %d/%d; per rule: %v", withApplied, models, perRule)
-	t.Logf("skipped engine-unstable models: %d", unstable)
+	t.Logf("skipped engine-unstable checks: %d", unstableChecks)
 	t.Logf("models blocked by a recursive exclusion: %d (%d with an AND on a tuple cycle elsewhere)", blocked, combined)
 	t.Logf("findings on difference-with-union-base relations: %d", diffUnion)
 	t.Logf("models with applied findings and conditions or wildcards: %d", condWild)
@@ -137,8 +136,12 @@ func TestProperty_RewritePreservesCheck(t *testing.T) {
 		if ratio < 0.15 {
 			t.Errorf("true-answer ratio %.1f%% below 15%%: test would be weak", ratio*100)
 		}
-		if unstable > 3 {
-			t.Errorf("%d engine-unstable models skipped; the skip policy is hiding too much", unstable)
+		// The engine's nondeterminism makes this count vary between runs of
+		// the same seed (0 to 4 observed on seed 1 over 7 runs, out of ~29k
+		// checks). The cap replaces an earlier cap of 3 whole models, each
+		// carrying ~400 checks, so it hides far less than before.
+		if unstableChecks > 10 {
+			t.Errorf("%d engine-unstable checks skipped; the skip policy is hiding too much", unstableChecks)
 		}
 		if combined == 0 {
 			t.Error("no model combined a recursive exclusion with an AND on a tuple cycle")
@@ -180,16 +183,47 @@ func onlyUnaffectedDiffer(rw *RewriteResult, before, after map[checkKey]answer) 
 	return true
 }
 
-// engineUnstable reports whether re-running model m ever yields
-// answers other than ref.
-func engineUnstable(t *testing.T, eng modeltest.Engine, m *openfgav1.AuthorizationModel, tuples []*openfgav1.TupleKey, checks []checkKey, ref map[checkKey]answer) bool {
+// engineUnstable returns the checks whose answer changes in any of 8 reruns
+// of model m against ref. It never short-circuits, so every unstable key is
+// found.
+func engineUnstable(t *testing.T, eng modeltest.Engine, m *openfgav1.AuthorizationModel, tuples []*openfgav1.TupleKey, checks []checkKey, ref map[checkKey]answer) map[checkKey]bool {
 	t.Helper()
+	out := map[checkKey]bool{}
 	for range 8 {
-		if !maps.Equal(ref, runChecks(t, eng, m, tuples, checks)) {
-			return true
+		for k, v := range runChecks(t, eng, m, tuples, checks) {
+			if ref[k] != v {
+				out[k] = true
+			}
 		}
 	}
-	return false
+	return out
+}
+
+// countDiffering returns how many keys answer differently in before and after.
+func countDiffering(before, after map[checkKey]answer) int {
+	n := 0
+	for k, v := range before {
+		if after[k] != v {
+			n++
+		}
+	}
+	return n
+}
+
+// dropUnstable deletes every key in either set from both maps and returns the
+// number of distinct keys deleted.
+func dropUnstable(before, after map[checkKey]answer, sets ...map[checkKey]bool) int {
+	dropped := map[checkKey]bool{}
+	for _, set := range sets {
+		for k := range set {
+			dropped[k] = true
+		}
+	}
+	for k := range dropped {
+		delete(before, k)
+		delete(after, k)
+	}
+	return len(dropped)
 }
 
 func TestProperty_RewriteSubsetPreservesCheck(t *testing.T) {
@@ -241,11 +275,13 @@ func TestProperty_RewriteSubsetPreservesCheck(t *testing.T) {
 		checks := allChecks(m.Proto)
 		before := runChecks(t, eng, rw.Before.Proto, tuples, checks)
 		after := runChecks(t, eng, rw.After.Proto, tuples, checks)
-		if maps.Equal(before, after) {
+		if maps.Equal(before, after) || onlyUnaffectedDiffer(rw, before, after) {
 			continue
 		}
-		if onlyUnaffectedDiffer(rw, before, after) || engineUnstable(t, eng, rw.Before.Proto, tuples, checks, before) ||
-			engineUnstable(t, eng, rw.After.Proto, tuples, checks, after) {
+		dropUnstable(before, after,
+			engineUnstable(t, eng, rw.Before.Proto, tuples, checks, before),
+			engineUnstable(t, eng, rw.After.Proto, tuples, checks, after))
+		if maps.Equal(before, after) {
 			continue
 		}
 		t.Fatalf("seed=%d subset answers differ\nmodel:\n%s\napplied=%+v\ntuples=%v", seed, dsl, rw.Applied, tuples)

@@ -54,8 +54,20 @@ func TestRun_ReferenceModelDenyReadsDrop(t *testing.T) {
 	}
 	deny := find(t, res.Checks, "deny folder#viewer")
 	t.Logf("deny folder#viewer reads: %d -> %d", deny.Before.Reads, deny.After.Reads)
-	if deny.After.Reads*10 >= deny.Before.Reads*9 {
-		t.Errorf("deny reads %d -> %d, want after < 90%% of before", deny.Before.Reads, deny.After.Reads)
+	// These pin the measured effect of the reference rewrite (deny reads are
+	// deterministic); re-measure them when the synthesizer or the reference
+	// model changes.
+	if deny.Before.Reads != 69 || deny.After.Reads != 60 {
+		t.Errorf("deny folder#viewer reads %d -> %d, want 69 -> 60", deny.Before.Reads, deny.After.Reads)
+	}
+	driven := false
+	for _, f := range rw.Applied {
+		if f.Type == "folder" && f.Relation == "viewer" && f.ID == "S1" {
+			driven = true
+		}
+	}
+	if !driven {
+		t.Errorf("no applied S1 finding on folder#viewer: %+v", rw.Applied)
 	}
 	if deny.Before.P50Ms < 0 || deny.Before.P95Ms < deny.Before.P50Ms {
 		t.Errorf("bad latency %+v", deny.Before)
