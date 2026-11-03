@@ -1,9 +1,11 @@
 package optimize
 
 import (
+	"fmt"
 	"maps"
 	"math/rand/v2"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -89,7 +91,7 @@ func TestProperty_RewritePreservesCheck(t *testing.T) {
 		}
 		for _, v := range before {
 			totalChecks++
-			if v {
+			if v == allow {
 				trueChecks++
 			}
 		}
@@ -109,12 +111,13 @@ func TestProperty_RewritePreservesCheck(t *testing.T) {
 			continue
 		}
 		if !maps.Equal(before, after) {
-			var diff []checkKey
+			var diff []string
 			for k, v := range before {
 				if after[k] != v {
-					diff = append(diff, k)
+					diff = append(diff, fmt.Sprintf("%+v before=%s after=%s", k, v, after[k]))
 				}
 			}
+			slices.Sort(diff)
 			t.Fatalf("seed=%d answers differ\nmodel:\n%s\napplied=%+v\ntuples=%v\ndiffering=%v", seed, dsl, rw.Applied, tuples, diff)
 		}
 	}
@@ -154,7 +157,7 @@ func TestProperty_RewritePreservesCheck(t *testing.T) {
 
 // onlyUnaffectedDiffer reports whether every differing check is on a relation
 // that cannot reach any relation rewritten in rw.
-func onlyUnaffectedDiffer(rw *RewriteResult, before, after map[checkKey]bool) bool {
+func onlyUnaffectedDiffer(rw *RewriteResult, before, after map[checkKey]answer) bool {
 	graph := dependencyGraph(rw.Before)
 	var rewritten []string
 	for _, f := range rw.Applied {
@@ -177,7 +180,7 @@ func onlyUnaffectedDiffer(rw *RewriteResult, before, after map[checkKey]bool) bo
 
 // engineUnstable reports whether re-running the original model ever yields
 // answers other than ref.
-func engineUnstable(t *testing.T, eng modeltest.Engine, m *openfgav1.AuthorizationModel, tuples []*openfgav1.TupleKey, checks []checkKey, ref map[checkKey]bool) bool {
+func engineUnstable(t *testing.T, eng modeltest.Engine, m *openfgav1.AuthorizationModel, tuples []*openfgav1.TupleKey, checks []checkKey, ref map[checkKey]answer) bool {
 	t.Helper()
 	for range 8 {
 		if !maps.Equal(ref, runChecks(t, eng, m, tuples, checks)) {

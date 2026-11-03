@@ -2,7 +2,9 @@ package optimize
 
 import (
 	"fmt"
+	"maps"
 	"math/rand/v2"
+	"slices"
 	"strings"
 	"testing"
 
@@ -227,6 +229,34 @@ func genTuples(r, rc *rand.Rand, m *openfgav1.AuthorizationModel, n int) []*open
 			out = append(out, tk)
 		}
 	}
+	// A condition-false tuple written before a user:* wildcard on the same
+	// relation can flip OpenFGA's resolver choice, so always exercise it.
+	for _, sl := range slots {
+		cond, wild := "", false
+		for _, ref := range sl.refs {
+			if ref.GetType() != "user" {
+				continue
+			}
+			if ref.GetWildcard() != nil {
+				wild = true
+			} else if ref.GetCondition() != "" && ref.GetRelation() == "" {
+				cond = ref.GetCondition()
+			}
+		}
+		if cond == "" || !wild {
+			continue
+		}
+		obj := sl.typ + ":1"
+		out = slices.DeleteFunc(out, func(tk *openfgav1.TupleKey) bool {
+			return tk.GetObject() == obj && tk.GetRelation() == sl.rel && (tk.GetUser() == "user:1" || tk.GetUser() == "user:*")
+		})
+		ctx, _ := structpb.NewStruct(map[string]any{"x": 16})
+		out = append(out,
+			&openfgav1.TupleKey{Object: obj, Relation: sl.rel, User: "user:1", Condition: &openfgav1.RelationshipCondition{Name: cond, Context: ctx}},
+			&openfgav1.TupleKey{Object: obj, Relation: sl.rel, User: "user:*"})
+		seen[obj+"|"+sl.rel+"|user:1"] = true
+		seen[obj+"|"+sl.rel+"|user:*"] = true
+	}
 	// Often add cyclic parent data (2-cycles and self-loops): cycles are where
 	// OpenFGA's runtime cycle detection can diverge from the lattice proof.
 	if r.IntN(2) == 0 {
@@ -272,13 +302,59 @@ func genTuples(r, rc *rand.Rand, m *openfgav1.AuthorizationModel, n int) []*open
 
 type checkKey struct{ object, relation, user string }
 
+// answer is a Check outcome. An engine error is a value, so an error on one
+// side of a rewrite only counts as a changed answer.
+type answer uint8
+
+const (
+	deny answer = iota
+	allow
+	checkErr
+)
+
+func (a answer) String() string {
+	switch a {
+	case allow:
+		return "allow"
+	case checkErr:
+		return "error"
+	default:
+		return "deny"
+	}
+}
+
+// maxUsersetSubjects caps the userset subjects probed per (object, relation).
+const maxUsersetSubjects = 10
+
+// allChecks probes every relation of T:1..3 with five user subjects, then with
+// userset subjects: T:n#r' for every relation of the same type, then U:1#r'
+// for every other type. Only the userset list is truncated.
 func allChecks(m *openfgav1.AuthorizationModel) []checkKey {
+	sortedRels := func(td *openfgav1.TypeDefinition) []string {
+		return slices.Sorted(maps.Keys(td.GetMetadata().GetRelations()))
+	}
 	var out []checkKey
 	for _, td := range m.GetTypeDefinitions() {
-		for rel := range td.GetMetadata().GetRelations() {
+		for _, rel := range sortedRels(td) {
 			for o := 1; o <= 3; o++ {
+				obj := fmt.Sprintf("%s:%d", td.GetType(), o)
 				for _, u := range []string{"user:1", "user:2", "user:3", "user:4", "user:nobody"} {
-					out = append(out, checkKey{fmt.Sprintf("%s:%d", td.GetType(), o), rel, u})
+					out = append(out, checkKey{obj, rel, u})
+				}
+				var sets []string
+				for _, r2 := range sortedRels(td) {
+					sets = append(sets, fmt.Sprintf("%s#%s", obj, r2))
+				}
+				for _, other := range m.GetTypeDefinitions() {
+					if other.GetType() == td.GetType() {
+						continue
+					}
+					for _, r2 := range sortedRels(other) {
+						sets = append(sets, fmt.Sprintf("%s:1#%s", other.GetType(), r2))
+					}
+				}
+				for _, u := range sets[:min(len(sets), maxUsersetSubjects)] {
+					out = append(out, checkKey{obj, rel, u})
 				}
 			}
 		}
@@ -286,7 +362,7 @@ func allChecks(m *openfgav1.AuthorizationModel) []checkKey {
 	return out
 }
 
-func runChecks(t *testing.T, eng modeltest.Engine, m *openfgav1.AuthorizationModel, tuples []*openfgav1.TupleKey, checks []checkKey) map[checkKey]bool {
+func runChecks(t *testing.T, eng modeltest.Engine, m *openfgav1.AuthorizationModel, tuples []*openfgav1.TupleKey, checks []checkKey) map[checkKey]answer {
 	t.Helper()
 	ctx := t.Context()
 	storeID, modelID, err := eng.Setup(ctx, m, tuples)
@@ -295,13 +371,17 @@ func runChecks(t *testing.T, eng modeltest.Engine, m *openfgav1.AuthorizationMod
 	}
 	defer func() { _ = eng.DeleteStore(ctx, storeID) }()
 	sc := modeltest.Scope{StoreID: storeID, ModelID: modelID}
-	res := make(map[checkKey]bool, len(checks))
+	res := make(map[checkKey]answer, len(checks))
 	for _, c := range checks {
 		ok, err := eng.Check(ctx, sc, modeltest.CheckReq{User: c.user, Relation: c.relation, Object: c.object})
-		if err != nil {
-			t.Fatalf("check %+v: %v", c, err)
+		switch {
+		case err != nil:
+			res[c] = checkErr
+		case ok:
+			res[c] = allow
+		default:
+			res[c] = deny
 		}
-		res[c] = ok
 	}
 	return res
 }
