@@ -4,6 +4,7 @@ import (
 	"os"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	openfgav1 "github.com/openfga/api/proto/openfga/v1"
@@ -126,7 +127,7 @@ type document
 	}
 	got := map[string]string{}
 	for _, c := range src.Checks {
-		if len(c.Name) > 4 && c.Name[:4] == "deny" {
+		if len(c.Name) > 4 && c.Name[:4] == "deny" && !strings.Contains(c.User, "#") {
 			got[c.Name] = c.User
 		}
 	}
@@ -159,5 +160,49 @@ func TestSynthesize_ProbesCoverIndirectPaths(t *testing.T) {
 	}
 	if !reflect.DeepEqual(src.Probes, again.Probes) {
 		t.Fatal("probes not deterministic")
+	}
+}
+
+func TestSynthesize_UsersetSubjectChecks(t *testing.T) {
+	src, err := Synthesize(loadRef(t), SynthOptions{Seed: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := func(name string) int {
+		return slices.IndexFunc(src.Checks, func(c Check) bool { return c.Name == name })
+	}
+	want := []Check{
+		{Name: "deny document#can_view (document#viewer)", User: "document:t1#viewer", Relation: "can_view", Object: "document:t1"},
+		{Name: "deny folder#viewer (folder#parent)", User: "folder:t1#parent", Relation: "viewer", Object: "folder:t1"},
+	}
+	for _, w := range want {
+		if !slices.Contains(src.Checks, w) {
+			t.Errorf("missing check %+v", w)
+		}
+	}
+	for _, c := range src.Checks {
+		if strings.HasPrefix(c.User, "group:t1#") {
+			t.Errorf("group has one relation, unexpected userset check %+v", c)
+		}
+	}
+	us := index(want[0].Name)
+	lastDeny, firstAllow := -1, -1
+	for i, c := range src.Checks {
+		if c.Relation != "can_view" || c.Object != "document:t1" {
+			continue
+		}
+		if strings.HasPrefix(c.Name, "deny document#can_view") && !strings.Contains(c.User, "#") {
+			lastDeny = i
+		}
+		if strings.HasPrefix(c.Name, "allow document#can_view") && firstAllow < 0 {
+			firstAllow = i
+		}
+	}
+	deny, allow := lastDeny, firstAllow
+	if us < 0 || deny < 0 || us < deny {
+		t.Errorf("userset check at %d precedes deny at %d", us, deny)
+	}
+	if allow >= 0 && us > allow {
+		t.Errorf("userset check at %d follows allow at %d", us, allow)
 	}
 }

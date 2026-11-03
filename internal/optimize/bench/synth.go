@@ -162,6 +162,21 @@ func Synthesize(m *openfgav1.AuthorizationModel, o SynthOptions) (*Source, error
 				}
 				src.Checks = append(src.Checks, Check{Name: name, User: st + ":nobody", Relation: rel, Object: typ + ":t1"})
 			}
+			// Userset subjects (T:t1#other) probe rewrites that only hold for
+			// concrete users.
+			if len(names) >= 2 {
+				for _, other := range names {
+					if other == rel {
+						continue
+					}
+					src.Checks = append(src.Checks, Check{
+						Name:     fmt.Sprintf("deny %s#%s (%s#%s)", typ, rel, typ, other),
+						User:     fmt.Sprintf("%s:t1#%s", typ, other),
+						Relation: rel,
+						Object:   typ + ":t1",
+					})
+				}
+			}
 			var userLeaves []leaf
 			for _, l := range leaves {
 				if l.relation == rel && l.isUser {
