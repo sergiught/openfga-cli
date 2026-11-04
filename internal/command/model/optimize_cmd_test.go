@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -631,8 +632,70 @@ func TestOptimize_NothingToDoCountHonorsTier(t *testing.T) {
 	if strings.Contains(errAll, "no safe rewrites; 0 recommendations") {
 		t.Fatalf("unfiltered stderr = %q, want a nonzero count", errAll)
 	}
-	if !strings.Contains(errCaller, "no safe rewrites; 0 recommendations") {
+	if !strings.Contains(errCaller, "no safe rewrites; 0 caller recommendations") {
 		t.Errorf("--tier caller stderr = %q", errCaller)
+	}
+	_, errMulti, err := runOptimize(t, "model\n  schema 1.1\n\ntype user\n\ntype doc\n  relations\n    define viewer: [user]\n", false, "-", "--tier", "Caller,tuple,CALLER")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(errMulti, "no safe rewrites; 0 caller/tuple recommendations") {
+		t.Errorf("--tier caller,tuple stderr = %q", errMulti)
+	}
+}
+
+func TestOptimize_TierIsCaseInsensitiveAndAcceptsAll(t *testing.T) {
+	if _, _, err := runOptimize(t, "", false, optimizeReference, "--tier", "SAFE,Tuple"); err != nil {
+		t.Fatalf("--tier SAFE,Tuple: %v", err)
+	}
+	def, _, err := runOptimize(t, "", false, optimizeReference)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, _, err := runOptimize(t, "", false, optimizeReference, "--tier", "all")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if all != def {
+		t.Errorf("--tier all differs from default:\n%s\nvs\n%s", all, def)
+	}
+	cmd := New(cli.New(log.New(io.Discard), config.New(), "test")).optimizeCmd()
+	fn, ok := cmd.GetFlagCompletionFunc("tier")
+	if !ok {
+		t.Fatal("no tier completion")
+	}
+	got, _ := fn(cmd, nil, "")
+	if !slices.Contains(got, "all") {
+		t.Errorf("completions = %v, want all", got)
+	}
+}
+
+func TestOptimize_EmptyFileIsUsage(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "m.fga")
+	if err := os.WriteFile(p, []byte("  \n\t"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := runOptimize(t, "", false, p)
+	wantUsage(t, err)
+	if want := "model file is empty: " + p; err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("err = %v, want %q", err, want)
+	}
+	_, _, err = runOptimize(t, "  \n", false, "-")
+	wantUsage(t, err)
+	if err == nil || !strings.Contains(err.Error(), "model from stdin is empty") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestStdinHint(t *testing.T) {
+	var b bytes.Buffer
+	stdinHint(&b, false)
+	if b.Len() != 0 {
+		t.Errorf("non-TTY printed %q", b.String())
+	}
+	stdinHint(&b, true)
+	if !strings.Contains(b.String(), "reading model from stdin (press Ctrl-D to finish)") {
+		t.Errorf("hint = %q", b.String())
 	}
 }
 

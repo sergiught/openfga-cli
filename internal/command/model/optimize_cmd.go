@@ -1,6 +1,7 @@
 package model
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/charmbracelet/x/term"
 	openfgav1 "github.com/openfga/api/proto/openfga/v1"
 	"github.com/spf13/cobra"
 
@@ -105,12 +107,19 @@ func (c *Command) optimizeCmd() *cobra.Command {
 
 			var data []byte
 			if stdin {
+				stdinHint(cmd.ErrOrStderr(), term.IsTerminal(os.Stdin.Fd()))
 				data, err = readlimit.All(cmd.InOrStdin(), readlimit.Document, "model from stdin")
 			} else {
 				data, err = readlimit.File(path, readlimit.Document, "model file")
 			}
 			if err != nil {
 				return err
+			}
+			if len(bytes.TrimSpace(data)) == 0 {
+				if stdin {
+					return usageHint("pipe a model in, or pass a model file", errors.New("model from stdin is empty"))
+				}
+				return usageHint("pass a non-empty .fga or .json model file", fmt.Errorf("model file is empty: %s", path))
 			}
 			format := "dsl"
 			if isJSONModel(data) {
@@ -228,6 +237,10 @@ func (c *Command) optimizeCmd() *cobra.Command {
 					output.Infof(cmd.ErrOrStderr(), "no safe rewrites; nothing written to %s", shown)
 					return nil
 				}
+				if len(tiers) > 0 && len(findings) == 0 {
+					output.Infof(cmd.ErrOrStderr(), "no safe rewrites; 0 %s recommendations", tierLabel(tiers))
+					return nil
+				}
 				output.Infof(cmd.ErrOrStderr(), "no safe rewrites; %s", benchfmt.Plural(len(findings), "recommendation"))
 				return nil
 			}
@@ -250,8 +263,8 @@ func (c *Command) optimizeCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&write, "write", false, "overwrite the model file with the rewritten DSL (reformats and drops comments; DSL files only)")
 	cmd.Flags().StringVar(&outPath, "output-file", "", "write the rewritten DSL to this path; - means stdout")
-	cmd.Flags().StringSliceVar(&tiers, "tier", nil, "tiers to report: safe, caller, tuple (default all; never changes what is written)")
-	_ = cmd.RegisterFlagCompletionFunc("tier", cobra.FixedCompletions([]string{"safe", "caller", "tuple"}, cobra.ShellCompDirectiveNoFileComp))
+	cmd.Flags().StringSliceVar(&tiers, "tier", nil, "tiers to report: safe, caller, tuple, all (default all; never changes what is written)")
+	_ = cmd.RegisterFlagCompletionFunc("tier", cobra.FixedCompletions([]string{"safe", "caller", "tuple", "all"}, cobra.ShellCompDirectiveNoFileComp))
 	_ = cmd.MarkFlagFilename("output-file")
 	cmd.Flags().BoolVar(&runBench, "bench", false, "benchmark the model before/after the rewrite on an embedded server (exit 3 and no write if any check result changes)")
 	cmd.Flags().StringVar(&wsPath, "workspace", "", "workspace directory supplying tuples and checks for --bench (default: ofga.yaml found above the model file)")
@@ -363,14 +376,38 @@ func parseTiers(in []string) (map[optimize.Tier]bool, error) {
 	}
 	want := map[optimize.Tier]bool{}
 	for _, s := range in {
-		switch t := optimize.Tier(strings.TrimSpace(s)); t {
+		switch t := optimize.Tier(strings.ToLower(strings.TrimSpace(s))); t {
+		case "all":
+			want[optimize.TierSafe], want[optimize.TierCaller], want[optimize.TierTuple] = true, true, true
 		case optimize.TierSafe, optimize.TierCaller, optimize.TierTuple:
 			want[t] = true
 		default:
-			return nil, usageHint("valid tiers: safe, caller, tuple", fmt.Errorf("unknown --tier %q", s))
+			return nil, usageHint("valid tiers: safe, caller, tuple, all", fmt.Errorf("unknown --tier %q", s))
 		}
 	}
 	return want, nil
+}
+
+// tierLabel joins the tiers the user passed, lowercased and de-duplicated in
+// the order given, with "/".
+func tierLabel(in []string) string {
+	var names []string
+	seen := map[string]bool{}
+	for _, s := range in {
+		n := strings.ToLower(strings.TrimSpace(s))
+		if !seen[n] {
+			seen[n] = true
+			names = append(names, n)
+		}
+	}
+	return strings.Join(names, "/")
+}
+
+// stdinHint tells an interactive user that the command is waiting on stdin.
+func stdinHint(w io.Writer, isTTY bool) {
+	if isTTY {
+		output.Infof(w, "reading model from stdin (press Ctrl-D to finish)")
+	}
 }
 
 // filterTiers keeps report order; a nil want keeps everything. The result is
