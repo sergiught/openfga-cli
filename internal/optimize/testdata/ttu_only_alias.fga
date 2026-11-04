@@ -1,0 +1,14 @@
+model
+  schema 1.1
+
+type user
+
+type folder
+  relations
+    define viewer: [user]
+
+type doc
+  relations
+    define parent: [folder]
+    define inherited: viewer from parent
+    define viewer: [user] or inherited or viewer from parent

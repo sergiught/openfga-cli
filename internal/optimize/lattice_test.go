@@ -1,6 +1,8 @@
 package optimize
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	openfgav1 "github.com/openfga/api/proto/openfga/v1"
@@ -280,4 +282,30 @@ type doc
 	wantSubset(t, l, ttu("doc", "parent", "viewer"), comp("doc", "viewer"), false)
 	wantSubset(t, l, comp("doc", "viewer"), ttu("doc", "parent", "viewer"), false)
 	wantSubset(t, l, ttu("doc", "parent", "viewer"), comp("doc", "reader"), true)
+}
+
+func TestLattice_TTUOnlyRelationIsAlias(t *testing.T) {
+	data, err := os.ReadFile("testdata/ttu_only_alias.fga")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := loadInline(t, string(data))
+	l := BuildLattice(m)
+	wantSubset(t, l, ttu("doc", "parent", "viewer"), comp("doc", "inherited"), true)
+	wantSubset(t, l, comp("doc", "inherited"), ttu("doc", "parent", "viewer"), false)
+
+	rw, err := Rewrite(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rw.Applied) != 1 {
+		t.Fatalf("applied = %+v, want one finding", rw.Applied)
+	}
+	f := rw.Applied[0]
+	if f.Type != "doc" || f.Relation != "viewer" || (f.ID != "S4" && f.ID != "S2") {
+		t.Errorf("applied = %s %s#%s, want S4 or S2 on doc#viewer", f.ID, f.Type, f.Relation)
+	}
+	if strings.Contains(f.After, "inherited") && strings.Contains(f.After, "viewer from parent") {
+		t.Errorf("After = %q, still contains both operands", f.After)
+	}
 }

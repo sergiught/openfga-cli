@@ -2,6 +2,7 @@ package optimize
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"google.golang.org/protobuf/types/known/structpb"
@@ -129,4 +130,86 @@ func TestSoundness_KnownCounterexamples(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSoundness_PinnedModels(t *testing.T) {
+	eng, err := modeltest.NewEmbeddedEngine(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = eng.Close() }()
+	load := func(t *testing.T, file string) *Model {
+		t.Helper()
+		data, err := os.ReadFile("testdata/" + file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return loadInline(t, string(data))
+	}
+
+	t.Run("multi-parent unsafe", func(t *testing.T) {
+		rw, err := Rewrite(load(t, "ttu_multi_parent_unsafe.fga"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rw.Applied) != 0 || len(rw.Gated) != 0 {
+			t.Errorf("applied = %+v, gated = %+v, want neither", rw.Applied, rw.Gated)
+		}
+	})
+
+	t.Run("multi-parent vacuous", func(t *testing.T) {
+		rw, err := Rewrite(load(t, "ttu_multi_parent_vacuous.fga"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rw.Applied) != 0 || len(rw.Gated) != 1 {
+			t.Fatalf("applied = %+v, gated = %+v, want none applied and one gated", rw.Applied, rw.Gated)
+		}
+		if want := "changes whether OpenFGA can build the weighted graph"; rw.Gated[0].Gate != want {
+			t.Errorf("gate = %q, want %q", rw.Gated[0].Gate, want)
+		}
+	})
+
+	t.Run("conditioned tupleset", func(t *testing.T) {
+		rw, err := Rewrite(load(t, "cond_tupleset.fga"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cond := func(ctx map[string]any) *openfgav1.RelationshipCondition {
+			c, err := structpb.NewStruct(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return &openfgav1.RelationshipCondition{Name: "active", Context: c}
+		}
+		tuples := []*openfgav1.TupleKey{
+			{User: "folder:1", Relation: "parent", Object: "doc:1", Condition: cond(map[string]any{"now": "2029-01-01T00:00:00Z", "until": "2030-01-01T00:00:00Z"})},
+			{User: "folder:2", Relation: "parent", Object: "doc:2", Condition: cond(map[string]any{"until": "2030-01-01T00:00:00Z"})},
+			{User: "user:anne", Relation: "admin", Object: "folder:1"},
+			{User: "user:bob", Relation: "viewer", Object: "folder:1"},
+			{User: "user:anne", Relation: "admin", Object: "folder:2"},
+			{User: "user:bob", Relation: "viewer", Object: "folder:2"},
+		}
+		grid := []map[string]any{
+			{"now": "2029-01-01T00:00:00Z", "until": "2030-01-01T00:00:00Z"}, // true
+			{"now": "2031-01-01T00:00:00Z", "until": "2030-01-01T00:00:00Z"}, // false
+			nil, // absent: only doc:1's tuple carries every parameter
+		}
+		for _, user := range []string{"user:anne", "user:bob", "user:carol"} {
+			for _, obj := range []string{"doc:1", "doc:2"} {
+				for _, rel := range []string{"viewer", "can_view"} {
+					for gi, ctx := range grid {
+						if ctx == nil && obj == "doc:2" {
+							continue // the tuple lacks "now", so OpenFGA errors
+						}
+						req := modeltest.CheckReq{User: user, Relation: rel, Object: obj, Context: ctx}
+						b, a := checkBoth(t, eng, rw, tuples, req)
+						if b != a {
+							t.Errorf("%s %s %s ctx#%d: before=%v after=%v", user, rel, obj, gi, b, a)
+						}
+					}
+				}
+			}
+		}
+	})
 }

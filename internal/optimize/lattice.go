@@ -100,6 +100,11 @@ func BuildLattice(m *Model) *Lattice {
 					add(s)
 					l.add(s, rt)
 				}
+			case *openfgav1.Userset_TupleToUserset: // alias of the TTU term
+				if s, ok := TermOf(typ, rel, us, md); ok {
+					add(s)
+					l.add(s, rt)
+				}
 			case *openfgav1.Userset_Union:
 				for _, c := range us.GetUnion().GetChild() {
 					if ct, ok := TermOf(typ, rel, c, md); ok {

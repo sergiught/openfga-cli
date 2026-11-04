@@ -27,12 +27,25 @@ func genModel(r, rc *rand.Rand) *openfgav1.AuthorizationModel {
 	}
 	var sb strings.Builder
 	sb.WriteString("model\n  schema 1.1\n\ntype user\n")
+	parentCond := false
 	for ti := range nTypes {
 		parent := ti
 		if r.IntN(2) == 0 {
 			parent = r.IntN(nTypes)
 		}
-		fmt.Fprintf(&sb, "\ntype t%d\n  relations\n    define parent: [t%d]\n", ti, parent)
+		// A second parent type and a condition on the first type, each
+		// with probability 1 in 4.
+		refs := fmt.Sprintf("t%d", parent)
+		if r.IntN(4) == 0 {
+			parentCond = true
+			refs += " with cx"
+		}
+		if r.IntN(4) == 0 {
+			if other := r.IntN(nTypes); other != parent {
+				refs += fmt.Sprintf(", t%d", other)
+			}
+		}
+		fmt.Fprintf(&sb, "\ntype t%d\n  relations\n    define parent: [%s]\n", ti, refs)
 		for ri := range nRels[ti] {
 			fmt.Fprintf(&sb, "    define r%d: %s\n", ri, genDef(r, ti, ri, nTypes, nRels, parent))
 		}
@@ -46,6 +59,9 @@ func genModel(r, rc *rand.Rand) *openfgav1.AuthorizationModel {
 	dsl := sb.String()
 	if rc.IntN(3) == 0 {
 		dsl = genConditionsAndWildcards(rc, dsl)
+	}
+	if parentCond && !strings.Contains(dsl, "condition cx(") {
+		dsl += "\ncondition cx(x: int) {\n  x < 10\n}\n"
 	}
 	lm, err := modeltest.LoadModelBytes([]byte(dsl))
 	if err != nil {
@@ -260,10 +276,15 @@ func genTuples(r, rc *rand.Rand, m *openfgav1.AuthorizationModel, n int) []*open
 	// Often add cyclic parent data (2-cycles and self-loops): cycles are where
 	// OpenFGA's runtime cycle detection can diverge from the lattice proof.
 	if r.IntN(2) == 0 {
-		add := func(obj, user string) {
+		add := func(obj, user, cond string) {
 			if k := obj + "|parent|" + user; !seen[k] {
 				seen[k] = true
-				out = append(out, &openfgav1.TupleKey{Object: obj, Relation: "parent", User: user})
+				tk := &openfgav1.TupleKey{Object: obj, Relation: "parent", User: user}
+				if cond != "" {
+					ctx, _ := structpb.NewStruct(map[string]any{"x": rc.IntN(20)})
+					tk.Condition = &openfgav1.RelationshipCondition{Name: cond, Context: ctx}
+				}
+				out = append(out, tk)
 			}
 		}
 		for _, td := range m.GetTypeDefinitions() {
@@ -272,10 +293,10 @@ func genTuples(r, rc *rand.Rand, m *openfgav1.AuthorizationModel, n int) []*open
 					continue
 				}
 				if r.IntN(2) == 0 {
-					add(td.GetType()+":1", td.GetType()+":1")
+					add(td.GetType()+":1", td.GetType()+":1", ref.GetCondition())
 				} else {
-					add(td.GetType()+":1", td.GetType()+":2")
-					add(td.GetType()+":2", td.GetType()+":1")
+					add(td.GetType()+":1", td.GetType()+":2", ref.GetCondition())
+					add(td.GetType()+":2", td.GetType()+":1", ref.GetCondition())
 				}
 			}
 		}
@@ -384,4 +405,36 @@ func runChecks(t *testing.T, eng modeltest.Engine, m *openfgav1.AuthorizationMod
 		}
 	}
 	return res
+}
+
+func TestGenModel_SometimesMultiParentAndConditioned(t *testing.T) {
+	multi, cond := false, false
+	for seed := range uint64(200) {
+		r := rand.New(rand.NewPCG(seed, 0))  //nolint:gosec // deterministic test generator
+		rc := rand.New(rand.NewPCG(seed, 1)) //nolint:gosec // conditions and wildcards
+		p := genModel(r, rc)
+		if p == nil {
+			continue
+		}
+		m, err := NewModel(p)
+		if err != nil {
+			continue
+		}
+		dsl, _ := m.DSL()
+		for _, line := range strings.Split(dsl, "\n") {
+			line = strings.TrimSpace(line)
+			if !strings.HasPrefix(line, "define parent:") {
+				continue
+			}
+			if strings.Contains(line, ", t") {
+				multi = true
+			}
+			if strings.Contains(line, " with cx") {
+				cond = true
+			}
+		}
+	}
+	if !multi || !cond {
+		t.Errorf("over 200 seeds: two-type parent seen = %v, conditioned parent seen = %v", multi, cond)
+	}
 }
