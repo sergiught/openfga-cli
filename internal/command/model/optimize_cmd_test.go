@@ -875,3 +875,28 @@ func TestOptimize_WriteNothingWrittenLeavesFile(t *testing.T) {
 		t.Errorf("file changed: %q, %v", got, err)
 	}
 }
+
+func TestOptimize_OutputFileDirectoryIsRuntimeError(t *testing.T) {
+	_, _, err := runOptimize(t, "", false, optimizeReference, "--output-file", t.TempDir())
+	if err == nil {
+		t.Fatal("want an error writing to a directory")
+	}
+	if clierr.Code(err) != clierr.CodeError {
+		t.Fatalf("code = %d, want %d: %v", clierr.Code(err), clierr.CodeError, err)
+	}
+	if strings.Contains(clierr.NewEnvelope(err).Error.Message, "OpenFGA server") {
+		t.Fatalf("message mentions the server: %v", err)
+	}
+}
+
+func TestOptimize_JSONSyntaxErrorHasLineAndColumn(t *testing.T) {
+	dsl := "model\n  schema 1.1\ntype user\ntype group\n  relations\n    define member: [user\n"
+	_, _, err := runOptimize(t, dsl, true, "-")
+	if err == nil {
+		t.Fatal("want a parse error")
+	}
+	e := clierr.NewEnvelope(err).Error
+	if len(e.Details) == 0 || e.Details[0]["line"] != 5 {
+		t.Fatalf("details = %#v (code %q, message %q)", e.Details, e.Code, e.Message)
+	}
+}

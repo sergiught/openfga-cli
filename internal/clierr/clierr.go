@@ -317,6 +317,10 @@ func IsConnErr(err error) bool {
 	if errors.As(err, &pathErr) {
 		return false
 	}
+	var linkErr *os.LinkError
+	if errors.As(err, &linkErr) {
+		return false
+	}
 	var ne net.Error
 	if errors.As(err, &ne) {
 		return true

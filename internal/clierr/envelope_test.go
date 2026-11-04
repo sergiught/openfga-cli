@@ -11,7 +11,10 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/sergiught/go-openfga/openfga"
@@ -105,6 +108,15 @@ func TestClassifyLocalErrors(t *testing.T) {
 			t.Errorf("hint = %q", e.Hint)
 		}
 	})
+	t.Run("link error", func(t *testing.T) {
+		err := &os.LinkError{Op: "rename", Old: "a", New: "b", Err: syscall.EISDIR}
+		if IsConnErr(fmt.Errorf("write: %w", err)) {
+			t.Error("a rename failure must not be a connection error")
+		}
+		if got := NewEnvelope(err).Error.Code; got != KindError {
+			t.Errorf("code = %q, want error", got)
+		}
+	})
 	t.Run("canceled", func(t *testing.T) {
 		if got := NewEnvelope(context.Canceled).Error.Code; got != KindCanceled {
 			t.Errorf("code = %q", got)
@@ -140,12 +152,23 @@ func TestClassifyLocalErrors(t *testing.T) {
 	})
 }
 
+func TestEnvelope_KeepsHeadlineLines(t *testing.T) {
+	e := NewEnvelope(errors.New("load model: transform model DSL: 1 error occurred:\n\t* syntax error at line=5, column=18: missing ':' at '['\n\n")).Error
+	if e.Message != "load model: transform model DSL: 1 error occurred:" {
+		t.Errorf("message = %q", e.Message)
+	}
+	want := map[string]any{"message": "syntax error at line=5, column=18: missing ':' at '['", "line": 5, "column": 18}
+	if len(e.Details) == 0 || !reflect.DeepEqual(e.Details[0], want) {
+		t.Errorf("details = %#v, want [0] = %#v", e.Details, want)
+	}
+}
+
 func TestEnvelopeWriteLine(t *testing.T) {
 	var buf bytes.Buffer
 	if err := NewEnvelope(errors.New("a\nb")).WriteLine(&buf); err != nil {
 		t.Fatal(err)
 	}
-	want := `{"error":{"code":"error","message":"a","details":[]}}` + "\n"
+	want := `{"error":{"code":"error","message":"a","details":[{"message":"b"}]}}` + "\n"
 	if buf.String() != want {
 		t.Errorf("got %q, want %q", buf.String(), want)
 	}
