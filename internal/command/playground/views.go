@@ -72,6 +72,8 @@ func (m Model) viewString() string {
 	if title, body := m.dialogContent(); body != "" {
 		if m.formErr != "" || m.confirm != nil {
 			m.sh.SetDialog(title, body, style.Red) // error / destructive: red title + border
+		} else if m.opt.dialog {
+			m.sh.SetWideDialog(title, body)
 		} else {
 			m.sh.SetDialog(title, body)
 		}

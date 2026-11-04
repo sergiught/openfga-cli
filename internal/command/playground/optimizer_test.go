@@ -416,8 +416,14 @@ func TestOptimizer_ReviewBShowsSummary(t *testing.T) {
 	if len(msgs) != 1 || msgs[0].kind != optKindSelection {
 		t.Fatalf("want one selection msg, got %+v", msgs)
 	}
-	if out := view(m); !strings.Contains(out, "Deny checks whose cost changed") {
-		t.Errorf("summary missing:\n%s", out)
+	out := view(m)
+	for _, want := range []string{"Benchmark ·", "Deny reads"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("summary missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Deny checks whose cost changed") {
+		t.Errorf("card still renders the full table:\n%s", out)
 	}
 	m, _ = m.Update(key("down"))
 	if m.(Model).opt.selBench != nil {
@@ -538,7 +544,7 @@ func TestOptimizer_DialogGatesOnBenchmark(t *testing.T) {
 	if !strings.Contains(out, "Answers          all ") || !strings.Contains(out, " unchanged") {
 		t.Errorf("totals missing:\n%s", out)
 	}
-	if !strings.Contains(out, "+++ model (optimized)") || !strings.Contains(out, "│  -  ") || !strings.Contains(out, "│  +  ") {
+	if !strings.Contains(out, "+++ model (optimized)") || !strings.Contains(out, "│  - ") || !strings.Contains(out, "│  + ") {
 		t.Errorf("diff missing:\n%s", out)
 	}
 	if !strings.Contains(out, "y write · esc cancel") {
@@ -874,5 +880,41 @@ func TestOptimizer_DialogShowsWritingProgress(t *testing.T) {
 	out := view(m)
 	if !strings.Contains(out, "writing optimized model…") || strings.Contains(out, "y write") {
 		t.Errorf("progress missing:\n%s", out)
+	}
+}
+
+// The write dialog is wide and wraps: at 80 and 120 columns the first
+// rewrite's Before and After survive whole once the wrapped lines are rejoined.
+func TestOptimizer_DialogDiffReadableAt80And120(t *testing.T) {
+	for _, width := range []int{80, 120} {
+		m, _ := writeDialog(t, referenceDSL(t), false)
+		m, _ = m.Update(tea.WindowSizeMsg{Width: width, Height: 30})
+		mm := m.(Model)
+		f := mm.opt.rows[0]
+		var lines []string
+		for range 400 {
+			lines = append(lines, strings.Split(ansi.Strip(mm.writeDialogBody()), "\n")...)
+			before := mm.opt.dialogScroll
+			mm.scrollDialog(1)
+			if mm.opt.dialogScroll == before {
+				break
+			}
+		}
+		var flat []string
+		for _, l := range lines {
+			flat = append(flat, strings.TrimSpace(l))
+		}
+		all := strings.Join(flat, "")
+		all = strings.ReplaceAll(all, " ", "")
+		for _, want := range []string{f.Type + "#" + f.Relation, "-" + f.Before, "+" + f.After} {
+			if !strings.Contains(all, strings.ReplaceAll(want, " ", "")) {
+				t.Errorf("width %d: body missing %q", width, want)
+			}
+		}
+		for _, l := range lines {
+			if w := ansi.StringWidth(l); w > width {
+				t.Errorf("width %d: line %d wide: %q", width, w, l)
+			}
+		}
 	}
 }

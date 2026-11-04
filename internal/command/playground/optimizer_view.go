@@ -1,7 +1,6 @@
 package playground
 
 import (
-	"bytes"
 	"fmt"
 	"sort"
 	"strings"
@@ -252,11 +251,7 @@ func (m Model) reviewCard(cur int) (string, string) {
 	case o.err != "":
 		return "", style.Failure.Render(o.err)
 	case o.selBench != nil:
-		var buf bytes.Buffer
-		if err := benchfmt.Render(&buf, o.selBench); err != nil {
-			return "", style.Failure.Render(errStr(err))
-		}
-		return "Selection benchmark", strings.TrimRight(buf.String(), "\n")
+		return "Selection benchmark", strings.Join(benchfmt.Summary(o.selBench), "\n")
 	}
 	var f optimize.Finding
 	adv := len(o.rows) + len(o.gated)
@@ -320,7 +315,7 @@ func (m Model) reviewCard(cur int) (string, string) {
 // its footer, plus how many diff lines fit between them.
 func (m Model) writeDialogLayout() (head []string, foot string, diffH int) {
 	o := m.opt
-	w, h := m.sh.DialogSize()
+	w, h := m.sh.WideDialogSize()
 	store := m.currentStoreName()
 	if store == "" {
 		store = m.storeID
@@ -364,25 +359,51 @@ func (m Model) writeDialogLayout() (head []string, foot string, diffH int) {
 	return head, foot, max(0, h-len(head)-2)
 }
 
+// wrappedDialogBody hard-wraps the dialog body to the dialog width and colours
+// it; the continuation of a "- "/"+ " line is indented two cells so a pair
+// stays readable.
+func (m Model) wrappedDialogBody() []string {
+	w, _ := m.sh.WideDialogSize()
+	var out []string
+	for _, l := range m.opt.dialogDiff {
+		pair := strings.HasPrefix(l, "- ") || strings.HasPrefix(l, "+ ")
+		render := func(s string) string { return s }
+		sty := func(f func(...string) string) { render = func(s string) string { return f(s) } }
+		switch {
+		case strings.HasPrefix(l, "+"):
+			sty(style.Success.Render)
+		case strings.HasPrefix(l, "-"):
+			sty(style.Failure.Render)
+		case strings.HasPrefix(l, "@@"):
+			sty(style.Faint.Render)
+		}
+		if !pair {
+			for _, seg := range strings.Split(ansi.Hardwrap(l, max(1, w), true), "\n") {
+				out = append(out, render(seg))
+			}
+			continue
+		}
+		segs := strings.Split(ansi.Hardwrap(l[2:], max(1, w-2), true), "\n")
+		for i, seg := range segs {
+			prefix := "  "
+			if i == 0 {
+				prefix = l[:2]
+			}
+			out = append(out, render(prefix+seg))
+		}
+	}
+	return out
+}
+
 // writeDialogBody renders the write dialog.
 func (m Model) writeDialogBody() string {
-	w, h := m.sh.DialogSize()
+	w, h := m.sh.WideDialogSize()
 	head, foot, diffH := m.writeDialogLayout()
 	lines := append([]string{}, head...)
 	lines = append(lines, "")
-	d := m.opt.dialogDiff
+	d := m.wrappedDialogBody()
 	start := max(0, min(m.opt.dialogScroll, len(d)-diffH))
-	for _, l := range d[start:min(len(d), start+diffH)] {
-		switch {
-		case strings.HasPrefix(l, "+"):
-			l = style.Success.Render(l)
-		case strings.HasPrefix(l, "-"):
-			l = style.Failure.Render(l)
-		case strings.HasPrefix(l, "@@"):
-			l = style.Faint.Render(l)
-		}
-		lines = append(lines, l)
-	}
+	lines = append(lines, d[start:min(len(d), start+diffH)]...)
 	if len(lines) > h-1 {
 		lines = lines[:max(0, h-1)]
 	}

@@ -65,7 +65,7 @@ type optimizer struct {
 	// Write dialog (w).
 	dialog       bool          // the dialog is open over the review
 	dialogScroll int           // first diff line shown
-	dialogDiff   []string      // unified diff of the applied rewrites, built on open
+	dialogDiff   []string      // Before → After list then unified diff of the applied rewrites, built on open
 	writeBench   *bench.Result // answer check of the applied rewrites
 	writeNoGraph bool          // no weighted graph: the check can't run, write is allowed
 	writeErr     string        // last write failure, shown in the dialog
@@ -367,8 +367,19 @@ func (m *Model) openWriteDialog() tea.Cmd {
 	}
 	m.opt.dialog, m.opt.dialogScroll = true, 0
 	m.opt.writeBench, m.opt.writeNoGraph, m.opt.writeErr = nil, false, ""
-	m.opt.dialogDiff = strings.Split(strings.TrimRight(udiff.Unified("model", "model (optimized)", before, after), "\n"), "\n")
+	m.opt.dialogDiff = dialogBody(m.opt.subset.Applied, before, after)
 	return m.startBench(optKindWrite, m.opt.proto, m.opt.subset.After.Proto)
+}
+
+// dialogBody lists each applied rewrite's before and after, then the unified
+// diff of the whole model.
+func dialogBody(applied []optimize.Finding, before, after string) []string {
+	var lines []string
+	for _, f := range applied {
+		lines = append(lines, f.Type+"#"+f.Relation, "- "+f.Before, "+ "+f.After)
+	}
+	lines = append(lines, "")
+	return append(lines, strings.Split(strings.TrimRight(udiff.Unified("model", "model (optimized)", before, after), "\n"), "\n")...)
 }
 
 // closeWriteDialog returns to the review with the accepted set intact; the
@@ -438,7 +449,7 @@ func (m *Model) handleDialogKey(key string) tea.Cmd {
 
 func (m *Model) scrollDialog(d int) {
 	_, _, diffH := m.writeDialogLayout()
-	maxScroll := max(0, len(m.opt.dialogDiff)-diffH)
+	maxScroll := max(0, len(m.wrappedDialogBody())-diffH)
 	m.opt.dialogScroll = max(0, min(m.opt.dialogScroll+d, maxScroll))
 }
 
