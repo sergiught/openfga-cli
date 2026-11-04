@@ -128,3 +128,38 @@ func TestColorDiffLine_StripsTerminalEscapes(t *testing.T) {
 		}
 	}
 }
+
+// TestRenderOptimize_StripsTerminalEscapes pins that model-derived text in
+// findings and held-back rewrites cannot replay terminal control sequences.
+func TestRenderOptimize_StripsTerminalEscapes(t *testing.T) {
+	const osc52 = "\x1b]52;c;aGk=\x07"
+	f := optimize.Finding{
+		ID: "A1", Tier: optimize.TierCaller, Type: "doc" + osc52, Relation: "viewer\x1b[2J",
+		Before: "a" + osc52, After: "b" + osc52, Reason: "r" + osc52, Proof: "p" + osc52,
+		Weights: map[string]int{"user" + osc52: 1},
+	}
+	g := optimize.GatedFinding{Finding: optimize.Finding{
+		ID: "S4", Tier: optimize.TierSafe, Type: "doc" + osc52, Relation: "viewer",
+		Before: "x" + osc52, After: "y" + osc52,
+	}, Gate: "changes the resolver OpenFGA picks"}
+	var buf strings.Builder
+	if err := renderOptimize(&buf, []optimize.Finding{f}, []optimize.GatedFinding{g}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if out := buf.String(); strings.Contains(out, "]52;") || strings.Contains(out, "\x1b[2J") || strings.Contains(out, "\x07") {
+		t.Errorf("output still carries an escape:\n%q", out)
+	}
+}
+
+func TestRenderOptimize_KeepsMultilineFragments(t *testing.T) {
+	g := optimize.GatedFinding{Finding: optimize.Finding{
+		ID: "S4", Tier: optimize.TierSafe, Type: "doc", Relation: "viewer", Before: "a or\nb", After: "a",
+	}, Gate: "changes the resolver OpenFGA picks"}
+	var buf strings.Builder
+	if err := renderOptimize(&buf, nil, []optimize.GatedFinding{g}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if out := buf.String(); !strings.Contains(out, "- b") {
+		t.Errorf("multiline Before was joined:\n%s", out)
+	}
+}

@@ -379,14 +379,19 @@ func (m *Model) openWriteDialog() tea.Cmd {
 }
 
 // dialogBody lists each applied rewrite's before and after, then the unified
-// diff of the whole model.
+// diff of the whole model. Every line is model-derived text, so each is
+// sanitized for the terminal before it is styled.
 func dialogBody(applied []optimize.Finding, before, after string) []string {
 	var lines []string
 	for _, f := range applied {
 		lines = append(lines, f.Type+"#"+f.Relation, "- "+f.Before, "+ "+f.After)
 	}
 	lines = append(lines, "")
-	return append(lines, strings.Split(strings.TrimRight(optimize.UnifiedDiff("model", before, after), "\n"), "\n")...)
+	lines = append(lines, strings.Split(strings.TrimRight(optimize.UnifiedDiff("model", before, after), "\n"), "\n")...)
+	for i, l := range lines {
+		lines[i] = safeMultiline(l)
+	}
+	return lines
 }
 
 // closeWriteDialog returns to the review with the accepted set intact; the

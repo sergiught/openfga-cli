@@ -79,7 +79,7 @@ func (m Model) profileLines(w, h int) []string {
 	names := make([]string, len(rows))
 	nameW, maxReads := len("CHECK"), int64(1)
 	for i, c := range rows {
-		names[i] = strings.TrimPrefix(c.Name, "deny ")
+		names[i] = safeText(strings.TrimPrefix(c.Name, "deny "))
 		nameW = max(nameW, lipgloss.Width(names[i]))
 		maxReads = max(maxReads, c.Before.Reads)
 	}
@@ -150,6 +150,7 @@ func (m Model) reviewBody(w, h int) string {
 		}
 		lines = append(lines, style.Heading.Render(head))
 		for i, f := range o.rows {
+			f := displayFinding(f)
 			box := "[ ]"
 			if o.accepted[o.keys[i]] {
 				box = "[✓]"
@@ -178,6 +179,7 @@ func (m Model) reviewBody(w, h int) string {
 		}
 		lines = append(lines, style.Heading.Render(fmt.Sprintf("Derived, not applied · %d", len(o.gated))))
 		for i, g := range o.gated {
+			g := displayFinding(g.Finding)
 			sel := len(o.rows)+i == cur
 			lines = append(lines, o.reviewRow("    "+g.Type+"#"+g.Relation+" "+g.ID+" (not applied)", sel, true))
 			if sel {
@@ -193,6 +195,7 @@ func (m Model) reviewBody(w, h int) string {
 		lines = append(lines, style.Heading.Render(fmt.Sprintf("Worth a look · %d", len(o.advice))))
 		lines = append(lines, wrapLines(style.Faint.Render("can't be rewritten safely — select one for details"), lw)...)
 		for i, f := range o.advice {
+			f := displayFinding(f)
 			lines = append(lines, o.reviewRow(f.ID+" "+f.Type+"#"+f.Relation, adv+i == cur, false))
 			if adv+i == cur {
 				curLine = len(lines) - 1
@@ -266,6 +269,7 @@ func (m Model) reviewCard(cur int) (string, string) {
 	default:
 		return "", ""
 	}
+	f = displayFinding(f)
 	title := f.ID + " " + f.Type + "#" + f.Relation
 	if gated {
 		title += " (not applied)"
@@ -336,7 +340,7 @@ func (m Model) writeDialogLayout() (head []string, foot string, diffH int) {
 		ms := o.writeBench.Mismatches
 		head = append(head, style.Failure.Render(benchfmt.Plural(len(ms), "answer")+" changed — not writing"))
 		for _, mm := range ms[:min(5, len(ms))] {
-			head = append(head, ansi.Truncate(fmt.Sprintf("  %s: %s %s %s", mm.Name, mm.User, mm.Relation, mm.Object), w, "…"))
+			head = append(head, ansi.Truncate(safeText(fmt.Sprintf("  %s: %s %s %s", mm.Name, mm.User, mm.Relation, mm.Object)), w, "…"))
 		}
 		head = append(head, style.Faint.Render("please report this as a bug"))
 	case o.writeBench != nil:
@@ -432,4 +436,21 @@ func (m Model) writeDialogBody() string {
 		lines[i] = ansi.Truncate(l, w, "…")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// displayFinding returns a copy of f with its model-derived text sanitized
+// for the terminal. The stored finding keeps raw values, since accept and
+// reject match on them.
+func displayFinding(f optimize.Finding) optimize.Finding {
+	f.Type, f.Relation = safeText(f.Type), safeText(f.Relation)
+	f.Before, f.After = safeMultiline(f.Before), safeMultiline(f.After)
+	f.Reason, f.Proof = safeText(f.Reason), safeText(f.Proof)
+	if len(f.Weights) > 0 {
+		w := make(map[string]int, len(f.Weights))
+		for k, v := range f.Weights {
+			w[safeText(k)] = v
+		}
+		f.Weights = w
+	}
+	return f
 }

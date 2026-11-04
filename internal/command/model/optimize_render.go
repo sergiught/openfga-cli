@@ -87,17 +87,19 @@ func renderGated(w io.Writer, gated []optimize.GatedFinding) error {
 	if _, err := fmt.Fprintf(w, "%s\n", style.Heading.Render(fmt.Sprintf("Not applied (%d)", len(gated)))); err != nil {
 		return err
 	}
+	// Identifiers and fragments come from the model: untrusted text.
+	c := style.SanitizeTerminal
 	for _, g := range gated {
-		if _, err := fmt.Fprintf(w, "  %s  %s\n", style.Bold.Render(g.Type+"#"+g.Relation), style.Faint.Render("["+g.ID+"]")); err != nil {
+		if _, err := fmt.Fprintf(w, "  %s  %s\n", style.Bold.Render(c(g.Type+"#"+g.Relation)), style.Faint.Render("["+g.ID+"]")); err != nil {
 			return err
 		}
 		for _, l := range strings.Split(g.Before, "\n") {
-			if _, err := fmt.Fprintf(w, "    %s\n", style.Failure.Render("- "+l)); err != nil {
+			if _, err := fmt.Fprintf(w, "    %s\n", style.Failure.Render("- "+c(l))); err != nil {
 				return err
 			}
 		}
 		for _, l := range strings.Split(g.After, "\n") {
-			if _, err := fmt.Fprintf(w, "    %s\n", style.Success.Render("+ "+l)); err != nil {
+			if _, err := fmt.Fprintf(w, "    %s\n", style.Success.Render("+ "+c(l))); err != nil {
 				return err
 			}
 		}
@@ -128,26 +130,30 @@ func colorDiffLine(line string) string {
 	return body + nl
 }
 
+// renderFinding prints one finding. Identifiers, fragments, proofs and
+// weight labels come from the model, so they are sanitized for the terminal;
+// structured output keeps the raw values.
 func renderFinding(w io.Writer, f optimize.Finding) error {
-	head := fmt.Sprintf("  %s  %s", style.Bold.Render(f.Type+"#"+f.Relation), style.Faint.Render("["+f.ID+"]"))
+	c := style.SanitizeTerminal
+	head := fmt.Sprintf("  %s  %s", style.Bold.Render(c(f.Type+"#"+f.Relation)), style.Faint.Render("["+f.ID+"]"))
 	if f.Before != "" || f.After != "" {
-		head += fmt.Sprintf("  %s %s %s", f.Before, style.IconArrow, f.After)
+		head += fmt.Sprintf("  %s %s %s", sanitizeLines(f.Before), style.IconArrow, sanitizeLines(f.After))
 	}
 	if _, err := fmt.Fprintln(w, head); err != nil {
 		return err
 	}
 	if f.Reason != "" {
-		if _, err := fmt.Fprintf(w, "    %s %s\n", style.Faint.Render("reason:"), f.Reason); err != nil {
+		if _, err := fmt.Fprintf(w, "    %s %s\n", style.Faint.Render("reason:"), c(f.Reason)); err != nil {
 			return err
 		}
 	}
 	if f.Proof != "" {
-		if _, err := fmt.Fprintf(w, "    %s %s\n", style.Faint.Render("proof:"), f.Proof); err != nil {
+		if _, err := fmt.Fprintf(w, "    %s %s\n", style.Faint.Render("proof:"), c(f.Proof)); err != nil {
 			return err
 		}
 	}
 	if len(f.Weights) > 0 {
-		if _, err := fmt.Fprintf(w, "    %s %s\n", style.Faint.Render("weights:"), formatWeights(f.Weights)); err != nil {
+		if _, err := fmt.Fprintf(w, "    %s %s\n", style.Faint.Render("weights:"), c(formatWeights(f.Weights))); err != nil {
 			return err
 		}
 	}
@@ -170,4 +176,14 @@ func formatWeights(m map[string]int) string {
 		parts = append(parts, k+"="+v)
 	}
 	return strings.Join(parts, " ")
+}
+
+// sanitizeLines sanitizes each line of s for the terminal, keeping the line
+// breaks that SanitizeTerminal would otherwise strip.
+func sanitizeLines(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		lines[i] = style.SanitizeTerminal(l)
+	}
+	return strings.Join(lines, "\n")
 }
