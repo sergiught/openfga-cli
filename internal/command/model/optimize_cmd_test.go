@@ -669,14 +669,11 @@ func commentedUnsorted(t *testing.T) string {
 
 // jsonDiff runs optimize with --json and returns rewrite.diff (the human
 // renderer colours diff lines, so the JSON field is the byte-exact source).
-func jsonDiff(t *testing.T, stdin string, args ...string) string {
+func jsonDiff(t *testing.T, stdin string, args ...string) (diff, stderr string) {
 	t.Helper()
-	stdout, stderr, err := runOptimize(t, stdin, true, args...)
+	stdout, jsonStderr, err := runOptimize(t, stdin, true, args...)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if strings.Contains(stderr, "rewrite reformats") {
-		t.Errorf("--json must not print the reformat warning:\n%s", stderr)
 	}
 	var v struct {
 		Rewrite struct{ Diff string } `json:"rewrite"`
@@ -684,7 +681,7 @@ func jsonDiff(t *testing.T, stdin string, args ...string) string {
 	if err := json.Unmarshal([]byte(stdout), &v); err != nil {
 		t.Fatal(err)
 	}
-	return v.Rewrite.Diff
+	return v.Rewrite.Diff, jsonStderr
 }
 
 func TestOptimize_DiffAppliesToOriginalFile(t *testing.T) {
@@ -700,7 +697,10 @@ func TestOptimize_DiffAppliesToOriginalFile(t *testing.T) {
 	if n := strings.Count(stderr, "rewrite reformats the model: comments are dropped and relations are sorted"); n != 1 {
 		t.Fatalf("want the reformat warning once, got %d:\n%s", n, stderr)
 	}
-	diff := jsonDiff(t, "", p)
+	diff, jsonStderr := jsonDiff(t, "", p)
+	if !strings.Contains(jsonStderr, reformatWarning) {
+		t.Errorf("--json must still warn on stderr:\n%s", jsonStderr)
+	}
 	if !strings.HasPrefix(diff, "--- "+p+"\n") {
 		t.Errorf("diff should be labelled with the file path:\n%s", diff)
 	}
@@ -725,8 +725,12 @@ func TestOptimize_StdinAndJSONDiffStayNormalized(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d := jsonDiff(t, string(data), "-"); !strings.HasPrefix(d, "--- model\n+++ model (optimized)\n") {
+	d, warn := jsonDiff(t, string(data), "-")
+	if !strings.HasPrefix(d, "--- model\n+++ model (optimized)\n") {
 		t.Errorf("stdin labels wrong:\n%s", d)
+	}
+	if strings.Contains(warn, "rewrite reformats") {
+		t.Errorf("stdin input must not warn:\n%s", warn)
 	}
 
 	lm, err := modeltest.LoadModelBytes(data)
@@ -741,8 +745,12 @@ func TestOptimize_StdinAndJSONDiffStayNormalized(t *testing.T) {
 	if err := os.WriteFile(jp, js, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if d := jsonDiff(t, "", jp); !strings.HasPrefix(d, "--- "+jp+" (normalized)\n") {
+	d, warn = jsonDiff(t, "", jp)
+	if !strings.HasPrefix(d, "--- "+jp+" (normalized)\n") {
 		t.Errorf("json label wrong:\n%s", d)
+	}
+	if strings.Contains(warn, "rewrite reformats") {
+		t.Errorf("JSON model input must not warn:\n%s", warn)
 	}
 }
 

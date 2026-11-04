@@ -163,7 +163,8 @@ func (c *Command) optimizeCmd() *cobra.Command {
 					// their file (comments, relation order and all).
 					before = string(data)
 				}
-				if ((format == "dsl" && !stdin && before != normalizedBefore) || sameFile(outPath, path)) && !c.cli.JSON && !c.cli.YAML {
+				reformats := (format == "dsl" && !stdin && before != normalizedBefore) || sameFile(outPath, path)
+				if reformats {
 					output.Warnf(cmd.ErrOrStderr(), "%s", reformatWarning)
 				}
 				ids := make([]string, 0, len(rw.Applied))

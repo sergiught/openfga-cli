@@ -260,8 +260,10 @@ func TestOptimizeAgentModeCompactAndQuiet(t *testing.T) {
 	if code != 0 || !oneLine(out) || !json.Valid([]byte(out)) {
 		t.Fatalf("code=%d out=%q err=%q", code, out, errb)
 	}
-	if strings.TrimSpace(errb) != "" {
-		t.Errorf("stderr should be empty (no progress), got %q", errb)
+	// The reference file is not in normalized form, so the reformat warning
+	// is expected; nothing else (no progress lines) may appear.
+	if strings.TrimSpace(strings.ReplaceAll(errb, "● rewrite reformats the model: comments are dropped and relations are sorted", "")) != "" {
+		t.Errorf("stderr should hold only the reformat warning (no progress), got %q", errb)
 	}
 
 	// --write is a Warnf path (kept) next to a Successf path (dropped).
@@ -278,7 +280,7 @@ func TestOptimizeAgentModeCompactAndQuiet(t *testing.T) {
 	if code != 0 || !oneLine(out) {
 		t.Fatalf("code=%d out=%q err=%q", code, out, errb)
 	}
-	if !strings.Contains(errb, "drops comments") {
+	if !strings.Contains(errb, "comments are dropped") {
 		t.Errorf("warning must survive agent mode: %q", errb)
 	}
 	if strings.Contains(errb, "wrote rewritten model") {
