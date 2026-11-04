@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -85,6 +86,10 @@ func (c *Command) optimizeCmd() *cobra.Command {
 			}
 			if write && outPath != "" {
 				return usageHint("use either --write (in place) or --output-file <path>", errors.New("--write and --output-file are mutually exclusive"))
+			}
+			toStdout := outPath == "-"
+			if toStdout && (c.cli.JSON || c.cli.YAML) {
+				return usageHint("drop --json/--yaml, or write to a file with --output-file <path>", errors.New("--output-file - --json write stdout; pick one"))
 			}
 			if write && stdin {
 				return usageHint("use --output-file <path> to write the rewritten model", errors.New("--write cannot rewrite stdin"))
@@ -187,7 +192,7 @@ func (c *Command) optimizeCmd() *cobra.Command {
 				if err := output.Emit(cmd.OutOrStdout(), c.cli.YAML, out); err != nil {
 					return err
 				}
-			} else {
+			} else if !toStdout {
 				if err := renderOptimize(cmd.OutOrStdout(), findings, out.Rewrite); err != nil {
 					return err
 				}
@@ -203,10 +208,31 @@ func (c *Command) optimizeCmd() *cobra.Command {
 			}
 
 			if out.Rewrite == nil {
+				if write || outPath != "" {
+					dest := outPath
+					switch {
+					case write:
+						dest = path
+						if r, err := filepath.EvalSymlinks(path); err == nil {
+							dest = r
+						}
+					case toStdout:
+						dest = "stdout"
+					}
+					output.Infof(cmd.ErrOrStderr(), "no safe rewrites; nothing written to %s", dest)
+					return nil
+				}
 				output.Infof(cmd.ErrOrStderr(), "no safe rewrites; %s", benchfmt.Plural(len(findings), "recommendation"))
 				return nil
 			}
 			dest := outPath
+			if toStdout {
+				if _, err := io.WriteString(cmd.OutOrStdout(), out.Rewrite.DSL); err != nil {
+					return err
+				}
+				output.Successf(cmd.ErrOrStderr(), "wrote rewritten model to stdout")
+				return nil
+			}
 			if write {
 				dest, err = filepath.EvalSymlinks(path)
 				if err != nil {
@@ -224,7 +250,7 @@ func (c *Command) optimizeCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&write, "write", false, "overwrite the model file with the rewritten DSL (reformats and drops comments; DSL files only)")
-	cmd.Flags().StringVar(&outPath, "output-file", "", "write the rewritten DSL to this path (nothing is written when no safe rewrite applies)")
+	cmd.Flags().StringVar(&outPath, "output-file", "", "write the rewritten DSL to this path; - means stdout")
 	cmd.Flags().StringSliceVar(&tiers, "tier", nil, "tiers to report: safe, caller, tuple (default all; never changes what is written)")
 	_ = cmd.RegisterFlagCompletionFunc("tier", cobra.FixedCompletions([]string{"safe", "caller", "tuple"}, cobra.ShellCompDirectiveNoFileComp))
 	_ = cmd.MarkFlagFilename("output-file")

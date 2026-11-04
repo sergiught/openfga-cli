@@ -42,7 +42,7 @@ ofga model optimize <model-file|-> [flags]
 | `--bench` | benchmark the model before/after the rewrite on an embedded server (exit 3 and no write if any check result changes) | `false` |
 | `--depth` | with --bench, synthesized parent-chain depth | `6` |
 | `--iterations` | with --bench, timed samples per check | `100` |
-| `--output-file` | write the rewritten DSL to this path (nothing is written when no safe rewrite applies) |   |
+| `--output-file` | write the rewritten DSL to this path; - means stdout |   |
 | `--seed` | with --bench, synthesis seed | `1` |
 | `--synth` | with --bench, synthesize tuples even when a workspace is found | `false` |
 | `--tier` | tiers to report: safe, caller, tuple (default all; never changes what is written) | `[]` |

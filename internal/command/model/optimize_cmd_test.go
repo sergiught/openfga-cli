@@ -756,3 +756,84 @@ func TestOptimize_OutputFileSameAsInputWarns(t *testing.T) {
 		t.Errorf("want reformat warning, got:\n%s", stderr)
 	}
 }
+
+const noRewriteModel = "model\n  schema 1.1\n\ntype user\n\ntype document\n  relations\n    define viewer: [user]\n"
+
+func TestOptimize_OutputFileStdoutWritesOnlyDSL(t *testing.T) {
+	jsonOut, _, err := runOptimize(t, "", true, optimizeReference)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Rewrite struct {
+			DSL string `json:"dsl"`
+		} `json:"rewrite"`
+	}
+	if err := json.Unmarshal([]byte(jsonOut), &got); err != nil {
+		t.Fatal(err)
+	}
+	out, errOut, err := runOptimize(t, "", false, optimizeReference, "--output-file", "-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != got.Rewrite.DSL {
+		t.Errorf("stdout is not exactly the rewritten DSL:\n%s", out)
+	}
+	if strings.Contains(out, "Safe rewrites") {
+		t.Errorf("findings leaked to stdout:\n%s", out)
+	}
+	if !strings.Contains(errOut, "wrote rewritten model to stdout") {
+		t.Errorf("stderr lacks success line:\n%s", errOut)
+	}
+}
+
+func TestOptimize_OutputFileStdoutWithBench(t *testing.T) {
+	jsonOut, _, err := runOptimize(t, "", true, optimizeReference)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Rewrite struct {
+			DSL string `json:"dsl"`
+		} `json:"rewrite"`
+	}
+	if err := json.Unmarshal([]byte(jsonOut), &got); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := runOptimize(t, "", false, optimizeReference, "--output-file", "-", "--bench", "--synth", "--iterations", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != got.Rewrite.DSL {
+		t.Errorf("stdout is not exactly the rewritten DSL:\n%s", out)
+	}
+}
+
+func TestOptimize_OutputFileStdoutWithJSONIsUsage(t *testing.T) {
+	_, _, err := runOptimize(t, "", true, optimizeReference, "--output-file", "-")
+	wantUsage(t, err)
+	if !strings.Contains(err.Error(), "--output-file - --json write stdout; pick one") {
+		t.Errorf("message = %q", err)
+	}
+}
+
+func TestOptimize_NothingWrittenIsSaid(t *testing.T) {
+	dest := filepath.Join(t.TempDir(), "out.fga")
+	_, errOut, err := runOptimize(t, noRewriteModel, false, "-", "--output-file", dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "no safe rewrites; nothing written to " + dest; !strings.Contains(errOut, want) {
+		t.Errorf("stderr lacks %q:\n%s", want, errOut)
+	}
+	if _, err := os.Stat(dest); err == nil {
+		t.Error("file was written")
+	}
+	_, errOut, err = runOptimize(t, noRewriteModel, false, "-", "--output-file", "-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "nothing written to stdout"; !strings.Contains(errOut, want) {
+		t.Errorf("stderr lacks %q:\n%s", want, errOut)
+	}
+}
