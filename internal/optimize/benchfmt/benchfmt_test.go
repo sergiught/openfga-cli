@@ -177,7 +177,7 @@ func TestRenderBench_ListsSkippedAndUnexercised(t *testing.T) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
 	}
-	if strings.Index(out, "Not synthesized") > strings.Index(out, "CHECK") {
+	if ns, tbl := strings.Index(out, "Not synthesized"), strings.Index(out, "CHECK"); ns < 0 || tbl < 0 || ns > tbl {
 		t.Errorf("skipped block should come before the table:\n%s", out)
 	}
 	buf.Reset()
@@ -190,20 +190,29 @@ func TestRenderBench_ListsSkippedAndUnexercised(t *testing.T) {
 }
 
 func TestSummary_HasNoTable(t *testing.T) {
-	lines := Summary(skippedResult("doc#viewer"))
+	r := skippedResult("doc#viewer")
+	lines := Summary(r)
+	for i := range lines {
+		lines[i] = ansi.Strip(lines[i])
+	}
 	out := strings.Join(lines, "\n")
-	if !strings.HasPrefix(lines[0], "Benchmark") && !strings.Contains(lines[0], "Benchmark") {
+	if !strings.HasPrefix(lines[0], "Benchmark ·") {
 		t.Errorf("first line is not the header: %q", lines[0])
 	}
-	if strings.TrimSpace(lines[0]) == "" {
-		t.Errorf("leading blank line: %q", lines[0])
-	}
-	for _, want := range []string{"Deny reads", "1 rewritten relation was not exercised"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("summary lacks %q:\n%s", want, out)
+	for _, l := range Totals(r) {
+		if !strings.Contains(out, ansi.Strip(l)) {
+			t.Errorf("summary lacks totals line %q:\n%s", l, out)
 		}
 	}
-	if strings.Contains(out, "CHECK") || strings.Contains(out, "Not synthesized") {
-		t.Errorf("summary has table or skipped block:\n%s", out)
+	if !strings.Contains(out, "1 rewritten relation was not exercised") {
+		t.Errorf("summary lacks the unexercised warning:\n%s", out)
+	}
+	for _, l := range lines {
+		if strings.Contains(l, "READS") || strings.Contains(l, "CHECK") {
+			t.Errorf("summary has table header line %q", l)
+		}
+	}
+	if strings.Contains(out, "Not synthesized") {
+		t.Errorf("summary has skipped block:\n%s", out)
 	}
 }

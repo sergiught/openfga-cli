@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -1030,33 +1031,41 @@ func TestOptimize_JSONSyntaxErrorHasLineAndColumn(t *testing.T) {
 }
 
 func TestOptimize_BenchReportsUnexercised(t *testing.T) {
-	got := benchJSON(t, "../../optimize/testdata/cond_tupleset.fga", "--bench", "--synth", "--iterations", "1")
-	if len(got.Bench.Skipped) == 0 {
-		t.Fatalf("expected skipped restrictions: %+v", got.Bench)
+	t.Setenv("OPENFGA_AGENT_MODE", "0")
+	const model = "../../optimize/testdata/cond_tupleset.fga"
+	const rewritten = "doc#viewer"
+	args := []string{model, "--bench", "--synth", "--iterations", "1"}
+	got := benchJSON(t, args...)
+	if !slices.Contains(got.Bench.Unexercised, rewritten) {
+		t.Fatalf("bench.unexercised = %v, want it to contain %q (skipped=%v)", got.Bench.Unexercised, rewritten, got.Bench.Skipped)
 	}
-	if len(got.Bench.Unexercised) == 0 {
-		t.Fatalf("bench.unexercised empty; skipped=%v", got.Bench.Skipped)
+	out, _, err := runOptimize(t, "", false, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out = ansi.Strip(out)
+	for _, want := range []string{"rewritten relation was not exercised by this benchmark", rewritten, "benchmark with --workspace to cover them"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("human output lacks %q:\n%s", want, out)
+		}
 	}
 }
 
 func TestOptimize_HumanPrintsFindingsBeforeBench(t *testing.T) {
 	t.Setenv("OPENFGA_AGENT_MODE", "0")
-	out, errOut, err := runOptimize(t, "", false, optimizeReference, "--bench", "--iterations", "2")
+	out, errOut, err := runOptimize(t, "", false, optimizeReference, "--bench", "--iterations", "1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	out = ansi.Strip(out)
-	if !strings.Contains(ansi.Strip(errOut), "benchmarking ") || !strings.Contains(errOut, "× 2 runs…") {
+	if !regexp.MustCompile(`benchmarking \d+ checks × 1 runs…`).MatchString(ansi.Strip(errOut)) {
 		t.Errorf("progress line missing on stderr:\n%s", errOut)
 	}
-	f, b := strings.Index(out, "Benchmark ·"), strings.Index(out, "diff")
-	if b < 0 {
-		b = strings.Index(out, "---")
+	f, b := strings.Index(out, "Safe rewrites"), strings.Index(out, "Benchmark ·")
+	if f < 0 || b < 0 || f >= b {
+		t.Errorf("Safe rewrites (%d) should print before Benchmark (%d):\n%s", f, b, out)
 	}
-	if f < 0 || b < 0 || b > f {
-		t.Errorf("findings/diff should print before the benchmark (diff@%d bench@%d):\n%s", b, f, out)
-	}
-	_, errOut, err = runOptimize(t, "", true, optimizeReference, "--bench", "--iterations", "2")
+	_, errOut, err = runOptimize(t, "", true, optimizeReference, "--bench", "--iterations", "1")
 	if err != nil {
 		t.Fatal(err)
 	}
