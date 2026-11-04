@@ -231,9 +231,9 @@ func TestOptimizer_ReconnectStopsBench(t *testing.T) {
 const dependentDSL = "model\n  schema 1.1\n\ntype user\n\ntype t\n  relations\n" +
 	"    define a: [user]\n    define b: [user] or a\n    define c: [user] or b\n    define d: a or c or b\n"
 
-// dupDSL has two identical duplicate operands. The second S3 finding has
-// ordinal N=1, so it can only apply after the first: accepting it alone is
-// genuinely dependent on a rejected rewrite.
+// dupDSL has two duplicates of the same operand. Their S3 keys differ only by
+// ordinal (N=1 for the second), so the second can only apply after the first:
+// accepting it alone is genuinely dependent on a rejected rewrite.
 const dupDSL = "model\n  schema 1.1\n\ntype user\n\ntype t\n  relations\n" +
 	"    define a: [user]\n    define d: a or a or a\n"
 
@@ -323,6 +323,25 @@ func TestOptimizer_DependentRowDimmed(t *testing.T) {
 	}
 	if !strings.Contains(out, "1 of 2 accepted (0 apply)") {
 		t.Errorf("header missing apply count:\n%s", out)
+	}
+}
+
+// Two different duplicated operands in one union are independent rewrites:
+// ticking only the second must apply it without blaming a rejected rewrite.
+func TestOptimizer_IndependentDuplicateRowApplies(t *testing.T) {
+	m := review(t, "model\n  schema 1.1\n\ntype user\n\ntype t\n  relations\n"+
+		"    define a: [user]\n    define b: [user]\n    define r: [user] or a or a or b or b\n")
+	if n := len(m.(Model).opt.rows); n != 2 {
+		t.Fatalf("want 2 rewrites, got %d", n)
+	}
+	m, _ = m.Update(key("down"))
+	m, _ = m.Update(key(" ")) // accept only the b duplicate
+	out := view(m)
+	if strings.Contains(out, "depends on a rejected rewrite") {
+		t.Errorf("independent duplicate flagged as dependent:\n%s", out)
+	}
+	if n := len(m.(Model).opt.subset.Applied); n != 1 {
+		t.Errorf("applied = %d, want 1", n)
 	}
 }
 

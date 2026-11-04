@@ -233,6 +233,15 @@ func ruleS2(m *Model, l *Lattice) []Finding {
 	return out
 }
 
+// duplicateName names a duplicated union operand so each duplicate group has
+// its own proof text, and so its own finding key.
+func duplicateName(u *openfgav1.Userset) string {
+	if t := u.GetTupleToUserset(); t != nil {
+		return t.GetComputedUserset().GetRelation() + " from " + t.GetTupleset().GetRelation()
+	}
+	return u.GetComputedUserset().GetRelation()
+}
+
 // ruleS3 drops a syntactically duplicated union operand.
 func ruleS3(m *Model, l *Lattice) []Finding {
 	var out []Finding
@@ -254,10 +263,10 @@ func ruleS3(m *Model, l *Lattice) []Finding {
 						continue
 					}
 					idx := j
-					f, good := newFinding(m, "S3", typ, rel, "duplicate union operand", "operands are syntactically identical",
+					f, good := newFinding(m, "S3", typ, rel, "duplicate union operand", "operands are syntactically identical: "+duplicateName(kids[j]),
 						func(mm *Model) { dropOperand(mm, typ, rel, idx) })
 					if good && l.admit != nil && !l.admit(f) {
-						break // rejected: look for a later duplicate
+						break // rejected: look for a duplicate of another operand
 					}
 					if good {
 						out = append(out, f)

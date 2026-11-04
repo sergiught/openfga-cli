@@ -387,3 +387,32 @@ func TestRewriteSubset_IndependentLaterCandidateApplies(t *testing.T) {
 		t.Fatalf("After DSL:\n%s\nwant define r: [user] or a or c", dsl)
 	}
 }
+
+func TestRewriteSubset_S3IndependentDuplicate(t *testing.T) {
+	m := loadInline(t, "model\n  schema 1.1\ntype user\ntype doc\n  relations\n    define r: [user] or a or a or b or b\n    define a: [user]\n    define b: [user]\n")
+	full, err := Rewrite(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := Keys(full.Applied)
+	if len(keys) != 2 || keys[0] == keys[1] || keys[0].ID != "S3" {
+		t.Fatalf("full keys = %v, want two distinct S3 keys", keys)
+	}
+	var bKey FindingKey
+	for _, a := range full.Applied {
+		if strings.Contains(a.Proof, "b") {
+			bKey = Keys([]Finding{a})[0]
+		}
+	}
+	sub, err := RewriteSubset(m, map[FindingKey]bool{bKey: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sub.Applied) != 1 {
+		t.Fatalf("applied = %+v, want exactly the b duplicate", sub.Applied)
+	}
+	dsl, _ := sub.After.DSL()
+	if !strings.Contains(dsl, "define r: [user] or a or a or b") {
+		t.Fatalf("After DSL:\n%s\nwant define r: [user] or a or a or b", dsl)
+	}
+}

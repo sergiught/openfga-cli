@@ -35,7 +35,7 @@ Safe rewrites (3)
     proof: project#owner ⊆ project#maintainer
   project#can_read  [S3]  contributor or contributor → contributor
     reason: duplicate union operand
-    proof: operands are syntactically identical
+    proof: operands are syntactically identical: contributor
 
 Diff
 --- examples/model-optimize/roles.fga
