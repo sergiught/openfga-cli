@@ -175,6 +175,9 @@ func TestSoundness_PinnedModels(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if len(rw.Applied) == 0 {
+			t.Fatal("cond_tupleset rewrote nothing; the before/after comparison would be vacuous")
+		}
 		cond := func(ctx map[string]any) *openfgav1.RelationshipCondition {
 			c, err := structpb.NewStruct(ctx)
 			if err != nil {

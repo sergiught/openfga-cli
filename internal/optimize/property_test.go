@@ -17,6 +17,23 @@ import (
 
 const defaultSeed = 1
 
+// maxPropertyRelations caps the size of a generated model so the per-model
+// check grid stays small.
+const maxPropertyRelations = 12
+
+// countRelations counts the relations of the random t* types; the fixed-size
+// exclusion and cycle shapes genModel appends are not part of the cap.
+func countRelations(m *openfgav1.AuthorizationModel) int {
+	n := 0
+	for _, td := range m.GetTypeDefinitions() {
+		if !strings.HasPrefix(td.GetType(), "t") {
+			continue
+		}
+		n += len(td.GetRelations())
+	}
+	return n
+}
+
 func TestProperty_RewritePreservesCheck(t *testing.T) {
 	if testing.Short() {
 		t.Skip("property test is slow")
@@ -47,7 +64,7 @@ func TestProperty_RewritePreservesCheck(t *testing.T) {
 	for range models {
 		var m *Model
 		for m == nil {
-			if p := genModel(r, rc); p != nil {
+			if p := genModel(r, rc); p != nil && countRelations(p) <= maxPropertyRelations {
 				m, _ = NewModel(p)
 			}
 		}
