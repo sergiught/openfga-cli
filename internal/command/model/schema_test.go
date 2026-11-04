@@ -70,6 +70,7 @@ func TestSchemasValidateRealOutput(t *testing.T) {
 		{"ofga model test", "test", []string{"--file", passingWorkspace, "--coverage"}},
 		{"ofga model test schema", "schema", nil},
 		{"ofga model optimize", "optimize", []string{optimizeReference}},
+		{"ofga model optimize", "optimize", []string{optimizeReference, "--bench", "--synth", "--iterations", "1"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.path+" "+strings.Join(tc.args, " "), func(t *testing.T) {

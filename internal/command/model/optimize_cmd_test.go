@@ -102,6 +102,28 @@ func TestOptimize_JSONHasFourApplied(t *testing.T) {
 	}
 }
 
+func TestOptimize_JSONAppliedMatchesFindingKeys(t *testing.T) {
+	out, _, err := runOptimize(t, "", true, optimizeReference)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got optimizeOutput
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("decode: %v\n%s", err, out)
+	}
+	if got.Rewrite == nil || len(got.Rewrite.Applied) != 4 {
+		t.Fatalf("unexpected rewrite: %+v", got.Rewrite)
+	}
+	for i, k := range got.Rewrite.Applied {
+		if k != got.Findings[i].Key {
+			t.Errorf("applied[%d] = %q, want findings[%d].key %q", i, k, i, got.Findings[i].Key)
+		}
+	}
+	if k := got.Findings[0].Key; !strings.Contains(k, "#") || !strings.Contains(k, ":S") {
+		t.Errorf("findings[0].key = %q, want it to contain # and :S", k)
+	}
+}
+
 func TestOptimize_WriteRewritesFile(t *testing.T) {
 	p := copyReference(t)
 	_, stderr, err := runOptimize(t, "", false, p, "--write")

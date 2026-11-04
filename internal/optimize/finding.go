@@ -26,7 +26,7 @@ type Finding struct {
 	Tier     Tier   `json:"tier"`
 	// Key is the serialized FindingKey, set by Analyze so JSON consumers can
 	// correlate findings.
-	Key string `json:"key"`
+	Key string `json:"key" jsonschema_description:"Stable identity: type#relation:id:proof, with #N appended when the same finding is applied more than once."`
 	// Weights maps user type to weight; Analyze substitutes -1 for
 	// graph.Infinite here and the command renders -1 as "inf".
 	Weights map[string]int `json:"weights" jsonschema_description:"Weight per user type; -1 means unbounded (infinite) weight."`

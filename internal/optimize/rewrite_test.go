@@ -293,5 +293,8 @@ func TestRewriteSubset_RejectedDoesNotShiftOrdinal(t *testing.T) {
 		if rep.Findings[i].Key != k.String() {
 			t.Errorf("Findings[%d].Key = %q, want %q", i, rep.Findings[i].Key, k.String())
 		}
+		if rep.Rewrite != nil && i < len(rep.Rewrite.Applied) && rep.Rewrite.Applied[i].Key != rep.Findings[i].Key {
+			t.Errorf("Rewrite.Applied[%d].Key = %q, want %q", i, rep.Rewrite.Applied[i].Key, rep.Findings[i].Key)
+		}
 	}
 }

@@ -48,6 +48,7 @@
           "type": "string"
         },
         "key": {
+          "description": "Stable identity: type#relation:id:proof, with #N appended when the same finding is applied more than once.",
           "type": "string"
         },
         "proof": {
@@ -343,6 +344,7 @@
       "additionalProperties": false,
       "properties": {
         "applied": {
+          "description": "Keys of the applied safe findings, in order; equals findings[].key.",
           "items": {
             "type": "string"
           },

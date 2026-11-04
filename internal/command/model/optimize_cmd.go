@@ -40,7 +40,7 @@ type optimizeModelInfo struct {
 // rewriteOutput describes the safe rewrite: the findings applied, the
 // rewritten DSL and its unified diff against the normalized input.
 type rewriteOutput struct {
-	Applied []string `json:"applied"`
+	Applied []string `json:"applied" jsonschema_description:"Keys of the applied safe findings, in order; equals findings[].key."`
 	DSL     string   `json:"dsl"`
 	Diff    string   `json:"diff"`
 }
@@ -145,7 +145,7 @@ func (c *Command) optimizeCmd() *cobra.Command {
 				}
 				ids := make([]string, 0, len(rw.Applied))
 				for _, f := range rw.Applied {
-					ids = append(ids, f.ID)
+					ids = append(ids, f.Key)
 				}
 				out.Rewrite = &rewriteOutput{Applied: ids, DSL: after, Diff: unifiedDiff(path, before, after)}
 			}
