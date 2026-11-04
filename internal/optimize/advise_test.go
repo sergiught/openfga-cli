@@ -30,7 +30,7 @@ func TestAnalyze_ReferenceModelTiers(t *testing.T) {
 	if got, want := tierIDs(rep, TierCaller), []string{"C2 document#can_edit"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("caller = %v, want %v", got, want)
 	}
-	want := []string{"T2 document#viewer", "T1 folder#editor", "T1 folder#viewer", "T1 group#member", "T1 organization#member"}
+	want := []string{"T2 document#viewer", "T1 folder#viewer", "T1 group#member"}
 	if got := tierIDs(rep, TierTuple); !reflect.DeepEqual(got, want) {
 		t.Fatalf("tuple = %v, want %v", got, want)
 	}
@@ -149,11 +149,11 @@ func TestAnalyze_C1AndT1Cases(t *testing.T) {
 			name:   "inherited recursion in intersection is not C1",
 			dsl:    head + "type group\n  relations\n    define a: [user, group#member]\n    define member: [user, group#member]\n    define b: [user]\n    define x: a and b\n",
 			caller: nil,
-			tuple:  []string{"T1 group#a", "T1 group#member"},
+			tuple:  []string{"T1 group#member"},
 		},
 		{
 			name:   "own recursion in exclusion is C1",
-			dsl:    head + "type group\n  relations\n    define member: [user, group#member]\n    define b: [user]\n    define x: [user, group#member] but not b\n",
+			dsl:    head + "type group\n  relations\n    define member: [user, group#member]\n    define b: [user]\n    define x: [user, group#x] but not b\n",
 			caller: []string{"C1 group#x", "C2 group#x"},
 			tuple:  []string{"T1 group#member", "T1 group#x"},
 		},
@@ -221,7 +221,7 @@ type folder
 
 // TestAnalyze_FallbackInheritsInfinity: doc#viewer only reaches the recursive
 // group#member, so its weight is infinite (inherited) on the weighted path and
-// its userset direct type makes it T1. Without a weighted graph (team's AND on
+// its recursive operand inside the intersection makes it C1. Without a weighted graph (team's AND on
 // a tuple cycle) the fallback must report the same.
 func TestAnalyze_FallbackInheritsInfinity(t *testing.T) {
 	const base = `model
@@ -235,7 +235,8 @@ type group
 
 type doc
   relations
-    define viewer: [group#member]
+    define a: [user]
+    define viewer: [group#member] and a
 `
 	const noGraph = `
 type team
@@ -248,18 +249,18 @@ type team
 	if !weightedGraphBuilds(loadInline(t, base)) || weightedGraphBuilds(loadInline(t, base+noGraph)) {
 		t.Fatal("test needs base to build a weighted graph and base+noGraph not to")
 	}
-	want := tierIDs(analyzeDSL(t, base), TierTuple)
-	if !slices.Contains(want, "T1 doc#viewer") {
-		t.Fatalf("weighted path: tuple = %v, want T1 doc#viewer", want)
+	want := tierIDs(analyzeDSL(t, base), TierCaller)
+	if !slices.Contains(want, "C1 doc#viewer") {
+		t.Fatalf("weighted path: caller = %v, want C1 doc#viewer", want)
 	}
 	var got []string
-	for _, id := range tierIDs(analyzeDSL(t, base+noGraph), TierTuple) {
+	for _, id := range tierIDs(analyzeDSL(t, base+noGraph), TierCaller) {
 		if !strings.Contains(id, " team#") {
 			got = append(got, id)
 		}
 	}
 	if !slices.Equal(got, want) {
-		t.Fatalf("fallback: tuple = %v, want %v", got, want)
+		t.Fatalf("fallback: caller = %v, want %v", got, want)
 	}
 }
 
@@ -286,5 +287,28 @@ func TestAdvise_Copy(t *testing.T) {
 		if !seen[id] {
 			t.Errorf("no %s finding in reference model", id)
 		}
+	}
+}
+
+func TestAdvise_T1NotReportedForInheritedUsersetRecursion(t *testing.T) {
+	rep := analyzeDSL(t, "model\n  schema 1.1\ntype user\ntype group\n  relations\n    define member: [user, group#member]\ntype doc\n  relations\n    define viewer: [user, group#member]\n")
+	if got, want := tierIDs(rep, TierTuple), []string{"T1 group#member"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("tuple = %v, want %v", got, want)
+	}
+}
+
+func TestAdvise_C1RecursiveSubtractedSide(t *testing.T) {
+	// The shape of examples/model-optimize/exclusion.fga: the recursive
+	// relation is only the subtracted operand, and safe rewrites are blocked.
+	rep := analyzeDSL(t, "model\n  schema 1.1\ntype user\ntype folder\n  relations\n    define parent: [folder]\n    define blocked: [user] or blocked from parent\n    define viewer: [user]\n    define can_view: viewer but not blocked\n")
+	if rep.Blocked == "" {
+		t.Fatal("expected safe rewrites to be blocked")
+	}
+	want := []string{"C1 folder#can_view", "C2 folder#can_view"}
+	if got := tierIDs(rep, TierCaller); !reflect.DeepEqual(got, want) {
+		t.Fatalf("caller = %v, want %v", got, want)
+	}
+	if got, want := tierIDs(rep, TierTuple), []string{"T1 folder#blocked"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("tuple = %v, want %v", got, want)
 	}
 }

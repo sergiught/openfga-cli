@@ -12,7 +12,7 @@ ofga model optimize examples/model-optimize/roles.fga       # from the repo root
 | --- | --- |
 | `roles.fga` | A role hierarchy with three redundant rewrites: S1 (union), S2 (intersection), S3 (duplicate) |
 | `hierarchy.fga` | A folder/document tree with a redundant `from parent` operand (S4) and recursion advice (T1) |
-| `exclusion.fga` | A `but not` that subtracts a recursive relation, which disables every safe rewrite (plus C2 and T1 advice) |
+| `exclusion.fga` | A `but not` that subtracts a recursive relation, which disables every safe rewrite (plus C1, C2 and T1 advice) |
 
 See the [guide](https://sergiught.github.io/openfga-cli/guide/model-optimizer/)
 for what each rule means and why "safe" is a strong word.
@@ -151,7 +151,10 @@ the whole model, so no rewrite anywhere can be proven safe:
 ```console
 $ ofga model optimize examples/model-optimize/exclusion.fga
 ● safe rewrites disabled: folder#can_view subtracts a recursive relation; OpenFGA's cycle handling there depends on evaluation strategy, so no rewrite can be proven safe
-Caller recommendations (1)
+Caller recommendations (2)
+  folder#can_view  [C1]
+    reason: Recursive operand inside an exclusion: a Check may evaluate it fully, so a deep graph is expensive; keep the recursion out of the exclusion or cap depth in callers.
+    weights: user=inf
   folder#can_view  [C2]
     reason: Exclusion present: the subtracted side is always evaluated, so a Check on this relation costs an extra datastore read, and an extra dispatch when the subtracted side is not a direct relation.
     weights: user=inf
@@ -160,7 +163,7 @@ Tuple recommendations (1)
   folder#blocked  [T1]
     reason: Relation introduces recursion: each nesting level in the tuple data costs one more datastore read and one more dispatch; keep nesting shallow.
     weights: user=inf
-● no safe rewrites; 2 recommendations
+● no safe rewrites; 3 recommendations
 ```
 
 The notices go to stderr; the findings go to stdout. Make `blocked` a plain

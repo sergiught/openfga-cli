@@ -21,11 +21,11 @@ func advise(m *Model) []Finding {
 	// infinite weight would on the weighted path.
 	w, err := Weights(m)
 	infinite := map[string]bool{}
+	deps := dependencyGraph(m)
+	cyclic := cyclicRelations(deps)
 	if err != nil {
-		graph := dependencyGraph(m)
-		cyclic := cyclicRelations(graph)
-		for n := range graph {
-			for r := range reachable(graph, []string{n}) {
+		for n := range deps {
+			for r := range reachable(deps, []string{n}) {
 				if cyclic[r] {
 					infinite[n] = true
 					break
@@ -42,20 +42,20 @@ func advise(m *Model) []Finding {
 				*dst = append(*dst, Finding{ID: id, Type: typ, Relation: rel, Reason: reason, Tier: tier, Weights: wts})
 			}
 			inf := hasInfinite(w[typ+"#"+rel]) || infinite[typ+"#"+rel]
-			// Recursion is "inside" the operands only when the relation's own
-			// definition introduces it; relations that merely inherit an
-			// infinite weight are not reported.
-			recursive := inf && introducesRecursion(m, typ, rel, us)
+			// T1 is reported only where the relation's own definition leads
+			// back to itself; relations that merely inherit an infinite
+			// weight are not reported.
+			ownRecursion := inf && introducesRecursion(m, deps, typ, rel, us)
 			switch {
-			case us.GetIntersection() != nil && recursive:
-				add(&caller, "C1", TierCaller, "Recursive relation inside an intersection: every operand is evaluated, so a deep graph is expensive; keep the recursion out of the intersection or cap depth in callers.")
-			case us.GetDifference() != nil && recursive:
-				add(&caller, "C1", TierCaller, "Recursive relation inside an exclusion: both sides are evaluated, so a deep graph is expensive; keep the recursion out of the exclusion or cap depth in callers.")
+			case us.GetIntersection() != nil && inf && hasRecursiveOperand(m, cyclic, typ, rel, us.GetIntersection().GetChild()):
+				add(&caller, "C1", TierCaller, "Recursive operand inside an intersection: a Check may evaluate it fully, so a deep graph is expensive; keep the recursion out of the intersection or cap depth in callers.")
+			case us.GetDifference() != nil && inf && hasRecursiveOperand(m, cyclic, typ, rel, []*openfgav1.Userset{us.GetDifference().GetBase(), us.GetDifference().GetSubtract()}):
+				add(&caller, "C1", TierCaller, "Recursive operand inside an exclusion: a Check may evaluate it fully, so a deep graph is expensive; keep the recursion out of the exclusion or cap depth in callers.")
 			}
 			if us.GetDifference() != nil {
 				add(&caller, "C2", TierCaller, "Exclusion present: the subtracted side is always evaluated, so a Check on this relation costs an extra datastore read, and an extra dispatch when the subtracted side is not a direct relation.")
 			}
-			if recursive {
+			if ownRecursion {
 				add(&tuple, "T1", TierTuple, "Relation introduces recursion: each nesting level in the tuple data costs one more datastore read and one more dispatch; keep nesting shallow.")
 			}
 			if u := us.GetUnion(); u != nil && len(u.GetChild()) >= minWideUnion {
@@ -103,42 +103,23 @@ func hasInfinite(in map[string]int) bool {
 	return false
 }
 
-// introducesRecursion reports whether the definition of typ#rel itself
-// contains a self-referencing TTU or a userset direct type.
-func introducesRecursion(m *Model, typ, rel string, us *openfgav1.Userset) bool {
-	for _, d := range m.DirectTypes(typ, rel) {
-		if d.GetRelation() != "" {
-			return true
-		}
-	}
-	found := false
-	walkUserset(us, func(u *openfgav1.Userset) {
-		t := u.GetTupleToUserset()
-		if t == nil || t.GetComputedUserset().GetRelation() != rel {
-			return
-		}
-		for _, d := range m.DirectTypes(typ, t.GetTupleset().GetRelation()) {
-			if d.GetType() == typ {
-				found = true
-			}
-		}
-	})
-	return found
+// introducesRecursion reports whether typ#rel's own definition references
+// (computed, tuple-to-userset or userset direct type) a relation that leads
+// back to typ#rel. A userset that is recursive on its own, without reaching
+// typ#rel again, does not count.
+func introducesRecursion(m *Model, deps map[string][]string, typ, rel string, us *openfgav1.Userset) bool {
+	return reachable(deps, relationEdges(m, typ, rel, us, false))[typ+"#"+rel]
 }
 
-func walkUserset(us *openfgav1.Userset, fn func(*openfgav1.Userset)) {
-	fn(us)
-	switch {
-	case us.GetUnion() != nil:
-		for _, c := range us.GetUnion().GetChild() {
-			walkUserset(c, fn)
+// hasRecursiveOperand reports whether an operand of typ#rel's intersection or
+// exclusion directly references a relation that lies on a dependency cycle.
+func hasRecursiveOperand(m *Model, cyclic map[string]bool, typ, rel string, operands []*openfgav1.Userset) bool {
+	for _, op := range operands {
+		for _, e := range relationEdges(m, typ, rel, op, false) {
+			if cyclic[e] {
+				return true
+			}
 		}
-	case us.GetIntersection() != nil:
-		for _, c := range us.GetIntersection().GetChild() {
-			walkUserset(c, fn)
-		}
-	case us.GetDifference() != nil:
-		walkUserset(us.GetDifference().GetBase(), fn)
-		walkUserset(us.GetDifference().GetSubtract(), fn)
 	}
+	return false
 }

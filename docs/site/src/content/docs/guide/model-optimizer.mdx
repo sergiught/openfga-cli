@@ -69,7 +69,7 @@ These are reported and never applied.
 
 | ID | Tier | Meaning |
 | --- | --- | --- |
-| C1 | caller | Recursion introduced inside an intersection or exclusion operand |
+| C1 | caller | A recursive operand inside an intersection or exclusion |
 | C2 | caller | An exclusion (`but not`) is present, so the subtracted side is always evaluated: an extra datastore read, plus an extra dispatch when the subtracted side is not a direct relation |
 | T1 | tuple | A relation introduces recursion: each nesting level in the tuple data costs one more datastore read and one more dispatch |
 | T2 | tuple | A union with 4 or more operands: each computed or tuple-to-userset operand is a separate dispatch, and a Check that misses evaluates all of them |
