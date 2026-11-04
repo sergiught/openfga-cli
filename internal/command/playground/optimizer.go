@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/aymanbagabas/go-udiff"
 	openfgav1 "github.com/openfga/api/proto/openfga/v1"
 
 	"github.com/sergiught/openfga-cli/internal/modeltest"
@@ -387,7 +386,7 @@ func dialogBody(applied []optimize.Finding, before, after string) []string {
 		lines = append(lines, f.Type+"#"+f.Relation, "- "+f.Before, "+ "+f.After)
 	}
 	lines = append(lines, "")
-	return append(lines, strings.Split(strings.TrimRight(udiff.Unified("model", "model (optimized)", before, after), "\n"), "\n")...)
+	return append(lines, strings.Split(strings.TrimRight(optimize.UnifiedDiff("model", before, after), "\n"), "\n")...)
 }
 
 // closeWriteDialog returns to the review with the accepted set intact; the

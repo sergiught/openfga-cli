@@ -182,7 +182,7 @@ func (c *Command) optimizeCmd() *cobra.Command {
 				for _, f := range rw.Applied {
 					ids = append(ids, f.Key)
 				}
-				out.Rewrite = &rewriteOutput{Applied: ids, DSL: after, Diff: unifiedDiff(label, before, after)}
+				out.Rewrite = &rewriteOutput{Applied: ids, DSL: after, Diff: optimize.UnifiedDiff(label, before, after)}
 			}
 
 			structured := c.cli.JSON || c.cli.YAML

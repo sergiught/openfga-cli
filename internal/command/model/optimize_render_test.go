@@ -38,7 +38,7 @@ func TestUnifiedDiff_RoundTripsAndNumbersHunks(t *testing.T) {
 
 	after += pad + "# new tail\n"
 
-	d := unifiedDiff("reference.fga", before, after)
+	d := optimize.UnifiedDiff("reference.fga", before, after)
 	got, err := applyUnified(d, before)
 	if err != nil {
 		t.Fatal(err)
