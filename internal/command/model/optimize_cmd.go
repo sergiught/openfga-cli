@@ -89,7 +89,11 @@ func (c *Command) optimizeCmd() *cobra.Command {
 			}
 			toStdout := outPath == "-"
 			if toStdout && (c.cli.JSON || c.cli.YAML) {
-				return usageHint("drop --json/--yaml, or write to a file with --output-file <path>", errors.New("--output-file - --json write stdout; pick one"))
+				flagName := "--json"
+				if !c.cli.JSON {
+					flagName = "--yaml"
+				}
+				return usageHint("drop --json/--yaml, or write to a file with --output-file <path>", errors.New("--output-file - and "+flagName+" both write to stdout; pick one"))
 			}
 			if write && stdin {
 				return usageHint("use --output-file <path> to write the rewritten model", errors.New("--write cannot rewrite stdin"))
@@ -207,37 +211,31 @@ func (c *Command) optimizeCmd() *cobra.Command {
 					benchfmt.Plural(len(out.Bench.Mismatches), "check")))
 			}
 
+			dest := outPath
+			if write {
+				dest, err = filepath.EvalSymlinks(path)
+				if err != nil {
+					return fmt.Errorf("write %s: %w", path, err)
+				}
+			}
 			if out.Rewrite == nil {
-				if write || outPath != "" {
-					dest := outPath
-					switch {
-					case write:
-						dest = path
-						if r, err := filepath.EvalSymlinks(path); err == nil {
-							dest = r
-						}
-					case toStdout:
-						dest = "stdout"
+				if dest != "" {
+					shown := dest
+					if toStdout {
+						shown = "stdout"
 					}
-					output.Infof(cmd.ErrOrStderr(), "no safe rewrites; nothing written to %s", dest)
+					output.Infof(cmd.ErrOrStderr(), "no safe rewrites; nothing written to %s", shown)
 					return nil
 				}
 				output.Infof(cmd.ErrOrStderr(), "no safe rewrites; %s", benchfmt.Plural(len(findings), "recommendation"))
 				return nil
 			}
-			dest := outPath
 			if toStdout {
 				if _, err := io.WriteString(cmd.OutOrStdout(), out.Rewrite.DSL); err != nil {
 					return err
 				}
 				output.Successf(cmd.ErrOrStderr(), "wrote rewritten model to stdout")
 				return nil
-			}
-			if write {
-				dest, err = filepath.EvalSymlinks(path)
-				if err != nil {
-					return fmt.Errorf("write %s: %w", path, err)
-				}
 			}
 			if dest == "" {
 				return nil

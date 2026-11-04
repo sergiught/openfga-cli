@@ -812,7 +812,7 @@ func TestOptimize_OutputFileStdoutWithBench(t *testing.T) {
 func TestOptimize_OutputFileStdoutWithJSONIsUsage(t *testing.T) {
 	_, _, err := runOptimize(t, "", true, optimizeReference, "--output-file", "-")
 	wantUsage(t, err)
-	if !strings.Contains(err.Error(), "--output-file - --json write stdout; pick one") {
+	if !strings.Contains(err.Error(), "--output-file - and --json both write to stdout; pick one") {
 		t.Errorf("message = %q", err)
 	}
 }
@@ -835,5 +835,43 @@ func TestOptimize_NothingWrittenIsSaid(t *testing.T) {
 	}
 	if want := "nothing written to stdout"; !strings.Contains(errOut, want) {
 		t.Errorf("stderr lacks %q:\n%s", want, errOut)
+	}
+}
+
+func TestOptimize_OutputFileStdoutWithYAMLIsUsage(t *testing.T) {
+	configtest.Isolate(t)
+	a := cli.New(log.New(io.Discard), config.New(), "test")
+	a.YAML = true
+	cmd := New(a).optimizeCmd()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	cmd.SetArgs([]string{optimizeReference, "--output-file", "-"})
+	err := cmd.Execute()
+	wantUsage(t, err)
+	if !strings.Contains(err.Error(), "--output-file - and --yaml both write to stdout; pick one") {
+		t.Errorf("message = %q", err)
+	}
+}
+
+func TestOptimize_WriteNothingWrittenLeavesFile(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "m.fga")
+	if err := os.WriteFile(p, []byte(noRewriteModel), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, errOut, err := runOptimize(t, "", false, p, "--write")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "no safe rewrites; nothing written to " + resolved; !strings.Contains(errOut, want) {
+		t.Errorf("stderr lacks %q:\n%s", want, errOut)
+	}
+	got, err := os.ReadFile(p)
+	if err != nil || string(got) != noRewriteModel {
+		t.Errorf("file changed: %q, %v", got, err)
 	}
 }
