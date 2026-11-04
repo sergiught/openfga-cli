@@ -135,7 +135,7 @@ func (c *Command) optimizeCmd() *cobra.Command {
 				output.Warnf(cmd.ErrOrStderr(), "safe rewrites disabled: %s", report.Blocked)
 			}
 			if rw := report.Rewrite; rw != nil {
-				before, err := rw.Before.DSL()
+				normalizedBefore, err := rw.Before.DSL()
 				if err != nil {
 					return fmt.Errorf("render original model: %w", err)
 				}
@@ -143,11 +143,25 @@ func (c *Command) optimizeCmd() *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("render rewritten model: %w", err)
 				}
+				before, label := normalizedBefore, path
+				switch {
+				case stdin:
+					label = "model"
+				case format == "json":
+					label = path + " (normalized)"
+				default:
+					// Diff the bytes the user has, so the preview applies to
+					// their file (comments, relation order and all).
+					before = string(data)
+				}
+				if ((format == "dsl" && !stdin && before != normalizedBefore) || sameFile(outPath, path)) && !c.cli.JSON && !c.cli.YAML {
+					output.Warnf(cmd.ErrOrStderr(), "%s", reformatWarning)
+				}
 				ids := make([]string, 0, len(rw.Applied))
 				for _, f := range rw.Applied {
 					ids = append(ids, f.Key)
 				}
-				out.Rewrite = &rewriteOutput{Applied: ids, DSL: after, Diff: unifiedDiff(path, before, after)}
+				out.Rewrite = &rewriteOutput{Applied: ids, DSL: after, Diff: unifiedDiff(label, before, after)}
 			}
 
 			if runBench {
@@ -205,9 +219,6 @@ func (c *Command) optimizeCmd() *cobra.Command {
 			if err := writeFileAtomic(dest, out.Rewrite.DSL); err != nil {
 				return err
 			}
-			if write {
-				output.Warnf(cmd.ErrOrStderr(), "--write reformats the file and drops comments")
-			}
 			output.Successf(cmd.ErrOrStderr(), "wrote rewritten model to %s", dest)
 			return nil
 		},
@@ -255,6 +266,21 @@ func validateBenchFlags(cmd *cobra.Command, runBench bool, wsPath string, synth 
 // benchSource picks the benchmark tuples and checks: an explicit or
 // auto-detected workspace, else synthesis. It also returns the workspace's
 // embedded-server options.
+const reformatWarning = "rewrite reformats the model: comments are dropped and relations are sorted"
+
+// sameFile reports whether out names the same existing file as in.
+func sameFile(out, in string) bool {
+	if out == "" || in == "-" {
+		return false
+	}
+	a, err := os.Stat(out)
+	if err != nil {
+		return false
+	}
+	b, err := os.Stat(in)
+	return err == nil && os.SameFile(a, b)
+}
+
 func benchSource(cmd *cobra.Command, m *openfgav1.AuthorizationModel, path string, stdin bool, wsPath string, synth bool, seed uint64, depth int) (*bench.Source, map[string]any, error) {
 	synthesize := func() (*bench.Source, map[string]any, error) {
 		src, err := bench.Synthesize(m, bench.SynthOptions{Seed: seed, Depth: depth})

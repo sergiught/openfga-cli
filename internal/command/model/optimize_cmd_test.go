@@ -14,6 +14,7 @@ import (
 
 	"charm.land/log/v2"
 	openfgav1 "github.com/openfga/api/proto/openfga/v1"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
@@ -130,7 +131,7 @@ func TestOptimize_WriteRewritesFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stderr, "reformats the file and drops comments") {
+	if !strings.Contains(stderr, "rewrite reformats the model") {
 		t.Errorf("missing reformat notice: %q", stderr)
 	}
 	data, err := os.ReadFile(p)
@@ -646,5 +647,112 @@ func TestOptimize_SynthWithoutWeightedGraphIsUsage(t *testing.T) {
 	const want = "this model's weighted graph cannot be built (an AND or BUT NOT sits on a tuple cycle), so tuples cannot be synthesized; benchmark with --workspace instead"
 	if h := clierr.NewEnvelope(err).Error.Hint; h != want {
 		t.Errorf("hint = %q, want %q", h, want)
+	}
+}
+
+// commentedUnsorted returns the reference model with a leading comment and two
+// relations swapped out of alphabetical order.
+func commentedUnsorted(t *testing.T) string {
+	t.Helper()
+	data, err := os.ReadFile(optimizeReference)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := "# my model\n" + string(data)
+	a := "    define owner: [user]\n    define editor: [user, group#member] or owner\n"
+	b := "    define editor: [user, group#member] or owner\n    define owner: [user]\n"
+	if !strings.Contains(s, a) {
+		t.Fatal("fixture shape changed")
+	}
+	return strings.Replace(s, a, b, 1)
+}
+
+// jsonDiff runs optimize with --json and returns rewrite.diff (the human
+// renderer colours diff lines, so the JSON field is the byte-exact source).
+func jsonDiff(t *testing.T, stdin string, args ...string) string {
+	t.Helper()
+	stdout, stderr, err := runOptimize(t, stdin, true, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stderr, "rewrite reformats") {
+		t.Errorf("--json must not print the reformat warning:\n%s", stderr)
+	}
+	var v struct {
+		Rewrite struct{ Diff string } `json:"rewrite"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &v); err != nil {
+		t.Fatal(err)
+	}
+	return v.Rewrite.Diff
+}
+
+func TestOptimize_DiffAppliesToOriginalFile(t *testing.T) {
+	original := commentedUnsorted(t)
+	p := filepath.Join(t.TempDir(), "model.fga")
+	if err := os.WriteFile(p, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr, err := runOptimize(t, "", false, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(stderr, "rewrite reformats the model: comments are dropped and relations are sorted"); n != 1 {
+		t.Fatalf("want the reformat warning once, got %d:\n%s", n, stderr)
+	}
+	diff := jsonDiff(t, "", p)
+	if !strings.HasPrefix(diff, "--- "+p+"\n") {
+		t.Errorf("diff should be labelled with the file path:\n%s", diff)
+	}
+	got, err := applyUnified(diff, original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := runOptimize(t, "", false, p, "--write"); err != nil {
+		t.Fatal(err)
+	}
+	written, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != string(written) {
+		t.Errorf("diff applied to the original != file after --write\n--- got\n%s\n--- written\n%s", got, written)
+	}
+}
+
+func TestOptimize_StdinAndJSONDiffStayNormalized(t *testing.T) {
+	data, err := os.ReadFile(optimizeReference)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := jsonDiff(t, string(data), "-"); !strings.HasPrefix(d, "--- model\n+++ model (optimized)\n") {
+		t.Errorf("stdin labels wrong:\n%s", d)
+	}
+
+	lm, err := modeltest.LoadModelBytes(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	js, err := protojson.Marshal(lm.Proto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jp := filepath.Join(t.TempDir(), "model.json")
+	if err := os.WriteFile(jp, js, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if d := jsonDiff(t, "", jp); !strings.HasPrefix(d, "--- "+jp+" (normalized)\n") {
+		t.Errorf("json label wrong:\n%s", d)
+	}
+}
+
+func TestOptimize_OutputFileSameAsInputWarns(t *testing.T) {
+	p := copyReference(t)
+	_, stderr, err := runOptimize(t, "", false, p, "--output-file", p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr, "rewrite reformats the model") {
+		t.Errorf("want reformat warning, got:\n%s", stderr)
 	}
 }
