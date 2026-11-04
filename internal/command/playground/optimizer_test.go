@@ -780,11 +780,19 @@ func TestOptimizer_ReopenDropsOldWriteBench(t *testing.T) {
 	}
 }
 
+// closeDialogDuringWrite closes the write dialog while the write is in flight
+// by a route other than esc (which is ignored then), as a section switch would.
+func closeDialogDuringWrite(m tea.Model) tea.Model {
+	mm := m.(Model)
+	mm.closeWriteDialog()
+	return mm
+}
+
 func TestOptimizer_WriteSuccessKeepsEditor(t *testing.T) {
 	configtest.Isolate(t)
 	m, _ := writeDialog(t, referenceDSL(t), true)
 	m, _ = m.Update(key("y"))
-	m, _ = m.Update(key("esc"))
+	m = closeDialogDuringWrite(m)
 	m, _ = m.Update(key("e"))
 	if !m.(Model).editorOpen {
 		t.Fatal("editor did not open")
@@ -804,7 +812,7 @@ func TestOptimizer_WriteSuccessKeepsEditor(t *testing.T) {
 func TestOptimizer_WriteErrorAfterEscToasts(t *testing.T) {
 	m, _ := writeDialog(t, referenceDSL(t), true)
 	m, _ = m.Update(key("y"))
-	m, _ = m.Update(key("esc"))
+	m = closeDialogDuringWrite(m)
 	mm := m.(Model)
 	m, cmd := m.Update(modelAppliedMsg{origin: mm.mutationOrigin(mm.storeID, mm.modelID, mm.modelApplyGen), err: errors.New("boom"), optimized: 5})
 	o := m.(Model)
@@ -986,5 +994,46 @@ func TestOptimizer_UnexercisedWarningInCardAndDialog(t *testing.T) {
 	_ = msgs
 	if !strings.Contains(view(m), "exercised") {
 		t.Errorf("dialog lacks the unexercised warning:\n%s", view(m))
+	}
+}
+
+// TestOptimizer_DialogPagesToLastHunk pages a diff longer than one screen at
+// 80x24 and checks the last wrapped diff line is the final visible body line.
+func TestOptimizer_DialogPagesToLastHunk(t *testing.T) {
+	m, _ := writeDialog(t, referenceDSL(t), true)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	mm := m.(Model)
+	if _, _, diffH := mm.writeDialogLayout(); len(mm.wrappedDialogBody()) <= diffH {
+		t.Fatalf("diff fits one page (%d lines in %d rows); the test needs a longer one", len(mm.wrappedDialogBody()), diffH)
+	}
+	prev := ""
+	for range 100 {
+		m, _ = m.Update(key("pgdown"))
+		body := m.(Model).writeDialogBody()
+		if body == prev {
+			break
+		}
+		prev = body
+	}
+	mm = m.(Model)
+	want := strings.TrimRight(ansi.Strip(mm.wrappedDialogBody()[len(mm.wrappedDialogBody())-1]), " ")
+	lines := strings.Split(ansi.Strip(mm.writeDialogBody()), "\n")
+	if got := strings.TrimRight(lines[len(lines)-2], " "); got != want {
+		t.Errorf("final visible line = %q, want the last diff line %q", got, want)
+	}
+}
+
+func TestOptimizer_EscIgnoredWhileWriting(t *testing.T) {
+	m, _ := writeDialog(t, referenceDSL(t), true)
+	m, _ = m.Update(key("y"))
+	if !m.(Model).modelApplying {
+		t.Fatal("y did not start the write")
+	}
+	if out := view(m); !strings.Contains(out, "esc disabled") {
+		t.Errorf("footer does not say esc is disabled:\n%s", out)
+	}
+	m, _ = m.Update(key("esc"))
+	if !m.(Model).opt.dialog {
+		t.Error("esc closed the dialog while the write was running")
 	}
 }

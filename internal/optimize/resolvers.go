@@ -76,8 +76,8 @@ func collectTTUProtos(us *openfgav1.Userset, acc []*openfgav1.TupleToUserset) []
 	return acc
 }
 
-// sameResolvers reports whether every profile key present in before is
-// unchanged in after and after has no key before lacks.
+// sameResolvers reports whether every key of after exists in before with the
+// same value. Keys dropped from after are allowed.
 func sameResolvers(before, after map[string]bool) bool {
 	for k, v := range after {
 		if bv, ok := before[k]; !ok || bv != v {

@@ -169,7 +169,7 @@ func TestRenderBench_ListsSkippedAndUnexercised(t *testing.T) {
 	for _, want := range []string{
 		"Not synthesized (1)",
 		"\n  doc#parent: conditioned-only restriction folder (condition active)",
-		"2 rewritten relations were not exercised by this benchmark: doc#viewer, doc#can_view",
+		"2 rewritten relations were only partly exercised (a skipped restriction reaches them): doc#viewer, doc#can_view",
 		"benchmark with --workspace to cover them",
 		"\n  in-process, indicative only",
 	} {
@@ -184,7 +184,7 @@ func TestRenderBench_ListsSkippedAndUnexercised(t *testing.T) {
 	if err := Render(&buf, skippedResult("doc#viewer")); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(ansi.Strip(buf.String()), "1 rewritten relation was not exercised by this benchmark: doc#viewer") {
+	if !strings.Contains(ansi.Strip(buf.String()), "1 rewritten relation was only partly exercised (a skipped restriction reaches it): doc#viewer") {
 		t.Errorf("singular form missing:\n%s", buf.String())
 	}
 }
@@ -204,7 +204,7 @@ func TestSummary_HasNoTable(t *testing.T) {
 			t.Errorf("summary lacks totals line %q:\n%s", l, out)
 		}
 	}
-	if !strings.Contains(out, "1 rewritten relation was not exercised") {
+	if !strings.Contains(out, "1 rewritten relation was only partly exercised") {
 		t.Errorf("summary lacks the unexercised warning:\n%s", out)
 	}
 	for _, l := range lines {

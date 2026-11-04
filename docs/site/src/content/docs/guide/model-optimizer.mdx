@@ -245,9 +245,9 @@ same tuples, and runs the same Checks against both.
 | `--iterations` | Timed samples per check for latency (default `100`) |
 
 When synthesis cannot cover a restriction or a check, the report lists it under
-a `Not synthesized (N)` heading (the result's `skipped` field). If the benchmark
-never exercised a relation the rewrite changed, a warning names it, for example
-`1 rewritten relation was not exercised by this benchmark: folder#viewer`,
+a `Not synthesized (N)` heading (the result's `skipped` field). If a skipped restriction
+reaches a relation the rewrite changed, a warning names it, for example
+`1 rewritten relation was only partly exercised (a skipped restriction reaches it): folder#viewer`,
 followed by the hint `benchmark with --workspace to cover them`. The relations
 are also listed in the result's `unexercised` field, so a clean `Answers all N
 unchanged` line is not evidence about them.

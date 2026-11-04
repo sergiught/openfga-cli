@@ -411,6 +411,9 @@ func (o optimizer) canWrite() bool {
 func (m *Model) handleDialogKey(key string) tea.Cmd {
 	switch key {
 	case "esc":
+		if m.modelApplying {
+			return nil // the write cannot be cancelled once sent
+		}
 		m.closeWriteDialog()
 	case "up", "k":
 		m.scrollDialog(-1)

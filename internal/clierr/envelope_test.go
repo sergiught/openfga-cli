@@ -154,7 +154,7 @@ func TestClassifyLocalErrors(t *testing.T) {
 
 func TestEnvelope_KeepsHeadlineLines(t *testing.T) {
 	e := NewEnvelope(errors.New("load model: transform model DSL: 1 error occurred:\n\t* syntax error at line=5, column=18: missing ':' at '['\n\n")).Error
-	if e.Message != "load model: transform model DSL: 1 error occurred:" {
+	if e.Message != "load model: transform model DSL" {
 		t.Errorf("message = %q", e.Message)
 	}
 	want := map[string]any{"message": "syntax error at line=5, column=18: missing ':' at '['", "line": 5, "column": 18}
@@ -213,5 +213,13 @@ func TestKindsListsEveryKindConstant(t *testing.T) {
 		if !want[k] {
 			t.Errorf("Kinds() lists %q, which is not a Kind constant", k)
 		}
+	}
+}
+
+func TestFriendly_InvalidDSLHasNoPreambleOrDoubleBlankLine(t *testing.T) {
+	err := WithHint("run 'ofga model optimize --help' for usage", errors.New("load model: transform model DSL: 1 error occurred:\n\t* syntax error at line=5, column=18: missing ':' at '['\n\n"))
+	got := Friendly(err)
+	if strings.Contains(got, "error occurred") || strings.Contains(got, "\n\n\n") || strings.Contains(got, "\n\n  run") {
+		t.Errorf("Friendly = %q", got)
 	}
 }

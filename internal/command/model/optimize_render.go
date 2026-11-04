@@ -30,20 +30,32 @@ func renderOptimize(w io.Writer, findings []optimize.Finding, gated []optimize.G
 				group = append(group, f)
 			}
 		}
-		if len(group) == 0 {
-			continue
-		}
-		if !first {
-			if _, err := fmt.Fprintln(w); err != nil {
+		if len(group) > 0 {
+			if !first {
+				if _, err := fmt.Fprintln(w); err != nil {
+					return err
+				}
+			}
+			first = false
+			if _, err := fmt.Fprintf(w, "%s\n", style.Heading.Render(fmt.Sprintf("%s (%d)", g.title, len(group)))); err != nil {
 				return err
 			}
+			for _, f := range group {
+				if err := renderFinding(w, f); err != nil {
+					return err
+				}
+			}
 		}
-		first = false
-		if _, err := fmt.Fprintf(w, "%s\n", style.Heading.Render(fmt.Sprintf("%s (%d)", g.title, len(group)))); err != nil {
-			return err
-		}
-		for _, f := range group {
-			if err := renderFinding(w, f); err != nil {
+		// Held-back rewrites belong with the safe tier, so they sit right
+		// after it and before the advisories and the diff.
+		if g.tier == optimize.TierSafe && len(gated) > 0 {
+			if !first {
+				if _, err := fmt.Fprintln(w); err != nil {
+					return err
+				}
+			}
+			first = false
+			if err := renderGated(w, gated); err != nil {
 				return err
 			}
 		}
@@ -54,7 +66,6 @@ func renderOptimize(w io.Writer, findings []optimize.Finding, gated []optimize.G
 				return err
 			}
 		}
-		first = false
 		if _, err := fmt.Fprintf(w, "%s\n", style.Heading.Render("Diff")); err != nil {
 			return err
 		}
@@ -67,23 +78,36 @@ func renderOptimize(w io.Writer, findings []optimize.Finding, gated []optimize.G
 			}
 		}
 	}
-	if len(gated) > 0 {
-		if !first {
-			if _, err := fmt.Fprintln(w); err != nil {
-				return err
-			}
-		}
-		if _, err := fmt.Fprintf(w, "%s\n", style.Heading.Render(fmt.Sprintf("Not applied (%d)", len(gated)))); err != nil {
+	return nil
+}
+
+// renderGated prints the safe rewrites that were derived but not applied,
+// each with its Before and After and the reason it was held back.
+func renderGated(w io.Writer, gated []optimize.GatedFinding) error {
+	if _, err := fmt.Fprintf(w, "%s\n", style.Heading.Render(fmt.Sprintf("Not applied (%d)", len(gated)))); err != nil {
+		return err
+	}
+	for _, g := range gated {
+		if _, err := fmt.Fprintf(w, "  %s  %s\n", style.Bold.Render(g.Type+"#"+g.Relation), style.Faint.Render("["+g.ID+"]")); err != nil {
 			return err
 		}
-		for _, g := range gated {
-			if _, err := fmt.Fprintf(w, "  %s  %s — %s\n", style.Bold.Render(g.Type+"#"+g.Relation), style.Faint.Render("["+g.ID+"]"), g.Gate); err != nil {
+		for _, l := range strings.Split(g.Before, "\n") {
+			if _, err := fmt.Fprintf(w, "    %s\n", style.Failure.Render("- "+l)); err != nil {
 				return err
 			}
+		}
+		for _, l := range strings.Split(g.After, "\n") {
+			if _, err := fmt.Fprintf(w, "    %s\n", style.Success.Render("+ "+l)); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprintf(w, "    %s %s\n", style.Faint.Render("not applied:"), g.Gate); err != nil {
+			return err
 		}
 	}
 	return nil
 }
+
 func colorDiffLine(line string) string {
 	body := strings.TrimSuffix(line, "\n")
 	nl := line[len(body):]

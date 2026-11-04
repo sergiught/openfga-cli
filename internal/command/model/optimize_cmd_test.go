@@ -725,6 +725,10 @@ func TestOptimize_SynthWithoutWeightedGraphIsUsage(t *testing.T) {
 	if !strings.HasPrefix(h, prefix) || !strings.HasSuffix(h, suffix) || len(h) == len(prefix)+len(suffix) {
 		t.Errorf("hint = %q, want %q<builder message>%q", h, prefix, suffix)
 	}
+	builder := strings.TrimSuffix(strings.TrimPrefix(h, prefix), suffix)
+	if strings.Contains(err.Error(), builder) {
+		t.Errorf("error text repeats the builder message already in the hint: %q", err)
+	}
 	if strings.Contains(h, "an AND or BUT NOT sits on a tuple cycle") {
 		t.Errorf("hint still carries the guessed parenthetical: %q", h)
 	}
@@ -747,10 +751,20 @@ func TestOptimize_GatedRewriteIsListed(t *testing.T) {
 		t.Fatal(err)
 	}
 	out = ansi.Strip(out)
-	for _, want := range []string{"Not applied (1)", "[S4] — changes whether OpenFGA can build the weighted graph"} {
+	for _, want := range []string{"Not applied (1)", "[S4]", "\n    - ", "\n    + ", "not applied: changes whether OpenFGA can build the weighted graph"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}
+	}
+	if i, j := strings.Index(out, "Not applied"), strings.Index(out, "Caller recommendations"); j >= 0 && i > j {
+		t.Errorf("Not applied should precede the advisories:\n%s", out)
+	}
+	callerOnly, _, err := runOptimize(t, vacuousModel(t), false, "-", "--tier", "caller")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(callerOnly, "Not applied") {
+		t.Errorf("--tier caller still prints Not applied:\n%s", callerOnly)
 	}
 	jout, _, err := runOptimize(t, vacuousModel(t), true, "-")
 	if err != nil {
@@ -1052,7 +1066,7 @@ func TestOptimize_BenchReportsUnexercised(t *testing.T) {
 		t.Fatal(err)
 	}
 	out = ansi.Strip(out)
-	for _, want := range []string{"rewritten relation was not exercised by this benchmark", rewritten, "benchmark with --workspace to cover them"} {
+	for _, want := range []string{"rewritten relation was only partly exercised (a skipped restriction reaches it)", rewritten, "benchmark with --workspace to cover them"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("human output lacks %q:\n%s", want, out)
 		}

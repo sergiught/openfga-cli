@@ -181,15 +181,11 @@ const unexercisedHint = "benchmark with --workspace to cover them"
 // benchmark never exercised.
 func unexercisedWarning(r *bench.Result) string {
 	n := len(r.Unexercised)
-	verb := "were"
+	verb, noun, pron := "were", "rewritten relations", "them"
 	if n == 1 {
-		verb = "was"
+		verb, noun, pron = "was", "rewritten relation", "it"
 	}
-	noun := "rewritten relations"
-	if n == 1 {
-		noun = "rewritten relation"
-	}
-	return style.Warn.Render(fmt.Sprintf("  %d %s %s not exercised by this benchmark: %s", n, noun, verb, strings.Join(r.Unexercised, ", ")))
+	return style.Warn.Render(fmt.Sprintf("  %d %s %s only partly exercised (a skipped restriction reaches %s): %s", n, noun, verb, pron, strings.Join(r.Unexercised, ", ")))
 }
 
 // Unexercised returns the unexercised warning as lines, or nil when every

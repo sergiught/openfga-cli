@@ -15,9 +15,10 @@ const minWideUnion = 4
 // type, relation, then ID.
 func advise(m *Model) []Finding {
 	// OpenFGA cannot build the weighted graph in some models, for example an AND
-	// or BUT NOT on a tuple cycle, or a tupleset type that lacks the relation. Findings then carry no weights, and a relation counts as
-	// infinite when it can reach a cycle in the relation dependency graph,
-	// as an inherited infinite weight would on the weighted path.
+	// or BUT NOT on a tuple cycle, or a tupleset type that lacks the relation.
+	// Findings then carry no weights, and a relation counts as infinite when it
+	// can reach a cycle in the relation dependency graph, as an inherited
+	// infinite weight would on the weighted path.
 	w, err := Weights(m)
 	infinite := map[string]bool{}
 	if err != nil {

@@ -189,7 +189,11 @@ func (c *Command) optimizeCmd() *cobra.Command {
 			// Human mode prints findings and the diff before the (slow)
 			// benchmark so the user has something to read while it runs.
 			if !structured && !toStdout {
-				if err := renderOptimize(cmd.OutOrStdout(), findings, out.Gated, out.Rewrite); err != nil {
+				gated := out.Gated
+				if want != nil && !want[optimize.TierSafe] {
+					gated = nil // the safe tier is not requested
+				}
+				if err := renderOptimize(cmd.OutOrStdout(), findings, gated, out.Rewrite); err != nil {
 					return err
 				}
 			}
@@ -358,7 +362,7 @@ func benchSource(cmd *cobra.Command, m *openfgav1.AuthorizationModel, path strin
 	synthesize := func() (*bench.Source, map[string]any, error) {
 		src, err := bench.Synthesize(m, bench.SynthOptions{Seed: seed, Depth: depth})
 		if builderMsg, ok := optimize.NoWeightedGraphReason(err); ok {
-			return nil, nil, usageHint(fmt.Sprintf("this model's weighted graph cannot be built (%s), so tuples cannot be synthesized; benchmark with --workspace instead", builderMsg), err)
+			return nil, nil, usageHint(fmt.Sprintf("this model's weighted graph cannot be built (%s), so tuples cannot be synthesized; benchmark with --workspace instead", builderMsg), optimize.ErrNoWeightedGraph)
 		}
 		return src, nil, err
 	}
