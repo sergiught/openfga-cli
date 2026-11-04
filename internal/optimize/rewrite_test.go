@@ -253,3 +253,45 @@ func TestRewrite_ResolverGateKeepsDuplicateTTUDrop(t *testing.T) {
 		t.Errorf("applied = %+v, want one S3 with After %q", rw.Applied, "x from parent")
 	}
 }
+
+func TestRewriteSubset_RejectedDoesNotShiftOrdinal(t *testing.T) {
+	m := loadInline(t, "model\n  schema 1.1\ntype user\ntype doc\n  relations\n    define owner: [user]\n    define editor: [user] or owner\n    define admin: [user] or editor\n    define viewer: [user] or owner or editor or admin\n")
+	rw, err := Rewrite(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := Keys(rw.Applied)
+	if len(keys) < 2 || keys[0].Type != keys[1].Type || keys[0].Relation != keys[1].Relation || keys[0].ID != keys[1].ID || keys[0].Proof == keys[1].Proof {
+		t.Fatalf("need two findings sharing (Type, Relation, ID) with different Proof, got %+v", keys)
+	}
+	// The second finding only exists once the first is applied, so accepting
+	// it alone applies nothing; accepting the first applies exactly the first.
+	sub, err := RewriteSubset(m, map[FindingKey]bool{keys[1]: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sub.Applied) != 0 {
+		t.Fatalf("applied = %+v, want none", sub.Applied)
+	}
+	sub, err = RewriteSubset(m, map[FindingKey]bool{keys[0]: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sub.Applied) != 1 || sub.Applied[0].Proof != rw.Applied[0].Proof {
+		t.Fatalf("applied = %+v, want only the finding with proof %q", sub.Applied, rw.Applied[0].Proof)
+	}
+	// A key with the right ordinal but another finding's proof must not match.
+	stale := FindingKey{Type: keys[0].Type, Relation: keys[0].Relation, ID: keys[0].ID, Proof: "other"}
+	if sub, err = RewriteSubset(m, map[FindingKey]bool{stale: true}); err != nil || len(sub.Applied) != 0 {
+		t.Fatalf("stale-proof key applied %+v (err %v)", sub.Applied, err)
+	}
+	rep, err := Analyze(m.Proto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, k := range keys {
+		if rep.Findings[i].Key != k.String() {
+			t.Errorf("Findings[%d].Key = %q, want %q", i, rep.Findings[i].Key, k.String())
+		}
+	}
+}

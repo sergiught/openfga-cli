@@ -1,5 +1,7 @@
 package optimize
 
+import "strconv"
+
 // Tier classifies how a finding may be acted on.
 type Tier string
 
@@ -22,6 +24,9 @@ type Finding struct {
 	Reason   string `json:"reason"`
 	Proof    string `json:"proof"`
 	Tier     Tier   `json:"tier"`
+	// Key is the serialized FindingKey, set by Analyze so JSON consumers can
+	// correlate findings.
+	Key string `json:"key"`
 	// Weights maps user type to weight; Analyze substitutes -1 for
 	// graph.Infinite here and the command renders -1 as "inf".
 	Weights map[string]int `json:"weights" jsonschema_description:"Weight per user type; -1 means unbounded (infinite) weight."`
@@ -31,11 +36,21 @@ type Finding struct {
 	apply func(*Model)
 }
 
-// FindingKey identifies one applied finding within a rewrite run. N counts
-// the findings with the same (Type, Relation, ID) applied earlier in the run.
+// FindingKey identifies one applied finding by content. N only separates
+// findings that are identical in every other field: it counts the earlier
+// ones in the run.
 type FindingKey struct {
-	Type, Relation, ID string
-	N                  int
+	Type, Relation, ID, Proof string
+	N                         int
+}
+
+// String renders the key as Type#Relation:ID:Proof, with #N appended when N > 0.
+func (k FindingKey) String() string {
+	s := k.Type + "#" + k.Relation + ":" + k.ID + ":" + k.Proof
+	if k.N > 0 {
+		s += "#" + strconv.Itoa(k.N)
+	}
+	return s
 }
 
 // Keys returns the key of each applied finding, in order.
@@ -43,7 +58,7 @@ func Keys(applied []Finding) []FindingKey {
 	keys := make([]FindingKey, 0, len(applied))
 	count := map[FindingKey]int{}
 	for _, f := range applied {
-		k := FindingKey{Type: f.Type, Relation: f.Relation, ID: f.ID}
+		k := FindingKey{Type: f.Type, Relation: f.Relation, ID: f.ID, Proof: f.Proof}
 		n := count[k]
 		count[k]++
 		k.N = n

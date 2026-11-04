@@ -32,5 +32,8 @@ func Analyze(p *openfgav1.AuthorizationModel) (*Report, error) {
 		target = rw.After
 	}
 	rep.Findings = append(rep.Findings, advise(target)...)
+	for i, k := range Keys(rep.Findings) {
+		rep.Findings[i].Key = k.String()
+	}
 	return rep, nil
 }

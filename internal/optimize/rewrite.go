@@ -95,11 +95,11 @@ func rewrite(m *Model, accept map[FindingKey]bool) (*RewriteResult, error) {
 			if accept != nil {
 				n := 0
 				for _, a := range rw.Applied {
-					if a.Type == f.Type && a.Relation == f.Relation && a.ID == f.ID {
+					if a.Type == f.Type && a.Relation == f.Relation && a.ID == f.ID && a.Proof == f.Proof {
 						n++
 					}
 				}
-				if !accept[FindingKey{Type: f.Type, Relation: f.Relation, ID: f.ID, N: n}] {
+				if !accept[FindingKey{Type: f.Type, Relation: f.Relation, ID: f.ID, Proof: f.Proof, N: n}] {
 					continue
 				}
 			}
