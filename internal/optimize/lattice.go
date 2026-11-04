@@ -76,6 +76,9 @@ func TermOf(typ, rel string, us *openfgav1.Userset, md *openfgav1.RelationMetada
 type Lattice struct {
 	m     *Model
 	pairs map[string]map[string]bool
+	// admit, when set by a subset rewrite, lets rules skip candidates the
+	// caller did not accept and keep scanning the same relation.
+	admit func(Finding) bool
 }
 
 // BuildLattice computes the least fixpoint of the derivation rules: union

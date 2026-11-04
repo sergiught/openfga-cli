@@ -231,6 +231,12 @@ func TestOptimizer_ReconnectStopsBench(t *testing.T) {
 const dependentDSL = "model\n  schema 1.1\n\ntype user\n\ntype t\n  relations\n" +
 	"    define a: [user]\n    define b: [user] or a\n    define c: [user] or b\n    define d: a or c or b\n"
 
+// dupDSL has two identical duplicate operands. The second S3 finding has
+// ordinal N=1, so it can only apply after the first: accepting it alone is
+// genuinely dependent on a rejected rewrite.
+const dupDSL = "model\n  schema 1.1\n\ntype user\n\ntype t\n  relations\n" +
+	"    define a: [user]\n    define d: a or a or a\n"
+
 const blockedDSL = "model\n  schema 1.1\n\ntype user\n\ntype folder\n  relations\n" +
 	"    define parent: [folder]\n    define owner: [user]\n" +
 	"    define viewer: [user] or viewer from parent\n    define allowed: owner but not viewer\n"
@@ -282,8 +288,29 @@ func TestOptimizer_SpaceAndA(t *testing.T) {
 	}
 }
 
-func TestOptimizer_DependentRowDimmed(t *testing.T) {
+// Ticking only the later of two independent rewrites on one relation applies
+// it: a rejected candidate must not hide it.
+func TestOptimizer_IndependentLaterRowApplies(t *testing.T) {
 	m := review(t, dependentDSL)
+	if len(m.(Model).opt.rows) != 2 {
+		t.Fatalf("want 2 rewrites, got %d", len(m.(Model).opt.rows))
+	}
+	m, _ = m.Update(key("down"))
+	m, _ = m.Update(key(" ")) // accept only b ⊆ c
+	out := view(m)
+	if strings.Contains(out, "depends on a rejected rewrite") {
+		t.Errorf("independent row flagged as dependent:\n%s", out)
+	}
+	if !strings.Contains(out, "1 of 2 accepted") || strings.Contains(out, "apply)") {
+		t.Errorf("header should show 1 of 2 accepted with no apply mismatch:\n%s", out)
+	}
+	if n := len(m.(Model).opt.subset.Applied); n != 1 {
+		t.Errorf("applied = %d, want 1", n)
+	}
+}
+
+func TestOptimizer_DependentRowDimmed(t *testing.T) {
+	m := review(t, dupDSL)
 	o := m.(Model).opt
 	if len(o.rows) != 2 {
 		t.Fatalf("want 2 rewrites, got %d", len(o.rows))
@@ -479,7 +506,7 @@ func TestOptimizer_NarrowTerminal(t *testing.T) {
 }
 
 func TestOptimizer_ReviewBDependentOnly(t *testing.T) {
-	m := review(t, dependentDSL)
+	m := review(t, dupDSL)
 	m, _ = m.Update(key("down"))
 	m, _ = m.Update(key(" "))
 	m, msgs := shiftB(t, m, false)
@@ -611,10 +638,10 @@ func TestOptimizer_NoGraphWarnsAndAllowsWrite(t *testing.T) {
 	}
 }
 
-// twoDependentDSL is dependentDSL plus an independent copy of its type, so
+// twoDependentDSL is dupDSL plus an independent copy of its type, so
 // ticking the copy's rewrite and the dependent one alone gives K=2, M=1.
-const twoDependentDSL = dependentDSL + "\ntype t2\n  relations\n" +
-	"    define a: [user]\n    define b: [user] or a\n    define c: [user] or b\n    define d: a or c or b\n"
+const twoDependentDSL = dupDSL + "\ntype t2\n  relations\n" +
+	"    define a: [user]\n    define d: a or a or a\n"
 
 func TestOptimizer_WriteCountsApplied(t *testing.T) {
 	var body []byte

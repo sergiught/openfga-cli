@@ -158,7 +158,11 @@ func unionRule(m *Model, l *Lattice, id, reason string, droppable func(Term) boo
 					}
 					idx := i
 					proof := fmt.Sprintf("%s#%s ⊆ %s#%s", typ, termString(terms[i]), typ, termString(terms[j]))
-					if f, good := newFinding(m, id, typ, rel, reason, proof, func(mm *Model) { dropOperand(mm, typ, rel, idx) }); good {
+					f, good := newFinding(m, id, typ, rel, reason, proof, func(mm *Model) { dropOperand(mm, typ, rel, idx) })
+					if good && l.admit != nil && !l.admit(f) {
+						continue // rejected: try the next candidate
+					}
+					if good {
 						out = append(out, f)
 						found = true
 					}
@@ -230,7 +234,7 @@ func ruleS2(m *Model, l *Lattice) []Finding {
 }
 
 // ruleS3 drops a syntactically duplicated union operand.
-func ruleS3(m *Model, _ *Lattice) []Finding {
+func ruleS3(m *Model, l *Lattice) []Finding {
 	var out []Finding
 	for _, td := range m.Proto.GetTypeDefinitions() {
 		typ := td.GetType()
@@ -252,6 +256,9 @@ func ruleS3(m *Model, _ *Lattice) []Finding {
 					idx := j
 					f, good := newFinding(m, "S3", typ, rel, "duplicate union operand", "operands are syntactically identical",
 						func(mm *Model) { dropOperand(mm, typ, rel, idx) })
+					if good && l.admit != nil && !l.admit(f) {
+						break // rejected: look for a later duplicate
+					}
 					if good {
 						out = append(out, f)
 					}

@@ -265,14 +265,15 @@ func TestRewriteSubset_RejectedDoesNotShiftOrdinal(t *testing.T) {
 	if len(keys) < 2 || keys[0].Type != keys[1].Type || keys[0].Relation != keys[1].Relation || keys[0].ID != keys[1].ID || keys[0].Proof == keys[1].Proof {
 		t.Fatalf("need two findings sharing (Type, Relation, ID) with different Proof, got %+v", keys)
 	}
-	// The second finding only exists once the first is applied, so accepting
-	// it alone applies nothing; accepting the first applies exactly the first.
+	// The second finding is independent of the first (editor is contained in
+	// admin either way), so accepting it alone applies exactly it; accepting
+	// the first applies exactly the first.
 	sub, err := RewriteSubset(m, map[FindingKey]bool{keys[1]: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sub.Applied) != 0 {
-		t.Fatalf("applied = %+v, want none", sub.Applied)
+	if len(sub.Applied) != 1 || sub.Applied[0].Proof != rw.Applied[1].Proof {
+		t.Fatalf("applied = %+v, want only the finding with proof %q", sub.Applied, rw.Applied[1].Proof)
 	}
 	sub, err = RewriteSubset(m, map[FindingKey]bool{keys[0]: true})
 	if err != nil {
@@ -361,5 +362,28 @@ func TestRewrite_GatedClearedWhenFinalPassDerivesNone(t *testing.T) {
 	}
 	if len(rw.Applied) != 1 || len(rw.Gated) != 0 {
 		t.Fatalf("applied = %d, gated = %+v, want one applied and no gated", len(rw.Applied), rw.Gated)
+	}
+}
+
+func TestRewriteSubset_IndependentLaterCandidateApplies(t *testing.T) {
+	m := loadInline(t, "model\n  schema 1.1\ntype user\ntype doc\n  relations\n    define r: [user] or a or b or c\n    define a: [user]\n    define b: [user]\n    define c: [user] or a or b\n")
+	full, err := Rewrite(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := Keys(full.Applied)
+	if len(keys) != 2 || keys[0].Proof != "doc#a ⊆ doc#c" || keys[1].Proof != "doc#b ⊆ doc#c" || keys[0].Relation != "r" {
+		t.Fatalf("full keys = %v, want r: a⊆c then b⊆c", keys)
+	}
+	sub, err := RewriteSubset(m, map[FindingKey]bool{keys[1]: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sub.Applied) != 1 || sub.Applied[0].Proof != "doc#b ⊆ doc#c" {
+		t.Fatalf("applied = %+v, want exactly the b ⊆ c rewrite", sub.Applied)
+	}
+	dsl, _ := sub.After.DSL()
+	if !strings.Contains(dsl, "define r: [user] or a or c") {
+		t.Fatalf("After DSL:\n%s\nwant define r: [user] or a or c", dsl)
 	}
 }

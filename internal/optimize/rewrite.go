@@ -70,6 +70,21 @@ func rewrite(m *Model, accept map[FindingKey]bool) (*RewriteResult, error) {
 	for range maxPasses {
 		applied := len(rw.Applied)
 		l := BuildLattice(cur)
+		var admit func(Finding) bool
+		if accept != nil {
+			admit = func(f Finding) bool {
+				n := 0
+				for _, a := range rw.Applied {
+					if a.Type == f.Type && a.Relation == f.Relation && a.ID == f.ID && a.Proof == f.Proof {
+						n++
+					}
+				}
+				return accept[FindingKey{Type: f.Type, Relation: f.Relation, ID: f.ID, Proof: f.Proof, N: n}]
+			}
+			// Rules consult admit so a rejected candidate does not hide a
+			// later independent one on the same relation.
+			l.admit = admit
+		}
 		beforeProfile, profileOK := resolverProfile(cur)
 		typeIdx := map[string]int{}
 		for i, td := range cur.Proto.GetTypeDefinitions() {
@@ -98,16 +113,8 @@ func rewrite(m *Model, accept map[FindingKey]bool) (*RewriteResult, error) {
 		var gated []GatedFinding
 		for _, f := range all {
 			// A rejected finding must not take the relation's slot for this pass.
-			if accept != nil {
-				n := 0
-				for _, a := range rw.Applied {
-					if a.Type == f.Type && a.Relation == f.Relation && a.ID == f.ID && a.Proof == f.Proof {
-						n++
-					}
-				}
-				if !accept[FindingKey{Type: f.Type, Relation: f.Relation, ID: f.ID, Proof: f.Proof, N: n}] {
-					continue
-				}
+			if admit != nil && !admit(f) {
+				continue
 			}
 			key := f.Type + "#" + f.Relation
 			if seen[key] {
