@@ -26,6 +26,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/modeltest"
 	"github.com/sergiught/openfga-cli/internal/optimize"
 	"github.com/sergiught/openfga-cli/internal/optimize/bench"
+	"github.com/sergiught/openfga-cli/internal/output"
 )
 
 const optimizeReference = "../../optimize/testdata/reference.fga"
@@ -1132,6 +1133,64 @@ func TestOptimize_WorkspaceBenchReportsUnexercised(t *testing.T) {
 	for _, w := range []string{"3 rewritten relations were not exercised by any workspace check: ", "project#can_read", "add workspace checks that reach them"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("human output lacks %q:\n%s", w, out)
+		}
+	}
+}
+
+func TestOptimize_PlainKeepsDisabledReason(t *testing.T) {
+	output.Plain = true
+	t.Cleanup(func() { output.Plain = false })
+	_, stderr, err := runOptimize(t, "", false, "../../../examples/model-optimize/exclusion.fga")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr, "safe rewrites disabled:") {
+		t.Errorf("plain mode dropped the reason:\n%s", stderr)
+	}
+	output.Quiet = true
+	t.Cleanup(func() { output.Quiet = false })
+	_, stderr, _ = runOptimize(t, "", false, "../../../examples/model-optimize/exclusion.fga")
+	if strings.Contains(stderr, "safe rewrites disabled") {
+		t.Errorf("--quiet must suppress it:\n%s", stderr)
+	}
+}
+
+func TestOptimize_OutputFileWritesThroughSymlink(t *testing.T) {
+	target := copyReference(t)
+	link := filepath.Join(t.TempDir(), "link.fga")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, _, err := runOptimize(t, "", false, optimizeReference, "--output-file", link); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := os.Lstat(link); err != nil || st.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("symlink was replaced: %v %v", st, err)
+	}
+	data, _ := os.ReadFile(target)
+	if strings.Contains(string(data), "define can_delete: owner and editor") {
+		t.Errorf("target not rewritten:\n%s", data)
+	}
+}
+
+func TestOptimize_TierWithoutSafeHidesDiff(t *testing.T) {
+	out, stderr, err := runOptimize(t, "", false, optimizeReference, "--tier", "caller")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "Diff") || strings.Contains(out, "Safe rewrites") {
+		t.Errorf("diff or safe section shown despite --tier caller:\n%s", out)
+	}
+	if !strings.Contains(stderr, "safe rewrites hidden by --tier; --write and --output-file still apply them") {
+		t.Errorf("missing hidden note:\n%s", stderr)
+	}
+}
+
+func TestOptimize_HelpShowsBenchDefaults(t *testing.T) {
+	cmd := New(cli.New(log.New(io.Discard), config.New(), "test")).optimizeCmd()
+	for name, def := range map[string]string{"depth": "(default 6)", "iterations": "(default 100)", "seed": "(default 1)"} {
+		if u := cmd.Flags().Lookup(name).Usage; !strings.Contains(u, def) {
+			t.Errorf("--%s usage %q lacks %s", name, u, def)
 		}
 	}
 }

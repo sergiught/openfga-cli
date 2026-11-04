@@ -152,7 +152,7 @@ func (c *Command) optimizeCmd() *cobra.Command {
 				Gated:               report.Gated,
 			}
 			if report.Blocked != "" {
-				output.Warnf(cmd.ErrOrStderr(), "safe rewrites disabled: %s", report.Blocked)
+				warnKeepPlain(cmd.ErrOrStderr(), "safe rewrites disabled: %s", report.Blocked)
 			}
 			if rw := report.Rewrite; rw != nil {
 				normalizedBefore, err := rw.Before.DSL()
@@ -176,7 +176,7 @@ func (c *Command) optimizeCmd() *cobra.Command {
 				}
 				reformats := (format == "dsl" && !stdin && before != normalizedBefore) || sameFile(outPath, path)
 				if reformats {
-					output.Warnf(cmd.ErrOrStderr(), "%s", reformatWarning)
+					warnKeepPlain(cmd.ErrOrStderr(), "%s", reformatWarning)
 				}
 				ids := make([]string, 0, len(rw.Applied))
 				for _, f := range rw.Applied {
@@ -193,7 +193,14 @@ func (c *Command) optimizeCmd() *cobra.Command {
 				if want != nil && !want[optimize.TierSafe] {
 					gated = nil // the safe tier is not requested
 				}
-				if err := renderOptimize(cmd.OutOrStdout(), findings, gated, out.Rewrite); err != nil {
+				shownRewrite := out.Rewrite
+				if want != nil && !want[optimize.TierSafe] {
+					shownRewrite = nil // the diff belongs to the safe tier
+					if out.Rewrite != nil {
+						output.Notef(cmd.ErrOrStderr(), "%s hidden by --tier; --write and --output-file still apply them", benchfmt.Plural(len(out.Rewrite.Applied), "safe rewrite"))
+					}
+				}
+				if err := renderOptimize(cmd.OutOrStdout(), findings, gated, shownRewrite); err != nil {
 					return err
 				}
 			}
@@ -254,6 +261,12 @@ func (c *Command) optimizeCmd() *cobra.Command {
 				dest, err = filepath.EvalSymlinks(path)
 				if err != nil {
 					return fmt.Errorf("write %s: %w", path, err)
+				}
+			} else if dest != "" && !toStdout {
+				// Write through a symlink like --write does; a missing
+				// destination is created as given.
+				if resolved, err := filepath.EvalSymlinks(dest); err == nil {
+					dest = resolved
 				}
 			}
 			if out.Rewrite == nil {
@@ -318,9 +331,9 @@ func (c *Command) optimizeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&runBench, "bench", false, "benchmark the model before/after the rewrite on an embedded server (exit 3 and no write if any check result changes)")
 	cmd.Flags().StringVar(&wsPath, "workspace", "", "workspace directory supplying tuples and checks for --bench (default: ofga.yaml found above the model file)")
 	cmd.Flags().BoolVar(&synth, "synth", false, "with --bench, synthesize tuples even when a workspace is found")
-	cmd.Flags().Uint64Var(&seed, "seed", 1, "with --bench, synthesis seed")
-	cmd.Flags().IntVar(&depth, "depth", 6, "with --bench, synthesized parent-chain depth")
-	cmd.Flags().IntVar(&iters, "iterations", 100, "with --bench, timed samples per check")
+	cmd.Flags().Uint64Var(&seed, "seed", 1, "with --bench, synthesis seed (default 1)")
+	cmd.Flags().IntVar(&depth, "depth", 6, "with --bench, synthesized parent-chain depth (default 6)")
+	cmd.Flags().IntVar(&iters, "iterations", 100, "with --bench, timed samples per check (default 100)")
 	_ = cmd.MarkFlagDirname("workspace")
 	return cmd
 }
@@ -354,6 +367,20 @@ func validateBenchFlags(cmd *cobra.Command, runBench bool, wsPath string, synth 
 // auto-detected workspace, else synthesis. It also returns the workspace's
 // embedded-server options.
 const reformatWarning = "rewrite reformats the model: comments are dropped and relations are sorted"
+
+// warnKeepPlain prints a warning like output.Warnf but keeps it under --plain
+// as an unstyled line: these notices explain why the output is what it is.
+// --quiet still suppresses it.
+func warnKeepPlain(w io.Writer, format string, a ...any) {
+	if !output.Plain {
+		output.Warnf(w, format, a...)
+		return
+	}
+	if output.Quiet {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "warning: %s\n", output.PlainField(fmt.Sprintf(format, a...)))
+}
 
 // sameFile reports whether out names the same existing file as in.
 func sameFile(out, in string) bool {
