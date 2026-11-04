@@ -182,7 +182,32 @@ func (m *Model) handleOptKey(key string) (tea.Cmd, bool) {
 		m.moveOptCursor(1)
 		return nil, true
 	}
+	if d, ok := m.pagingDelta(key); ok {
+		m.moveOptCursor(d)
+		return nil, true
+	}
 	return nil, false
+}
+
+// optJump moves the cursor to the first or last row.
+const optJump = 1 << 30
+
+// pagingDelta maps a paging key to a cursor delta: a page is the visible
+// rows of the body, home/end jump to the first/last row.
+func (m *Model) pagingDelta(key string) (int, bool) {
+	_, h := m.contentSize()
+	page := max(1, h-4)
+	switch key {
+	case "pgup":
+		return -page, true
+	case "pgdown":
+		return page, true
+	case "home", "g":
+		return -optJump, true
+	case "end", "G":
+		return optJump, true
+	}
+	return 0, false
 }
 
 func (m *Model) moveOptCursor(d int) {
@@ -373,6 +398,11 @@ func (m *Model) handleDialogKey(key string) tea.Cmd {
 		m.scrollDialog(-1)
 	case "down", "j":
 		m.scrollDialog(1)
+	case "pgup", "pgdown", "home", "end", "g", "G":
+		_, _, diffH := m.writeDialogLayout()
+		page := max(1, diffH-1)
+		d := map[string]int{"pgup": -page, "pgdown": page, "home": -optJump, "g": -optJump, "end": optJump, "G": optJump}[key]
+		m.scrollDialog(d)
 	case "y":
 		if m.modelApplying {
 			m.status = "model apply already in progress"
@@ -418,6 +448,9 @@ func (m *Model) handleReviewKey(key string) (tea.Cmd, bool) {
 		m.moveOptCursor(-1)
 	case "down", "j":
 		m.moveOptCursor(1)
+	case "pgup", "pgdown", "home", "end", "g", "G":
+		d, _ := m.pagingDelta(key)
+		m.moveOptCursor(d)
 	case "space", " ":
 		if c := m.opt.cursor; c < len(m.opt.keys) {
 			if k := m.opt.keys[c]; m.opt.accepted[k] {

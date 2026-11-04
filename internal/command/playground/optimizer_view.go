@@ -357,6 +357,10 @@ func (m Model) writeDialogLayout() (head []string, foot string, diffH int) {
 	if o.canWrite() {
 		foot = style.Faint.Render("y write · esc cancel")
 	}
+	if m.modelApplying {
+		head = append(head, m.spinner.View()+" writing optimized model…")
+		foot = style.Faint.Render("esc cancel")
+	}
 	return head, foot, max(0, h-len(head)-2)
 }
 

@@ -832,3 +832,47 @@ func TestOptimizer_DialogFooterOnShortTerminal(t *testing.T) {
 		t.Errorf("footer clipped:\n%s", strings.Join(lines, "\n"))
 	}
 }
+
+func TestOptimizer_WheelScrollsDialog(t *testing.T) {
+	m, msgs := writeDialog(t, referenceDSL(t), false)
+	mm := m.(Model)
+	mm.opt.dialogDiff = make([]string, 500)
+	got, _ := mm.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	if s := got.(Model).opt.dialogScroll; s != 1 {
+		t.Errorf("dialogScroll = %d, want 1", s)
+	}
+	_ = msgs
+}
+
+func TestOptimizer_PagingKeysStayInOptimizer(t *testing.T) {
+	m := review(t, referenceDSL(t))
+	vp := m.(Model).graphVP
+	off := vp.YOffset()
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyPgDown})
+	if c := m.(Model).opt.cursor; c == 0 {
+		t.Error("pgdown did not move the cursor")
+	}
+	m, _ = m.Update(key("end"))
+	o := m.(Model).opt
+	if want := len(o.rows) + len(o.gated) + len(o.advice) - 1; o.cursor != want {
+		t.Errorf("end cursor = %d, want %d", o.cursor, want)
+	}
+	m, _ = m.Update(key("home"))
+	m, _ = m.Update(key("G"))
+	if o := m.(Model).opt; o.cursor != len(o.rows)+len(o.gated)+len(o.advice)-1 {
+		t.Errorf("G cursor = %d", o.cursor)
+	}
+	vp = m.(Model).graphVP
+	if got := vp.YOffset(); got != off {
+		t.Errorf("graph offset moved %d -> %d", off, got)
+	}
+}
+
+func TestOptimizer_DialogShowsWritingProgress(t *testing.T) {
+	m, _ := writeDialog(t, referenceDSL(t), true)
+	m, _ = m.Update(key("y"))
+	out := view(m)
+	if !strings.Contains(out, "writing optimized model…") || strings.Contains(out, "y write") {
+		t.Errorf("progress missing:\n%s", out)
+	}
+}
