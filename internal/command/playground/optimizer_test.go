@@ -165,9 +165,22 @@ func TestOptimizer_NoWeightedGraphInline(t *testing.T) {
 	m := optModel(t, noGraphDSL)
 	m, _ = shiftB(t, m, true)
 	out := view(m)
-	want := "couldn't benchmark this model (an AND or BUT NOT sits on a tuple cycle)"
+	want := "couldn't benchmark this model (tuple cycle"
 	if !strings.Contains(out, want) {
 		t.Errorf("missing %q:\n%s", want, out)
+	}
+}
+
+func TestOptimizer_NoWeightedGraphShowsBuilderMessage(t *testing.T) {
+	dsl, err := os.ReadFile("../../optimize/testdata/ttu_multi_parent_vacuous.fga")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := optModel(t, string(dsl))
+	m, _ = shiftB(t, m, true)
+	out := view(m)
+	if !strings.Contains(out, "couldn't benchmark this model (") || strings.Contains(out, "AND or BUT NOT") {
+		t.Errorf("want the builder's message, not the hard-coded cause:\n%s", out)
 	}
 }
 
@@ -585,10 +598,10 @@ func TestOptimizer_UnstableDoesNotBlock(t *testing.T) {
 
 func TestOptimizer_NoGraphWarnsAndAllowsWrite(t *testing.T) {
 	m, msgs := writeDialog(t, referenceDSL(t), false)
-	m, _ = m.Update(optBenchMsg{origin: msgs[0].origin, kind: optKindWrite, noGraph: true})
+	m, _ = m.Update(optBenchMsg{origin: msgs[0].origin, kind: optKindWrite, noGraph: "tupleset type lacks the relation"})
 	out := strings.Join(strings.Fields(view(m)), " ")
 	// The dialog box borders break the wrapped lines; compare word by word.
-	for _, w := range strings.Fields("couldn't benchmark this model (an AND or BUT NOT sits on a tuple cycle) — rewrites are proven safe by the rules but not double-checked against answers") {
+	for _, w := range strings.Fields("couldn't benchmark this model (tupleset type lacks the relation) — rewrites are proven safe by the rules but not double-checked against answers") {
 		if !strings.Contains(out, w) {
 			t.Fatalf("warning word %q missing:\n%s", w, view(m))
 		}
@@ -722,7 +735,7 @@ func TestOptimizer_DialogEscCancelsBench(t *testing.T) {
 		t.Errorf("running=%v dialog=%v", o.opt.running, o.opt.dialog)
 	}
 	m, _ = m.Update(msgs[0])
-	if m.(Model).opt.writeBench != nil || m.(Model).opt.writeNoGraph {
+	if m.(Model).opt.writeBench != nil || m.(Model).opt.writeNoGraph != "" {
 		t.Error("late write result landed")
 	}
 }

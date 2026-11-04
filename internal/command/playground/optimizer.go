@@ -2,7 +2,6 @@ package playground
 
 import (
 	"context"
-	"errors"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -19,8 +18,10 @@ import (
 const benchIterations = 20
 
 // noGraphMsg is shown when the model's weighted graph cannot be built, so no
-// tuples can be synthesized.
-const noGraphMsg = "couldn't benchmark this model (an AND or BUT NOT sits on a tuple cycle)"
+// tuples can be synthesized; reason is the builder's own message.
+func noGraphMsg(reason string) string {
+	return "couldn't benchmark this model (" + reason + ")"
+}
 
 type optView int
 
@@ -67,8 +68,9 @@ type optimizer struct {
 	dialogScroll int           // first diff line shown
 	dialogDiff   []string      // Before → After list then unified diff of the applied rewrites, built on open
 	writeBench   *bench.Result // answer check of the applied rewrites
-	writeNoGraph bool          // no weighted graph: the check can't run, write is allowed
+	writeNoGraph string        // builder message when there is no weighted graph: the check can't run, write is allowed
 	writeErr     string        // last write failure, shown in the dialog
+	errNoGraph   bool          // err is the no-weighted-graph notice: a warning, not a failure
 }
 
 // appliedKeys is the set of accepted rewrites that actually apply; an
@@ -89,7 +91,7 @@ type optBenchMsg struct {
 	origin  mutationOrigin
 	kind    optBenchKind
 	result  *bench.Result
-	noGraph bool // Synthesize returned ErrNoWeightedGraph
+	noGraph string // builder message when Synthesize returned ErrNoWeightedGraph
 	err     error
 }
 
@@ -104,14 +106,14 @@ func (m *Model) startBench(kind optBenchKind, before, after *openfgav1.Authoriza
 	ctx, cancel := context.WithCancel(m.reqCtx)
 	m.opt.cancel = cancel
 	m.opt.running = true
-	m.opt.err = ""
+	m.opt.err, m.opt.errNoGraph = "", false
 	m.beginLoad()
 	origin := m.mutationOrigin(m.storeID, m.modelID, m.opt.gen)
 	return func() tea.Msg {
 		msg := optBenchMsg{origin: origin, kind: kind}
 		src, err := bench.Synthesize(before, bench.SynthOptions{})
-		if errors.Is(err, optimize.ErrNoWeightedGraph) {
-			msg.noGraph = true
+		if reason, ok := optimize.NoWeightedGraphReason(err); ok {
+			msg.noGraph = reason
 			return msg
 		}
 		if err != nil {
@@ -215,7 +217,7 @@ func (m *Model) moveOptCursor(d int) {
 	if m.opt.view == optReview {
 		n = len(m.opt.rows) + len(m.opt.gated) + len(m.opt.advice)
 		m.opt.selBench = nil
-		m.opt.err = ""
+		m.opt.err, m.opt.errNoGraph = "", false
 	}
 	m.opt.cursor = max(0, min(m.opt.cursor+d, n-1))
 }
@@ -235,29 +237,31 @@ func (m *Model) handleOptBench(msg optBenchMsg) {
 	switch msg.kind {
 	case optKindProfile:
 		switch {
-		case msg.noGraph:
-			m.opt.err = noGraphMsg
+		case msg.noGraph != "":
+			m.opt.err = noGraphMsg(msg.noGraph)
+			m.opt.errNoGraph = true
 		case msg.err != nil:
-			m.opt.err = errStr(msg.err)
+			m.opt.err, m.opt.errNoGraph = errStr(msg.err), false
 		default:
 			m.opt.profile = msg.result
 			m.opt.cursor = 0
 		}
 	case optKindSelection:
 		switch {
-		case msg.noGraph:
-			m.opt.err = noGraphMsg
+		case msg.noGraph != "":
+			m.opt.err = noGraphMsg(msg.noGraph)
+			m.opt.errNoGraph = true
 		case msg.err != nil:
-			m.opt.err = errStr(msg.err)
+			m.opt.err, m.opt.errNoGraph = errStr(msg.err), false
 		default:
 			m.opt.selBench = msg.result
 		}
 	case optKindWrite:
 		switch {
-		case msg.noGraph:
-			m.opt.writeNoGraph = true
+		case msg.noGraph != "":
+			m.opt.writeNoGraph = msg.noGraph
 		case msg.err != nil:
-			m.opt.err = errStr(msg.err)
+			m.opt.err, m.opt.errNoGraph = errStr(msg.err), false
 		default:
 			m.opt.writeBench = msg.result
 		}
@@ -286,12 +290,12 @@ func (m *Model) openReview() tea.Cmd {
 	m.opt.accepted = map[optimize.FindingKey]bool{}
 	rep, err := optimize.Analyze(lm.Proto)
 	if err != nil {
-		m.opt.err = errStr(err)
+		m.opt.err, m.opt.errNoGraph = errStr(err), false
 		return nil
 	}
 	om, err := optimize.NewModel(lm.Proto)
 	if err != nil {
-		m.opt.err = errStr(err)
+		m.opt.err, m.opt.errNoGraph = errStr(err), false
 		return nil
 	}
 	m.opt.report, m.opt.model = rep, om
@@ -315,7 +319,7 @@ func (m *Model) recomputeSubset() {
 	m.invalidateSelection()
 	sub, err := optimize.RewriteSubset(m.opt.model, m.opt.accepted)
 	if err != nil {
-		m.opt.err = errStr(err)
+		m.opt.err, m.opt.errNoGraph = errStr(err), false
 		return
 	}
 	m.opt.subset = sub
@@ -331,7 +335,7 @@ func (m *Model) invalidateSelection() {
 	}
 	m.opt.running = false
 	m.opt.selBench = nil
-	m.opt.err = ""
+	m.opt.err, m.opt.errNoGraph = "", false
 }
 
 // noApplyHint explains why nothing can be benchmarked or written yet.
@@ -366,7 +370,7 @@ func (m *Model) openWriteDialog() tea.Cmd {
 		return nil
 	}
 	m.opt.dialog, m.opt.dialogScroll = true, 0
-	m.opt.writeBench, m.opt.writeNoGraph, m.opt.writeErr = nil, false, ""
+	m.opt.writeBench, m.opt.writeNoGraph, m.opt.writeErr = nil, "", ""
 	m.opt.dialogDiff = dialogBody(m.opt.subset.Applied, before, after)
 	return m.startBench(optKindWrite, m.opt.proto, m.opt.subset.After.Proto)
 }
@@ -386,7 +390,7 @@ func dialogBody(applied []optimize.Finding, before, after string) []string {
 // answer check is cancelled, so a late result arrives stale.
 func (m *Model) closeWriteDialog() {
 	m.opt.dialog, m.opt.dialogScroll, m.opt.dialogDiff = false, 0, nil
-	m.opt.writeBench, m.opt.writeNoGraph, m.opt.writeErr = nil, false, ""
+	m.opt.writeBench, m.opt.writeNoGraph, m.opt.writeErr = nil, "", ""
 	m.invalidateSelection()
 }
 
@@ -396,7 +400,7 @@ func (o optimizer) canWrite() bool {
 	if o.running || o.err != "" {
 		return false
 	}
-	return o.writeNoGraph || (o.writeBench != nil && len(o.writeBench.Mismatches) == 0)
+	return o.writeNoGraph != "" || (o.writeBench != nil && len(o.writeBench.Mismatches) == 0)
 }
 
 // handleDialogKey handles keys while the write dialog is open; it swallows

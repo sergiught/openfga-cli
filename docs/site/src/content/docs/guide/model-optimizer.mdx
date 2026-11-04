@@ -79,8 +79,8 @@ rewrites are applied.
 
 Advisory findings carry weights. An infinite weight is `-1` in JSON and YAML
 output and `inf` in human output. When OpenFGA cannot build the model's
-weighted graph (an `and` or `but not` sits on a tuple cycle), findings carry no
-weights.
+weighted graph (for example an `and` or `but not` on a tuple cycle, or a
+tupleset type that lacks the relation), findings carry no weights.
 
 ## Worked example
 
@@ -256,8 +256,9 @@ All of these require `--bench`. Workspace checks that use context or contextual
 tuples are skipped, each with a notice. If the workspace's tuples do not fit
 the model, the command fails with a usage error and a hint to try `--synth`.
 
-Synthesis reads the model's weighted graph, which OpenFGA cannot build when an
-`and` or `but not` sits on a tuple cycle. For such a model `--synth` (and the
+Synthesis reads the model's weighted graph, which OpenFGA cannot build, for
+example, with an `and` or `but not` on a tuple cycle or a tupleset type that
+lacks the relation. For such a model `--synth` (and the
 synthesis fallback when no workspace is found) fails with a usage error and a
 hint to benchmark with `--workspace` instead.
 

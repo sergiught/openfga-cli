@@ -336,8 +336,7 @@ func sameFile(out, in string) bool {
 func benchSource(cmd *cobra.Command, m *openfgav1.AuthorizationModel, path string, stdin bool, wsPath string, synth bool, seed uint64, depth int) (*bench.Source, map[string]any, error) {
 	synthesize := func() (*bench.Source, map[string]any, error) {
 		src, err := bench.Synthesize(m, bench.SynthOptions{Seed: seed, Depth: depth})
-		if errors.Is(err, optimize.ErrNoWeightedGraph) {
-			builderMsg := strings.TrimPrefix(err.Error(), optimize.ErrNoWeightedGraph.Error()+": ")
+		if builderMsg, ok := optimize.NoWeightedGraphReason(err); ok {
 			return nil, nil, usageHint(fmt.Sprintf("this model's weighted graph cannot be built (%s), so tuples cannot be synthesized; benchmark with --workspace instead", builderMsg), err)
 		}
 		return src, nil, err

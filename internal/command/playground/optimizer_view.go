@@ -43,7 +43,7 @@ func (m Model) optimizerBody(w, h int) string {
 	switch {
 	case m.opt.running:
 		lines = []string{m.spinner.View() + fmt.Sprintf(" benchmarking… (synthesized tuples, %d runs)", benchIterations)}
-	case m.opt.err == noGraphMsg:
+	case m.opt.errNoGraph:
 		lines = []string{style.Warn.Render(m.opt.err)}
 	case m.opt.err != "":
 		lines = []string{style.Failure.Render(m.opt.err)}
@@ -246,7 +246,7 @@ func (m Model) reviewCard(cur int) (string, string) {
 	switch {
 	case o.running:
 		return "", m.spinner.View() + fmt.Sprintf(" benchmarking selection… (%d runs)", benchIterations)
-	case o.err == noGraphMsg:
+	case o.errNoGraph:
 		return "", style.Warn.Render(o.err)
 	case o.err != "":
 		return "", style.Failure.Render(o.err)
@@ -330,8 +330,8 @@ func (m Model) writeDialogLayout() (head []string, foot string, diffH int) {
 		head = append(head, m.spinner.View()+" checking answers…")
 	case o.err != "":
 		wrap(style.Failure.Render(o.err))
-	case o.writeNoGraph:
-		wrap(style.Warn.Render(noGraphMsg + " — rewrites are proven safe by the rules but not double-checked against answers"))
+	case o.writeNoGraph != "":
+		wrap(style.Warn.Render(noGraphMsg(o.writeNoGraph) + " — rewrites are proven safe by the rules but not double-checked against answers"))
 	case o.writeBench != nil && len(o.writeBench.Mismatches) > 0:
 		ms := o.writeBench.Mismatches
 		head = append(head, style.Failure.Render(benchfmt.Plural(len(ms), "answer")+" changed — not writing"))
