@@ -144,3 +144,21 @@ func TestFromWorkspace_DedupesChecksAcrossTests(t *testing.T) {
 		t.Fatalf("checks = %+v, want one check named after the first test", src.Checks)
 	}
 }
+
+// TestFromWorkspace_TupleKeysAreUnambiguous pins that tuples whose fields
+// contain "|" are not collapsed when their joined text matches.
+func TestFromWorkspace_TupleKeysAreUnambiguous(t *testing.T) {
+	ws := writeWS(t, map[string]string{
+		"tuples.yaml": "[]\n",
+		"tests/a.test.yaml": "tests:\n" +
+			"  - name: one\n    tuples:\n      - {user: \"user:a|owner|document:x\", relation: owner, object: \"document:y\"}\n    check:\n      - {user: user:a, object: document:y, assertions: {owner: false}}\n" +
+			"  - name: two\n    tuples:\n      - {user: \"user:a\", relation: owner, object: \"document:x|owner|document:y\"}\n    check:\n      - {user: user:a, object: document:y, assertions: {owner: false}}\n",
+	})
+	src, notices, err := FromWorkspace(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(src.Tuples) != 2 || len(notices) != 0 {
+		t.Fatalf("tuples = %v, notices = %v; want both tuples and no notice", src.Tuples, notices)
+	}
+}

@@ -23,7 +23,7 @@ func FromWorkspace(ws *modeltest.Workspace) (*Source, []string, error) {
 		manifestModel = filepath.Clean(filepath.Join(ws.Root, ws.Manifest.Model))
 	}
 
-	seen := map[string]string{} // triple -> full key (with condition)
+	seen := map[[3]string]string{} // (user, relation, object) -> condition key
 	seenChecks := map[[3]string]bool{}
 	var tuples []modeltest.TupleKey
 
@@ -43,8 +43,8 @@ func FromWorkspace(ws *modeltest.Workspace) (*Source, []string, error) {
 				return nil, nil, fmt.Errorf("%s/%s: %w", id, tt.Name, err)
 			}
 			for _, tk := range resolved {
-				triple := tk.User + "|" + tk.Relation + "|" + tk.Object
-				full, err := fullKey(triple, tk)
+				triple := [3]string{tk.User, tk.Relation, tk.Object}
+				full, err := conditionKey(tk)
 				if err != nil {
 					return nil, nil, fmt.Errorf("%s/%s: %w", id, tt.Name, err)
 				}
@@ -104,13 +104,15 @@ func FromWorkspace(ws *modeltest.Workspace) (*Source, []string, error) {
 	return src, notices, nil
 }
 
-func fullKey(triple string, tk modeltest.TupleKey) (string, error) {
+// conditionKey identifies a tuple's condition: "" when it has none, else the
+// JSON of its name and context, which no two different conditions share.
+func conditionKey(tk modeltest.TupleKey) (string, error) {
 	if tk.Condition == nil {
-		return triple, nil
+		return "", nil
 	}
-	ctx, err := json.Marshal(tk.Condition.Context)
+	key, err := json.Marshal([]any{tk.Condition.Name, tk.Condition.Context})
 	if err != nil {
-		return "", fmt.Errorf("tuple %s: marshal condition context: %w", triple, err)
+		return "", fmt.Errorf("tuple %s %s %s: marshal condition context: %w", tk.User, tk.Relation, tk.Object, err)
 	}
-	return triple + "|" + tk.Condition.Name + "|" + string(ctx), nil
+	return string(key), nil
 }
