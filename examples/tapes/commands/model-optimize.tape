@@ -5,7 +5,6 @@ Output docs/site/public/recordings/model-optimize.webm
 Require ofga
 
 Set Shell "bash"
-Env OPENFGA_AGENT_MODE "0"
 Set FontFamily "MesloLGM Nerd Font Mono"
 Set FontSize 20
 Set Width 1200
@@ -13,6 +12,7 @@ Set Height 700
 Set Padding 20
 Set TypingSpeed 60ms
 Set Theme "Catppuccin Mocha"
+Env OPENFGA_AGENT_MODE "0"
 
 Hide
 Type "export XDG_CONFIG_HOME=$(mktemp -d)" Enter

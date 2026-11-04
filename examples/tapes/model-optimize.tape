@@ -6,7 +6,6 @@ Output examples/model-optimize.gif
 Require ofga
 
 Set Shell "bash"
-Env OPENFGA_AGENT_MODE "0"
 Set FontFamily "MesloLGM Nerd Font Mono"
 Set FontSize 20
 Set Width 1200
@@ -14,6 +13,7 @@ Set Height 920
 Set Padding 20
 Set TypingSpeed 60ms
 Set Theme "Catppuccin Mocha"
+Env OPENFGA_AGENT_MODE "0"
 
 # --- hidden setup: isolate config only; model optimize never talks to a server ---
 Hide

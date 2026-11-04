@@ -18,6 +18,7 @@ Demo GIFs for the `ofga` CLI and TUI, generated with
 | ![model-test.gif](model-test.gif) | `ofga model test --coverage`: running the example workspace's tests with branch-coverage reporting from the CLI. |
 | ![model-test-tui.gif](model-test-tui.gif) | `ofga model test --playground`: exploring test results and coverage in the playground's Tests tab. |
 | ![model-optimize.gif](model-optimize.gif) | `ofga model optimize`: safe rewrites with proofs, the diff, and a before/after benchmark on the embedded server. |
+| ![playground-optimize.gif](playground-optimize.gif) | The playground's Model tab: benchmark the model (`B`), review the safe rewrites and advisories (`o`), tick one, and write it as a new model version (`w`, `y`). |
 
 ## Regenerating
 

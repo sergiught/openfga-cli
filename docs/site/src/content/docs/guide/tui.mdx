@@ -158,6 +158,8 @@ and ids it names belong to the store it was written for.
 
 The Model tab can run the same analysis as [`ofga model optimize`](../model-optimizer/) without leaving the TUI.
 
+<CommandDemo slug="playground-optimize" />
+
 **Benchmark (`B`).** Times the model on a small data set synthesized from the model itself (seed 1, depth 6). Nothing is read from the store, so it is safe on a production profile. It does 20 runs, and the timings are indicative only.
 
 **Review (`o`).** Lists the safe rewrites as a checklist you can tick with `space`, or tick or clear all at once with `a`.
