@@ -809,7 +809,7 @@ func TestOptimizer_WriteSuccessKeepsEditor(t *testing.T) {
 	}
 }
 
-func TestOptimizer_WriteErrorAfterEscToasts(t *testing.T) {
+func TestOptimizer_WriteErrorAfterCloseToasts(t *testing.T) {
 	m, _ := writeDialog(t, referenceDSL(t), true)
 	m, _ = m.Update(key("y"))
 	m = closeDialogDuringWrite(m)
@@ -992,7 +992,7 @@ func TestOptimizer_UnexercisedWarningInCardAndDialog(t *testing.T) {
 
 	m, msgs = writeDialog(t, condTuplesetDSL(t), true)
 	_ = msgs
-	if !strings.Contains(view(m), "exercised") {
+	if !strings.Contains(view(m), "only partly exercised") {
 		t.Errorf("dialog lacks the unexercised warning:\n%s", view(m))
 	}
 }
