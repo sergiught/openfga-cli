@@ -27,7 +27,7 @@ func TestAnalyze_ReferenceModelTiers(t *testing.T) {
 	if n := len(tierIDs(rep, TierSafe)); n != 4 {
 		t.Fatalf("safe findings = %d, want 4", n)
 	}
-	if got, want := tierIDs(rep, TierCaller), []string{"C2 document#can_edit"}; !reflect.DeepEqual(got, want) {
+	if got, want := tierIDs(rep, TierCaller), []string{"C1 document#can_edit", "C2 document#can_edit"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("caller = %v, want %v", got, want)
 	}
 	want := []string{"T2 document#viewer", "T1 folder#viewer", "T1 group#member"}
@@ -146,9 +146,21 @@ func TestAnalyze_C1AndT1Cases(t *testing.T) {
 		wantNoSafe bool
 	}{
 		{
-			name:   "inherited recursion in intersection is not C1",
+			name:   "operand reaching recursion through a userset is C1",
 			dsl:    head + "type group\n  relations\n    define a: [user, group#member]\n    define member: [user, group#member]\n    define b: [user]\n    define x: a and b\n",
-			caller: nil,
+			caller: []string{"C1 group#x"},
+			tuple:  []string{"T1 group#member"},
+		},
+		{
+			name:   "alias of a recursive relation in an intersection is C1",
+			dsl:    head + "type folder\n  relations\n    define parent: [folder]\n    define editor: [user] or editor from parent\n    define viewer: editor\n    define allowed: [user]\n    define can_view: viewer and allowed\n",
+			caller: []string{"C1 folder#can_view"},
+			tuple:  []string{"T1 folder#editor"},
+		},
+		{
+			name:   "recursive userset in the subtracted side is C1",
+			dsl:    head + "type group\n  relations\n    define member: [user, group#member]\ntype doc\n  relations\n    define viewer: [user]\n    define blocked: [user, group#member]\n    define can_view: viewer but not blocked\n",
+			caller: []string{"C1 doc#can_view", "C2 doc#can_view"},
 			tuple:  []string{"T1 group#member"},
 		},
 		{

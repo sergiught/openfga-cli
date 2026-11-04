@@ -47,9 +47,9 @@ func advise(m *Model) []Finding {
 			// weight are not reported.
 			ownRecursion := inf && introducesRecursion(m, deps, typ, rel, us)
 			switch {
-			case us.GetIntersection() != nil && inf && hasRecursiveOperand(m, cyclic, typ, rel, us.GetIntersection().GetChild()):
+			case us.GetIntersection() != nil && inf && hasRecursiveOperand(m, deps, cyclic, typ, rel, us.GetIntersection().GetChild()):
 				add(&caller, "C1", TierCaller, "Recursive operand inside an intersection: a Check may evaluate it fully, so a deep graph is expensive; keep the recursion out of the intersection or cap depth in callers.")
-			case us.GetDifference() != nil && inf && hasRecursiveOperand(m, cyclic, typ, rel, []*openfgav1.Userset{us.GetDifference().GetBase(), us.GetDifference().GetSubtract()}):
+			case us.GetDifference() != nil && inf && hasRecursiveOperand(m, deps, cyclic, typ, rel, []*openfgav1.Userset{us.GetDifference().GetBase(), us.GetDifference().GetSubtract()}):
 				add(&caller, "C1", TierCaller, "Recursive operand inside an exclusion: a Check may evaluate it fully, so a deep graph is expensive; keep the recursion out of the exclusion or cap depth in callers.")
 			}
 			if us.GetDifference() != nil {
@@ -112,10 +112,11 @@ func introducesRecursion(m *Model, deps map[string][]string, typ, rel string, us
 }
 
 // hasRecursiveOperand reports whether an operand of typ#rel's intersection or
-// exclusion directly references a relation that lies on a dependency cycle.
-func hasRecursiveOperand(m *Model, cyclic map[string]bool, typ, rel string, operands []*openfgav1.Userset) bool {
+// exclusion references, directly or transitively, a relation that lies on a
+// dependency cycle.
+func hasRecursiveOperand(m *Model, deps map[string][]string, cyclic map[string]bool, typ, rel string, operands []*openfgav1.Userset) bool {
 	for _, op := range operands {
-		for _, e := range relationEdges(m, typ, rel, op, false) {
+		for e := range reachable(deps, relationEdges(m, typ, rel, op, false)) {
 			if cyclic[e] {
 				return true
 			}
