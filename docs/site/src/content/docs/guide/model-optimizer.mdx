@@ -249,8 +249,22 @@ a `Not synthesized (N)` heading (the result's `skipped` field). If a skipped res
 reaches a relation the rewrite changed, a warning names it, for example
 `1 rewritten relation was only partly exercised (a skipped restriction reaches it): folder#viewer`,
 followed by the hint `benchmark with --workspace to cover them`. The relations
-are also listed in the result's `unexercised` field, so a clean `Answers all N
-unchanged` line is not evidence about them.
+are also listed in the result's `unexercised` field.
+
+A workspace benchmark gets the same treatment: a rewritten relation counts as
+exercised only when some workspace check is on that relation or on a relation
+that depends on it. Otherwise a warning names it, for example
+`3 rewritten relations were not exercised by any workspace check: project#can_read, project#can_release, project#contributor`,
+followed by the hint `add workspace checks that reach them`, and the relations
+are listed in `unexercised` too. A clean `Answers` line is not evidence about
+any of them.
+
+The `Answers` line counts every query compared, including the untimed probes a
+synthesized benchmark adds. It reads `all N unchanged` only when nothing is
+unstable or changed (`all N checks and P probes unchanged` when probes are
+compared), `M unchanged · K unstable` when engine nondeterminism made some
+answers vary between runs, and `C changed` (plus `· K unstable`) when a rewrite
+changed an answer.
 
 All of these require `--bench`. Workspace checks that use context or contextual
 tuples are skipped, each with a notice. If the workspace's tuples do not fit

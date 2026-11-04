@@ -27,3 +27,30 @@ func TestUnexercised(t *testing.T) {
 		t.Errorf("got %v", got)
 	}
 }
+
+func TestUnexercisedByChecks(t *testing.T) {
+	m := modelFromDSL(t, "model\n  schema 1.1\n\ntype user\n\ntype project\n  relations\n    define owner: [user]\n    define maintainer: [user] or owner\n    define contributor: [user] or maintainer or owner\n")
+	applied := []Finding{{Type: "project", Relation: "contributor"}, {Type: "project", Relation: "maintainer"}}
+	if got := UnexercisedByChecks(m, applied, []string{"project#owner"}); !slices.Equal(got, []string{"project#contributor", "project#maintainer"}) {
+		t.Errorf("owner check: got %v", got)
+	}
+	if got := UnexercisedByChecks(m, applied, []string{"project#maintainer"}); !slices.Equal(got, []string{"project#contributor"}) {
+		t.Errorf("a check on a dependency does not reach the relation depending on it: got %v", got)
+	}
+	if got := UnexercisedByChecks(m, applied, []string{"project#contributor"}); len(got) != 0 {
+		t.Errorf("got %v", got)
+	}
+}
+
+func modelFromDSL(t *testing.T, dsl string) *Model {
+	t.Helper()
+	lm, err := modeltest.LoadModelBytes([]byte(dsl))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := NewModel(lm.Proto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}

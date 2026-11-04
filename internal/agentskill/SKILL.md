@@ -208,13 +208,16 @@ safety gate rejected them: each entry is a finding plus a `gate` string giving
 the reason. Do not apply them by hand; report the `gate` reason instead.
 
 Apply the rewrite only with `--write` (or `--output-file <path>`) after a
-person has reviewed the diff: `--write` reformats the file and drops comments,
-and nothing is written when no safe rewrite applies. `--output-file -` prints
+person has reviewed the diff: `--write` reformats the file and drops comments.
+When no safe rewrite applies, `--output-file` writes the unchanged model and
+`--write` writes nothing. `--output-file -` prints
 only the rewritten DSL to stdout (no findings, diff or benchmark report) and
 cannot be combined with `--json` or `--yaml`.
 
-`--bench` is opt-in. In `bench`, `unexercised` names relations the rewrite
-changed that no benchmark check exercised, and `skipped` lists what synthesis
-could not cover; a clean benchmark says nothing about either, so rerun with
-`--workspace` to cover them. Exit 3 means a benchmark check changed its answer,
+`--bench` is opt-in. In `bench`, `unexercised` names rewritten relations the
+benchmark never exercised: with synthesized tuples, those that depend on a
+restriction synthesis skipped (`skipped` lists what it could not cover); with
+a workspace, those no workspace check reaches (a check reaches a relation it
+names or depends on). A clean benchmark says nothing about them, so add
+workspace checks that reach them or inspect them by hand. Exit 3 means a benchmark check changed its answer,
 so nothing was written. Exit 2 includes an invalid model.

@@ -287,7 +287,7 @@
           "type": "array"
         },
         "unexercised": {
-          "description": "Relations the rewrite changed that no benchmark check exercised.",
+          "description": "Relations the rewrite changed that no benchmark check exercised: for synthesis, those that depend on a skipped restriction; for a workspace, those no workspace check reaches.",
           "items": {
             "type": "string"
           },

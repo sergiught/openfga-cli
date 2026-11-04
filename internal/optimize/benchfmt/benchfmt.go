@@ -73,7 +73,7 @@ func Render(w io.Writer, r *bench.Result) error {
 		}
 	}
 	if len(r.Unexercised) > 0 {
-		if _, err := fmt.Fprintf(w, "%s\n  %s\n", unexercisedWarning(r), style.Faint.Render(unexercisedHint)); err != nil {
+		if _, err := fmt.Fprintf(w, "%s\n  %s\n", unexercisedWarning(r), style.Faint.Render(unexercisedHintFor(r))); err != nil {
 			return err
 		}
 	}
@@ -175,7 +175,18 @@ func Render(w io.Writer, r *bench.Result) error {
 	return err
 }
 
-const unexercisedHint = "benchmark with --workspace to cover them"
+const (
+	unexercisedHint          = "benchmark with --workspace to cover them"
+	unexercisedWorkspaceHint = "add workspace checks that reach them"
+)
+
+// unexercisedHintFor is the hint line under the unexercised warning.
+func unexercisedHintFor(r *bench.Result) string {
+	if r.Source == "workspace" {
+		return unexercisedWorkspaceHint
+	}
+	return unexercisedHint
+}
 
 // unexercisedWarning is the warning line naming the rewritten relations the
 // benchmark never exercised.
@@ -184,6 +195,9 @@ func unexercisedWarning(r *bench.Result) string {
 	verb, noun, pron := "were", "rewritten relations", "them"
 	if n == 1 {
 		verb, noun, pron = "was", "rewritten relation", "it"
+	}
+	if r.Source == "workspace" {
+		return style.Warn.Render(fmt.Sprintf("  %d %s %s not exercised by any workspace check: %s", n, noun, verb, strings.Join(r.Unexercised, ", ")))
 	}
 	return style.Warn.Render(fmt.Sprintf("  %d %s %s only partly exercised (a skipped restriction reaches %s): %s", n, noun, verb, pron, strings.Join(r.Unexercised, ", ")))
 }
@@ -277,16 +291,33 @@ func Totals(r *bench.Result) []string {
 	rb, ra := fmt.Sprint(t.DenyReadsBefore), fmt.Sprint(t.DenyReadsAfter)
 	db, da := Dispatch(t.DenyDispatchesBefore), Dispatch(t.DenyDispatchesAfter)
 	wb, wa := max(len(rb), len(db)), max(len(ra), len(da))
-	answers := fmt.Sprintf("all %d unchanged", len(r.Checks))
-	if len(r.Mismatches) > 0 {
-		answers = style.Failure.Render(fmt.Sprintf("%d changed", len(r.Mismatches)))
-	}
-	if len(r.Unstable) > 0 {
-		answers += fmt.Sprintf(" · %d unstable", len(r.Unstable))
-	}
+	answers := answersLabel(r)
 	return []string{
 		"  Deny reads       " + change(rb, ra, wb, wa, float64(t.DenyReadsBefore), float64(t.DenyReadsAfter)),
 		"  Deny dispatches  " + change(db, da, wb, wa, t.DenyDispatchesBefore, t.DenyDispatchesAfter),
 		"  Answers          " + answers,
 	}
+}
+
+// answersLabel counts every query actually compared: the timed checks plus
+// the untimed probes. "all" is only printed when nothing is unstable or
+// changed.
+func answersLabel(r *bench.Result) string {
+	compared := len(r.Checks) + r.Probes
+	changed, unstable := len(r.Mismatches), len(r.Unstable)
+	var s string
+	switch {
+	case changed > 0:
+		s = style.Failure.Render(fmt.Sprintf("%d changed", changed))
+	case unstable > 0:
+		s = fmt.Sprintf("%d unchanged", compared-unstable)
+	case r.Probes > 0:
+		s = fmt.Sprintf("all %s and %s unchanged", Plural(len(r.Checks), "check"), Plural(r.Probes, "probe"))
+	default:
+		s = fmt.Sprintf("all %d unchanged", compared)
+	}
+	if unstable > 0 {
+		s += fmt.Sprintf(" · %d unstable", unstable)
+	}
+	return s
 }

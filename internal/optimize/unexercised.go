@@ -33,3 +33,36 @@ func Unexercised(m *Model, applied []Finding, skipped []string) []string {
 	sort.Strings(out)
 	return out
 }
+
+// UnexercisedByChecks returns the sorted, de-duplicated "type#relation" of
+// every applied finding that no check reaches. A check on type#relation
+// reaches a rewritten relation X when it is X itself or depends on X (is in
+// Dependents(m, [X])). checks holds the checked "type#relation" keys, and
+// m is the rewritten model, since that is the model benchmarked.
+func UnexercisedByChecks(m *Model, applied []Finding, checks []string) []string {
+	if m == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, f := range applied {
+		key := f.Type + "#" + f.Relation
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		deps := Dependents(m, []string{key})
+		reached := false
+		for _, c := range checks {
+			if c == key || deps[c] {
+				reached = true
+				break
+			}
+		}
+		if !reached {
+			out = append(out, key)
+		}
+	}
+	sort.Strings(out)
+	return out
+}

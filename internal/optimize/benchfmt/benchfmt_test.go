@@ -216,3 +216,50 @@ func TestSummary_HasNoTable(t *testing.T) {
 		t.Errorf("summary has skipped block:\n%s", out)
 	}
 }
+
+func TestTotals_AnswersLine(t *testing.T) {
+	mm := bench.Mismatch{Check: bench.Check{Name: "x"}}
+	cks := func(n int) []bench.CheckResult {
+		out := make([]bench.CheckResult, n)
+		for i := range out {
+			out[i] = bench.CheckResult{After: &bench.Metrics{}}
+		}
+		return out
+	}
+	tests := []struct {
+		name string
+		r    bench.Result
+		want string
+	}{
+		{"all unchanged", bench.Result{Checks: cks(5)}, "Answers          all 5 unchanged"},
+		{"unstable", bench.Result{Checks: cks(28), Unstable: []bench.Mismatch{mm, mm}}, "Answers          26 unchanged · 2 unstable"},
+		{"changed", bench.Result{Checks: cks(5), Mismatches: []bench.Mismatch{mm}}, "Answers          1 changed"},
+		{"changed and unstable", bench.Result{Checks: cks(5), Mismatches: []bench.Mismatch{mm}, Unstable: []bench.Mismatch{mm}}, "Answers          1 changed · 1 unstable"},
+		{"probes", bench.Result{Checks: cks(28), Probes: 30}, "Answers          all 28 checks and 30 probes unchanged"},
+		{"probes unstable", bench.Result{Checks: cks(28), Probes: 30, Unstable: []bench.Mismatch{mm}}, "Answers          57 unchanged · 1 unstable"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ansi.Strip(strings.Join(Totals(&tc.r), "\n"))
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("want %q in:\n%s", tc.want, got)
+			}
+			if tc.name != "all unchanged" && tc.name != "probes" && strings.Contains(got, "all ") {
+				t.Errorf("printed \"all\" despite unstable or changed answers:\n%s", got)
+			}
+		})
+	}
+}
+
+func TestUnexercisedWarning_Workspace(t *testing.T) {
+	r := &bench.Result{Source: "workspace", Unexercised: []string{"a#x", "a#y"}}
+	got := ansi.Strip(strings.Join(Unexercised(r), "\n"))
+	want := "  2 rewritten relations were not exercised by any workspace check: a#x, a#y"
+	if got != want {
+		t.Errorf("got %q want %q", got, want)
+	}
+	r.Unexercised = []string{"a#x"}
+	if got := ansi.Strip(Unexercised(r)[0]); got != "  1 rewritten relation was not exercised by any workspace check: a#x" {
+		t.Errorf("got %q", got)
+	}
+}

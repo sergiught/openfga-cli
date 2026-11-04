@@ -1095,3 +1095,43 @@ func TestOptimize_HumanPrintsFindingsBeforeBench(t *testing.T) {
 		t.Errorf("progress line printed under --json:\n%s", errOut)
 	}
 }
+
+func TestOptimize_WorkspaceBenchReportsUnexercised(t *testing.T) {
+	t.Setenv("OPENFGA_AGENT_MODE", "0")
+	dir := t.TempDir()
+	model, err := os.ReadFile("../../../examples/model-optimize/roles.fga")
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"model.fga":         string(model),
+		"ofga.yaml":         "version: 1\nmodel: ./model.fga\ntuples:\n  - \"tuples.yaml\"\ntests:\n  - \"tests/**/*.test.yaml\"\n",
+		"tuples.yaml":       "- user:anne owner project:1\n",
+		"tests/a.test.yaml": "tests:\n  - name: owner\n    check:\n      - {user: user:anne, object: project:1, assertions: {owner: true}}\n",
+	}
+	for name, body := range files {
+		p := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	args := []string{filepath.Join(dir, "model.fga"), "--bench", "--iterations", "1"}
+	got := benchJSON(t, args...)
+	want := []string{"project#can_read", "project#can_release", "project#contributor"}
+	if got.Bench.Source != "workspace" || !slices.Equal(got.Bench.Unexercised, want) {
+		t.Fatalf("source=%q unexercised=%v, want workspace %v", got.Bench.Source, got.Bench.Unexercised, want)
+	}
+	out, _, err := runOptimize(t, "", false, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out = ansi.Strip(out)
+	for _, w := range []string{"3 rewritten relations were not exercised by any workspace check: ", "project#can_read", "add workspace checks that reach them"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("human output lacks %q:\n%s", w, out)
+		}
+	}
+}

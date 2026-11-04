@@ -81,8 +81,9 @@ type Result struct {
 	// effect of the rewrite: the original model's answer varied between
 	// re-runs, or the check cannot reach any relation the rewrite changed.
 	Unstable []Mismatch `json:"unstable" jsonschema_description:"Differing answers that are engine nondeterminism, not an effect of the rewrite."`
-	// Unexercised are rewritten relations ("type#relation") whose dependency
-	// path reaches a restriction synthesis skipped, so the benchmark never
-	// exercised the rewrite. Set by the command for synthesized sources only.
-	Unexercised []string `json:"unexercised,omitempty" jsonschema_description:"Relations the rewrite changed that no benchmark check exercised."`
+	// Unexercised are rewritten relations ("type#relation") the benchmark
+	// never exercised. For a synthesized source, their dependency path reaches
+	// a restriction synthesis skipped; for a workspace source, no workspace
+	// check reaches them. Set by the command.
+	Unexercised []string `json:"unexercised,omitempty" jsonschema_description:"Relations the rewrite changed that no benchmark check exercised: for synthesis, those that depend on a skipped restriction; for a workspace, those no workspace check reaches."`
 }

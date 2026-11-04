@@ -217,8 +217,18 @@ func (c *Command) optimizeCmd() *cobra.Command {
 					}
 					return fmt.Errorf("benchmark: %w", err)
 				}
-				if src.Kind == "synthesis" && report.Rewrite != nil {
-					res.Unexercised = optimize.Unexercised(report.Rewrite.After, report.Rewrite.Applied, res.Skipped)
+				if report.Rewrite != nil {
+					switch src.Kind {
+					case "synthesis":
+						res.Unexercised = optimize.Unexercised(report.Rewrite.After, report.Rewrite.Applied, res.Skipped)
+					case "workspace":
+						checked := make([]string, 0, len(src.Checks))
+						for _, c := range src.Checks {
+							objType, _, _ := strings.Cut(c.Object, ":")
+							checked = append(checked, objType+"#"+c.Relation)
+						}
+						res.Unexercised = optimize.UnexercisedByChecks(report.Rewrite.After, report.Rewrite.Applied, checked)
+					}
 				}
 				out.Bench = res
 			}
