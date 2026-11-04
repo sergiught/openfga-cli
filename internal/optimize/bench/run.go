@@ -27,7 +27,18 @@ type Options struct {
 
 type probe struct {
 	allowed bool
+	varied  bool // a timed rerun answered differently from allowed
 	m       Metrics
+}
+
+// compare reports whether after's answers to c differ from before's: its
+// first answer differs, or a timed rerun gave the other answer. noise is set
+// when before's own timed runs varied, so the difference is engine noise.
+func compare(c Check, b, a probe) (m Mismatch, differs, noise bool) {
+	if a.allowed == b.allowed && !a.varied {
+		return Mismatch{}, false, false
+	}
+	return Mismatch{Check: c, AllowedBefore: b.allowed, AllowedAfter: !b.allowed}, true, b.varied
 }
 
 // Run benchmarks before (and after, when non-nil) over src. Checks run in
@@ -68,13 +79,18 @@ func Run(ctx context.Context, before, after *openfgav1.AuthorizationModel, src *
 			res.Tuples = append(res.Tuples, Tuple{User: t.GetUser(), Relation: t.GetRelation(), Object: t.GetObject()})
 		}
 	}
+	// A check whose before answer varied across its own timed runs is engine
+	// noise, so a disagreement there is unstable without a rerun.
+	var beforeVaried []Mismatch
 	for i, c := range src.Checks {
 		cr := CheckResult{Check: c, Allowed: b[i].allowed, Before: b[i].m}
 		if a != nil {
 			m := a[i].m
 			cr.After = &m
-			if a[i].allowed != b[i].allowed {
-				res.Mismatches = append(res.Mismatches, Mismatch{Check: c, AllowedBefore: b[i].allowed, AllowedAfter: a[i].allowed})
+			if mm, differs, noise := compare(c, b[i], a[i]); noise {
+				beforeVaried = append(beforeVaried, mm)
+			} else if differs {
+				res.Mismatches = append(res.Mismatches, mm)
 			}
 		}
 		t := &res.Totals
@@ -104,6 +120,7 @@ func Run(ctx context.Context, before, after *openfgav1.AuthorizationModel, src *
 		if res.Mismatches, res.Unstable, err = splitUnstable(ctx, before, after, src, o.ServerOpts, res.Mismatches); err != nil {
 			return nil, err
 		}
+		res.Unstable = append(res.Unstable, beforeVaried...)
 	}
 	return res, nil
 }
@@ -238,10 +255,12 @@ func probeModel(ctx context.Context, model *openfgav1.AuthorizationModel, src *S
 		durs := make([]float64, 0, iters)
 		for range iters {
 			start := time.Now()
-			if _, err := eng.Check(ctx, scope, req); err != nil {
+			got, err := eng.Check(ctx, scope, req)
+			if err != nil {
 				return nil, nil, fmt.Errorf("%s: %w", c.Name, err)
 			}
 			durs = append(durs, float64(time.Since(start))/float64(time.Millisecond))
+			p.varied = p.varied || got != allowed
 		}
 		slices.Sort(durs)
 		p.m.P50Ms = percentile(durs, 50)

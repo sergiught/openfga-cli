@@ -431,3 +431,31 @@ type document
 		t.Fatalf("changed = %v, want %v", got, want)
 	}
 }
+
+// TestCompare_TimedRunsCount pins that an answer the optimized model gives
+// only during its timed runs is still a mismatch, and that one where the
+// original model's own timed runs varied is noise.
+func TestCompare_TimedRunsCount(t *testing.T) {
+	c := Check{Name: "c"}
+	for _, tc := range []struct {
+		name           string
+		b, a           probe
+		differs, noise bool
+	}{
+		{"agree", probe{allowed: false}, probe{allowed: false}, false, false},
+		{"first answer differs", probe{allowed: false}, probe{allowed: true}, true, false},
+		{"after flips during timed runs", probe{allowed: false}, probe{allowed: false, varied: true}, true, false},
+		{"before also varies", probe{allowed: false, varied: true}, probe{allowed: false, varied: true}, true, true},
+		{"only before varies", probe{allowed: true, varied: true}, probe{allowed: true}, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, differs, noise := compare(c, tc.b, tc.a)
+			if differs != tc.differs || noise != tc.noise {
+				t.Fatalf("compare = differs %v noise %v, want %v %v", differs, noise, tc.differs, tc.noise)
+			}
+			if differs && (m.AllowedBefore != tc.b.allowed || m.AllowedAfter == tc.b.allowed) {
+				t.Errorf("mismatch = %+v, want before=%v and the other answer after", m, tc.b.allowed)
+			}
+		})
+	}
+}

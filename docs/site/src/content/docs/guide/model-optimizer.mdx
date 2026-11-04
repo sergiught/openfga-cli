@@ -228,9 +228,10 @@ same tuples, and runs the same Checks against both.
   self-referencing parent chain (for example `folder:cyc1` and `folder:cyc2`,
   each the other's parent, with `folder:cyc1` also a parent of `folder:t1`), so
   checks and probes exercise OpenFGA's cycle detection.
-- **Unstable answers.** A differing answer is re-run 5 times on the original
-  model. It counts as engine nondeterminism, not the rewrite, only if the
-  original model disagrees with itself, or if the check's relation cannot
+- **Unstable answers.** Every timed run's answer is compared, not just the
+  first, so a rewritten model that flips during the timed runs is caught. A
+  differing answer is re-run 5 times on the original model. It counts as engine nondeterminism, not the rewrite, only if the
+  original model disagrees with itself (in its timed runs or the re-runs), or if the check's relation cannot
   reach any relation the rewrite changed (both models then evaluate the same
   definitions). Such an answer is listed under an `Unstable answers (N)`
   notice (and in the result's `unstable` field) and does not affect the exit
