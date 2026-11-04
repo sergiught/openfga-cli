@@ -100,6 +100,10 @@
         "before": {
           "type": "string"
         },
+        "gate": {
+          "description": "Why the rewrite was not applied.",
+          "type": "string"
+        },
         "id": {
           "type": "string"
         },
@@ -111,7 +115,6 @@
           "type": "string"
         },
         "reason": {
-          "description": "Why the rewrite was not applied.",
           "type": "string"
         },
         "relation": {
@@ -144,7 +147,8 @@
         "proof",
         "tier",
         "key",
-        "weights"
+        "weights",
+        "gate"
       ],
       "type": "object"
     },

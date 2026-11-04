@@ -758,14 +758,14 @@ func TestOptimize_GatedRewriteIsListed(t *testing.T) {
 	var got struct {
 		Rewrite *json.RawMessage `json:"rewrite"`
 		Gated   []struct {
-			ID, Key, Reason string
+			ID, Key, Gate, Reason string
 		} `json:"gated"`
 	}
 	if err := json.Unmarshal([]byte(jout), &got); err != nil {
 		t.Fatal(err)
 	}
 	if got.Rewrite != nil || len(got.Gated) != 1 || got.Gated[0].ID != "S4" || got.Gated[0].Key == "" ||
-		got.Gated[0].Reason != "changes whether OpenFGA can build the weighted graph" {
+		got.Gated[0].Gate != "changes whether OpenFGA can build the weighted graph" || got.Gated[0].Reason == "" || got.Gated[0].Reason == got.Gated[0].Gate {
 		t.Errorf("json gated = %+v rewrite=%v\n%s", got.Gated, got.Rewrite, jout)
 	}
 }

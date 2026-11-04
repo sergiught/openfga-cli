@@ -319,8 +319,8 @@ func TestRewrite_GatedFindingIsReported(t *testing.T) {
 	if g.ID != "S4" || g.Type != "doc" || g.Relation != "viewer" {
 		t.Errorf("gated = %s %s#%s, want S4 doc#viewer", g.ID, g.Type, g.Relation)
 	}
-	if want := "changes whether OpenFGA can build the weighted graph"; g.Reason != want {
-		t.Errorf("reason = %q, want %q", g.Reason, want)
+	if want := "changes whether OpenFGA can build the weighted graph"; g.Gate != want {
+		t.Errorf("gate = %q, want %q", g.Gate, want)
 	}
 	rep, err := Analyze(loadInline(t, string(data)).Proto)
 	if err != nil {

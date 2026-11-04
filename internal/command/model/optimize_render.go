@@ -141,7 +141,7 @@ func renderOptimize(w io.Writer, findings []optimize.Finding, gated []optimize.G
 			return err
 		}
 		for _, g := range gated {
-			if _, err := fmt.Fprintf(w, "  %s  %s — %s\n", style.Bold.Render(g.Type+"#"+g.Relation), style.Faint.Render("["+g.ID+"]"), g.Reason); err != nil {
+			if _, err := fmt.Fprintf(w, "  %s  %s — %s\n", style.Bold.Render(g.Type+"#"+g.Relation), style.Faint.Render("["+g.ID+"]"), g.Gate); err != nil {
 				return err
 			}
 		}

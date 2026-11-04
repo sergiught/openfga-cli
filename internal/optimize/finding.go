@@ -40,7 +40,7 @@ type Finding struct {
 // safety gate rejected it.
 type GatedFinding struct {
 	Finding
-	Reason string `json:"reason" jsonschema_description:"Why the rewrite was not applied."`
+	Gate string `json:"gate" jsonschema_description:"Why the rewrite was not applied."`
 }
 
 // FindingKey identifies one applied finding by content. N only separates
