@@ -1194,3 +1194,21 @@ func TestOptimize_HelpShowsBenchDefaults(t *testing.T) {
 		}
 	}
 }
+
+func TestOptimize_TierNoteSurvivesPlainButNotQuiet(t *testing.T) {
+	const note = "safe rewrites hidden by --tier; --write and --output-file still apply them"
+	output.Plain = true
+	t.Cleanup(func() { output.Plain = false; output.Quiet = false })
+	_, stderr, err := runOptimize(t, "", false, optimizeReference, "--tier", "caller")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr, note) {
+		t.Errorf("plain mode dropped the note:\n%s", stderr)
+	}
+	output.Quiet = true
+	_, stderr, _ = runOptimize(t, "", false, optimizeReference, "--tier", "caller")
+	if strings.Contains(stderr, note) {
+		t.Errorf("--quiet must suppress it:\n%s", stderr)
+	}
+}

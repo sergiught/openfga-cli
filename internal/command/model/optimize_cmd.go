@@ -197,7 +197,7 @@ func (c *Command) optimizeCmd() *cobra.Command {
 				if want != nil && !want[optimize.TierSafe] {
 					shownRewrite = nil // the diff belongs to the safe tier
 					if out.Rewrite != nil {
-						output.Notef(cmd.ErrOrStderr(), "%s hidden by --tier; --write and --output-file still apply them", benchfmt.Plural(len(out.Rewrite.Applied), "safe rewrite"))
+						noteKeepPlain(cmd.ErrOrStderr(), "%s hidden by --tier; --write and --output-file still apply them", benchfmt.Plural(len(out.Rewrite.Applied), "safe rewrite"))
 					}
 				}
 				if err := renderOptimize(cmd.OutOrStdout(), findings, gated, shownRewrite); err != nil {
@@ -380,6 +380,19 @@ func warnKeepPlain(w io.Writer, format string, a ...any) {
 		return
 	}
 	_, _ = fmt.Fprintf(w, "warning: %s\n", output.PlainField(fmt.Sprintf(format, a...)))
+}
+
+// noteKeepPlain is warnKeepPlain for neutral notes: unstyled under --plain,
+// suppressed by --quiet.
+func noteKeepPlain(w io.Writer, format string, a ...any) {
+	if !output.Plain {
+		output.Notef(w, format, a...)
+		return
+	}
+	if output.Quiet {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "%s\n", output.PlainField(fmt.Sprintf(format, a...)))
 }
 
 // sameFile reports whether out names the same existing file as in.
