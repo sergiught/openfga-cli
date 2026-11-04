@@ -71,10 +71,10 @@ Safe rewrites (1)
 
 Tuple recommendations (2)
   folder#editor  [T1]
-    reason: Relation introduces recursion: each nesting level in the tuple data costs +1 datastore read and +1 dispatch per nesting level; keep nesting shallow.
+    reason: Relation introduces recursion: each nesting level in the tuple data costs one more datastore read and one more dispatch; keep nesting shallow.
     weights: user=inf
   folder#viewer  [T1]
-    reason: Relation introduces recursion: each nesting level in the tuple data costs +1 datastore read and +1 dispatch per nesting level; keep nesting shallow.
+    reason: Relation introduces recursion: each nesting level in the tuple data costs one more datastore read and one more dispatch; keep nesting shallow.
     weights: user=inf
 
 Diff
@@ -89,7 +89,7 @@ Diff
 ```
 
 The T1 lines are advice, never applied: the folder tree is recursive by
-design, and the tool only points out that each nesting level costs a read.
+design, and the tool only points out that each nesting level costs a read and a dispatch.
 
 ### Prove it with a benchmark
 
@@ -133,12 +133,12 @@ $ ofga model optimize examples/model-optimize/exclusion.fga
 ● safe rewrites disabled: folder#can_view subtracts a recursive relation; OpenFGA's cycle handling there depends on evaluation strategy, so no rewrite can be proven safe
 Caller recommendations (1)
   folder#can_view  [C2]
-    reason: Exclusion present: the subtracted side is always evaluated, so a Check on this relation costs at least one extra dispatch.
+    reason: Exclusion present: the subtracted side is always evaluated, so a Check on this relation costs an extra datastore read, and an extra dispatch when the subtracted side is not a direct relation.
     weights: user=inf
 
 Tuple recommendations (1)
   folder#blocked  [T1]
-    reason: Relation introduces recursion: each nesting level in the tuple data costs +1 datastore read and +1 dispatch per nesting level; keep nesting shallow.
+    reason: Relation introduces recursion: each nesting level in the tuple data costs one more datastore read and one more dispatch; keep nesting shallow.
     weights: user=inf
 ● no safe rewrites; 2 recommendations
 ```

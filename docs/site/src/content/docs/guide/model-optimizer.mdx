@@ -70,9 +70,9 @@ These are reported and never applied.
 | ID | Tier | Meaning |
 | --- | --- | --- |
 | C1 | caller | Recursion introduced inside an intersection or exclusion operand |
-| C2 | caller | An exclusion (`but not`) is present, so the subtracted side is always evaluated |
+| C2 | caller | An exclusion (`but not`) is present, so the subtracted side is always evaluated: an extra datastore read, plus an extra dispatch when the subtracted side is not a direct relation |
 | T1 | tuple | A relation introduces recursion: each nesting level in the tuple data costs one more datastore read and one more dispatch |
-| T2 | tuple | A union with 4 or more operands, where each operand is a separate dispatch |
+| T2 | tuple | A union with 4 or more operands: each computed or tuple-to-userset operand is a separate dispatch, and a Check that misses evaluates all of them |
 
 Advisory findings are computed on the rewritten model, after the safe
 rewrites are applied.
@@ -106,12 +106,12 @@ Safe rewrites (4)
 
 Caller recommendations (1)
   document#can_edit  [C2]
-    reason: Exclusion present: the subtracted side is always evaluated, so a Check on this relation costs at least one extra dispatch.
+    reason: Exclusion present: the subtracted side is always evaluated, so a Check on this relation costs an extra datastore read, and an extra dispatch when the subtracted side is not a direct relation.
     weights: user=inf
 
 Tuple recommendations (5)
   document#viewer  [T2]
-    reason: Union with 4 operands: each operand is a separate dispatch; consider consolidating roles.
+    reason: Union with 4 operands: each computed or tuple-to-userset operand is a separate dispatch; a Check that misses evaluates all of them. Consider consolidating roles.
     weights: user=inf
   ...
 ```

@@ -38,7 +38,7 @@ func TestAnalyze_ReferenceModelTiers(t *testing.T) {
 		t.Fatal("Rewrite is nil despite safe findings")
 	}
 	for _, f := range rep.Findings {
-		if f.Tier == TierTuple && f.ID == "T1" && !strings.Contains(f.Reason, "+1 datastore read and +1 dispatch per nesting level") {
+		if f.Tier == TierTuple && f.ID == "T1" && !strings.Contains(f.Reason, "one more datastore read and one more dispatch") {
 			t.Fatalf("T1 reason: %q", f.Reason)
 		}
 	}
@@ -260,5 +260,31 @@ type team
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("fallback: tuple = %v, want %v", got, want)
+	}
+}
+
+func TestAdvise_Copy(t *testing.T) {
+	rep, err := Analyze(LoadReferenceModel(t).Proto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"C2": "Exclusion present: the subtracted side is always evaluated, so a Check on this relation costs an extra datastore read, and an extra dispatch when the subtracted side is not a direct relation.",
+		"T1": "Relation introduces recursion: each nesting level in the tuple data costs one more datastore read and one more dispatch; keep nesting shallow.",
+		"T2": "Union with 4 operands: each computed or tuple-to-userset operand is a separate dispatch; a Check that misses evaluates all of them. Consider consolidating roles.",
+	}
+	seen := map[string]bool{}
+	for _, f := range rep.Findings {
+		if w, ok := want[f.ID]; ok {
+			seen[f.ID] = true
+			if f.Reason != w {
+				t.Errorf("%s reason = %q, want %q", f.ID, f.Reason, w)
+			}
+		}
+	}
+	for id := range want {
+		if !seen[id] {
+			t.Errorf("no %s finding in reference model", id)
+		}
 	}
 }

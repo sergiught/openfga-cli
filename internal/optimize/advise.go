@@ -52,13 +52,13 @@ func advise(m *Model) []Finding {
 				add(&caller, "C1", TierCaller, "Recursive relation inside an exclusion: both sides are evaluated, so a deep graph is expensive; keep the recursion out of the exclusion or cap depth in callers.")
 			}
 			if us.GetDifference() != nil {
-				add(&caller, "C2", TierCaller, "Exclusion present: the subtracted side is always evaluated, so a Check on this relation costs at least one extra dispatch.")
+				add(&caller, "C2", TierCaller, "Exclusion present: the subtracted side is always evaluated, so a Check on this relation costs an extra datastore read, and an extra dispatch when the subtracted side is not a direct relation.")
 			}
 			if recursive {
-				add(&tuple, "T1", TierTuple, "Relation introduces recursion: each nesting level in the tuple data costs +1 datastore read and +1 dispatch per nesting level; keep nesting shallow.")
+				add(&tuple, "T1", TierTuple, "Relation introduces recursion: each nesting level in the tuple data costs one more datastore read and one more dispatch; keep nesting shallow.")
 			}
 			if u := us.GetUnion(); u != nil && len(u.GetChild()) >= minWideUnion {
-				add(&tuple, "T2", TierTuple, fmt.Sprintf("Union with %d operands: each operand is a separate dispatch; consider consolidating roles.", len(u.GetChild())))
+				add(&tuple, "T2", TierTuple, fmt.Sprintf("Union with %d operands: each computed or tuple-to-userset operand is a separate dispatch; a Check that misses evaluates all of them. Consider consolidating roles.", len(u.GetChild())))
 			}
 		}
 	}
