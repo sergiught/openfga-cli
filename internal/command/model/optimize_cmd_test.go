@@ -962,7 +962,12 @@ func TestOptimize_OutputFileStdoutWithJSONIsUsage(t *testing.T) {
 }
 
 func TestOptimize_OutputFileWithoutRewriteWritesUnchangedModel(t *testing.T) {
-	dest := filepath.Join(t.TempDir(), "out.fga")
+	// --output-file resolves symlinks; macOS's TempDir is under a symlink.
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(dir, "out.fga")
 	if err := os.WriteFile(dest, []byte("junk from an earlier run"), 0o600); err != nil {
 		t.Fatal(err)
 	}
