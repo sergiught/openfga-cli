@@ -215,7 +215,7 @@ func (c *Command) optimizeCmd() *cobra.Command {
 					return err
 				}
 				if !structured && !toStdout && !output.Quiet && !output.Terse {
-					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "benchmarking %d checks × %d runs…\n", len(src.Checks), iters)
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "benchmarking %s × %d runs…\n", benchfmt.Plural(len(src.Checks), "check"), iters)
 				}
 				res, err := benchRunFn(cmd.Context(), lm.Proto, afterModel, src, bench.Options{Iterations: iters, ServerOpts: serverOpts})
 				if err != nil {
@@ -383,13 +383,13 @@ func warnKeepPlain(w io.Writer, format string, a ...any) {
 }
 
 // noteKeepPlain is warnKeepPlain for neutral notes: unstyled under --plain,
-// suppressed by --quiet.
+// suppressed by --quiet and, like output.Notef, in agent mode.
 func noteKeepPlain(w io.Writer, format string, a ...any) {
 	if !output.Plain {
 		output.Notef(w, format, a...)
 		return
 	}
-	if output.Quiet {
+	if output.Quiet || output.Terse {
 		return
 	}
 	_, _ = fmt.Fprintf(w, "%s\n", output.PlainField(fmt.Sprintf(format, a...)))

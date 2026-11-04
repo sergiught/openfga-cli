@@ -1081,7 +1081,7 @@ func TestOptimize_HumanPrintsFindingsBeforeBench(t *testing.T) {
 		t.Fatal(err)
 	}
 	out = ansi.Strip(out)
-	if !regexp.MustCompile(`benchmarking \d+ checks × 1 runs…`).MatchString(ansi.Strip(errOut)) {
+	if !regexp.MustCompile(`benchmarking \d+ checks × 1 runs…`).MatchString(ansi.Strip(errOut)) || strings.Contains(errOut, "benchmarking 1 checks") {
 		t.Errorf("progress line missing on stderr:\n%s", errOut)
 	}
 	f, b := strings.Index(out, "Safe rewrites"), strings.Index(out, "Benchmark ·")
@@ -1192,6 +1192,20 @@ func TestOptimize_HelpShowsBenchDefaults(t *testing.T) {
 		if u := cmd.Flags().Lookup(name).Usage; !strings.Contains(u, def) {
 			t.Errorf("--%s usage %q lacks %s", name, u, def)
 		}
+	}
+}
+
+func TestOptimize_TierNoteHiddenInAgentModeEvenWithPlain(t *testing.T) {
+	t.Setenv("OPENFGA_AGENT_MODE", "1")
+	output.Plain = true
+	output.Terse = true
+	t.Cleanup(func() { output.Plain = false; output.Terse = false })
+	_, stderr, err := runOptimize(t, "", false, optimizeReference, "--tier", "caller")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stderr, "hidden by --tier") {
+		t.Errorf("--plain must not change whether the note shows in agent mode:\n%s", stderr)
 	}
 }
 
