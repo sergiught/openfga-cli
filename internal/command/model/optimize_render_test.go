@@ -111,3 +111,20 @@ func applyUnified(diff, before string) (string, error) {
 	}
 	return out.String(), nil
 }
+
+func TestColorDiffLine_StripsTerminalEscapes(t *testing.T) {
+	const osc52 = "\x1b]52;c;aGk=\x07"
+	for _, line := range []string{
+		"+ # comment " + osc52 + "\n",
+		"--- roles" + osc52 + ".fga\n",
+		"  context\x1b[2J line\n",
+	} {
+		got := colorDiffLine(line)
+		if strings.Contains(got, "]52;") || strings.Contains(got, "\x1b[2J") || strings.Contains(got, "\x07") {
+			t.Errorf("colorDiffLine(%q) = %q, still carries the escape", line, got)
+		}
+		if !strings.HasSuffix(got, "\n") {
+			t.Errorf("colorDiffLine(%q) = %q, lost the newline", line, got)
+		}
+	}
+}

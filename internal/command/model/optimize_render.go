@@ -108,9 +108,13 @@ func renderGated(w io.Writer, gated []optimize.GatedFinding) error {
 	return nil
 }
 
+// colorDiffLine styles one diff line for the terminal. The diff carries the
+// model's comments and file name, so the line is sanitized first; structured
+// output keeps the raw diff.
 func colorDiffLine(line string) string {
-	body := strings.TrimSuffix(line, "\n")
-	nl := line[len(body):]
+	raw := strings.TrimSuffix(line, "\n")
+	nl := line[len(raw):]
+	body := style.SanitizeTerminal(raw)
 	switch {
 	case strings.HasPrefix(body, "+++"), strings.HasPrefix(body, "---"):
 		return style.Bold.Render(body) + nl
@@ -121,7 +125,7 @@ func colorDiffLine(line string) string {
 	case strings.HasPrefix(body, "-"):
 		return style.Failure.Render(body) + nl
 	}
-	return line
+	return body + nl
 }
 
 func renderFinding(w io.Writer, f optimize.Finding) error {
