@@ -237,8 +237,8 @@ func (c *Command) optimizeCmd() *cobra.Command {
 					output.Infof(cmd.ErrOrStderr(), "no safe rewrites; nothing written to %s", shown)
 					return nil
 				}
-				if len(tiers) > 0 && len(findings) == 0 {
-					output.Infof(cmd.ErrOrStderr(), "no safe rewrites; 0 %s recommendations", tierLabel(tiers))
+				if label := tierLabel(tiers); label != "" && len(findings) == 0 {
+					output.Infof(cmd.ErrOrStderr(), "no safe rewrites; 0 %s recommendations", label)
 					return nil
 				}
 				output.Infof(cmd.ErrOrStderr(), "no safe rewrites; %s", benchfmt.Plural(len(findings), "recommendation"))
@@ -389,12 +389,15 @@ func parseTiers(in []string) (map[optimize.Tier]bool, error) {
 }
 
 // tierLabel joins the tiers the user passed, lowercased and de-duplicated in
-// the order given, with "/".
+// the order given, with "/". It is empty when "all" is among them.
 func tierLabel(in []string) string {
 	var names []string
 	seen := map[string]bool{}
 	for _, s := range in {
 		n := strings.ToLower(strings.TrimSpace(s))
+		if n == "all" {
+			return ""
+		}
 		if !seen[n] {
 			seen[n] = true
 			names = append(names, n)

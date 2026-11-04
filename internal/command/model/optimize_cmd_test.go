@@ -659,6 +659,16 @@ func TestOptimize_TierIsCaseInsensitiveAndAcceptsAll(t *testing.T) {
 	if all != def {
 		t.Errorf("--tier all differs from default:\n%s\nvs\n%s", all, def)
 	}
+	const none = "model\n  schema 1.1\n\ntype user\n\ntype doc\n  relations\n    define viewer: [user]\n"
+	for _, tier := range []string{"all", "caller,ALL"} {
+		_, errAll, err := runOptimize(t, none, false, "-", "--tier", tier)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(errAll, "no safe rewrites; 0 recommendations") || strings.Contains(errAll, "0 all") {
+			t.Errorf("--tier %s stderr = %q", tier, errAll)
+		}
+	}
 	cmd := New(cli.New(log.New(io.Discard), config.New(), "test")).optimizeCmd()
 	fn, ok := cmd.GetFlagCompletionFunc("tier")
 	if !ok {
