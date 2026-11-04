@@ -341,6 +341,9 @@ func (m Model) writeDialogLayout() (head []string, foot string, diffH int) {
 		head = append(head, style.Faint.Render("please report this as a bug"))
 	case o.writeBench != nil:
 		head = append(head, benchfmt.Totals(o.writeBench)...)
+		for _, l := range benchfmt.Unexercised(o.writeBench) {
+			wrap(l)
+		}
 	}
 	if o.writeBench != nil && len(o.writeBench.Unstable) > 0 && !o.running {
 		head = append(head, style.Faint.Render(benchfmt.Plural(len(o.writeBench.Unstable), "unstable answer")+" differ between runs (engine nondeterminism, not blocking)"))

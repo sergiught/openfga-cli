@@ -214,7 +214,7 @@ func (c *Command) optimizeCmd() *cobra.Command {
 					return fmt.Errorf("benchmark: %w", err)
 				}
 				if src.Kind == "synthesis" && report.Rewrite != nil {
-					res.Unexercised = Unexercised(report.Rewrite.After, report.Rewrite.Applied, res.Skipped)
+					res.Unexercised = optimize.Unexercised(report.Rewrite.After, report.Rewrite.Applied, res.Skipped)
 				}
 				out.Bench = res
 			}

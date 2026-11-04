@@ -961,3 +961,30 @@ func TestOptimizer_DialogDiffReadableAt80And120(t *testing.T) {
 		}
 	}
 }
+
+func condTuplesetDSL(t *testing.T) string {
+	t.Helper()
+	data, err := os.ReadFile("../../optimize/testdata/cond_tupleset.fga")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func TestOptimizer_UnexercisedWarningInCardAndDialog(t *testing.T) {
+	m := review(t, condTuplesetDSL(t))
+	m, _ = m.Update(key("a"))
+	m, msgs := shiftB(t, m, true)
+	if len(msgs) != 1 || msgs[0].result == nil {
+		t.Fatalf("want one selection result, got %+v", msgs)
+	}
+	if !strings.Contains(view(m), "exercised") || !strings.Contains(strings.Join(msgs[0].result.Unexercised, ","), "doc#viewer") {
+		t.Errorf("card lacks the unexercised warning (unexercised=%v):\n%s", msgs[0].result.Unexercised, view(m))
+	}
+
+	m, msgs = writeDialog(t, condTuplesetDSL(t), true)
+	_ = msgs
+	if !strings.Contains(view(m), "exercised") {
+		t.Errorf("dialog lacks the unexercised warning:\n%s", view(m))
+	}
+}

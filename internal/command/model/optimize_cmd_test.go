@@ -1073,23 +1073,3 @@ func TestOptimize_HumanPrintsFindingsBeforeBench(t *testing.T) {
 		t.Errorf("progress line printed under --json:\n%s", errOut)
 	}
 }
-
-func TestUnexercised(t *testing.T) {
-	data, err := os.ReadFile("../../optimize/testdata/cond_tupleset.fga")
-	if err != nil {
-		t.Fatal(err)
-	}
-	lm, err := modeltest.LoadModelBytes(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	m, err := optimize.NewModel(lm.Proto)
-	if err != nil {
-		t.Fatal(err)
-	}
-	applied := []optimize.Finding{{Type: "doc", Relation: "viewer"}, {Type: "folder", Relation: "admin"}, {Type: "doc", Relation: "viewer"}}
-	got := Unexercised(m, applied, []string{"doc#parent: conditioned-only restriction folder (condition active)"})
-	if !slices.Equal(got, []string{"doc#viewer"}) {
-		t.Errorf("got %v", got)
-	}
-}

@@ -192,6 +192,15 @@ func unexercisedWarning(r *bench.Result) string {
 	return style.Warn.Render(fmt.Sprintf("  %d %s %s not exercised by this benchmark: %s", n, noun, verb, strings.Join(r.Unexercised, ", ")))
 }
 
+// Unexercised returns the unexercised warning as lines, or nil when every
+// rewritten relation was exercised.
+func Unexercised(r *bench.Result) []string {
+	if r == nil || len(r.Unexercised) == 0 {
+		return nil
+	}
+	return []string{unexercisedWarning(r)}
+}
+
 // Summary returns the benchmark header, totals and unexercised warning as
 // lines, without the table or any leading blank line.
 func Summary(r *bench.Result) []string {
@@ -200,10 +209,7 @@ func Summary(r *bench.Result) []string {
 	}
 	lines := []string{style.Heading.Render(strings.Join(header(r), " · "))}
 	lines = append(lines, Totals(r)...)
-	if len(r.Unexercised) > 0 {
-		lines = append(lines, unexercisedWarning(r))
-	}
-	return lines
+	return append(lines, Unexercised(r)...)
 }
 
 // header is the parts of the "Benchmark · ..." heading.

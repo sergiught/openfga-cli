@@ -1,10 +1,8 @@
-package model
+package optimize
 
 import (
 	"sort"
 	"strings"
-
-	"github.com/sergiught/openfga-cli/internal/optimize"
 )
 
 // Unexercised returns the sorted, de-duplicated "type#relation" of every
@@ -12,7 +10,7 @@ import (
 // skipped (or is itself the skipped relation). skipped holds bench.Source
 // notices of the form "type#relation: reason". Dependents are computed on
 // the rewritten model (rw.After), since that is the model benchmarked.
-func Unexercised(m *optimize.Model, applied []optimize.Finding, skipped []string) []string {
+func Unexercised(m *Model, applied []Finding, skipped []string) []string {
 	var targets []string
 	for _, s := range skipped {
 		rel, _, _ := strings.Cut(s, ": ")
@@ -21,7 +19,7 @@ func Unexercised(m *optimize.Model, applied []optimize.Finding, skipped []string
 	if len(targets) == 0 || m == nil {
 		return nil
 	}
-	deps := optimize.Dependents(m, targets)
+	deps := Dependents(m, targets)
 	seen := map[string]bool{}
 	var out []string
 	for _, f := range applied {

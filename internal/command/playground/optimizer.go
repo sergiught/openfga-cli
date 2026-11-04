@@ -109,6 +109,7 @@ func (m *Model) startBench(kind optBenchKind, before, after *openfgav1.Authoriza
 	m.opt.err, m.opt.errNoGraph = "", false
 	m.beginLoad()
 	origin := m.mutationOrigin(m.storeID, m.modelID, m.opt.gen)
+	rw := m.opt.subset
 	return func() tea.Msg {
 		msg := optBenchMsg{origin: origin, kind: kind}
 		src, err := bench.Synthesize(before, bench.SynthOptions{})
@@ -121,6 +122,9 @@ func (m *Model) startBench(kind optBenchKind, before, after *openfgav1.Authoriza
 			return msg
 		}
 		msg.result, msg.err = bench.Run(ctx, before, after, src, bench.Options{Iterations: benchIterations})
+		if msg.result != nil && rw != nil && after != nil {
+			msg.result.Unexercised = optimize.Unexercised(rw.After, rw.Applied, msg.result.Skipped)
+		}
 		return msg
 	}
 }
