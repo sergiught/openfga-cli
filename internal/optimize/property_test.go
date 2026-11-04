@@ -122,9 +122,10 @@ func TestProperty_RewritePreservesCheck(t *testing.T) {
 		}
 		if !maps.Equal(before, after) {
 			// The engine's own answer can vary between runs of the SAME
-			// model (seeds 3 and 5), on either side of the rewrite. Drop only
-			// the checks that vary; the rest must still agree.
-			unstableChecks += dropUnstable(before, after,
+			// model (seeds 3 and 5). Drop the checks whose original answer
+			// varies, and after-only variance off the rewritten paths; the
+			// rest must still agree.
+			unstableChecks += dropUnstable(rw, before, after,
 				engineUnstable(t, eng, rw.Before.Proto, tuples, checks, before),
 				engineUnstable(t, eng, rw.After.Proto, tuples, checks, after))
 		}
@@ -180,24 +181,33 @@ func TestProperty_RewritePreservesCheck(t *testing.T) {
 // onlyUnaffectedDiffer reports whether every differing check is on a relation
 // that cannot reach any relation rewritten in rw.
 func onlyUnaffectedDiffer(rw *RewriteResult, before, after map[checkKey]answer) bool {
+	affected := affectedBy(rw)
+	for k, v := range before {
+		if after[k] != v && affected(k) {
+			return false
+		}
+	}
+	return true
+}
+
+// affectedBy returns a predicate reporting whether a check's relation can
+// reach a relation rewritten in rw.
+func affectedBy(rw *RewriteResult) func(checkKey) bool {
 	graph := dependencyGraph(rw.Before)
 	var rewritten []string
 	for _, f := range rw.Applied {
 		rewritten = append(rewritten, f.Type+"#"+f.Relation)
 	}
-	for k, v := range before {
-		if after[k] == v {
-			continue
-		}
+	return func(k checkKey) bool {
 		typ, _, _ := strings.Cut(k.object, ":")
 		reach := reachable(graph, []string{typ + "#" + k.relation})
 		for _, r := range rewritten {
 			if reach[r] {
-				return false
+				return true
 			}
 		}
+		return false
 	}
-	return true
 }
 
 // engineUnstable returns the checks whose answer changes in any of 8 reruns
@@ -227,12 +237,18 @@ func countDiffering(before, after map[checkKey]answer) int {
 	return n
 }
 
-// dropUnstable deletes every key in either set from both maps and returns the
-// number of distinct keys deleted.
-func dropUnstable(before, after map[checkKey]answer, sets ...map[checkKey]bool) int {
+// dropUnstable deletes from both maps the checks whose answer is engine noise
+// and returns how many it deleted: every check that varies when the original
+// model is re-run, and a check that varies only on the rewritten model when
+// its relation cannot reach a rewritten one. A check that varies only after
+// the rewrite on a rewritten path is kept, since the rewrite may be what made
+// it unstable.
+func dropUnstable(rw *RewriteResult, before, after map[checkKey]answer, beforeUnstable, afterUnstable map[checkKey]bool) int {
+	affected := affectedBy(rw)
 	dropped := map[checkKey]bool{}
-	for _, set := range sets {
-		for k := range set {
+	maps.Copy(dropped, beforeUnstable)
+	for k := range afterUnstable {
+		if !affected(k) {
 			dropped[k] = true
 		}
 	}
@@ -295,7 +311,7 @@ func TestProperty_RewriteSubsetPreservesCheck(t *testing.T) {
 		if maps.Equal(before, after) || onlyUnaffectedDiffer(rw, before, after) {
 			continue
 		}
-		dropUnstable(before, after,
+		dropUnstable(rw, before, after,
 			engineUnstable(t, eng, rw.Before.Proto, tuples, checks, before),
 			engineUnstable(t, eng, rw.After.Proto, tuples, checks, after))
 		if maps.Equal(before, after) {
