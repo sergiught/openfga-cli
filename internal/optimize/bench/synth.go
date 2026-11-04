@@ -2,6 +2,7 @@ package bench
 
 import (
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"slices"
 	"sort"
@@ -71,12 +72,10 @@ func Synthesize(m *openfgav1.AuthorizationModel, o SynthOptions) (*Source, error
 
 	for _, td := range tds {
 		typ := td.GetType()
+		// Name the relations from their definitions: JSON models may omit
+		// metadata for computed-only relations.
 		rels := td.GetMetadata().GetRelations()
-		names := make([]string, 0, len(rels))
-		for r := range rels {
-			names = append(names, r)
-		}
-		sort.Strings(names)
+		names := slices.Sorted(maps.Keys(td.GetRelations()))
 
 		var leaves []leaf
 		for _, rel := range names {
@@ -202,12 +201,7 @@ func Synthesize(m *openfgav1.AuthorizationModel, o SynthOptions) (*Source, error
 	sort.Strings(users)
 	for _, u := range users {
 		for _, td := range tds {
-			names := make([]string, 0, len(td.GetMetadata().GetRelations()))
-			for r := range td.GetMetadata().GetRelations() {
-				names = append(names, r)
-			}
-			sort.Strings(names)
-			for _, r := range names {
+			for _, r := range slices.Sorted(maps.Keys(td.GetRelations())) {
 				src.Probes = append(src.Probes, Check{
 					Name: fmt.Sprintf("probe %s %s %s:t1", u, r, td.GetType()), User: u, Relation: r, Object: td.GetType() + ":t1",
 				})

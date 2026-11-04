@@ -225,3 +225,35 @@ func TestSynthesize_UsersetChecksAreProbes(t *testing.T) {
 		t.Fatal("no userset-subject checks synthesized")
 	}
 }
+
+// TestSynthesize_RelationsWithoutMetadata pins that a JSON model omitting the
+// metadata of computed-only relations synthesizes the same checks and probes.
+func TestSynthesize_RelationsWithoutMetadata(t *testing.T) {
+	want, err := Synthesize(loadRef(t), SynthOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := loadRef(t)
+	stripped := 0
+	for _, td := range m.GetTypeDefinitions() {
+		for rel, meta := range td.GetMetadata().GetRelations() {
+			if len(meta.GetDirectlyRelatedUserTypes()) == 0 {
+				delete(td.GetMetadata().GetRelations(), rel)
+				stripped++
+			}
+		}
+	}
+	if stripped == 0 {
+		t.Fatal("reference model has no computed-only relation to strip")
+	}
+	got, err := Synthesize(m, SynthOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got.Checks, want.Checks) {
+		t.Errorf("checks differ without metadata:\n got %+v\nwant %+v", got.Checks, want.Checks)
+	}
+	if !reflect.DeepEqual(got.Probes, want.Probes) {
+		t.Errorf("probes differ without metadata: got %d, want %d", len(got.Probes), len(want.Probes))
+	}
+}
