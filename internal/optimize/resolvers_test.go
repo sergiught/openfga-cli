@@ -3,6 +3,8 @@ package optimize
 import (
 	"strings"
 	"testing"
+
+	"github.com/sergiught/openfga-cli/internal/modeltest"
 )
 
 const class2DSL = `model
@@ -105,5 +107,45 @@ func TestResolverProfile_UsersetWeight2CoversUsersetOnlyUserType(t *testing.T) {
 	const key = "T#r|emp|userset-weight2|U#s"
 	if _, ok := p[key]; !ok {
 		t.Errorf("profile lacks %s; keys: %v", key, p)
+	}
+}
+
+// loadWithoutComputedMetadata loads dsl and drops the metadata entries of
+// relations with no direct assignments, as a valid JSON model may.
+func loadWithoutComputedMetadata(t *testing.T, dsl string) *Model {
+	t.Helper()
+	lm, err := modeltest.LoadModelBytes([]byte(dsl))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, td := range lm.Proto.GetTypeDefinitions() {
+		for rel, meta := range td.GetMetadata().GetRelations() {
+			if len(meta.GetDirectlyRelatedUserTypes()) == 0 {
+				delete(td.GetMetadata().GetRelations(), rel)
+			}
+		}
+	}
+	m, err := NewModel(lm.Proto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+func TestResolverProfile_CoversRelationsWithoutMetadata(t *testing.T) {
+	before, ok := resolverProfile(loadWithoutComputedMetadata(t, class2DSL))
+	if !ok {
+		t.Fatal("before: profile not ok")
+	}
+	after, ok := resolverProfile(loadWithoutComputedMetadata(t, strings.Replace(class2DSL, "viewer from parent or ", "", 1)))
+	if !ok {
+		t.Fatal("after: profile not ok")
+	}
+	const key = "folder#can_view|user|ttu-recursive|parent→can_view"
+	if _, ok := before[key]; !ok {
+		t.Fatalf("profile lacks %s for a relation without metadata", key)
+	}
+	if sameResolvers(before, after) {
+		t.Error("sameResolvers = true, want false")
 	}
 }

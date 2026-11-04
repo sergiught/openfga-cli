@@ -21,8 +21,11 @@ func resolverProfile(m *Model) (map[string]bool, bool) {
 	out := map[string]bool{}
 	for _, td := range m.Proto.GetTypeDefinitions() {
 		typ := td.GetType()
-		for rel, meta := range td.GetMetadata().GetRelations() {
-			ttus := collectTTUProtos(td.GetRelations()[rel], nil)
+		// Iterate the definitions: JSON models may omit metadata for
+		// relations without direct assignments.
+		for rel, us := range td.GetRelations() {
+			meta := td.GetMetadata().GetRelations()[rel]
+			ttus := collectTTUProtos(us, nil)
 			// UsersetUseWeight2Resolver keys on the userset node's weights, so
 			// a user type present only there (e.g. an intersection operand
 			// lacking it on the object relation) must be profiled too.
