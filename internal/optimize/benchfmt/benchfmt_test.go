@@ -286,3 +286,10 @@ func TestRenderBench_StripsTerminalEscapesFromLabels(t *testing.T) {
 		t.Errorf("output still carries an escape:\n%q", out)
 	}
 }
+
+func TestAnswersLabel_NoneCompared(t *testing.T) {
+	r := &bench.Result{Source: "synthesis", Checks: []bench.CheckResult{}}
+	if got := ansi.Strip(answersLabel(r)); got != "none compared" {
+		t.Errorf("answersLabel = %q, want %q", got, "none compared")
+	}
+}

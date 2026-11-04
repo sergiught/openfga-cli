@@ -309,6 +309,8 @@ func answersLabel(r *bench.Result) string {
 	changed, unstable := len(r.Mismatches), len(r.Unstable)
 	var s string
 	switch {
+	case compared == 0:
+		return style.Failure.Render("none compared")
 	case changed > 0:
 		s = style.Failure.Render(fmt.Sprintf("%d changed", changed))
 	case unstable > 0:

@@ -257,3 +257,35 @@ func TestSynthesize_RelationsWithoutMetadata(t *testing.T) {
 		t.Errorf("probes differ without metadata: got %d, want %d", len(got.Probes), len(want.Probes))
 	}
 }
+
+// TestSynthesize_ReportsUnqueriedRelations pins that a model whose only
+// subject type defines relations yields a notice per unqueried relation
+// rather than a silently empty benchmark.
+func TestSynthesize_ReportsUnqueriedRelations(t *testing.T) {
+	lm, err := modeltest.LoadModelBytes([]byte("model\n  schema 1.1\ntype account\n  relations\n    define follower: [account]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src, err := Synthesize(lm.Proto, SynthOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(src.Checks)+len(src.Probes) != 0 {
+		t.Fatalf("checks %v probes %v; the test model should yield none", src.Checks, src.Probes)
+	}
+	if want := "account#follower: no synthesized check or probe queries it"; !slices.Contains(src.Skipped, want) {
+		t.Errorf("skipped = %v, want it to contain %q", src.Skipped, want)
+	}
+}
+
+func TestSynthesize_QueriedRelationsAreNotReported(t *testing.T) {
+	src, err := Synthesize(loadRef(t), SynthOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range src.Skipped {
+		if strings.Contains(s, "no synthesized check") {
+			t.Errorf("reference model reports %q", s)
+		}
+	}
+}

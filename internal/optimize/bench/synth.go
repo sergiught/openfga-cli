@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"slices"
 	"sort"
+	"strings"
 
 	openfgav1 "github.com/openfga/api/proto/openfga/v1"
 
@@ -205,6 +206,21 @@ func Synthesize(m *openfgav1.AuthorizationModel, o SynthOptions) (*Source, error
 				src.Probes = append(src.Probes, Check{
 					Name: fmt.Sprintf("probe %s %s %s:t1", u, r, td.GetType()), User: u, Relation: r, Object: td.GetType() + ":t1",
 				})
+			}
+		}
+	}
+
+	// Name every relation no check or probe queries, so an empty benchmark
+	// never reads as a clean one.
+	queried := map[string]bool{}
+	for _, c := range slices.Concat(src.Checks, src.Probes) {
+		typ, _, _ := strings.Cut(c.Object, ":")
+		queried[typ+"#"+c.Relation] = true
+	}
+	for _, td := range tds {
+		for _, rel := range slices.Sorted(maps.Keys(td.GetRelations())) {
+			if label := td.GetType() + "#" + rel; !queried[label] {
+				src.Skipped = append(src.Skipped, label+": no synthesized check or probe queries it")
 			}
 		}
 	}
