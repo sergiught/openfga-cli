@@ -4,24 +4,31 @@
       "additionalProperties": false,
       "properties": {
         "after": {
-          "$ref": "#/$defs/Metrics"
+          "$ref": "#/$defs/Metrics",
+          "description": "Metrics against the after model; absent for a single-model profile."
         },
         "allowed": {
+          "description": "The check answer under the before model.",
           "type": "boolean"
         },
         "before": {
-          "$ref": "#/$defs/Metrics"
+          "$ref": "#/$defs/Metrics",
+          "description": "Metrics against the before model."
         },
         "name": {
+          "description": "Human-readable check label.",
           "type": "string"
         },
         "object": {
+          "description": "The object checked, as type:id.",
           "type": "string"
         },
         "relation": {
+          "description": "The relation checked.",
           "type": "string"
         },
         "user": {
+          "description": "The user in the check, as type:id.",
           "type": "string"
         }
       },
@@ -156,15 +163,19 @@
       "additionalProperties": false,
       "properties": {
         "dispatches": {
+          "description": "Dispatches the check performed, averaged over the iterations.",
           "type": "number"
         },
         "p50Ms": {
+          "description": "Median latency in milliseconds.",
           "type": "number"
         },
         "p95Ms": {
+          "description": "95th percentile latency in milliseconds.",
           "type": "number"
         },
         "reads": {
+          "description": "Datastore reads the check performed.",
           "type": "integer"
         }
       },
@@ -180,21 +191,27 @@
       "additionalProperties": false,
       "properties": {
         "allowedAfter": {
+          "description": "The answer under the after model.",
           "type": "boolean"
         },
         "allowedBefore": {
+          "description": "The answer under the before model.",
           "type": "boolean"
         },
         "name": {
+          "description": "Human-readable check label.",
           "type": "string"
         },
         "object": {
+          "description": "The object checked, as type:id.",
           "type": "string"
         },
         "relation": {
+          "description": "The relation checked.",
           "type": "string"
         },
         "user": {
+          "description": "The user in the check, as type:id.",
           "type": "string"
         }
       },
@@ -212,6 +229,7 @@
       "additionalProperties": false,
       "properties": {
         "checks": {
+          "description": "Per-check results.",
           "items": {
             "$ref": "#/$defs/CheckResult"
           },
@@ -221,9 +239,11 @@
           ]
         },
         "iterations": {
+          "description": "Timed iterations per check.",
           "type": "integer"
         },
         "mismatches": {
+          "description": "Checks whose answer differs between the models and is attributable to the rewrite.",
           "items": {
             "$ref": "#/$defs/Mismatch"
           },
@@ -233,39 +253,48 @@
           ]
         },
         "probes": {
+          "description": "Number of untimed answer-only probe checks compared between the models.",
           "type": "integer"
         },
         "seed": {
+          "description": "The synthesis seed, for reproducing the run.",
           "type": "integer"
         },
         "skipped": {
+          "description": "Restrictions or checks synthesis could not cover.",
           "items": {
             "type": "string"
           },
           "type": "array"
         },
         "source": {
+          "description": "Where the tuples and checks came from: workspace or synthesis.",
           "type": "string"
         },
         "totals": {
-          "$ref": "#/$defs/Totals"
+          "$ref": "#/$defs/Totals",
+          "description": "Metrics summed by the before answer."
         },
         "tupleCount": {
+          "description": "Number of tuples the benchmark loaded.",
           "type": "integer"
         },
         "tuples": {
+          "description": "The synthesized tuple set, for reproducing the run; absent for workspace sources.",
           "items": {
             "$ref": "#/$defs/Tuple"
           },
           "type": "array"
         },
         "unexercised": {
+          "description": "Relations the rewrite changed that no benchmark check exercised.",
           "items": {
             "type": "string"
           },
           "type": "array"
         },
         "unstable": {
+          "description": "Differing answers that are engine nondeterminism, not an effect of the rewrite.",
           "items": {
             "$ref": "#/$defs/Mismatch"
           },
@@ -291,21 +320,27 @@
       "additionalProperties": false,
       "properties": {
         "allowReadsAfter": {
+          "description": "Datastore reads summed over checks allowed before, against the after model.",
           "type": "integer"
         },
         "allowReadsBefore": {
+          "description": "Datastore reads summed over checks allowed before, against the before model.",
           "type": "integer"
         },
         "denyDispatchesAfter": {
+          "description": "Dispatches summed over checks denied before, against the after model.",
           "type": "number"
         },
         "denyDispatchesBefore": {
+          "description": "Dispatches summed over checks denied before, against the before model.",
           "type": "number"
         },
         "denyReadsAfter": {
+          "description": "Datastore reads summed over checks denied before, against the after model.",
           "type": "integer"
         },
         "denyReadsBefore": {
+          "description": "Datastore reads summed over checks denied before, against the before model.",
           "type": "integer"
         }
       },
@@ -323,12 +358,15 @@
       "additionalProperties": false,
       "properties": {
         "object": {
+          "description": "The tuple object, as type:id.",
           "type": "string"
         },
         "relation": {
+          "description": "The tuple relation.",
           "type": "string"
         },
         "user": {
+          "description": "The tuple user, as type:id or type:id#relation.",
           "type": "string"
         }
       },
