@@ -17,8 +17,9 @@ type RewriteResult struct {
 	After   *Model // rewritten and validated
 	// Blocked, when set, says why no safe rewrite was applied at all.
 	Blocked string
-	// Gated lists safe rewrites that were derived in the last pass that ran
-	// rules but rejected by a safety gate, with the reason.
+	// Gated lists the safe rewrites a safety gate rejected, with the gate
+	// reason: those of the last pass that derived any findings; empty when
+	// the final pass derived none.
 	Gated []GatedFinding
 }
 
@@ -89,6 +90,7 @@ func rewrite(m *Model, accept map[FindingKey]bool) (*RewriteResult, error) {
 			return a.Relation < b.Relation
 		})
 		if len(all) == 0 {
+			rw.Gated = nil
 			break
 		}
 		next := cur

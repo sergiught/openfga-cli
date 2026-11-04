@@ -330,3 +330,36 @@ func TestRewrite_GatedFindingIsReported(t *testing.T) {
 		t.Errorf("report: rewrite=%v gated=%+v, want nil rewrite and one keyed gated finding", rep.Rewrite, rep.Gated)
 	}
 }
+
+func TestRewrite_GatedClearedWhenFinalPassDerivesNone(t *testing.T) {
+	m := loadInline(t, "model\n  schema 1.1\ntype user\ntype doc\n  relations\n    define a: [user]\n    define b: a\n    define c: a or b\n")
+	good := ruleS1(m, BuildLattice(m))
+	if len(good) != 1 {
+		t.Fatalf("expected one S1 finding, got %d", len(good))
+	}
+	bad := Finding{ID: "S1", Type: "doc", Relation: "a", Tier: TierSafe, apply: func(m *Model) {
+		for _, td := range m.Proto.GetTypeDefinitions() {
+			if td.GetType() == "doc" {
+				td.GetRelations()["a"] = &openfgav1.Userset{Userset: &openfgav1.Userset_ComputedUserset{
+					ComputedUserset: &openfgav1.ObjectRelation{Relation: "a"},
+				}}
+			}
+		}
+	}}
+	orig := safeRules
+	defer func() { safeRules = orig }()
+	calls := 0
+	safeRules = []rule{func(*Model, *Lattice) []Finding {
+		if calls++; calls > 1 {
+			return nil
+		}
+		return append([]Finding{bad}, good...)
+	}}
+	rw, err := Rewrite(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rw.Applied) != 1 || len(rw.Gated) != 0 {
+		t.Fatalf("applied = %d, gated = %+v, want one applied and no gated", len(rw.Applied), rw.Gated)
+	}
+}
