@@ -1064,3 +1064,52 @@ func TestOptimizer_EscIgnoredWhileWriting(t *testing.T) {
 		t.Error("esc closed the dialog while the write was running")
 	}
 }
+
+func TestOptimizer_WriteDialogWarnsWhenNotLatest(t *testing.T) {
+	m, _ := writeDialog(t, referenceDSL(t), false)
+	mm := m.(Model)
+	mm.modelIsLatest = true
+	if out := ansi.Strip(view(mm)); strings.Contains(out, "older model version") {
+		t.Errorf("latest model got the warning:\n%s", out)
+	}
+	mm.modelIsLatest = false
+	mm.modelID = "m2"
+	mm.models = []openfga.AuthorizationModel{{ID: "m4"}, {ID: "m3"}, {ID: "m2"}, {ID: "m1"}}
+	out := strings.Join(strings.Fields(ansi.Strip(view(mm))), " ")
+	for _, w := range strings.Fields("older model version") {
+		if !strings.Contains(out, w) {
+			t.Fatalf("warning missing %q:\n%s", w, out)
+		}
+	}
+	if !strings.Contains(out, "2 newer versions") {
+		t.Errorf("count missing:\n%s", out)
+	}
+}
+
+func TestOptimizer_BenchCursorRowKeepsBar(t *testing.T) {
+	var checks []bench.CheckResult
+	for i := 0; i < 3; i++ {
+		var c bench.CheckResult
+		c.Name = fmt.Sprintf("deny r%02d", i)
+		c.Before.Reads = int64(100 - i)
+		checks = append(checks, c)
+	}
+	mm := newTestModel().(Model)
+	mm.opt.profile = &bench.Result{Checks: checks}
+	mm.opt.cursor = 1
+	for _, l := range mm.profileLines(100, 30) {
+		if !strings.Contains(ansi.Strip(l), "r01") {
+			continue
+		}
+		pre, _, ok := strings.Cut(l, "█")
+		if !ok {
+			t.Fatalf("cursor row lost its bar: %q", l)
+		}
+		rev := strings.LastIndex(pre, "\x1b[7m")
+		if rev < 0 || !strings.Contains(pre[rev:], "\x1b[m") && !strings.Contains(pre[rev:], "\x1b[0m") {
+			t.Errorf("bar is inside the reverse span: %q", l)
+		}
+		return
+	}
+	t.Fatal("cursor row not found")
+}

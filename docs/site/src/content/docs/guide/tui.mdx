@@ -169,7 +169,7 @@ The Model tab can run the same analysis as [`ofga model optimize`](../model-opti
 - If the model is blocked, the review shows the reason instead of the checklist, and `w` does nothing.
 - `B` in the review benchmarks the selection, and needs at least one applied rewrite.
 
-**Write (`w`).** Opens a dialog with the diff of the applied rewrites. Write stays disabled until the answer check finishes. Any changed answer blocks the write, while unstable answers only add a note. If the weighted graph can't be built, the dialog shows a warning that the rewrites are proven safe by the rules but not double-checked against answers, and Write is allowed right away. `y` writes, `esc` goes back to the review, and `↑` `↓` / `j` `k` scroll the diff.
+**Write (`w`).** Opens a dialog with the diff of the applied rewrites. Write stays disabled until the answer check finishes. Any changed answer blocks the write, while unstable answers only add a note. If the weighted graph can't be built, the dialog shows a warning that the rewrites are proven safe by the rules but not double-checked against answers, and Write is allowed right away. If you are viewing an older model version, the dialog warns that writing makes the optimized copy the latest and drops changes made in newer versions. `y` writes, `esc` goes back to the review, and `↑` `↓` / `j` `k` scroll the diff.
 
 The write creates a new model version. Older versions stay selectable with `m`.
 

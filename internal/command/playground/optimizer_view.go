@@ -108,11 +108,11 @@ func (m Model) profileLines(w, h int) []string {
 	for i := start; i < end; i++ {
 		c := rows[i]
 		l := cell(names[i], fmt.Sprint(c.Before.Reads), benchfmt.Dispatch(c.Before.Dispatches), fmt.Sprintf("%.2f", c.Before.P50Ms))
-		if bar := int(float64(barW) * float64(c.Before.Reads) / float64(maxReads)); bar > 0 {
-			l += "  " + style.Faint.Render(strings.Repeat("█", bar))
-		}
 		if i == cur {
 			l = lipgloss.NewStyle().Reverse(true).Render(ansi.Strip(l))
+		}
+		if bar := int(float64(barW) * float64(c.Before.Reads) / float64(maxReads)); bar > 0 {
+			l += "  " + style.Faint.Render(strings.Repeat("█", bar))
 		}
 		lines = append(lines, l)
 	}
@@ -348,6 +348,9 @@ func (m Model) writeDialogLayout() (head []string, foot string, diffH int) {
 	if o.writeBench != nil && len(o.writeBench.Unstable) > 0 && !o.running {
 		head = append(head, style.Faint.Render(benchfmt.Plural(len(o.writeBench.Unstable), "unstable answer")+" differ between runs (engine nondeterminism, not blocking)"))
 	}
+	if !m.modelIsLatest {
+		wrap(style.Warn.Render("! You are viewing an older model version. Writing makes the optimized copy the latest and drops changes made in " + m.newerVersions() + "."))
+	}
 	if o.writeErr != "" {
 		wrap(style.Failure.Render("write failed: " + o.writeErr))
 	}
@@ -360,6 +363,20 @@ func (m Model) writeDialogLayout() (head []string, foot string, diffH int) {
 		foot = style.Faint.Render("writing… (esc disabled)")
 	}
 	return head, foot, max(0, h-len(head)-2)
+}
+
+// newerVersions describes how many model versions are newer than the one
+// being viewed (m.models is newest first).
+func (m Model) newerVersions() string {
+	for i, md := range m.models {
+		if md.ID == m.modelID {
+			if i > 0 {
+				return benchfmt.Plural(i, "newer version")
+			}
+			break
+		}
+	}
+	return "newer versions"
 }
 
 // wrappedDialogBody hard-wraps the dialog body to the dialog width and colours
