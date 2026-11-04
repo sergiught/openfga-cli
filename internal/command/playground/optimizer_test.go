@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -883,37 +884,66 @@ func TestOptimizer_DialogShowsWritingProgress(t *testing.T) {
 	}
 }
 
-// The write dialog is wide and wraps: at 80 and 120 columns the first
-// rewrite's Before and After survive whole once the wrapped lines are rejoined.
+// The write dialog is wide and wraps: at 80 and 120 columns every applied
+// rewrite's Before and After survive whole, exactly, once the wrapped
+// continuation lines of the list entry are rejoined.
 func TestOptimizer_DialogDiffReadableAt80And120(t *testing.T) {
 	for _, width := range []int{80, 120} {
 		m, _ := writeDialog(t, referenceDSL(t), false)
 		m, _ = m.Update(tea.WindowSizeMsg{Width: width, Height: 30})
 		mm := m.(Model)
-		f := mm.opt.rows[0]
+		iw, _ := mm.sh.WideDialogSize()
+		rows := mm.opt.subset.Applied
 		var lines []string
 		for range 400 {
-			lines = append(lines, strings.Split(ansi.Strip(mm.writeDialogBody()), "\n")...)
+			for _, l := range strings.Split(ansi.Strip(mm.writeDialogBody()), "\n") {
+				if ansi.StringWidth(l) > iw {
+					t.Errorf("width %d: line wider than interior %d: %q", width, iw, l)
+				}
+			}
 			before := mm.opt.dialogScroll
 			mm.scrollDialog(1)
 			if mm.opt.dialogScroll == before {
 				break
 			}
 		}
-		var flat []string
-		for _, l := range lines {
-			flat = append(flat, strings.TrimSpace(l))
+		// the whole wrapped body, unstyled, in order
+		for _, l := range mm.wrappedDialogBody() {
+			lines = append(lines, ansi.Strip(l))
 		}
-		all := strings.Join(flat, "")
-		all = strings.ReplaceAll(all, " ", "")
-		for _, want := range []string{f.Type + "#" + f.Relation, "-" + f.Before, "+" + f.After} {
-			if !strings.Contains(all, strings.ReplaceAll(want, " ", "")) {
-				t.Errorf("width %d: body missing %q", width, want)
+		// the final scroll position shows the last wrapped line
+		mm.scrollDialog(1 << 20)
+		if last := lines[len(lines)-1]; !strings.Contains(ansi.Strip(mm.writeDialogBody()), strings.TrimRight(last, " ")) {
+			t.Errorf("width %d: last body line %q unreachable", width, last)
+		}
+		end := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, "--- ") })
+		if end < 0 {
+			t.Fatalf("width %d: no diff header", width)
+		}
+		list := lines[:end]
+		i := 0
+		for _, f := range rows {
+			if i >= len(list) || list[i] != f.Type+"#"+f.Relation {
+				t.Fatalf("width %d: list entry %d: want %q at line %d of %q", width, i, f.Type+"#"+f.Relation, i, list)
 			}
-		}
-		for _, l := range lines {
-			if w := ansi.StringWidth(l); w > width {
-				t.Errorf("width %d: line %d wide: %q", width, w, l)
+			i++
+			var got [2]string
+			for k, pre := range []string{"- ", "+ "} {
+				if i >= len(list) || !strings.HasPrefix(list[i], pre) {
+					t.Fatalf("width %d: want %q line at %d of %q", width, pre, i, list)
+				}
+				got[k] = list[i][2:]
+				i++
+				for i < len(list) && strings.HasPrefix(list[i], "  ") {
+					got[k] += list[i][2:]
+					i++
+				}
+			}
+			if got[0] != f.Before || got[1] != f.After {
+				t.Errorf("width %d: %s#%s\n got  - %q\n      + %q\n want - %q\n      + %q", width, f.Type, f.Relation, got[0], got[1], f.Before, f.After)
+			}
+			if got[0] == got[1] {
+				t.Errorf("width %d: %s#%s before equals after", width, f.Type, f.Relation)
 			}
 		}
 	}
