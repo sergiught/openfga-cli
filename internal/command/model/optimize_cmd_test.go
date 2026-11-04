@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"charm.land/log/v2"
+	"github.com/charmbracelet/x/ansi"
 	openfgav1 "github.com/openfga/api/proto/openfga/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 
@@ -710,16 +711,62 @@ func TestStdinHint(t *testing.T) {
 }
 
 func TestOptimize_SynthWithoutWeightedGraphIsUsage(t *testing.T) {
-	_, _, err := runOptimize(t, recursiveExclusionModel, false, "-", "--bench", "--synth", "--iterations", "1")
+	_, _, err := runOptimize(t, vacuousModel(t), false, "-", "--bench", "--synth", "--iterations", "1")
 	if clierr.Code(err) != clierr.CodeUsage {
 		t.Fatalf("code = %d, err = %v", clierr.Code(err), err)
 	}
 	if !errors.Is(err, optimize.ErrNoWeightedGraph) {
 		t.Errorf("err = %v, want it to wrap optimize.ErrNoWeightedGraph", err)
 	}
-	const want = "this model's weighted graph cannot be built (an AND or BUT NOT sits on a tuple cycle), so tuples cannot be synthesized; benchmark with --workspace instead"
-	if h := clierr.NewEnvelope(err).Error.Hint; h != want {
-		t.Errorf("hint = %q, want %q", h, want)
+	h := clierr.NewEnvelope(err).Error.Hint
+	const prefix = "this model's weighted graph cannot be built ("
+	const suffix = "), so tuples cannot be synthesized; benchmark with --workspace instead"
+	if !strings.HasPrefix(h, prefix) || !strings.HasSuffix(h, suffix) || len(h) == len(prefix)+len(suffix) {
+		t.Errorf("hint = %q, want %q<builder message>%q", h, prefix, suffix)
+	}
+	if strings.Contains(h, "an AND or BUT NOT sits on a tuple cycle") {
+		t.Errorf("hint still carries the guessed parenthetical: %q", h)
+	}
+}
+
+// vacuousModel is a model whose only safe rewrite (S4) is gated because it
+// changes whether OpenFGA can build the weighted graph.
+func vacuousModel(t *testing.T) string {
+	t.Helper()
+	data, err := os.ReadFile("../../optimize/testdata/ttu_multi_parent_vacuous.fga")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func TestOptimize_GatedRewriteIsListed(t *testing.T) {
+	out, _, err := runOptimize(t, vacuousModel(t), false, "-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out = ansi.Strip(out)
+	for _, want := range []string{"Not applied (1)", "[S4] — changes whether OpenFGA can build the weighted graph"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+	jout, _, err := runOptimize(t, vacuousModel(t), true, "-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Rewrite *json.RawMessage `json:"rewrite"`
+		Gated   []struct {
+			ID, Key, Reason string
+		} `json:"gated"`
+	}
+	if err := json.Unmarshal([]byte(jout), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Rewrite != nil || len(got.Gated) != 1 || got.Gated[0].ID != "S4" || got.Gated[0].Key == "" ||
+		got.Gated[0].Reason != "changes whether OpenFGA can build the weighted graph" {
+		t.Errorf("json gated = %+v rewrite=%v\n%s", got.Gated, got.Rewrite, jout)
 	}
 }
 

@@ -1,6 +1,7 @@
 package optimize
 
 import (
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -296,5 +297,36 @@ func TestRewriteSubset_RejectedDoesNotShiftOrdinal(t *testing.T) {
 		if rep.Rewrite != nil && i < len(rep.Rewrite.Applied) && rep.Rewrite.Applied[i].Key != rep.Findings[i].Key {
 			t.Errorf("Rewrite.Applied[%d].Key = %q, want %q", i, rep.Rewrite.Applied[i].Key, rep.Findings[i].Key)
 		}
+	}
+}
+
+func TestRewrite_GatedFindingIsReported(t *testing.T) {
+	data, err := os.ReadFile("testdata/ttu_multi_parent_vacuous.fga")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rw, err := Rewrite(loadInline(t, string(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rw.Applied) != 0 {
+		t.Fatalf("applied = %+v, want none", rw.Applied)
+	}
+	if len(rw.Gated) != 1 {
+		t.Fatalf("gated = %+v, want one", rw.Gated)
+	}
+	g := rw.Gated[0]
+	if g.ID != "S4" || g.Type != "doc" || g.Relation != "viewer" {
+		t.Errorf("gated = %s %s#%s, want S4 doc#viewer", g.ID, g.Type, g.Relation)
+	}
+	if want := "changes whether OpenFGA can build the weighted graph"; g.Reason != want {
+		t.Errorf("reason = %q, want %q", g.Reason, want)
+	}
+	rep, err := Analyze(loadInline(t, string(data)).Proto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Rewrite != nil || len(rep.Gated) != 1 || rep.Gated[0].Key == "" {
+		t.Errorf("report: rewrite=%v gated=%+v, want nil rewrite and one keyed gated finding", rep.Rewrite, rep.Gated)
 	}
 }

@@ -91,6 +91,63 @@
       ],
       "type": "object"
     },
+    "GatedFinding": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "type": "string"
+        },
+        "before": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "key": {
+          "description": "Stable identity: type#relation:id:proof, with #N appended when the same finding is applied more than once.",
+          "type": "string"
+        },
+        "proof": {
+          "type": "string"
+        },
+        "reason": {
+          "description": "Why the rewrite was not applied.",
+          "type": "string"
+        },
+        "relation": {
+          "type": "string"
+        },
+        "tier": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "weights": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "description": "Weight per user type; -1 means unbounded (infinite) weight.",
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "relation",
+        "before",
+        "after",
+        "reason",
+        "proof",
+        "tier",
+        "key",
+        "weights"
+      ],
+      "type": "object"
+    },
     "Metrics": {
       "additionalProperties": false,
       "properties": {
@@ -309,6 +366,13 @@
             "array",
             "null"
           ]
+        },
+        "gated": {
+          "description": "Safe rewrites that were derived but not applied, with the gate reason.",
+          "items": {
+            "$ref": "#/$defs/GatedFinding"
+          },
+          "type": "array"
         },
         "model": {
           "$ref": "#/$defs/optimizeModelInfo"

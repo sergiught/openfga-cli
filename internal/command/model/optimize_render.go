@@ -85,7 +85,7 @@ var optimizeTierHeadings = []struct {
 
 // renderOptimize prints findings grouped by tier (report order kept within a
 // tier) followed by the unified diff of the safe rewrite.
-func renderOptimize(w io.Writer, findings []optimize.Finding, rw *rewriteOutput) error {
+func renderOptimize(w io.Writer, findings []optimize.Finding, gated []optimize.GatedFinding, rw *rewriteOutput) error {
 	first := true
 	for _, g := range optimizeTierHeadings {
 		var group []optimize.Finding
@@ -112,28 +112,42 @@ func renderOptimize(w io.Writer, findings []optimize.Finding, rw *rewriteOutput)
 			}
 		}
 	}
-	if rw == nil || rw.Diff == "" {
-		return nil
-	}
-	if !first {
-		if _, err := fmt.Fprintln(w); err != nil {
+	if rw != nil && rw.Diff != "" {
+		if !first {
+			if _, err := fmt.Fprintln(w); err != nil {
+				return err
+			}
+		}
+		first = false
+		if _, err := fmt.Fprintf(w, "%s\n", style.Heading.Render("Diff")); err != nil {
 			return err
 		}
-	}
-	if _, err := fmt.Fprintf(w, "%s\n", style.Heading.Render("Diff")); err != nil {
-		return err
-	}
-	for _, line := range strings.SplitAfter(rw.Diff, "\n") {
-		if line == "" {
-			continue
+		for _, line := range strings.SplitAfter(rw.Diff, "\n") {
+			if line == "" {
+				continue
+			}
+			if _, err := io.WriteString(w, colorDiffLine(line)); err != nil {
+				return err
+			}
 		}
-		if _, err := io.WriteString(w, colorDiffLine(line)); err != nil {
+	}
+	if len(gated) > 0 {
+		if !first {
+			if _, err := fmt.Fprintln(w); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprintf(w, "%s\n", style.Heading.Render(fmt.Sprintf("Not applied (%d)", len(gated)))); err != nil {
 			return err
+		}
+		for _, g := range gated {
+			if _, err := fmt.Fprintf(w, "  %s  %s — %s\n", style.Bold.Render(g.Type+"#"+g.Relation), style.Faint.Render("["+g.ID+"]"), g.Reason); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
 }
-
 func colorDiffLine(line string) string {
 	body := strings.TrimSuffix(line, "\n")
 	nl := line[len(body):]

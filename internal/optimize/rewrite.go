@@ -17,6 +17,9 @@ type RewriteResult struct {
 	After   *Model // rewritten and validated
 	// Blocked, when set, says why no safe rewrite was applied at all.
 	Blocked string
+	// Gated lists safe rewrites that were derived in the last pass that ran
+	// rules but rejected by a safety gate, with the reason.
+	Gated []GatedFinding
 }
 
 // Rewrite applies the safe rules to fixpoint (at most 10 passes). At most one
@@ -90,6 +93,7 @@ func rewrite(m *Model, accept map[FindingKey]bool) (*RewriteResult, error) {
 		}
 		next := cur
 		seen := map[string]bool{}
+		var gated []GatedFinding
 		for _, f := range all {
 			// A rejected finding must not take the relation's slot for this pass.
 			if accept != nil {
@@ -114,27 +118,32 @@ func rewrite(m *Model, accept map[FindingKey]bool) (*RewriteResult, error) {
 			// invalid (e.g. no entrypoints); discard it rather than fail.
 			validated, err := NewModel(cand.Proto)
 			if err != nil {
+				gated = append(gated, GatedFinding{f, "model would become invalid"})
 				continue
 			}
 			// The weighted graph decides which resolvers OpenFGA uses for
 			// the whole model; keep that choice unchanged.
 			if weightedGraphBuilds(validated) != buildable {
+				gated = append(gated, GatedFinding{f, "changes whether OpenFGA can build the weighted graph"})
 				continue
 			}
 			// Without a weighted graph (equal failure, given the check
 			// above) there are no weights to change.
 			if keepWeights && buildable && !sameWeights(weights, validated) {
+				gated = append(gated, GatedFinding{f, "changes a relation weight under a condition or wildcard"})
 				continue
 			}
 			if profileOK {
 				afterProfile, ok := resolverProfile(validated)
 				if !ok || !sameResolvers(beforeProfile, afterProfile) {
+					gated = append(gated, GatedFinding{f, "changes the resolver OpenFGA picks"})
 					continue
 				}
 			}
 			next = validated
 			rw.Applied = append(rw.Applied, f)
 		}
+		rw.Gated = gated
 		if len(rw.Applied) == applied {
 			break
 		}

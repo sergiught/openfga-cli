@@ -36,6 +36,13 @@ type Finding struct {
 	apply func(*Model)
 }
 
+// GatedFinding is a safe rewrite that was derived but not applied because a
+// safety gate rejected it.
+type GatedFinding struct {
+	Finding
+	Reason string `json:"reason" jsonschema_description:"Why the rewrite was not applied."`
+}
+
 // FindingKey identifies one applied finding by content. N only separates
 // findings that are identical in every other field: it counts the earlier
 // ones in the run.

@@ -8,7 +8,7 @@ import (
 )
 
 // ErrNoWeightedGraph is wrapped by Weights when OpenFGA's weighted graph
-// cannot be built for the model (an AND or BUT NOT on a tuple cycle).
+// cannot be built for the model (for example an AND or BUT NOT on a tuple cycle, or a tupleset type that lacks the relation).
 var ErrNoWeightedGraph = errors.New("weighted graph cannot be built")
 
 // Weights returns, per "type#relation", the upstream weight of each user

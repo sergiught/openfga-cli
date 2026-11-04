@@ -26,12 +26,13 @@ import (
 // optimizeOutput is what `model optimize` prints under --json/--yaml.
 // A finding weight of -1 means an unbounded (infinite) weight.
 type optimizeOutput struct {
-	SchemaVersion       int                `json:"schemaVersion"`
-	Model               optimizeModelInfo  `json:"model"`
-	Findings            []optimize.Finding `json:"findings"`
-	Rewrite             *rewriteOutput     `json:"rewrite"`
-	SafeRewritesBlocked string             `json:"safeRewritesBlocked,omitempty" jsonschema_description:"Why no safe rewrite was applied at all; set only when an exclusion subtracts a recursive relation."`
-	Bench               *bench.Result      `json:"bench"`
+	SchemaVersion       int                     `json:"schemaVersion"`
+	Model               optimizeModelInfo       `json:"model"`
+	Findings            []optimize.Finding      `json:"findings"`
+	Rewrite             *rewriteOutput          `json:"rewrite"`
+	Gated               []optimize.GatedFinding `json:"gated,omitempty" jsonschema_description:"Safe rewrites that were derived but not applied, with the gate reason."`
+	SafeRewritesBlocked string                  `json:"safeRewritesBlocked,omitempty" jsonschema_description:"Why no safe rewrite was applied at all; set only when an exclusion subtracts a recursive relation."`
+	Bench               *bench.Result           `json:"bench"`
 }
 
 // optimizeModelInfo identifies the analysed input.
@@ -148,6 +149,7 @@ func (c *Command) optimizeCmd() *cobra.Command {
 				Model:               optimizeModelInfo{File: path, Format: format},
 				Findings:            findings,
 				SafeRewritesBlocked: report.Blocked,
+				Gated:               report.Gated,
 			}
 			if report.Blocked != "" {
 				output.Warnf(cmd.ErrOrStderr(), "safe rewrites disabled: %s", report.Blocked)
@@ -207,7 +209,7 @@ func (c *Command) optimizeCmd() *cobra.Command {
 					return err
 				}
 			} else if !toStdout {
-				if err := renderOptimize(cmd.OutOrStdout(), findings, out.Rewrite); err != nil {
+				if err := renderOptimize(cmd.OutOrStdout(), findings, out.Gated, out.Rewrite); err != nil {
 					return err
 				}
 				if err := benchfmt.Render(cmd.OutOrStdout(), out.Bench); err != nil {
@@ -323,7 +325,8 @@ func benchSource(cmd *cobra.Command, m *openfgav1.AuthorizationModel, path strin
 	synthesize := func() (*bench.Source, map[string]any, error) {
 		src, err := bench.Synthesize(m, bench.SynthOptions{Seed: seed, Depth: depth})
 		if errors.Is(err, optimize.ErrNoWeightedGraph) {
-			return nil, nil, usageHint("this model's weighted graph cannot be built (an AND or BUT NOT sits on a tuple cycle), so tuples cannot be synthesized; benchmark with --workspace instead", err)
+			builderMsg := strings.TrimPrefix(err.Error(), optimize.ErrNoWeightedGraph.Error()+": ")
+			return nil, nil, usageHint(fmt.Sprintf("this model's weighted graph cannot be built (%s), so tuples cannot be synthesized; benchmark with --workspace instead", builderMsg), err)
 		}
 		return src, nil, err
 	}

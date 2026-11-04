@@ -15,7 +15,7 @@ import (
 // Rewrite steers around the known gaps instead of modelling them. Here: when
 // OpenFGA detects a cycle under an exclusion, the exclusion denies, and
 // whether it detects one depends on the resolver it picks. That choice is
-// model-wide (an AND or BUT NOT on a tuple cycle anywhere stops OpenFGA
+// model-wide (for example an AND or BUT NOT on a tuple cycle, or a tupleset type that lacks the relation, anywhere stops OpenFGA
 // building its weighted graph and disables the weight-based resolvers
 // everywhere), so a model with such an exclusion gets no rewrite at all.
 func recursiveExclusion(m *Model) (site string, ok bool) {
