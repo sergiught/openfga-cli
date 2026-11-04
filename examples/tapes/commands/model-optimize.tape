@@ -5,6 +5,7 @@ Output docs/site/public/recordings/model-optimize.webm
 Require ofga
 
 Set Shell "bash"
+Env OPENFGA_AGENT_MODE "0"
 Set FontFamily "MesloLGM Nerd Font Mono"
 Set FontSize 20
 Set Width 1200

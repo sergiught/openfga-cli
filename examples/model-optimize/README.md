@@ -60,10 +60,11 @@ Each finding carries its proof. The diff is against the normalized model
 ### A redundant `from parent`
 
 In `hierarchy.fga`, `document#viewer` lists both `viewer from parent` and
-`editor from parent`, but every folder editor is already a folder viewer:
+`editor from parent`, but `document#editor` already includes `editor from parent`, so the operand adds nothing:
 
 ```console
 $ ofga model optimize examples/model-optimize/hierarchy.fga
+● rewrite reformats the model: comments are dropped and relations are sorted
 Safe rewrites (1)
   document#viewer  [S4]  [user] or editor or viewer from parent or editor from parent → [user] or editor or viewer from parent
     reason: tuple-to-userset operand is already included by another operand of the union
@@ -80,10 +81,29 @@ Tuple recommendations (2)
 Diff
 --- examples/model-optimize/hierarchy.fga
 +++ examples/model-optimize/hierarchy.fga (optimized)
-@@ -15,4 +15,4 @@
-     define editor: [user] or owner or editor from parent
+@@ -5,14 +5,14 @@
+ 
+ type folder
+   relations
+-    define parent: [folder]
++    define editor: [user] or owner or editor from parent
      define owner: [user]
-     define parent: [folder]
+-    define editor: [user] or owner or editor from parent
+-    define viewer: [user] or editor or viewer from parent
+-
+-type document
+-  relations
+-    define parent: [folder]
+-    define owner: [user]
+-    define editor: [user] or owner or editor from parent
++    define parent: [folder]
++    define viewer: [user] or editor or viewer from parent
++
++type document
++  relations
++    define editor: [user] or owner or editor from parent
++    define owner: [user]
++    define parent: [folder]
 -    define viewer: [user] or editor or viewer from parent or editor from parent
 +    define viewer: [user] or editor or viewer from parent
 ```
@@ -110,11 +130,11 @@ Benchmark · synthesis · 230 tuples · 36 checks · 20 runs
 
 Deny checks whose cost changed (1)
   CHECK            READS         DISPATCHES       P50 ms
-  document#viewer  77 → 71  -8%  12 → 11     -8%  1.52 → 1.03
+  document#viewer  77 → 71  -8%  12 → 11     -8%  1.18 → 1.29
 
   23 deny checks unchanged · 12 allow checks not compared
   (allow checks stop early, so their read counts are noise)
-in-process, indicative only
+  in-process, indicative only
 ```
 
 `Answers all 36 unchanged` is the line that matters: if any Check answered
@@ -155,7 +175,8 @@ $ ofga model optimize examples/model-optimize/roles.fga --output-file optimized.
 ```
 
 `--write` overwrites the input file instead. Both reformat the file and drop
-comments, so review the diff first. Nothing is written when there is no safe
+comments (the command warns on stderr), so review the diff first. Use
+`--output-file -` to print the rewritten model to stdout and nothing else. Nothing is written when there is no safe
 rewrite or when a benchmark finds a changed answer.
 
 ### Machine-readable

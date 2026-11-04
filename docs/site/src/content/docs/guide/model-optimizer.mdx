@@ -134,20 +134,20 @@ machine and run:
 Benchmark · synthesis · 457 tuples · 117 checks · 20 runs
 
   Deny reads       430 → 382   -11%
-  Deny dispatches   73 →  73     0%
+  Deny dispatches   73 →  73
   Answers          all 117 unchanged
 
 Deny checks whose cost changed (5)
-  CHECK                  READS            DISPATCHES        P50 ms
-  organization#can_view    7 →   6  -14%   1 →  1           0.51 → 0.52
-  folder#can_view         69 →  60  -13%  11 → 11           2.43 → 1.23
-  folder#viewer           69 →  60  -13%  11 → 11           2.03 → 1.43
-  document#can_view      158 → 139  -12%  28 → 28           3.29 → 2.66
-  document#viewer         88 →  78  -11%  16 → 16           2.62 → 2.36
+  CHECK                  READS            DISPATCHES    P50 ms
+  organization#can_view    7 →   6  -14%   1 →  1       0.32 → 0.50
+  folder#can_view         69 →  60  -13%  11 → 11       1.38 → 1.32
+  folder#viewer           69 →  60  -13%  11 → 11       1.35 → 1.43
+  document#can_view      158 → 139  -12%  28 → 28       2.07 → 2.28
+  document#viewer         88 →  78  -11%  16 → 16       1.38 → 1.71
 
   84 deny checks unchanged · 28 allow checks not compared
   (allow checks stop early, so their read counts are noise)
-in-process, indicative only
+  in-process, indicative only
 ```
 
 Only deny checks whose cost changed are listed; allow checks are counted in
@@ -244,6 +244,14 @@ same tuples, and runs the same Checks against both.
 | `--depth` | Synthesized parent-chain depth (default `6`) |
 | `--iterations` | Timed samples per check for latency (default `100`) |
 
+When synthesis cannot cover a restriction or a check, the report lists it under
+a `Not synthesized (N)` heading (the result's `skipped` field). If the benchmark
+never exercised a relation the rewrite changed, a warning names it, for example
+`1 rewritten relation was not exercised by this benchmark: folder#viewer`,
+followed by the hint `benchmark with --workspace to cover them`. The relations
+are also listed in the result's `unexercised` field, so a clean `Answers all N
+unchanged` line is not evidence about them.
+
 All of these require `--bench`. Workspace checks that use context or contextual
 tuples are skipped, each with a notice. If the workspace's tuples do not fit
 the model, the command fails with a usage error and a hint to try `--synth`.
@@ -264,10 +272,17 @@ ofga model optimize model.json --output-file optimized.fga
   refuses stdin and JSON input.
 - `--output-file <path>` writes the rewritten DSL elsewhere and also accepts
   JSON or stdin input.
+- `--output-file -` writes the rewritten DSL to stdout, so stdout carries
+  only the model and can be piped. The findings, the diff and the benchmark
+  report are not printed; notices and the `wrote rewritten model to stdout`
+  line go to stderr. It cannot be combined with `--json` or `--yaml`, which
+  also write to stdout.
 - The two flags are mutually exclusive. The global `--output/-o` selects the
   output format and has nothing to do with the destination.
 - **The rewrite is regenerated from the parsed model, so `--write` reformats
-  the file and drops comments.** Review the diff first.
+  the file and drops comments.** Review the diff first. When the output will
+  reformat the model, the command prints `rewrite reformats the model:
+  comments are dropped and relations are sorted` on stderr.
 - The diff and the `--write` output are the normalized DSL: relations are
   sorted and the file is reformatted, so the diff can show lines that moved
   without a rewrite.
@@ -282,6 +297,14 @@ ofga model optimize model.json --output-file optimized.fga
 | 1 | error |
 | 2 | usage error, including an invalid model |
 | 3 | the benchmark found a check whose answer changed |
+
+In `--json` and `--yaml` output every finding carries a stable `key`
+(`type#relation:id:proof`, with `#N` appended when the same finding is applied
+more than once), and `rewrite.applied` lists the keys of the applied findings
+in order. A safe rewrite that was derived but not applied because a safety
+gate rejected it is listed in the top-level `gated` array, each entry being a
+finding plus a `gate` field with the reason. In human output these appear under
+a `Not applied (N)` heading.
 
 See [Testing authorization models](../model-testing/) for checking a model
 against your own expectations, and [Output schemas](../output-schemas/) for the

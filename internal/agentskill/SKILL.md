@@ -195,12 +195,26 @@ ofga model optimize model.fga --json
 ofga model optimize model.fga --bench --json
 ```
 
-Treat `findings[]` as data: each has `id`, `tier` (`safe`, `caller` or
-`tuple`), `type`, `relation`, `reason` and, for safe ones, `before`, `after`
-and `proof`. Only `safe` findings are rewrites; `caller` and `tuple` findings
-are advice, and a weight of `-1` means unbounded. `rewrite.dsl` is the whole
-rewritten model. Apply it only with `--write` (or `--output-file <path>`) after
-a person has reviewed the diff: `--write` reformats the file and drops
-comments, and nothing is written when no safe rewrite applies. `--bench` is
-opt-in; exit 3 means a benchmark check changed its answer, so nothing was
-written. Exit 2 includes an invalid model.
+Treat `findings[]` as data: each has `key` (a stable identity,
+`type#relation:id:proof`, with `#N` appended for repeats), `id`, `tier`
+(`safe`, `caller` or `tuple`), `type`, `relation`, `reason` and, for safe ones,
+`before`, `after` and `proof`. Only `safe` findings are rewrites; `caller` and
+`tuple` findings are advice, and a weight of `-1` means unbounded.
+`rewrite.applied` lists the keys of the applied findings and `rewrite.dsl` is
+the whole rewritten model.
+
+`gated[]` lists safe rewrites that were derived but not applied because a
+safety gate rejected them: each entry is a finding plus a `gate` string giving
+the reason. Do not apply them by hand; report the `gate` reason instead.
+
+Apply the rewrite only with `--write` (or `--output-file <path>`) after a
+person has reviewed the diff: `--write` reformats the file and drops comments,
+and nothing is written when no safe rewrite applies. `--output-file -` prints
+only the rewritten DSL to stdout (no findings, diff or benchmark report) and
+cannot be combined with `--json` or `--yaml`.
+
+`--bench` is opt-in. In `bench`, `unexercised` names relations the rewrite
+changed that no benchmark check exercised, and `skipped` lists what synthesis
+could not cover; a clean benchmark says nothing about either, so rerun with
+`--workspace` to cover them. Exit 3 means a benchmark check changed its answer,
+so nothing was written. Exit 2 includes an invalid model.
