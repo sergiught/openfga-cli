@@ -81,4 +81,8 @@ type Result struct {
 	// effect of the rewrite: the original model's answer varied between
 	// re-runs, or the check cannot reach any relation the rewrite changed.
 	Unstable []Mismatch `json:"unstable"`
+	// Unexercised are rewritten relations ("type#relation") whose dependency
+	// path reaches a restriction synthesis skipped, so the benchmark never
+	// exercised the rewrite. Set by the command for synthesized sources only.
+	Unexercised []string `json:"unexercised,omitempty"`
 }

@@ -172,8 +172,8 @@ func TestSynthesize_UsersetSubjectChecks(t *testing.T) {
 		return slices.IndexFunc(src.Checks, func(c Check) bool { return c.Name == name })
 	}
 	want := []Check{
-		{Name: "deny document#can_view (document#viewer)", User: "document:t1#viewer", Relation: "can_view", Object: "document:t1"},
-		{Name: "deny folder#viewer (folder#parent)", User: "folder:t1#parent", Relation: "viewer", Object: "folder:t1"},
+		{Name: "probe document#can_view (document#viewer)", User: "document:t1#viewer", Relation: "can_view", Object: "document:t1"},
+		{Name: "probe folder#viewer (folder#parent)", User: "folder:t1#parent", Relation: "viewer", Object: "folder:t1"},
 	}
 	for _, w := range want {
 		if !slices.Contains(src.Checks, w) {
@@ -204,5 +204,24 @@ func TestSynthesize_UsersetSubjectChecks(t *testing.T) {
 	}
 	if allow >= 0 && us > allow {
 		t.Errorf("userset check at %d follows allow at %d", us, allow)
+	}
+}
+
+func TestSynthesize_UsersetChecksAreProbes(t *testing.T) {
+	src, err := Synthesize(loadRef(t), SynthOptions{Seed: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, c := range src.Checks {
+		if strings.Contains(c.User, "#") {
+			found = true
+			if !strings.HasPrefix(c.Name, "probe ") {
+				t.Errorf("userset check %q should be named probe ...", c.Name)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no userset-subject checks synthesized")
 	}
 }

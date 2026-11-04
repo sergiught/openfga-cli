@@ -170,7 +170,7 @@ func Synthesize(m *openfgav1.AuthorizationModel, o SynthOptions) (*Source, error
 						continue
 					}
 					src.Checks = append(src.Checks, Check{
-						Name:     fmt.Sprintf("deny %s#%s (%s#%s)", typ, rel, typ, other),
+						Name:     fmt.Sprintf("probe %s#%s (%s#%s)", typ, rel, typ, other),
 						User:     fmt.Sprintf("%s:t1#%s", typ, other),
 						Relation: rel,
 						Object:   typ + ":t1",

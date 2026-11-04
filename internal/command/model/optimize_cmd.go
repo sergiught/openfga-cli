@@ -185,6 +185,15 @@ func (c *Command) optimizeCmd() *cobra.Command {
 				out.Rewrite = &rewriteOutput{Applied: ids, DSL: after, Diff: unifiedDiff(label, before, after)}
 			}
 
+			structured := c.cli.JSON || c.cli.YAML
+			// Human mode prints findings and the diff before the (slow)
+			// benchmark so the user has something to read while it runs.
+			if !structured && !toStdout {
+				if err := renderOptimize(cmd.OutOrStdout(), findings, out.Gated, out.Rewrite); err != nil {
+					return err
+				}
+			}
+
 			if runBench {
 				var afterModel *openfgav1.AuthorizationModel
 				if report.Rewrite != nil {
@@ -194,6 +203,9 @@ func (c *Command) optimizeCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				if !structured && !toStdout && !output.Quiet && !output.Terse {
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "benchmarking %d checks × %d runs…\n", len(src.Checks), iters)
+				}
 				res, err := benchRunFn(cmd.Context(), lm.Proto, afterModel, src, bench.Options{Iterations: iters, ServerOpts: serverOpts})
 				if err != nil {
 					if src.Kind == "workspace" && errors.Is(err, bench.ErrSetup) {
@@ -201,17 +213,17 @@ func (c *Command) optimizeCmd() *cobra.Command {
 					}
 					return fmt.Errorf("benchmark: %w", err)
 				}
+				if src.Kind == "synthesis" && report.Rewrite != nil {
+					res.Unexercised = Unexercised(report.Rewrite.After, report.Rewrite.Applied, res.Skipped)
+				}
 				out.Bench = res
 			}
 
-			if c.cli.JSON || c.cli.YAML {
+			if structured {
 				if err := output.Emit(cmd.OutOrStdout(), c.cli.YAML, out); err != nil {
 					return err
 				}
 			} else if !toStdout {
-				if err := renderOptimize(cmd.OutOrStdout(), findings, out.Gated, out.Rewrite); err != nil {
-					return err
-				}
 				if err := benchfmt.Render(cmd.OutOrStdout(), out.Bench); err != nil {
 					return err
 				}

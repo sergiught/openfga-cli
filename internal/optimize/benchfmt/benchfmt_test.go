@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/sergiught/openfga-cli/internal/optimize/bench"
 )
 
@@ -145,5 +147,63 @@ func TestTotals_MatchesRender(t *testing.T) {
 			}
 			pos += 1 + i
 		}
+	}
+}
+
+func skippedResult(unexercised ...string) *bench.Result {
+	return &bench.Result{
+		Source: "synthesis", TupleCount: 3,
+		Skipped:     []string{"doc#parent: conditioned-only restriction folder (condition active)"},
+		Unexercised: unexercised,
+		Checks:      []bench.CheckResult{{Check: bench.Check{Name: "deny a"}, Before: bench.Metrics{Reads: 5}, After: &bench.Metrics{Reads: 4}}},
+		Totals:      bench.Totals{DenyReadsBefore: 5, DenyReadsAfter: 4},
+	}
+}
+
+func TestRenderBench_ListsSkippedAndUnexercised(t *testing.T) {
+	var buf bytes.Buffer
+	if err := Render(&buf, skippedResult("doc#viewer", "doc#can_view")); err != nil {
+		t.Fatal(err)
+	}
+	out := ansi.Strip(buf.String())
+	for _, want := range []string{
+		"Not synthesized (1)",
+		"\n  doc#parent: conditioned-only restriction folder (condition active)",
+		"2 rewritten relations were not exercised by this benchmark: doc#viewer, doc#can_view",
+		"benchmark with --workspace to cover them",
+		"\n  in-process, indicative only",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Index(out, "Not synthesized") > strings.Index(out, "CHECK") {
+		t.Errorf("skipped block should come before the table:\n%s", out)
+	}
+	buf.Reset()
+	if err := Render(&buf, skippedResult("doc#viewer")); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(ansi.Strip(buf.String()), "1 rewritten relation was not exercised by this benchmark: doc#viewer") {
+		t.Errorf("singular form missing:\n%s", buf.String())
+	}
+}
+
+func TestSummary_HasNoTable(t *testing.T) {
+	lines := Summary(skippedResult("doc#viewer"))
+	out := strings.Join(lines, "\n")
+	if !strings.HasPrefix(lines[0], "Benchmark") && !strings.Contains(lines[0], "Benchmark") {
+		t.Errorf("first line is not the header: %q", lines[0])
+	}
+	if strings.TrimSpace(lines[0]) == "" {
+		t.Errorf("leading blank line: %q", lines[0])
+	}
+	for _, want := range []string{"Deny reads", "1 rewritten relation was not exercised"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("summary lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "CHECK") || strings.Contains(out, "Not synthesized") {
+		t.Errorf("summary has table or skipped block:\n%s", out)
 	}
 }

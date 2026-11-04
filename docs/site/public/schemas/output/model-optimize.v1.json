@@ -259,6 +259,12 @@
           },
           "type": "array"
         },
+        "unexercised": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "unstable": {
           "items": {
             "$ref": "#/$defs/Mismatch"

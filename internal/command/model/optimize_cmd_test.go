@@ -1028,3 +1028,59 @@ func TestOptimize_JSONSyntaxErrorHasLineAndColumn(t *testing.T) {
 		t.Fatalf("details = %#v (code %q, message %q)", e.Details, e.Code, e.Message)
 	}
 }
+
+func TestOptimize_BenchReportsUnexercised(t *testing.T) {
+	got := benchJSON(t, "../../optimize/testdata/cond_tupleset.fga", "--bench", "--synth", "--iterations", "1")
+	if len(got.Bench.Skipped) == 0 {
+		t.Fatalf("expected skipped restrictions: %+v", got.Bench)
+	}
+	if len(got.Bench.Unexercised) == 0 {
+		t.Fatalf("bench.unexercised empty; skipped=%v", got.Bench.Skipped)
+	}
+}
+
+func TestOptimize_HumanPrintsFindingsBeforeBench(t *testing.T) {
+	t.Setenv("OPENFGA_AGENT_MODE", "0")
+	out, errOut, err := runOptimize(t, "", false, optimizeReference, "--bench", "--iterations", "2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out = ansi.Strip(out)
+	if !strings.Contains(ansi.Strip(errOut), "benchmarking ") || !strings.Contains(errOut, "× 2 runs…") {
+		t.Errorf("progress line missing on stderr:\n%s", errOut)
+	}
+	f, b := strings.Index(out, "Benchmark ·"), strings.Index(out, "diff")
+	if b < 0 {
+		b = strings.Index(out, "---")
+	}
+	if f < 0 || b < 0 || b > f {
+		t.Errorf("findings/diff should print before the benchmark (diff@%d bench@%d):\n%s", b, f, out)
+	}
+	_, errOut, err = runOptimize(t, "", true, optimizeReference, "--bench", "--iterations", "2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(errOut, "benchmarking") {
+		t.Errorf("progress line printed under --json:\n%s", errOut)
+	}
+}
+
+func TestUnexercised(t *testing.T) {
+	data, err := os.ReadFile("../../optimize/testdata/cond_tupleset.fga")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lm, err := modeltest.LoadModelBytes(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := optimize.NewModel(lm.Proto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applied := []optimize.Finding{{Type: "doc", Relation: "viewer"}, {Type: "folder", Relation: "admin"}, {Type: "doc", Relation: "viewer"}}
+	got := Unexercised(m, applied, []string{"doc#parent: conditioned-only restriction folder (condition active)"})
+	if !slices.Equal(got, []string{"doc#viewer"}) {
+		t.Errorf("got %v", got)
+	}
+}

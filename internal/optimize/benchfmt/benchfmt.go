@@ -52,16 +52,28 @@ func Render(w io.Writer, r *bench.Result) error {
 		return nil
 	}
 	profile := len(r.Checks) > 0 && r.Checks[0].After == nil
-	head := []string{"Benchmark", r.Source, Plural(r.TupleCount, "tuple"), Plural(len(r.Checks), "check")}
-	if r.Iterations > 0 {
-		head = append(head, Plural(r.Iterations, "run"))
-	}
-	if _, err := fmt.Fprintf(w, "\n%s\n\n", style.Heading.Render(strings.Join(head, " · "))); err != nil {
+	if _, err := fmt.Fprintf(w, "\n%s\n\n", style.Heading.Render(strings.Join(header(r), " · "))); err != nil {
 		return err
 	}
 
 	for _, l := range Totals(r) {
 		if _, err := fmt.Fprintln(w, l); err != nil {
+			return err
+		}
+	}
+
+	if len(r.Skipped) > 0 {
+		if _, err := fmt.Fprintf(w, "\n%s\n", style.Heading.Render(fmt.Sprintf("Not synthesized (%d)", len(r.Skipped)))); err != nil {
+			return err
+		}
+		for _, s := range r.Skipped {
+			if _, err := fmt.Fprintf(w, "  %s\n", s); err != nil {
+				return err
+			}
+		}
+	}
+	if len(r.Unexercised) > 0 {
+		if _, err := fmt.Fprintf(w, "%s\n  %s\n", unexercisedWarning(r), style.Faint.Render(unexercisedHint)); err != nil {
 			return err
 		}
 	}
@@ -159,8 +171,48 @@ func Render(w io.Writer, r *bench.Result) error {
 	} else if _, err := fmt.Fprintln(w); err != nil {
 		return err
 	}
-	_, err := fmt.Fprintf(w, "%s\n", style.Faint.Render("in-process, indicative only"))
+	_, err := fmt.Fprintf(w, "  %s\n", style.Faint.Render("in-process, indicative only"))
 	return err
+}
+
+const unexercisedHint = "benchmark with --workspace to cover them"
+
+// unexercisedWarning is the warning line naming the rewritten relations the
+// benchmark never exercised.
+func unexercisedWarning(r *bench.Result) string {
+	n := len(r.Unexercised)
+	verb := "were"
+	if n == 1 {
+		verb = "was"
+	}
+	noun := "rewritten relations"
+	if n == 1 {
+		noun = "rewritten relation"
+	}
+	return style.Warn.Render(fmt.Sprintf("  %d %s %s not exercised by this benchmark: %s", n, noun, verb, strings.Join(r.Unexercised, ", ")))
+}
+
+// Summary returns the benchmark header, totals and unexercised warning as
+// lines, without the table or any leading blank line.
+func Summary(r *bench.Result) []string {
+	if r == nil {
+		return nil
+	}
+	lines := []string{style.Heading.Render(strings.Join(header(r), " · "))}
+	lines = append(lines, Totals(r)...)
+	if len(r.Unexercised) > 0 {
+		lines = append(lines, unexercisedWarning(r))
+	}
+	return lines
+}
+
+// header is the parts of the "Benchmark · ..." heading.
+func header(r *bench.Result) []string {
+	head := []string{"Benchmark", r.Source, Plural(r.TupleCount, "tuple"), Plural(len(r.Checks), "check")}
+	if r.Iterations > 0 {
+		head = append(head, Plural(r.Iterations, "run"))
+	}
+	return head
 }
 
 // Pair renders "before → after" with each half right-aligned to its width.
