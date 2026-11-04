@@ -116,11 +116,12 @@ func rewrite(m *Model, accept map[FindingKey]bool) (*RewriteResult, error) {
 			if admit != nil && !admit(f) {
 				continue
 			}
+			// Only an applied rewrite takes the relation's slot for this pass,
+			// so a gated candidate does not hide a later independent one.
 			key := f.Type + "#" + f.Relation
 			if seen[key] {
 				continue
 			}
-			seen[key] = true
 			cand := next.Clone()
 			f.apply(cand)
 			// An edit that is sound in the lattice can still leave the model
@@ -149,6 +150,7 @@ func rewrite(m *Model, accept map[FindingKey]bool) (*RewriteResult, error) {
 					continue
 				}
 			}
+			seen[key] = true
 			next = validated
 			rw.Applied = append(rw.Applied, f)
 		}

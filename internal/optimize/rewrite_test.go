@@ -416,3 +416,25 @@ func TestRewriteSubset_S3IndependentDuplicate(t *testing.T) {
 		t.Fatalf("After DSL:\n%s\nwant define r: [user] or a or a or b", dsl)
 	}
 }
+
+// TestRewrite_GatedFindingDoesNotHideIndependentOne pins that a candidate the
+// safety gates reject leaves its relation open to a later, independent one.
+func TestRewrite_GatedFindingDoesNotHideIndependentOne(t *testing.T) {
+	data, err := os.ReadFile("testdata/ttu_multi_parent_vacuous.fga")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := strings.Replace(string(data),
+		"    define viewer: admin from parent or viewer from parent\n",
+		"    define home: [folder]\n    define viewer: admin from parent or viewer from parent or admin from home or viewer from home\n", 1)
+	rw, err := Rewrite(loadInline(t, src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rw.Applied) != 1 || rw.Applied[0].Proof != "doc#admin from home ⊆ doc#viewer from home" {
+		t.Fatalf("applied = %+v, want the independent home rewrite", rw.Applied)
+	}
+	if len(rw.Gated) != 1 || rw.Gated[0].Proof != "doc#admin from parent ⊆ doc#viewer from parent" {
+		t.Errorf("gated = %+v, want the parent rewrite held back", rw.Gated)
+	}
+}

@@ -124,7 +124,9 @@ func termString(t Term) string {
 }
 
 // unionRule finds union operands (selected by droppable) contained in another
-// operand of the same union. The equivalent-operands branch (keep the earlier
+// operand of the same union. It yields one candidate per droppable operand;
+// Rewrite applies at most one per relation per pass, so a candidate the
+// safety gates reject does not hide a later independent one. The equivalent-operands branch (keep the earlier
 // one) is defensive: aliases are one-way and OpenFGA rejects computed cycles,
 // so Equivalent holds only for identical keys, already excluded as syntactic
 // duplicates, and degenerate TTU pairs.
@@ -144,8 +146,7 @@ func unionRule(m *Model, l *Lattice, id, reason string, droppable func(Term) boo
 			for i, c := range kids {
 				terms[i], ok[i] = TermOf(typ, rel, c, md)
 			}
-			found := false
-			for i := 0; i < len(kids) && !found; i++ {
+			for i := range kids {
 				if !ok[i] || !droppable(terms[i]) {
 					continue
 				}
@@ -164,7 +165,6 @@ func unionRule(m *Model, l *Lattice, id, reason string, droppable func(Term) boo
 					}
 					if good {
 						out = append(out, f)
-						found = true
 					}
 					break
 				}
@@ -253,7 +253,6 @@ func ruleS3(m *Model, l *Lattice) []Finding {
 				continue
 			}
 			kids := site.Union.GetChild()
-		scan:
 			for j := 1; j < len(kids); j++ {
 				if kids[j].GetThis() != nil {
 					continue
@@ -271,7 +270,7 @@ func ruleS3(m *Model, l *Lattice) []Finding {
 					if good {
 						out = append(out, f)
 					}
-					break scan
+					break // one candidate per duplicate operand
 				}
 			}
 		}
