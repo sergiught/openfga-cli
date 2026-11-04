@@ -243,12 +243,33 @@ func (c *Command) optimizeCmd() *cobra.Command {
 				}
 			}
 			if out.Rewrite == nil {
+				if write {
+					output.Infof(cmd.ErrOrStderr(), "no safe rewrites; nothing written to %s", dest)
+					return nil
+				}
 				if dest != "" {
+					// --output-file always yields the destination: the input
+					// bytes for DSL, otherwise its DSL rendering.
+					unchanged := string(data)
+					if format == "json" {
+						m, err := optimize.NewModel(lm.Proto)
+						if err != nil {
+							return fmt.Errorf("render original model: %w", err)
+						}
+						if unchanged, err = m.DSL(); err != nil {
+							return fmt.Errorf("render original model: %w", err)
+						}
+					}
 					shown := dest
 					if toStdout {
 						shown = "stdout"
+						if _, err := io.WriteString(cmd.OutOrStdout(), unchanged); err != nil {
+							return err
+						}
+					} else if err := writeFileAtomic(dest, unchanged); err != nil {
+						return err
 					}
-					output.Infof(cmd.ErrOrStderr(), "no safe rewrites; nothing written to %s", shown)
+					output.Infof(cmd.ErrOrStderr(), "no safe rewrites; wrote the unchanged model to %s", shown)
 					return nil
 				}
 				if label := tierLabel(tiers); label != "" && len(findings) == 0 {

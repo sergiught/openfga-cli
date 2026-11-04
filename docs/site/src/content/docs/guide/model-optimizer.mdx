@@ -287,8 +287,10 @@ ofga model optimize model.json --output-file optimized.fga
 - The diff and the `--write` output are the normalized DSL: relations are
   sorted and the file is reformatted, so the diff can show lines that moved
   without a rewrite.
-- Nothing is written when no safe rewrite applies, or when the benchmark finds
-  a changed answer.
+- When no safe rewrite applies, `--write` leaves the file alone, while
+  `--output-file` writes the unchanged model to its destination (the input bytes
+  for DSL, the DSL rendering for JSON) and says so on stderr. Nothing is written
+  when the benchmark finds a changed answer.
 
 ## Exit codes
 

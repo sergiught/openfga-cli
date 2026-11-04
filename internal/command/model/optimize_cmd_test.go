@@ -946,23 +946,31 @@ func TestOptimize_OutputFileStdoutWithJSONIsUsage(t *testing.T) {
 	}
 }
 
-func TestOptimize_NothingWrittenIsSaid(t *testing.T) {
+func TestOptimize_OutputFileWithoutRewriteWritesUnchangedModel(t *testing.T) {
 	dest := filepath.Join(t.TempDir(), "out.fga")
+	if err := os.WriteFile(dest, []byte("junk from an earlier run"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	_, errOut, err := runOptimize(t, noRewriteModel, false, "-", "--output-file", dest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "no safe rewrites; nothing written to " + dest; !strings.Contains(errOut, want) {
+	if want := "no safe rewrites; wrote the unchanged model to " + dest; !strings.Contains(errOut, want) {
 		t.Errorf("stderr lacks %q:\n%s", want, errOut)
 	}
-	if _, err := os.Stat(dest); err == nil {
-		t.Error("file was written")
+	got, err := os.ReadFile(dest)
+	if err != nil || string(got) != noRewriteModel {
+		t.Errorf("out file = %q, %v; want the input bytes", got, err)
 	}
-	_, errOut, err = runOptimize(t, noRewriteModel, false, "-", "--output-file", "-")
+
+	out, errOut, err := runOptimize(t, noRewriteModel, false, "-", "--output-file", "-")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "nothing written to stdout"; !strings.Contains(errOut, want) {
+	if out != noRewriteModel {
+		t.Errorf("stdout = %q, want the input bytes", out)
+	}
+	if want := "no safe rewrites; wrote the unchanged model to stdout"; !strings.Contains(errOut, want) {
 		t.Errorf("stderr lacks %q:\n%s", want, errOut)
 	}
 }

@@ -176,8 +176,9 @@ $ ofga model optimize examples/model-optimize/roles.fga --output-file optimized.
 
 `--write` overwrites the input file instead. Both reformat the file and drop
 comments (the command warns on stderr), so review the diff first. Use
-`--output-file -` to print the rewritten model to stdout and nothing else. Nothing is written when there is no safe
-rewrite or when a benchmark finds a changed answer.
+`--output-file -` to print the rewritten model to stdout and nothing else. With no safe rewrite, `--write` leaves the
+file alone, while `--output-file` writes the unchanged model to its destination so a pipeline always has output. A
+benchmark that finds a changed answer writes nothing.
 
 ### Machine-readable
 
