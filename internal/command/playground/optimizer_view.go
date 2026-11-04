@@ -94,12 +94,18 @@ func (m Model) profileLines(w, h int) []string {
 	}
 	lines = append(lines, style.Faint.Render(cell("CHECK", "READS", "DISPATCHES", "P50 ms")))
 
-	// Rows that fit between the header block and the footer, leaving a line
-	// for "… N more".
-	avail := max(1, h-len(lines)-len(foot)-1)
+	// Rows that fit between the header block and the footer; when they do not
+	// all fit, two lines are kept for "… N above" / "… N below".
+	avail := max(1, h-len(lines)-len(foot))
+	if len(rows) > avail {
+		avail = max(1, avail-2)
+	}
 	cur := max(0, min(m.opt.cursor, len(rows)-1))
-	start := max(0, cur-avail+1)
+	start := max(0, min(cur-avail/2, len(rows)-avail))
 	end := min(len(rows), start+avail)
+	if start > 0 {
+		lines = append(lines, style.Faint.Render(fmt.Sprintf("  … %d above", start)))
+	}
 	for i := start; i < end; i++ {
 		c := rows[i]
 		l := cell(names[i], fmt.Sprint(c.Before.Reads), benchfmt.Dispatch(c.Before.Dispatches), fmt.Sprintf("%.2f", c.Before.P50Ms))
@@ -111,8 +117,8 @@ func (m Model) profileLines(w, h int) []string {
 		}
 		lines = append(lines, l)
 	}
-	if more := len(rows) - (end - start); more > 0 {
-		lines = append(lines, style.Faint.Render(fmt.Sprintf("  … %d more", more)))
+	if below := len(rows) - end; below > 0 {
+		lines = append(lines, style.Faint.Render(fmt.Sprintf("  … %d below", below)))
 	}
 	return append(lines, foot...)
 }
@@ -162,11 +168,25 @@ func (m Model) reviewBody(w, h int) string {
 		}
 	case o.report != nil && o.report.Blocked != "":
 		lines = append(lines, strings.Split(ansi.Wrap(style.Warn.Render(o.report.Blocked), max(1, lw), ""), "\n")...)
-	case o.report != nil && len(o.advice) == 0:
+	case o.report != nil && len(o.advice) == 0 && len(o.gated) == 0:
 		lines = append(lines, style.Faint.Render("Nothing to optimize"))
-	case o.report != nil:
+	case o.report != nil && len(o.gated) == 0:
 		lines = append(lines, wrapLines(style.Faint.Render("No safe rewrites — nothing to change automatically"), lw)...)
 	}
+	if len(o.gated) > 0 {
+		if len(lines) > 0 {
+			lines = append(lines, "")
+		}
+		lines = append(lines, style.Heading.Render(fmt.Sprintf("Derived, not applied · %d", len(o.gated))))
+		for i, g := range o.gated {
+			sel := len(o.rows)+i == cur
+			lines = append(lines, o.reviewRow("    "+g.Type+"#"+g.Relation+" "+g.ID+" (not applied)", sel, true))
+			if sel {
+				curLine = len(lines) - 1
+			}
+		}
+	}
+	adv := len(o.rows) + len(o.gated)
 	if len(o.advice) > 0 {
 		if len(lines) > 0 {
 			lines = append(lines, "")
@@ -174,8 +194,8 @@ func (m Model) reviewBody(w, h int) string {
 		lines = append(lines, style.Heading.Render(fmt.Sprintf("Worth a look · %d", len(o.advice))))
 		lines = append(lines, wrapLines(style.Faint.Render("can't be rewritten safely — select one for details"), lw)...)
 		for i, f := range o.advice {
-			lines = append(lines, o.reviewRow(f.ID+" "+f.Type+"#"+f.Relation, len(o.rows)+i == cur, false))
-			if len(o.rows)+i == cur {
+			lines = append(lines, o.reviewRow(f.ID+" "+f.Type+"#"+f.Relation, adv+i == cur, false))
+			if adv+i == cur {
 				curLine = len(lines) - 1
 			}
 		}
@@ -239,15 +259,26 @@ func (m Model) reviewCard(cur int) (string, string) {
 		return "Selection benchmark", strings.TrimRight(buf.String(), "\n")
 	}
 	var f optimize.Finding
+	adv := len(o.rows) + len(o.gated)
+	gated := cur >= len(o.rows) && cur < adv
 	switch {
 	case cur < len(o.rows):
 		f = o.rows[cur]
-	case cur-len(o.rows) < len(o.advice):
-		f = o.advice[cur-len(o.rows)]
+	case gated:
+		f = o.gated[cur-len(o.rows)].Finding
+	case cur-adv < len(o.advice):
+		f = o.advice[cur-adv]
 	default:
 		return "", ""
 	}
 	title := f.ID + " " + f.Type + "#" + f.Relation
+	if gated {
+		title += " (not applied)"
+		return title, strings.Join([]string{
+			style.Warn.Render("Not applied: " + o.gated[cur-len(o.rows)].Gate), "",
+			style.Failure.Render("- " + f.Before), style.Success.Render("+ " + f.After), "", f.Reason,
+		}, "\n")
+	}
 	if cur >= len(o.rows) {
 		title = f.Type + "#" + f.Relation + " · " + f.ID
 		if n := adviceNames[f.ID]; n != "" {

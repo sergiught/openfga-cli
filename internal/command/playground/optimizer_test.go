@@ -299,12 +299,105 @@ func TestOptimizer_BlockedModel(t *testing.T) {
 	if mm.opt.view != optReview || mm.opt.running {
 		t.Error("w changed state on a blocked model")
 	}
+	if mm.status != "rewrites are blocked for this model" {
+		t.Errorf("status = %q", mm.status)
+	}
 }
 
 func TestOptimizer_NothingToOptimize(t *testing.T) {
 	m := review(t, "model\n  schema 1.1\n\ntype user\n")
 	if out := view(m); !strings.Contains(out, "Nothing to optimize") {
 		t.Errorf("missing message:\n%s", out)
+	}
+	m, _ = m.Update(key("w"))
+	if got := m.(Model).status; got != "no safe rewrites to apply" {
+		t.Errorf("status = %q", got)
+	}
+}
+
+func TestOptimizer_CursorMoveClearsError(t *testing.T) {
+	m := review(t, referenceDSL(t))
+	mm := m.(Model)
+	mm.opt.err = "boom"
+	m = mm
+	if out := view(m); !strings.Contains(out, "boom") {
+		t.Fatalf("error card not shown:\n%s", out)
+	}
+	m, _ = m.Update(key("j"))
+	if out := view(m); strings.Contains(out, "boom") {
+		t.Errorf("stale error still shown after moving the cursor:\n%s", out)
+	}
+}
+
+func TestOptimizer_ProfileWindowCentresAndLabels(t *testing.T) {
+	var checks []bench.CheckResult
+	for i := 0; i < 12; i++ {
+		var c bench.CheckResult
+		c.Name = fmt.Sprintf("deny r%02d", i)
+		c.Before.Reads = int64(100 - i)
+		checks = append(checks, c)
+	}
+	mm := newTestModel().(Model)
+	mm.opt.profile = &bench.Result{Checks: checks}
+	mm.opt.cursor = 7
+	for h := 8; h < 40; h++ {
+		lines := mm.profileLines(80, h)
+		var rows []string
+		for _, l := range lines {
+			if f := strings.Fields(ansi.Strip(l)); len(f) > 0 && len(f[0]) == 3 && f[0][0] == 'r' {
+				rows = append(rows, f[0])
+			}
+		}
+		if len(rows) != 5 {
+			continue
+		}
+		if rows[0] != "r05" || rows[4] != "r09" {
+			t.Fatalf("window = %v, want r05..r09", rows)
+		}
+		out := ansi.Strip(strings.Join(lines, "\n"))
+		for _, want := range []string{"… 5 above", "… 2 below"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("missing %q:\n%s", want, out)
+			}
+		}
+		return
+	}
+	t.Fatal("no height showed exactly 5 rows")
+}
+
+func TestOptimizer_FooterWording(t *testing.T) {
+	m := review(t, referenceDSL(t))
+	out := view(m)
+	if !strings.Contains(out, "esc back to graph") || strings.Contains(out, "esc cancel") {
+		t.Errorf("review footer:\n%s", out)
+	}
+	m, _ = shiftB(t, optModel(t, referenceDSL(t)), true)
+	out = view(m)
+	if !strings.Contains(out, "esc back to graph") || strings.Contains(out, "esc cancel") {
+		t.Errorf("bench footer:\n%s", out)
+	}
+}
+
+func TestOptimizer_GatedRowShown(t *testing.T) {
+	b, err := os.ReadFile("../../optimize/testdata/ttu_multi_parent_vacuous.fga")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := review(t, string(b))
+	out := view(m)
+	// The card is narrow and hard-wraps, so compare without whitespace.
+	flat := strings.Join(strings.Fields(out), "")
+	for _, want := range []string{"doc#viewer S4 (not applied)", "changes whether OpenFGA can build the weighted graph"} {
+		if !strings.Contains(flat, strings.Join(strings.Fields(want), "")) {
+			t.Errorf("view missing %q:\n%s", want, out)
+		}
+	}
+	for _, k := range []string{"space", "a", "w", "B"} {
+		m, _ = m.Update(key(k))
+	}
+	mm := m.(Model)
+	if len(mm.opt.accepted) != 0 || mm.opt.dialog || mm.opt.running {
+		t.Errorf("gated row was selectable: %+v", mm.opt.accepted)
 	}
 }
 

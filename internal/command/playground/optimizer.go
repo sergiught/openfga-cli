@@ -59,6 +59,7 @@ type optimizer struct {
 	accepted map[optimize.FindingKey]bool
 	subset   *optimize.RewriteResult // RewriteSubset(model, accepted)
 	advice   []optimize.Finding      // findings that are not safe rewrites
+	gated    []optimize.GatedFinding // derived safe rewrites that were not applied; not selectable
 	selBench *bench.Result           // last review-B result; cleared on toggle or cursor move
 
 	// Write dialog (w).
@@ -187,8 +188,9 @@ func (m *Model) handleOptKey(key string) (tea.Cmd, bool) {
 func (m *Model) moveOptCursor(d int) {
 	n := len(denyRows(m.opt.profile))
 	if m.opt.view == optReview {
-		n = len(m.opt.rows) + len(m.opt.advice)
+		n = len(m.opt.rows) + len(m.opt.gated) + len(m.opt.advice)
 		m.opt.selBench = nil
+		m.opt.err = ""
 	}
 	m.opt.cursor = max(0, min(m.opt.cursor+d, n-1))
 }
@@ -272,6 +274,7 @@ func (m *Model) openReview() tea.Cmd {
 		m.opt.rows = rep.Rewrite.Applied
 		m.opt.keys = optimize.Keys(m.opt.rows)
 	}
+	m.opt.gated = rep.Gated
 	for _, f := range rep.Findings {
 		if f.Tier != optimize.TierSafe {
 			m.opt.advice = append(m.opt.advice, f)
@@ -308,6 +311,12 @@ func (m *Model) invalidateSelection() {
 
 // noApplyHint explains why nothing can be benchmarked or written yet.
 func (o optimizer) noApplyHint() string {
+	if o.report != nil && o.report.Blocked != "" {
+		return "rewrites are blocked for this model"
+	}
+	if len(o.rows) == 0 {
+		return "no safe rewrites to apply"
+	}
 	if len(o.accepted) > 0 {
 		return "accepted rewrites depend on rejected ones"
 	}

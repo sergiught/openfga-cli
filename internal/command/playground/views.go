@@ -1014,7 +1014,7 @@ func (m Model) statusKeys() []string {
 		return []string{"↑↓", "/ filter", "↵ select", "a add", "d delete", "r reload", "esc"}
 	case secModel:
 		if m.opt.view == optReview {
-			return []string{"space accept", "a all", "w write new model", "B benchmark selection", "esc cancel"}
+			return []string{"space accept", "a all", "w write new model", "B benchmark selection", "esc back to graph"}
 		}
 		if m.opt.view == optBench {
 			return []string{"o optimize", "B re-run", "↑↓ move", "esc back to graph"}
