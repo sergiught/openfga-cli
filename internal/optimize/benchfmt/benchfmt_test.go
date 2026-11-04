@@ -263,3 +263,26 @@ func TestUnexercisedWarning_Workspace(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+// TestRenderBench_StripsTerminalEscapesFromLabels pins that workspace-derived
+// check names, users and notices cannot replay terminal control sequences.
+func TestRenderBench_StripsTerminalEscapesFromLabels(t *testing.T) {
+	const osc52 = "\x1b]52;c;aGk=\x07"
+	r := &bench.Result{
+		Source:     "workspace",
+		TupleCount: 1,
+		Checks:     []bench.CheckResult{{Check: bench.Check{Name: "t/check" + osc52}, After: &bench.Metrics{}}},
+		Mismatches: []bench.Mismatch{{
+			Check:         bench.Check{Name: "t/changed" + osc52, User: "user:a" + osc52, Relation: "viewer", Object: "document:1\x1b[2J"},
+			AllowedBefore: true,
+		}},
+		Skipped: []string{"skipped t" + osc52},
+	}
+	var buf bytes.Buffer
+	if err := Render(&buf, r); err != nil {
+		t.Fatal(err)
+	}
+	if out := buf.String(); strings.Contains(out, "]52;") || strings.Contains(out, "\x1b[2J") || strings.Contains(out, "\x07") {
+		t.Errorf("output still carries an escape:\n%q", out)
+	}
+}

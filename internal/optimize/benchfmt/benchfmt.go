@@ -35,7 +35,8 @@ func renderAnswers(w io.Writer, heading, note string, ms []bench.Mismatch) error
 		return "deny"
 	}
 	for _, m := range ms {
-		if _, err := fmt.Fprintf(w, "  %s: %s %s %s  %s %s %s\n", m.Name, m.User, m.Relation, m.Object,
+		c := style.SanitizeTerminal
+		if _, err := fmt.Fprintf(w, "  %s: %s %s %s  %s %s %s\n", c(m.Name), c(m.User), c(m.Relation), c(m.Object),
 			answer(m.AllowedBefore), style.IconArrow, answer(m.AllowedAfter)); err != nil {
 			return err
 		}
@@ -67,7 +68,7 @@ func Render(w io.Writer, r *bench.Result) error {
 			return err
 		}
 		for _, s := range r.Skipped {
-			if _, err := fmt.Fprintf(w, "  %s\n", s); err != nil {
+			if _, err := fmt.Fprintf(w, "  %s\n", style.SanitizeTerminal(s)); err != nil {
 				return err
 			}
 		}
@@ -128,7 +129,8 @@ func Render(w io.Writer, r *bench.Result) error {
 			}
 		}
 		for i, c := range rows {
-			name := strings.TrimPrefix(c.Name, "deny ")
+			// Workspace check names come from test files: untrusted text.
+			name := style.SanitizeTerminal(strings.TrimPrefix(c.Name, "deny "))
 			v := cells[i]
 			if profile {
 				_, _ = fmt.Fprintf(tw, "  %s\t%*s\t%*s\t%*s\n", name, wd[0], v[0], wd[1], v[1], wd[2], v[2])
