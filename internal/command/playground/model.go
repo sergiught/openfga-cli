@@ -826,6 +826,26 @@ func newSandboxModel(ctx context.Context, cli *cli.CLI, o SandboxOptions) Model 
 	return m
 }
 
+// applySandboxWorkspace syncs the workbench with the current store in a sandbox
+// session: on the playground profile it loads the sample workspace for the
+// store's name; on any other profile (or an unknown store) it clears it. It is
+// a no-op outside sandbox mode. Model state only, never config.
+func (m *Model) applySandboxWorkspace() {
+	if m.sandboxWorkspaces == nil {
+		return
+	}
+	var ws *modeltest.Workspace
+	if m.profile == sandboxProfileName {
+		ws = m.sandboxWorkspaces[m.storeName]
+	}
+	m.wb.workspace, m.wb.files = ws, nil
+	if ws != nil {
+		m.wb.files = ws.TestFiles
+	}
+	m.wb.results = nil
+	m.wb.treeSel = 0
+}
+
 // --- sizing ---
 
 func (m *Model) resize() {
@@ -1268,22 +1288,10 @@ func (m *Model) selectStore(s openfga.Store) tea.Cmd {
 	m.clearResourcePending()
 	m.storeID = s.ID
 	m.storeName = s.Name
-	if m.sandboxWorkspaces != nil {
-		// Sandbox: each sample store on the playground profile brings its own
-		// tests; any other store (including a real profile's) clears the
-		// workbench. Model state only, never config.
-		var ws *modeltest.Workspace
-		if m.profile == sandboxProfileName {
-			ws = m.sandboxWorkspaces[s.Name]
-			m.ephemeralStoreID = s.ID
-		}
-		m.wb.workspace, m.wb.files = ws, nil
-		if ws != nil {
-			m.wb.files = ws.TestFiles
-		}
-		m.wb.results = nil
-		m.wb.treeSel = 0
+	if m.sandboxWorkspaces != nil && m.profile == sandboxProfileName {
+		m.ephemeralStoreID = s.ID
 	}
+	m.applySandboxWorkspace()
 	m.modelID = ""
 	m.modelIsLatest = false
 	m.graph = fga.Graph{}
@@ -1605,6 +1613,7 @@ func (m *Model) activateResolved(r config.Resolved, cl *openfga.Client, status s
 	// Reset every per-connection field, then adopt the profile's store/model.
 	m.storeID = r.StoreID
 	m.storeName = ""
+	m.applySandboxWorkspace()
 	m.modelID = r.ModelID
 	m.modelIsLatest = false
 	m.stores = nil

@@ -173,6 +173,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.storeName = s.Name
 			}
 		}
+		m.applySandboxWorkspace()
 		m.populateStores()
 		m.status = plural(len(msg.stores), "store")
 		// First run with nothing selected yet: adopt the first store (and persist

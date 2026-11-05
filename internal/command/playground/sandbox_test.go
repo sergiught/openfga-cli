@@ -115,17 +115,17 @@ func TestSandboxModel_ProfileSwitchConfig(t *testing.T) {
 	if on.Active != "real" {
 		t.Fatalf("saved active = %q, want real", on.Active)
 	}
-	// A real profile's store named like a sample gets no sample tests.
-	m.selectStore(openfga.Store{ID: "r1", Name: "github"})
-	if m.wb.workspace != nil {
-		t.Fatal("real profile must not get sample workspace")
+	// Leaving the playground clears the workbench with no store pick.
+	if m.wb.workspace != nil || len(m.wb.files) != 0 {
+		t.Fatal("real profile must not keep sample workspace")
 	}
 
 	m.switchProfile("playground")
 	if m.profile != "playground" || m.storeID != "sbx-store" {
 		t.Fatalf("profile=%q store=%q", m.profile, m.storeID)
 	}
-	m.selectStore(openfga.Store{ID: "sbx-store", Name: "github"})
+	nm, _ := m.Update(storesLoadedMsg{gen: m.storesGen, stores: []openfga.Store{{ID: "sbx-store", Name: "github"}}})
+	m = nm.(Model)
 	if m.wb.workspace != wss["github"] {
 		t.Fatal("workspace not re-applied on playground")
 	}
