@@ -838,6 +838,9 @@ func (m *Model) applySandboxWorkspace() {
 	if m.profile == sandboxProfileName {
 		ws = m.sandboxWorkspaces[m.storeName]
 	}
+	if ws == m.wb.workspace {
+		return // a stores reload must not wipe results for the same store
+	}
 	m.wb.workspace, m.wb.files = ws, nil
 	if ws != nil {
 		m.wb.files = ws.TestFiles

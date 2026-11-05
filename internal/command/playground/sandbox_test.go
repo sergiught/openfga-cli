@@ -129,6 +129,13 @@ func TestSandboxModel_ProfileSwitchConfig(t *testing.T) {
 	if m.wb.workspace != wss["github"] {
 		t.Fatal("workspace not re-applied on playground")
 	}
+	// A later stores reload (refresh, store created) keeps the run's results.
+	m.wb.results = []modeltest.TestResult{{}}
+	nm, _ = m.Update(storesLoadedMsg{gen: m.storesGen, stores: []openfga.Store{{ID: "sbx-store", Name: "github"}}})
+	m = nm.(Model)
+	if len(m.wb.results) != 1 {
+		t.Fatal("stores reload wiped test results")
+	}
 
 	on, _ = config.Load()
 	for _, n := range on.ProfileNames() {
