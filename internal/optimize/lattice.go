@@ -71,7 +71,7 @@ func TermOf(typ, rel string, us *openfgav1.Userset, md *openfgav1.RelationMetada
 // Lattice is a set of proven (A ⊆ B) pairs. Reflexivity is implicit.
 //
 // Contract: A ⊆ B is recorded only when it holds for every subject of every
-// kind, including userset subjects (obj#rel), on OpenFGA v1.22.0. See
+// kind, including userset subjects (obj#rel), on OpenFGA v1.22.1. See
 // docs/superpowers/specs/2026-11-03-optimizer-soundness-design.md.
 type Lattice struct {
 	m     *Model
