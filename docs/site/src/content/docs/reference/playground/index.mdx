@@ -9,7 +9,7 @@ import CommandDemo from '../../../../components/CommandDemo.astro';
 
 <CommandDemo slug="playground" />
 
-Launch the interactive terminal UI against a built-in OpenFGA server preloaded with sample stores, under a synthetic `playground` profile. It needs no server and never touches your real profiles or config.
+Launch the interactive terminal UI against a built-in OpenFGA server preloaded with sample stores, under a synthetic `playground` profile. It needs no server and never writes the sandbox to your config.
 
 When you quit after making changes you are asked whether to keep them. Kept changes are saved to a playground database (set OPENFGA_PLAYGROUND_DB to choose the path) and reopened next time; --reset discards that save and starts again from the samples.
 

@@ -588,7 +588,7 @@ func (c *Command) playgroundCmd() *cobra.Command {
 		Example: "  ofga playground\n" +
 			"  ofga playground --reset",
 		Long: "Launch the interactive terminal UI against a built-in OpenFGA server preloaded with sample stores, " +
-			"under a synthetic `playground` profile. It needs no server and never touches your real profiles or config.\n\n" +
+			"under a synthetic `playground` profile. It needs no server and never writes the sandbox to your config.\n\n" +
 			"When you quit after making changes you are asked whether to keep them. Kept changes are saved to a " +
 			"playground database (set OPENFGA_PLAYGROUND_DB to choose the path) and reopened next time; --reset " +
 			"discards that save and starts again from the samples.\n\n" +
