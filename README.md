@@ -111,7 +111,7 @@ Full matrix (AUR, go install, Docker, source), upgrade, and uninstall → [the i
 
 ## 🖥 The interactive TUI
 
-Run `ofga` with no arguments to launch the interactive playground, a keyboard- **and mouse**-driven cockpit covering profiles, stores, the model graph, tuples, queries with resolution trees, and assertions. Press `?` at any time for the full, context-aware keybinding overlay.
+Run `ofga` with no arguments to launch the interactive TUI on your real profile, or `ofga playground` to explore sample stores in a local sandbox that needs no server. It is a keyboard- **and mouse**-driven cockpit covering profiles, stores, the model graph, tuples, queries with resolution trees, and assertions. Press `?` at any time for the full, context-aware keybinding overlay.
 
 Icons adapt to your terminal automatically. If they render as `?` or boxes,
 press `ctrl+g` to cycle to a plainer glyph set — see

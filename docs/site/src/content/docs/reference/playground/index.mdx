@@ -1,6 +1,6 @@
 ---
 title: "ofga playground"
-description: "Launch the interactive playground"
+description: "Explore OpenFGA in a local sandbox with sample stores"
 sidebar:
   order: 11
 ---
@@ -9,21 +9,32 @@ import CommandDemo from '../../../../components/CommandDemo.astro';
 
 <CommandDemo slug="playground" />
 
-Launch the interactive terminal UI for browsing stores, editing models and running queries. Running `ofga` with no arguments does the same thing.
+Launch the interactive terminal UI against a built-in OpenFGA server preloaded with sample stores, under a synthetic `playground` profile. It needs no server and never touches your real profiles or config.
+
+When you quit after making changes you are asked whether to keep them. Kept changes are saved to a playground database (set OPENFGA_PLAYGROUND_DB to choose the path) and reopened next time; --reset discards that save and starts again from the samples.
+
+Running `ofga` with no arguments opens the same TUI against your real profile.
 
 The playground needs an interactive terminal: with stdin or stdout redirected, or under --no-input, it exits with a usage error rather than hanging.
 
 ## Usage
 
 ```sh
-ofga playground
+ofga playground [flags]
 ```
 
 ## Examples
 
 ```sh
   ofga playground
+  ofga playground --reset
 ```
+
+## Flags
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--reset` | discard the saved playground and start from the sample stores | `false` |
 
 <details>
 <summary>Global flags</summary>

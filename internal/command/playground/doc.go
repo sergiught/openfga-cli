@@ -4,5 +4,6 @@
 // The model pane offers two views, toggled with `v`: the node-link diagram
 // (types and relations) and the weighted graph (the fully-expanded resolution
 // graph with per-terminal-type weights, in the style of model-visualizer).
-// It is launched by the bare `ofga` command (there is no named subcommand).
+// It is launched by bare `ofga` (against the real profile) and by
+// `ofga playground` (against the embedded sandbox server).
 package playground
