@@ -35,7 +35,22 @@ func newEmbeddedEngine(serverOpts map[string]any, wrap func(storage.OpenFGADatas
 		return nil, err
 	}
 
-	ds := memory.New(dsOpts...)
+	return buildEmbeddedEngine(memory.New(dsOpts...), srvOpts, wrap)
+}
+
+// NewEmbeddedEngineOn is NewEmbeddedEngine on the given datastore instead of
+// a fresh in-memory one (same raised list caps). The engine takes ownership
+// of ds: closing the engine calls server.Close(), which in OpenFGA v1.22.1
+// also closes the datastore, so callers must not close ds again.
+func NewEmbeddedEngineOn(ds storage.OpenFGADatastore, serverOpts map[string]any) (Engine, error) {
+	_, srvOpts, err := parseServerOpts(serverOpts)
+	if err != nil {
+		return nil, err
+	}
+	return buildEmbeddedEngine(ds, srvOpts, nil)
+}
+
+func buildEmbeddedEngine(ds storage.OpenFGADatastore, srvOpts []server.OpenFGAServiceV1Option, wrap func(storage.OpenFGADatastore) storage.OpenFGADatastore) (Engine, error) {
 	if wrap != nil {
 		ds = wrap(ds)
 	}

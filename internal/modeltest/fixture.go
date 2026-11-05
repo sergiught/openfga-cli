@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	openfgav1 "github.com/openfga/api/proto/openfga/v1"
 	"gopkg.in/yaml.v3"
 )
 
@@ -225,6 +226,16 @@ func loadFixtureFile(path string) ([]TupleKey, error) {
 	default:
 		return nil, fmt.Errorf("fixture %s: unsupported extension", path)
 	}
+}
+
+// LoadFixtureTuples loads the tuples declared in the fixture file at path
+// (YAML/JSON/JSONL/CSV by extension) as proto tuple keys.
+func LoadFixtureTuples(path string) ([]*openfgav1.TupleKey, error) {
+	tuples, err := loadFixtureFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return toProtoTuples(tuples)
 }
 
 func loadYAMLTuples(path string) ([]TupleKey, error) {

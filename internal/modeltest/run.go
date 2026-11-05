@@ -48,7 +48,7 @@ type runTask struct {
 }
 
 // modelCache compiles each distinct model file at most once per run. Compiling
-// a model (DSL→JSON transform in loadModel) is the expensive part of per-test
+// a model (DSL→JSON transform in LoadModel) is the expensive part of per-test
 // setup; without this cache a workspace of N tests sharing one model would
 // compile it N times. A short mutex protects entry creation; unrelated models
 // compile concurrently while callers for the same path share one result.
@@ -89,7 +89,7 @@ func (c *modelCache) load(path string) (*LoadedModel, error) {
 				entry.err = fmt.Errorf("load model %s: panic: %v", path, r)
 			}
 		}()
-		entry.model, entry.err = loadModel(path)
+		entry.model, entry.err = LoadModel(path)
 	}()
 	return entry.model, entry.err
 }

@@ -13,9 +13,9 @@ import (
 func loadModelDSL(t *testing.T, dsl string) *LoadedModel {
 	t.Helper()
 
-	lm, err := loadModel(writeModel(t, dsl))
+	lm, err := LoadModel(writeModel(t, dsl))
 	if err != nil {
-		t.Fatalf("loadModel: %v", err)
+		t.Fatalf("LoadModel: %v", err)
 	}
 	return lm
 }

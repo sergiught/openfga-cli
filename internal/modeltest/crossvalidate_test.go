@@ -46,7 +46,7 @@ func TestNarratorTreeAgreesWithEngineCheck(t *testing.T) {
 				t.Fatalf("%s: %v", dir, err)
 			}
 
-			lm, err := loadModel(modelPath)
+			lm, err := LoadModel(modelPath)
 			if err != nil {
 				t.Fatalf("%s: %v", dir, err)
 			}

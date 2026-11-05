@@ -31,7 +31,7 @@ type doc
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	lm, err := loadModel(path)
+	lm, err := LoadModel(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ type doc
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	lm, err := loadModel(path)
+	lm, err := LoadModel(path)
 	if err != nil {
 		t.Fatal(err)
 	}

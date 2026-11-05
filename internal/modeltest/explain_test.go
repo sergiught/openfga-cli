@@ -28,7 +28,7 @@ func TestNearestMissSuggestsGrantingTuple(t *testing.T) {
 	}
 	defer func() { _ = eng.Close() }()
 
-	lm, err := loadModel(filepath.Join("testdata", "docs", "model.fga"))
+	lm, err := LoadModel(filepath.Join("testdata", "docs", "model.fga"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ type document
   relations
     define viewer: [user:*]
 `)
-	lm, err := loadModel(path)
+	lm, err := LoadModel(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ type document
     define parent: [folderA, folderB]
     define viewer: viewer from parent
 `)
-	lm, err := loadModel(path)
+	lm, err := LoadModel(path)
 	if err != nil {
 		t.Fatal(err)
 	}
