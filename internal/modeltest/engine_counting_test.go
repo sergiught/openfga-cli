@@ -67,3 +67,54 @@ type doc
 		t.Errorf("Reads() after Reset = %d, want 0", got)
 	}
 }
+
+func TestCountingEngine_ReadCountIsPerCheck(t *testing.T) {
+	eng, counters, err := NewCountingEmbeddedEngine(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = eng.Close() }()
+
+	path := filepath.Join(t.TempDir(), "model.fga")
+	if err := os.WriteFile(path, []byte(`model
+  schema 1.1
+type user
+type doc
+  relations
+    define parent: [doc]
+    define viewer: [user] or viewer from parent
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lm, err := loadModel(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storeID, modelID, err := eng.Setup(context.Background(), lm.Proto, []*openfgav1.TupleKey{
+		{User: "doc:2", Relation: "parent", Object: "doc:1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := Scope{StoreID: storeID, ModelID: modelID}
+	check := func(ctx context.Context) {
+		t.Helper()
+		if _, err := eng.Check(ctx, scope, CheckReq{User: "user:nobody", Relation: "viewer", Object: "doc:1"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ctx, reads := WithReadCount(context.Background())
+	counters.Reset()
+	check(ctx)
+	first := reads()
+	if first == 0 || first != counters.Reads() {
+		t.Fatalf("reads() = %d, global Reads() = %d; want equal and > 0", first, counters.Reads())
+	}
+	// A later check under another context (a straggler from an earlier
+	// check, say) must not be charged to this one.
+	check(context.Background())
+	if got := reads(); got != first {
+		t.Errorf("reads() = %d after another check, want %d", got, first)
+	}
+}

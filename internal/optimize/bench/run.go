@@ -242,15 +242,14 @@ func probeModel(ctx context.Context, model *openfgav1.AuthorizationModel, src *S
 	for _, c := range src.Checks {
 		req := modeltest.CheckReq{User: c.User, Relation: c.Relation, Object: c.Object}
 
-		settle(counters)
-		counters.Reset()
 		tagCtx, dispatches := modeltest.WithDispatchTags(ctx)
+		tagCtx, reads := modeltest.WithReadCount(tagCtx)
 		allowed, err := eng.Check(tagCtx, scope, req)
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s: %w", c.Name, err)
 		}
 		settle(counters)
-		p := probe{allowed: allowed, m: Metrics{Reads: counters.Reads(), Dispatches: dispatches()}}
+		p := probe{allowed: allowed, m: Metrics{Reads: reads(), Dispatches: dispatches()}}
 
 		durs := make([]float64, 0, iters)
 		for range iters {
@@ -290,8 +289,10 @@ func percentile(sorted []float64, p int) float64 {
 	return sorted[max(idx, 1)-1]
 }
 
-// settle waits for reads from goroutines a finished Check abandoned (short-
-// circuited branches) so they don't bleed into the next counting window.
+// settle waits for the reads a finished Check's abandoned (short-circuited)
+// branches still issue, so they count toward that check. Reads are charged
+// per check through the context, so a straggler that outlasts settle is
+// dropped rather than charged to the next check.
 func settle(c *modeltest.Counters) {
 	const quiet, limit = 2 * time.Millisecond, 50 * time.Millisecond
 	deadline := time.Now().Add(limit)

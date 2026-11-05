@@ -27,23 +27,32 @@ type countingDatastore struct {
 	c *Counters
 }
 
-func (d countingDatastore) Read(ctx context.Context, store string, filter storage.ReadFilter, opts storage.ReadOptions) (storage.TupleIterator, error) {
+// count tallies one read on the engine-wide counter and on the counter of
+// the check that issued it, when its context carries one.
+func (d countingDatastore) count(ctx context.Context) {
 	d.c.reads.Add(1)
+	if n, ok := ctx.Value(readCountKey{}).(*atomic.Int64); ok {
+		n.Add(1)
+	}
+}
+
+func (d countingDatastore) Read(ctx context.Context, store string, filter storage.ReadFilter, opts storage.ReadOptions) (storage.TupleIterator, error) {
+	d.count(ctx)
 	return d.OpenFGADatastore.Read(ctx, store, filter, opts)
 }
 
 func (d countingDatastore) ReadUserTuple(ctx context.Context, store string, filter storage.ReadUserTupleFilter, opts storage.ReadUserTupleOptions) (*openfgav1.Tuple, error) {
-	d.c.reads.Add(1)
+	d.count(ctx)
 	return d.OpenFGADatastore.ReadUserTuple(ctx, store, filter, opts)
 }
 
 func (d countingDatastore) ReadUsersetTuples(ctx context.Context, store string, filter storage.ReadUsersetTuplesFilter, opts storage.ReadUsersetTuplesOptions) (storage.TupleIterator, error) {
-	d.c.reads.Add(1)
+	d.count(ctx)
 	return d.OpenFGADatastore.ReadUsersetTuples(ctx, store, filter, opts)
 }
 
 func (d countingDatastore) ReadStartingWithUser(ctx context.Context, store string, filter storage.ReadStartingWithUserFilter, opts storage.ReadStartingWithUserOptions) (storage.TupleIterator, error) {
-	d.c.reads.Add(1)
+	d.count(ctx)
 	return d.OpenFGADatastore.ReadStartingWithUser(ctx, store, filter, opts)
 }
 
@@ -70,4 +79,15 @@ func WithDispatchTags(ctx context.Context) (context.Context, func() float64) {
 		v, _ := tags.Values()["dispatch_count"].(float64)
 		return v
 	}
+}
+
+type readCountKey struct{}
+
+// WithReadCount returns a ctx that charges the datastore reads a Check issues
+// under it to a counter of its own, plus a func that reads that counter.
+// Unlike Counters, it never counts a read from another check, such as one
+// an earlier check's abandoned branch issues late.
+func WithReadCount(ctx context.Context) (context.Context, func() int64) {
+	n := &atomic.Int64{}
+	return context.WithValue(ctx, readCountKey{}, n), n.Load
 }
