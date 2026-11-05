@@ -3,6 +3,7 @@ package base
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -94,4 +95,26 @@ func TestRootStillOpensRealProfile(t *testing.T) {
 	require.NoError(t, c.launchPlayground(pg))
 	require.Equal(t, 1, real)
 	require.Equal(t, 1, sb)
+}
+
+func TestPlaygroundQuit_TUIErrorStillPromptsAndCloses(t *testing.T) {
+	configtest.Isolate(t)
+	path := filepath.Join(t.TempDir(), "playground.db")
+	f := &fakeSession{dirty: true, path: path}
+	runErr := errors.New("tui crashed")
+	var out bytes.Buffer
+	err := finishSandbox(f, strings.NewReader("y\n"), &out, runErr)
+	require.ErrorIs(t, err, runErr)
+	require.NotEmpty(t, out.String(), "dirty session must be prompted even when the TUI failed")
+	require.Equal(t, 1, f.saved)
+	require.Equal(t, 1, f.closed)
+}
+
+func TestPlaygroundQuit_SaveErrorStillCloses(t *testing.T) {
+	configtest.Isolate(t)
+	f := &fakeSession{dirty: true, path: filepath.Join(t.TempDir(), "missing", "playground.db")}
+	err := finishSandbox(f, strings.NewReader("y\n"), &bytes.Buffer{}, nil)
+	require.Error(t, err)
+	require.Equal(t, 1, f.saved)
+	require.Equal(t, 1, f.closed)
 }
