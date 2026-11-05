@@ -14,6 +14,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/configtest"
 	"github.com/sergiught/openfga-cli/internal/modeltest"
+	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
 )
 
 const sandboxEndpoint = "http://127.0.0.1:12399"
@@ -148,5 +149,40 @@ func TestSandboxModel_ProfileSwitchConfig(t *testing.T) {
 		if strings.Contains(string(raw), bad) {
 			t.Fatalf("config contains %q:\n%s", bad, raw)
 		}
+	}
+}
+
+func TestSandboxModel_NameCollisionWithRealProfile(t *testing.T) {
+	configtest.Isolate(t)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Set("playground", config.Profile{APIURL: "http://127.0.0.1:1"})
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	a := cli.New(log.New(io.Discard), cfg, "test")
+	cl, _ := openfga.NewClient(sandboxEndpoint)
+	m := newSandboxModel(context.Background(), a, SandboxOptions{Client: cl, Endpoint: sandboxEndpoint})
+
+	if m.profile == "playground" || m.profile != m.ephemeralProfile {
+		t.Fatalf("sandbox profile = %q (ephemeral %q), want a distinct name", m.profile, m.ephemeralProfile)
+	}
+	ids := map[string]int{}
+	for _, it := range m.profilesList.Model.Items() {
+		ids[it.(uilist.Item).ID]++
+	}
+	if ids["playground"] != 1 || ids[m.ephemeralProfile] != 1 {
+		t.Fatalf("profile row IDs = %v, want one real and one sandbox row", ids)
+	}
+
+	m.switchProfile("playground")
+	if m.profile != "playground" || a.Config.Active != "playground" {
+		t.Fatalf("profile=%q active=%q, want the real playground profile", m.profile, a.Config.Active)
+	}
+	m.switchProfile(m.ephemeralProfile)
+	if m.profile != m.ephemeralProfile {
+		t.Fatalf("profile = %q, want sandbox back", m.profile)
 	}
 }

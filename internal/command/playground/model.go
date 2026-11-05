@@ -819,7 +819,13 @@ func newSandboxModel(ctx context.Context, cli *cli.CLI, o SandboxOptions) Model 
 	if m.sandboxWorkspaces == nil {
 		m.sandboxWorkspaces = map[string]*modeltest.Workspace{}
 	}
-	m.adoptEphemeral(sandboxProfileName, o.Client, o.Endpoint, "", "")
+	name := sandboxProfileName
+	if _, taken := cli.Config.Get(name); taken {
+		// A real profile already owns the name; two rows with one ID would make
+		// the sandbox row delete or shadow the real profile.
+		name += " (sandbox)"
+	}
+	m.adoptEphemeral(name, o.Client, o.Endpoint, "", "")
 	if o.Endpoint != "" {
 		m.bootNotice = "playground at " + o.Endpoint
 	}
@@ -835,7 +841,7 @@ func (m *Model) applySandboxWorkspace() {
 		return
 	}
 	var ws *modeltest.Workspace
-	if m.profile == sandboxProfileName {
+	if m.profile == m.ephemeralProfile {
 		ws = m.sandboxWorkspaces[m.storeName]
 	}
 	if ws == m.wb.workspace {
@@ -1291,7 +1297,7 @@ func (m *Model) selectStore(s openfga.Store) tea.Cmd {
 	m.clearResourcePending()
 	m.storeID = s.ID
 	m.storeName = s.Name
-	if m.sandboxWorkspaces != nil && m.profile == sandboxProfileName {
+	if m.sandboxWorkspaces != nil && m.profile == m.ephemeralProfile {
 		m.ephemeralStoreID = s.ID
 	}
 	m.applySandboxWorkspace()

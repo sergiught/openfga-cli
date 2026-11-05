@@ -55,7 +55,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 		case "e":
 			if it, ok := m.profilesList.Selected(); ok {
 				if it.ID == m.ephemeralProfile {
-					m.status = "the seeded profile is ephemeral and can't be edited"
+					m.status = "the "+it.ID+" profile is ephemeral and can't be edited"
 					return m, nil
 				}
 				p, _ := m.cli.Config.Get(it.ID)
@@ -74,6 +74,10 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 		case "d":
 			if it, ok := m.profilesList.Selected(); ok {
 				id := it.ID
+				if id == m.ephemeralProfile {
+					m.status = "the " + id + " profile is ephemeral and can't be removed"
+					return m, m.toasts.Push(toast.Error, m.status)
+				}
 				if id == m.profile {
 					m.status = "cannot remove the active profile " + id + "; switch first"
 					return m, m.toasts.Push(toast.Error, m.status)
