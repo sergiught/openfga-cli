@@ -14,7 +14,7 @@ import (
 
 // benchIterations is the timed-check count per benchmark run; the CLI default
 // is 100, the playground trades precision for responsiveness.
-const benchIterations = 20
+var benchIterations = 20
 
 // noGraphMsg is shown when the model's weighted graph cannot be built, so no
 // tuples can be synthesized; reason is the builder's own message.
