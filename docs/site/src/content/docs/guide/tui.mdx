@@ -46,7 +46,7 @@ The server comes preloaded with seven sample stores: `github`, `gdrive`, `slack`
 
 The samples come from [openfga/sample-stores](https://github.com/openfga/sample-stores) (Apache-2.0). Their license and notice are vendored in `internal/sandbox/samples/`.
 
-**Keeping your changes.** When you quit after changing anything (stores, models, tuples or assertions), the CLI asks `Keep playground changes? [Y/n]`. Enter means yes. An unrecognised answer asks again, and three in a row count as no. `n`, end of input or `ctrl+c` mean no. Browsing and running checks never trigger the prompt.
+**Keeping your changes.** When you quit after changing anything (stores, models, tuples or assertions), the CLI asks `Keep your playground changes? [Y/n]`. Enter means yes. An unrecognised answer asks again, and three in a row count as no. `n`, end of input or `ctrl+c` mean no. Browsing and running checks never trigger the prompt.
 
 Kept changes are saved to `playground.db` and reopened next time:
 
