@@ -23,6 +23,7 @@ func Isolate(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.toml")
 	t.Setenv("OPENFGA_CONFIG", path)
+	t.Setenv("OPENFGA_PLAYGROUND_DB", filepath.Join(t.TempDir(), "playground.db"))
 	// A test run from inside a coding agent must not flip into agent mode.
 	for _, k := range agentmode.EnvVars() {
 		t.Setenv(k, "")
