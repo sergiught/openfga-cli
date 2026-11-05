@@ -41,6 +41,10 @@ var exceptions = map[string]struct {
 		ids:    []string{"CC-BY-SA-4.0"},
 		reason: "CC-BY-SA-4.0 applies to LICENSE.docs, which covers that repository's prose documentation only. ofga links the Apache-2.0 code and vendors none of the docs.",
 	},
+	"modernc.org/sqlite": {
+		ids:    []string{"MPL-2.0"},
+		reason: "The MPL-2.0 text in LICENSE-3RD-PARTY.md belongs to github.com/hashicorp/golang-lru/v2, which section 3 of that file lists as in the module graph but not compiled into anything. ofga links only the BSD-3-Clause sqlite code.",
+	},
 }
 
 // module is one dependency linked into the ofga binary.
