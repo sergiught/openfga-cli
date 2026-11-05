@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.269.0](https://github.com/sergiught/openfga-cli/compare/v0.268.0...v0.269.0) (2026-11-05)
+
+
+### Features
+
+* **optimize:** add model optimize and the playground optimizer ([#206](https://github.com/sergiught/openfga-cli/issues/206)) ([30ef559](https://github.com/sergiught/openfga-cli/commit/30ef559deeddd2d6781e8c006f2218516acc6f18))
+
+
+### Bug fixes
+
+* **optimize:** charge benchmark reads to the check that issued them ([#211](https://github.com/sergiught/openfga-cli/issues/211)) ([557a953](https://github.com/sergiught/openfga-cli/commit/557a953cf4ab6613a091cd02b2c7200f2f24f61c))
+* **optimize:** pin the optimizer notes to OpenFGA v1.22.1 ([#210](https://github.com/sergiught/openfga-cli/issues/210)) ([54b7f01](https://github.com/sergiught/openfga-cli/commit/54b7f014445b71e90bd87c8d8398c370e4a03410))
+
 ## [0.268.0](https://github.com/sergiught/openfga-cli/compare/v0.267.0...v0.268.0) (2026-10-28)
 
 
