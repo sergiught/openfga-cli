@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
-	"github.com/stretchr/testify/require"
 
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/command/playground"
@@ -24,8 +23,12 @@ func TestAskKeep(t *testing.T) {
 		"a\nb\nc\ny\n": false, "maybe\n": false, "y": true,
 	} {
 		var out bytes.Buffer
-		require.Equal(t, want, askKeep(strings.NewReader(in), &out), "input %q", in)
-		require.Contains(t, out.String(), "Keep your playground changes? [Y/n]")
+		if got := askKeep(strings.NewReader(in), &out); got != want {
+			t.Fatalf("askKeep(%q) = %v, want %v", in, got, want)
+		}
+		if !strings.Contains(out.String(), "Keep your playground changes? [Y/n]") {
+			t.Fatalf("%q does not contain %q", out.String(), "Keep your playground changes? [Y/n]")
+		}
 	}
 }
 
@@ -46,33 +49,59 @@ func TestPlaygroundQuit_NoPromptWhenClean(t *testing.T) {
 	configtest.Isolate(t)
 	f := &fakeSession{}
 	var out bytes.Buffer
-	require.NoError(t, finishSandbox(f, strings.NewReader("y\n"), &out, nil))
-	require.Empty(t, out.String())
-	require.Zero(t, f.saved)
-	require.Equal(t, 1, f.closed)
+	if err := finishSandbox(f, strings.NewReader("y\n"), &out, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.String()) != 0 {
+		t.Fatalf("got %v, want empty", out.String())
+	}
+	if f.saved != 0 {
+		t.Fatalf("got %v, want 0", f.saved)
+	}
+	if f.closed != 1 {
+		t.Fatalf("got %v, want %v", f.closed, 1)
+	}
 }
 
 func TestPlaygroundQuit_NoKeepsOldSave(t *testing.T) {
 	configtest.Isolate(t)
 	path := filepath.Join(t.TempDir(), "playground.db")
-	require.NoError(t, os.WriteFile(path, []byte("old"), 0o600))
+	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	for _, in := range []string{"n\n", ""} {
 		f := &fakeSession{dirty: true, path: path}
-		require.NoError(t, finishSandbox(f, strings.NewReader(in), &bytes.Buffer{}, nil))
-		require.Zero(t, f.saved)
-		require.Equal(t, 1, f.closed)
+		if err := finishSandbox(f, strings.NewReader(in), &bytes.Buffer{}, nil); err != nil {
+			t.Fatal(err)
+		}
+		if f.saved != 0 {
+			t.Fatalf("got %v, want 0", f.saved)
+		}
+		if f.closed != 1 {
+			t.Fatalf("got %v, want %v", f.closed, 1)
+		}
 		b, err := os.ReadFile(path)
-		require.NoError(t, err)
-		require.Equal(t, "old", string(b))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := string(b); got != "old" {
+			t.Fatalf("got %v, want %v", got, "old")
+		}
 	}
 }
 
 func TestPlaygroundQuit_YesSaves(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "p.db")
 	f := &fakeSession{dirty: true, path: path}
-	require.NoError(t, finishSandbox(f, strings.NewReader("\n"), &bytes.Buffer{}, nil))
-	require.Equal(t, 1, f.saved)
-	require.Equal(t, 1, f.closed)
+	if err := finishSandbox(f, strings.NewReader("\n"), &bytes.Buffer{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if f.saved != 1 {
+		t.Fatalf("got %v, want %v", f.saved, 1)
+	}
+	if f.closed != 1 {
+		t.Fatalf("got %v, want %v", f.closed, 1)
+	}
 }
 
 func TestRootStillOpensRealProfile(t *testing.T) {
@@ -86,15 +115,27 @@ func TestRootStillOpensRealProfile(t *testing.T) {
 	c := &Command{cli: &cli.CLI{}}
 	root := &cobra.Command{Use: "ofga"}
 	root.SetContext(context.Background())
-	require.NoError(t, c.launchPlayground(root))
-	require.Equal(t, 1, real)
-	require.Zero(t, sb)
+	if err := c.launchPlayground(root); err != nil {
+		t.Fatal(err)
+	}
+	if real != 1 {
+		t.Fatalf("got %v, want %v", real, 1)
+	}
+	if sb != 0 {
+		t.Fatalf("got %v, want 0", sb)
+	}
 
 	pg := c.playgroundCmd()
 	pg.SetContext(context.Background())
-	require.NoError(t, c.launchPlayground(pg))
-	require.Equal(t, 1, real)
-	require.Equal(t, 1, sb)
+	if err := c.launchPlayground(pg); err != nil {
+		t.Fatal(err)
+	}
+	if real != 1 {
+		t.Fatalf("got %v, want %v", real, 1)
+	}
+	if sb != 1 {
+		t.Fatalf("got %v, want %v", sb, 1)
+	}
 }
 
 func TestPlaygroundQuit_TUIErrorStillPromptsAndCloses(t *testing.T) {
@@ -104,17 +145,31 @@ func TestPlaygroundQuit_TUIErrorStillPromptsAndCloses(t *testing.T) {
 	runErr := errors.New("tui crashed")
 	var out bytes.Buffer
 	err := finishSandbox(f, strings.NewReader("y\n"), &out, runErr)
-	require.ErrorIs(t, err, runErr)
-	require.NotEmpty(t, out.String(), "dirty session must be prompted even when the TUI failed")
-	require.Equal(t, 1, f.saved)
-	require.Equal(t, 1, f.closed)
+	if !errors.Is(err, runErr) {
+		t.Fatalf("error = %v, want %v", err, runErr)
+	}
+	if len(out.String()) == 0 {
+		t.Fatal("dirty session must be prompted even when the TUI failed")
+	}
+	if f.saved != 1 {
+		t.Fatalf("got %v, want %v", f.saved, 1)
+	}
+	if f.closed != 1 {
+		t.Fatalf("got %v, want %v", f.closed, 1)
+	}
 }
 
 func TestPlaygroundQuit_SaveErrorStillCloses(t *testing.T) {
 	configtest.Isolate(t)
 	f := &fakeSession{dirty: true, path: filepath.Join(t.TempDir(), "missing", "playground.db")}
 	err := finishSandbox(f, strings.NewReader("y\n"), &bytes.Buffer{}, nil)
-	require.Error(t, err)
-	require.Equal(t, 1, f.saved)
-	require.Equal(t, 1, f.closed)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if f.saved != 1 {
+		t.Fatalf("got %v, want %v", f.saved, 1)
+	}
+	if f.closed != 1 {
+		t.Fatalf("got %v, want %v", f.closed, 1)
+	}
 }

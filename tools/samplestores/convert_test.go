@@ -7,15 +7,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/sergiught/openfga-cli/internal/modeltest"
 )
 
 func readTestdata(t *testing.T, rel string) []byte {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("testdata", rel))
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return b
 }
 
@@ -25,55 +25,113 @@ func dirReader(dir string) func(string) ([]byte, error) {
 
 func TestConvert_InlineModel(t *testing.T) {
 	ws, err := ConvertNamed("inline", readTestdata(t, "store.fga.yaml"), dirReader("testdata"))
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	require.Contains(t, string(ws.Model), "type document")
-	require.Contains(t, string(ws.Model), "condition in_window")
-	require.Contains(t, string(ws.Manifest), "model: ./model.fga")
-	require.Contains(t, string(ws.Manifest), "fixtures/*.yaml")
-	require.Contains(t, string(ws.Manifest), "tests/*.test.yaml")
-	require.Contains(t, string(ws.Tests), "fixtures:")
-	require.Contains(t, string(ws.Tests), "- inline")
+	if !strings.Contains(string(ws.Model), "type document") {
+		t.Fatalf("%q does not contain %q", string(ws.Model), "type document")
+	}
+	if !strings.Contains(string(ws.Model), "condition in_window") {
+		t.Fatalf("%q does not contain %q", string(ws.Model), "condition in_window")
+	}
+	if !strings.Contains(string(ws.Manifest), "model: ./model.fga") {
+		t.Fatalf("%q does not contain %q", string(ws.Manifest), "model: ./model.fga")
+	}
+	if !strings.Contains(string(ws.Manifest), "fixtures/*.yaml") {
+		t.Fatalf("%q does not contain %q", string(ws.Manifest), "fixtures/*.yaml")
+	}
+	if !strings.Contains(string(ws.Manifest), "tests/*.test.yaml") {
+		t.Fatalf("%q does not contain %q", string(ws.Manifest), "tests/*.test.yaml")
+	}
+	if !strings.Contains(string(ws.Tests), "fixtures:") {
+		t.Fatalf("%q does not contain %q", string(ws.Tests), "fixtures:")
+	}
+	if !strings.Contains(string(ws.Tests), "- inline") {
+		t.Fatalf("%q does not contain %q", string(ws.Tests), "- inline")
+	}
 	// Global tuples land in the fixture, conditions included.
-	require.Contains(t, string(ws.Fixture), "group:readers#member")
-	require.Contains(t, string(ws.Fixture), "name: in_window")
-	require.Contains(t, string(ws.Fixture), "grant_duration: 1h")
+	if !strings.Contains(string(ws.Fixture), "group:readers#member") {
+		t.Fatalf("%q does not contain %q", string(ws.Fixture), "group:readers#member")
+	}
+	if !strings.Contains(string(ws.Fixture), "name: in_window") {
+		t.Fatalf("%q does not contain %q", string(ws.Fixture), "name: in_window")
+	}
+	if !strings.Contains(string(ws.Fixture), "grant_duration: 1h") {
+		t.Fatalf("%q does not contain %q", string(ws.Fixture), "grant_duration: 1h")
+	}
 }
 
 func TestConvert_ModelFile(t *testing.T) {
 	dir := filepath.Join("testdata", "modelfile")
 	ws, err := ConvertNamed("mf", readTestdata(t, "modelfile/store.fga.yaml"), dirReader(dir))
-	require.NoError(t, err)
-	require.Contains(t, string(ws.Model), "define viewer: [user] or owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(ws.Model), "define viewer: [user] or owner") {
+		t.Fatalf("%q does not contain %q", string(ws.Model), "define viewer: [user] or owner")
+	}
 	// Global tuples first, then tuple_file tuples.
 	f := string(ws.Fixture)
-	require.Contains(t, f, "doc:1")
-	require.Contains(t, f, "doc:2")
-	require.Less(t, strings.Index(f, "doc:1"), strings.Index(f, "doc:2"))
+	if !strings.Contains(f, "doc:1") {
+		t.Fatalf("%q does not contain %q", f, "doc:1")
+	}
+	if !strings.Contains(f, "doc:2") {
+		t.Fatalf("%q does not contain %q", f, "doc:2")
+	}
+	if strings.Index(f, "doc:1") >= strings.Index(f, "doc:2") {
+		t.Fatalf("%v is not less than %v", strings.Index(f, "doc:1"), strings.Index(f, "doc:2"))
+	}
 	// Test-level tuple_file becomes inline test tuples.
-	require.Contains(t, string(ws.Tests), "user:erin")
+	if !strings.Contains(string(ws.Tests), "user:erin") {
+		t.Fatalf("%q does not contain %q", string(ws.Tests), "user:erin")
+	}
 }
 
 func TestConvert_TestLevelTuplesAndContext(t *testing.T) {
 	ws, err := ConvertNamed("inline", readTestdata(t, "store.fga.yaml"), dirReader("testdata"))
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	tests := string(ws.Tests)
-	require.Contains(t, tests, "tuples:")
-	require.Contains(t, tests, "user:carol")
-	require.Contains(t, tests, "contextual_tuples:")
-	require.Contains(t, tests, "current_time: \"2023-01-01T00:10:00Z\"")
-	require.Contains(t, tests, "description: anne reads through the readers group")
-	require.Contains(t, tests, "list_objects:")
+	if !strings.Contains(tests, "tuples:") {
+		t.Fatalf("%q does not contain %q", tests, "tuples:")
+	}
+	if !strings.Contains(tests, "user:carol") {
+		t.Fatalf("%q does not contain %q", tests, "user:carol")
+	}
+	if !strings.Contains(tests, "contextual_tuples:") {
+		t.Fatalf("%q does not contain %q", tests, "contextual_tuples:")
+	}
+	if !strings.Contains(tests, "current_time: \"2023-01-01T00:10:00Z\"") {
+		t.Fatalf("%q does not contain %q", tests, "current_time: \"2023-01-01T00:10:00Z\"")
+	}
+	if !strings.Contains(tests, "description: anne reads through the readers group") {
+		t.Fatalf("%q does not contain %q", tests, "description: anne reads through the readers group")
+	}
+	if !strings.Contains(tests, "list_objects:") {
+		t.Fatalf("%q does not contain %q", tests, "list_objects:")
+	}
 }
 
 func TestConvert_ListUsers(t *testing.T) {
 	ws, err := ConvertNamed("inline", readTestdata(t, "store.fga.yaml"), dirReader("testdata"))
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	tests := string(ws.Tests)
-	require.Contains(t, tests, "list_users:")
-	require.Contains(t, tests, "user_filter:")
-	require.Contains(t, tests, "relation: member")
-	require.Contains(t, tests, "group:readers#member")
+	if !strings.Contains(tests, "list_users:") {
+		t.Fatalf("%q does not contain %q", tests, "list_users:")
+	}
+	if !strings.Contains(tests, "user_filter:") {
+		t.Fatalf("%q does not contain %q", tests, "user_filter:")
+	}
+	if !strings.Contains(tests, "relation: member") {
+		t.Fatalf("%q does not contain %q", tests, "relation: member")
+	}
+	if !strings.Contains(tests, "group:readers#member") {
+		t.Fatalf("%q does not contain %q", tests, "group:readers#member")
+	}
 }
 
 func TestConvert_RejectsUnmappedKeys(t *testing.T) {
@@ -88,7 +146,9 @@ func TestConvert_RejectsUnmappedKeys(t *testing.T) {
 	for name, src := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, err := ConvertNamed("x", []byte(src), dirReader("testdata"))
-			require.Error(t, err)
+			if err == nil {
+				t.Fatal("expected an error")
+			}
 		})
 	}
 }
@@ -100,23 +160,41 @@ func TestConvert_OutputLoads(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ws, err := ConvertNamed(tc.name, readTestdata(t, filepath.Join(tc.sub, "store.fga.yaml")), dirReader(filepath.Join("testdata", tc.sub)))
-			require.NoError(t, err)
+			if err != nil {
+				t.Fatal(err)
+			}
 
 			out := t.TempDir()
-			require.NoError(t, writeWorkspace(out, tc.name, ws, "abc123"))
+			if err := writeWorkspace(out, tc.name, ws, "abc123"); err != nil {
+				t.Fatal(err)
+			}
 
 			loaded, err := modeltest.LoadWorkspace(out)
-			require.NoError(t, err)
+			if err != nil {
+				t.Fatal(err)
+			}
 			eng, err := modeltest.NewEmbeddedEngine(nil)
-			require.NoError(t, err)
+			if err != nil {
+				t.Fatal(err)
+			}
 			res, err := modeltest.Run(context.Background(), loaded, modeltest.Options{Engine: eng})
-			require.NoError(t, err)
-			require.Positive(t, res.Summary.Total)
-			require.Equal(t, res.Summary.Total, res.Summary.Passed, "%+v", res.Tests)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.Summary.Total <= 0 {
+				t.Fatalf("got %v, want > 0", res.Summary.Total)
+			}
+			if res.Summary.Passed != res.Summary.Total {
+				t.Fatalf("passed %d of %d: %+v", res.Summary.Passed, res.Summary.Total, res.Tests)
+			}
 
 			b, err := os.ReadFile(filepath.Join(out, "model.fga"))
-			require.NoError(t, err)
-			require.Contains(t, string(b), "# Generated by tools/samplestores from openfga/sample-stores@abc123 (Apache-2.0). Do not edit.")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(b), "# Generated by tools/samplestores from openfga/sample-stores@abc123 (Apache-2.0). Do not edit.") {
+				t.Fatalf("%q does not contain %q", string(b), "# Generated by tools/samplestores from openfga/sample-stores@abc123 (Apache-2.0). Do not edit.")
+			}
 		})
 	}
 }
