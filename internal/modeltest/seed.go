@@ -128,7 +128,15 @@ func ServeHTTP(ctx context.Context, eng Engine) (endpoint string, stop func(), e
 
 	var stopOnce sync.Once
 	stop = func() {
-		stopOnce.Do(func() { _ = httpSrv.Shutdown(context.Background()) })
+		stopOnce.Do(func() {
+			// Bounded: a stuck connection must not hang the quit path, where
+			// Ctrl+C is no longer deliverable.
+			sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := httpSrv.Shutdown(sctx); err != nil {
+				_ = httpSrv.Close()
+			}
+		})
 	}
 	return "http://" + lis.Addr().String(), stop, nil
 }
