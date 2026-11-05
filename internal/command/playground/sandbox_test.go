@@ -3,6 +3,8 @@ package playground
 import (
 	"context"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -10,6 +12,7 @@ import (
 	"charm.land/log/v2"
 
 	"github.com/sergiught/go-openfga/openfga"
+	"github.com/sergiught/openfga-cli/internal/apilog"
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/configtest"
@@ -37,7 +40,7 @@ func newTestSandbox(t *testing.T) (Model, *cli.CLI, map[string]*modeltest.Worksp
 	a := cli.New(log.New(io.Discard), cfg, "test")
 	cl, _ := openfga.NewClient(sandboxEndpoint)
 	wss := map[string]*modeltest.Workspace{"github": sandboxWS("a", "b"), "gdrive": sandboxWS("c")}
-	m := newSandboxModel(context.Background(), a, SandboxOptions{Client: cl, Endpoint: sandboxEndpoint, Workspaces: wss})
+	m := newSandboxModel(context.Background(), a, cl, SandboxOptions{Endpoint: sandboxEndpoint, Workspaces: wss})
 	return m, a, wss
 }
 
@@ -164,7 +167,7 @@ func TestSandboxModel_NameCollisionWithRealProfile(t *testing.T) {
 	}
 	a := cli.New(log.New(io.Discard), cfg, "test")
 	cl, _ := openfga.NewClient(sandboxEndpoint)
-	m := newSandboxModel(context.Background(), a, SandboxOptions{Client: cl, Endpoint: sandboxEndpoint})
+	m := newSandboxModel(context.Background(), a, cl, SandboxOptions{Endpoint: sandboxEndpoint})
 
 	if m.profile == "playground" || m.profile != m.ephemeralProfile {
 		t.Fatalf("sandbox profile = %q (ephemeral %q), want a distinct name", m.profile, m.ephemeralProfile)
@@ -184,5 +187,29 @@ func TestSandboxModel_NameCollisionWithRealProfile(t *testing.T) {
 	m.switchProfile(m.ephemeralProfile)
 	if m.profile != m.ephemeralProfile {
 		t.Fatalf("profile = %q, want sandbox back", m.profile)
+	}
+}
+
+func TestSandboxClient_RecordsCalls(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"stores":[]}`)
+	}))
+	t.Cleanup(srv.Close)
+	configtest.Isolate(t)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	a := cli.New(log.New(io.Discard), cfg, "test")
+	rec := apilog.NewRecorder(10)
+	cl, err := newSandboxClient(a, srv.URL, rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cl.Stores.List(context.Background(), nil); err != nil {
+		t.Fatalf("list stores: %v", err)
+	}
+	if rec.Len() != 1 {
+		t.Fatalf("recorded %d calls, want 1", rec.Len())
 	}
 }

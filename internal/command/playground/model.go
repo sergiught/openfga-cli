@@ -791,10 +791,9 @@ func (m *Model) adoptEphemeral(name string, cl *openfga.Client, endpoint, storeI
 	}
 }
 
-// SandboxOptions configures RunSandbox: a client pointed at the embedded
-// sandbox server, its endpoint, and the sample workspaces keyed by store name.
+// SandboxOptions configures RunSandbox: the embedded sandbox server's endpoint
+// and the sample workspaces keyed by store name.
 type SandboxOptions struct {
-	Client     *openfga.Client
 	Endpoint   string
 	Workspaces map[string]*modeltest.Workspace
 }
@@ -803,17 +802,28 @@ type SandboxOptions struct {
 // presented under the synthetic `playground` profile. Nothing about it is ever
 // written to config.toml.
 func RunSandbox(ctx context.Context, cli *cli.CLI, o SandboxOptions) error {
-	m := newSandboxModel(ctx, cli, o)
-	return launch(ctx, cli, m, apilog.NewRecorder(apiLogHistory))
+	rec := apilog.NewRecorder(apiLogHistory)
+	cl, err := newSandboxClient(cli, o.Endpoint, rec)
+	if err != nil {
+		return err
+	}
+	return launch(ctx, cli, newSandboxModel(ctx, cli, cl, o), rec)
+}
+
+// newSandboxClient builds the client for the sandbox server, with the API-log
+// recorder wired in so the API Logs tab shows its calls. The sandbox has no
+// auth, so a bare resolved config with just the URL is enough.
+func newSandboxClient(cli *cli.CLI, endpoint string, rec *apilog.Recorder) (*openfga.Client, error) {
+	return client.New(config.Resolved{APIURL: endpoint}, client.WithCapture(rec), client.WithTimeout(cli.RequestTimeout))
 }
 
 // newSandboxModel builds (but does not launch) the sandbox Model. No store is
 // preselected, so first-store adoption opens the first store; it opens on the
 // Stores section. Like newSeededModel it pins cli.Overrides.APIURL, the guard
 // that keeps persistStore/persistModel off the real config.
-func newSandboxModel(ctx context.Context, cli *cli.CLI, o SandboxOptions) Model {
+func newSandboxModel(ctx context.Context, cli *cli.CLI, cl *openfga.Client, o SandboxOptions) Model {
 	cli.Overrides.APIURL = o.Endpoint
-	m := newModel(ctx, cli, o.Client, "", "")
+	m := newModel(ctx, cli, cl, "", "")
 	m.section = secStores
 	m.sandboxWorkspaces = o.Workspaces
 	if m.sandboxWorkspaces == nil {
@@ -825,7 +835,7 @@ func newSandboxModel(ctx context.Context, cli *cli.CLI, o SandboxOptions) Model 
 		// the sandbox row delete or shadow the real profile.
 		name += " (sandbox)"
 	}
-	m.adoptEphemeral(name, o.Client, o.Endpoint, "", "")
+	m.adoptEphemeral(name, cl, o.Endpoint, "", "")
 	if o.Endpoint != "" {
 		m.bootNotice = "playground at " + o.Endpoint
 	}

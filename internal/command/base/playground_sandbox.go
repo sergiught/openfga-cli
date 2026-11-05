@@ -9,10 +9,10 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
-	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/command/playground"
 	"github.com/sergiught/openfga-cli/internal/sandbox"
 )
@@ -44,13 +44,11 @@ func (c *Command) runSandbox(ctx context.Context, reset bool) error {
 		return err
 	}
 	// No store or model is preselected: the sandbox holds several stores.
-	cl, err := openfga.NewClient(sess.Endpoint())
-	if err != nil {
-		_ = sess.Close()
-		return err
-	}
+	// SIGHUP (terminal closed) stops the TUI so finishSandbox still runs and
+	// removes the scratch copy of the playground database.
+	ctx, stopHup := signal.NotifyContext(ctx, syscall.SIGHUP)
+	defer stopHup()
 	runErr := runSandboxPlayground(ctx, c.cli, playground.SandboxOptions{
-		Client:     cl,
 		Endpoint:   sess.Endpoint(),
 		Workspaces: sess.Workspaces(),
 	})
@@ -70,8 +68,9 @@ type sandboxSession interface {
 func finishSandbox(s sandboxSession, in io.Reader, out io.Writer, runErr error) error {
 	var saveErr error
 	if s.Dirty() {
-		// Ctrl+C at the prompt means "no"; without this the default SIGINT
-		// handling would kill the process before Close removes the scratch copy.
+		// Ctrl+C at the prompt means "no". main's own SIGINT handler only
+		// cancels its context and does not unblock the blocking read, so this
+		// inner NotifyContext is what lets askKeepCtx give up and Close run.
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		keep := askKeepCtx(ctx, in, out)
 		stop()

@@ -55,7 +55,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 		case "e":
 			if it, ok := m.profilesList.Selected(); ok {
 				if it.ID == m.ephemeralProfile {
-					m.status = "the "+it.ID+" profile is ephemeral and can't be edited"
+					m.status = "the " + it.ID + " profile is ephemeral and can't be edited"
 					return m, nil
 				}
 				p, _ := m.cli.Config.Get(it.ID)
