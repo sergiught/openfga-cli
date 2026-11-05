@@ -185,6 +185,8 @@ type modelAppliedMsg struct {
 	origin  mutationOrigin
 	modelID string
 	err     error
+	// optimized is the number of optimizer rewrites written; 0 for an editor apply.
+	optimized int
 }
 
 type tupleWrittenMsg struct {

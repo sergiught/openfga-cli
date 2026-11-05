@@ -72,6 +72,8 @@ func (m Model) viewString() string {
 	if title, body := m.dialogContent(); body != "" {
 		if m.formErr != "" || m.confirm != nil {
 			m.sh.SetDialog(title, body, style.Red) // error / destructive: red title + border
+		} else if m.opt.dialog {
+			m.sh.SetWideDialog(title, body)
 		} else {
 			m.sh.SetDialog(title, body)
 		}
@@ -108,7 +110,7 @@ func (m Model) helpBody() string {
 	case secStores:
 		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"↵", "select store"}, {"a", "add"}, {"d", "delete"}, {"r", "reload"}}
 	case secModel:
-		section = [][2]string{{"↑↓ k/j", "scroll"}, {"←→ h/l", "pan"}, {"pgup/pgdn b/f/space", "page"}, {"g/G home/end", "top/bottom"}, {"v", "weighted graph"}, {"e", "edit DSL"}, {"m", "switch model"}, {"r", "reload"}}
+		section = [][2]string{{"↑↓ k/j", "scroll"}, {"←→ h/l", "pan"}, {"pgup/pgdn b/f/space", "page"}, {"g/G home/end", "top/bottom"}, {"v", "weighted graph"}, {"B", "benchmark the model"}, {"o", "review optimizations"}, {"e", "edit DSL"}, {"m", "switch model"}, {"r", "reload"}}
 	case secTuples:
 		section = [][2]string{
 			{"↑↓", "move"},
@@ -150,8 +152,12 @@ func (m Model) helpBody() string {
 		}
 		return strings.TrimRight(b.String(), "\n")
 	}
+	var optGroup string
+	if m.section == secModel {
+		optGroup = "\n\n" + style.Faint.Render("MODEL · OPTIMIZE") + "\n" + render([][2]string{{"space", "accept a rewrite"}, {"a", "accept / clear all"}, {"w", "write new model"}, {"B", "benchmark selection"}, {"esc", "back to graph"}})
+	}
 	return style.Faint.Render("GLOBAL") + "\n" + render(global) +
-		"\n\n" + style.Faint.Render(strings.ToUpper(sectionNames[m.section])) + "\n" + render(section) +
+		"\n\n" + style.Faint.Render(strings.ToUpper(sectionNames[m.section])) + "\n" + render(section) + optGroup +
 		"\n\n" + style.Faint.Render("? or esc to close")
 }
 
@@ -212,6 +218,8 @@ func (m Model) dialogContent() (string, string) {
 		w, _ := m.sh.DialogSize()
 		return "Error", style.Failure.Width(w).Render(safeMultiline(m.formErr)) +
 			"\n\n" + style.Faint.Render("enter or esc to dismiss")
+	case m.opt.dialog:
+		return "Write optimized model?", m.writeDialogBody()
 	case m.confirm != nil:
 		c := m.confirm
 		body := style.Value.Render(safeText(c.action)+" ") +
@@ -371,6 +379,9 @@ func (m Model) sectionBody() string {
 			body = m.spinner.View() + " loading model…"
 		} else if len(m.graph.Types) == 0 {
 			body = style.Faint.Render("No authorization model in this store")
+		} else if m.opt.view != optNone {
+			w, h := m.contentSize()
+			body = m.optimizerBody(w, h)
 		} else {
 			body = m.graphVP.View()
 		}
@@ -1004,7 +1015,13 @@ func (m Model) statusKeys() []string {
 	case secStores:
 		return []string{"↑↓", "/ filter", "↵ select", "a add", "d delete", "r reload", "esc"}
 	case secModel:
-		return []string{"↑↓/hjkl pan", m.graphViewHint(), "e edit DSL", "m switch", "r reload", "esc"}
+		if m.opt.view == optReview {
+			return []string{"space accept", "a all", "w write new model", "B benchmark selection", "esc back to graph"}
+		}
+		if m.opt.view == optBench {
+			return []string{"o optimize", "B re-run", "↑↓ move", "esc back to graph"}
+		}
+		return []string{"↑↓/hjkl pan", m.graphViewHint(), "B benchmark · o optimize", "e edit DSL", "m switch", "r reload", "esc"}
 	case secTuples:
 		if m.width < 120 {
 			// The count on the other side of the footer is worth more than the

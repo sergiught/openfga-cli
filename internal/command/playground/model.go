@@ -384,6 +384,7 @@ type Model struct {
 	editorDiags   []dsl.Diagnostic
 	lastEditorDSL string // last DSL value diagnostics were computed for
 	modelDSL      string // DSL of the currently-loaded model, for edit pre-fill
+	opt           optimizer
 }
 
 // workbench is the Tests-section state for a seeded `model test --playground`
@@ -1212,6 +1213,7 @@ func (m *Model) selectStore(s openfga.Store) tea.Cmd {
 	// completion just to be dropped on arrival. The stores list is the one read
 	// this must not reach, which is why loadStoresCmd rides m.ctx instead.
 	m.renewReqCtx()
+	m.stopOptimizer()
 	m.clearResourcePending()
 	m.storeID = s.ID
 	m.storeName = s.Name
@@ -1523,6 +1525,7 @@ func (m *Model) activateResolved(r config.Resolved, cl *openfga.Client, status s
 	// arrival.
 	m.renewReqCtx()
 	m.connGen++
+	m.stopOptimizer()
 	m.storeCreateGen++
 	m.storeDeleteGen++
 	m.modelApplyGen++

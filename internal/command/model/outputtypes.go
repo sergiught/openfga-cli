@@ -13,12 +13,13 @@ import (
 // response depending on --dry-run.
 func OutputTypes() map[string]any {
 	return map[string]any{
-		"ofga model write":  outputschema.Handwritten{},
-		"ofga model list":   []openfga.AuthorizationModel{},
-		"ofga model get":    openfga.AuthorizationModel{},
-		"ofga model latest": openfga.AuthorizationModel{},
-		"ofga model graph":  fga.Graph{},
-		"ofga model test":   modeltest.Results{},
+		"ofga model write":    outputschema.Handwritten{},
+		"ofga model list":     []openfga.AuthorizationModel{},
+		"ofga model get":      openfga.AuthorizationModel{},
+		"ofga model latest":   openfga.AuthorizationModel{},
+		"ofga model graph":    fga.Graph{},
+		"ofga model optimize": optimizeOutput{},
+		"ofga model test":     modeltest.Results{},
 		// schema prints a JSON Schema document.
 		"ofga model test schema": map[string]any{},
 		"ofga model test init":   scaffoldResult{},

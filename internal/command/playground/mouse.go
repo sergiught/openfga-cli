@@ -9,8 +9,17 @@ import (
 // This file holds the mouse-input handlers (wheel scroll and click hit-testing),
 // split out of update.go's message dispatch to keep that file focused.
 func (m Model) handleWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
+	// The write dialog owns the wheel: scroll its diff, never the view behind.
+	if m.opt.dialog && !m.helpOpen && m.formErr == "" && m.confirm == nil {
+		if msg.Button == tea.MouseWheelUp {
+			m.scrollDialog(-1)
+		} else {
+			m.scrollDialog(1)
+		}
+		return m, nil
+	}
 	// Don't scroll under a modal/overlay or while editing text.
-	if m.helpOpen || m.formErr != "" || m.confirm != nil || m.paletteOpen || m.editorOpen || m.wb.newPromptOpen || m.editing || m.formKind != formNone {
+	if m.helpOpen || m.formErr != "" || m.confirm != nil || m.opt.dialog || m.paletteOpen || m.editorOpen || m.wb.newPromptOpen || m.editing || m.formKind != formNone {
 		return m, nil
 	}
 	up := msg.Button == tea.MouseWheelUp
@@ -33,6 +42,13 @@ func (m Model) handleWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 			dir = "up"
 		}
 		return m, m.historyList.Update(keyMsg(dir))
+	case m.section == secModel && m.opt.view != optNone:
+		if up {
+			m.moveOptCursor(-1)
+		} else {
+			m.moveOptCursor(1)
+		}
+		return m, nil
 	case m.section == secModel:
 		if up {
 			return m.scrollGraph(-graphLineStep)

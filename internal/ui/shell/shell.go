@@ -82,6 +82,7 @@ type Shell struct {
 
 	dialogTitle, dialogBody string
 	dialogAccent            color.Color // border + title tint (defaults to Primary)
+	dialogWide              bool        // the dialog spans the terminal instead of half of it
 	toast                   string
 
 	drift         float64
@@ -236,9 +237,33 @@ func (s *Shell) SetStatus(st Status) { s.status = st }
 // modal dialog.
 func (s *Shell) SetDialog(title, body string, accent ...color.Color) {
 	s.dialogTitle, s.dialogBody, s.dialogAccent = title, body, style.Primary
+	s.dialogWide = false
 	if len(accent) > 0 && accent[0] != nil {
 		s.dialogAccent = accent[0]
 	}
+}
+
+// SetWideDialog is SetDialog for content that needs room: the dialog spans
+// the terminal (width-8) instead of half of it.
+func (s *Shell) SetWideDialog(title, body string, accent ...color.Color) {
+	s.SetDialog(title, body, accent...)
+	s.dialogWide = true
+}
+
+// dialogOuterWidth is the dialog's outer width: half the terminal (or
+// width-8 when wide), at least 36, at most width-4.
+func (s *Shell) dialogOuterWidth(wide bool) int {
+	dw := s.width / 2
+	if wide {
+		dw = s.width - 8
+	}
+	if dw < 36 {
+		dw = 36
+	}
+	if dw > s.width-4 {
+		dw = s.width - 4
+	}
+	return dw
 }
 
 // SetToast sets (or clears, when empty) the bottom-right toast slot.
@@ -339,13 +364,7 @@ func (s *Shell) composeTop(body int) string {
 // form field carries the only highlight; the drop shadow and dimmed scrim give
 // the modal its depth.
 func (s *Shell) renderDialog() string {
-	dw := s.width / 2
-	if dw < 36 {
-		dw = 36
-	}
-	if dw > s.width-4 {
-		dw = s.width - 4
-	}
+	dw := s.dialogOuterWidth(s.dialogWide)
 	accent := s.dialogAccent
 	if accent == nil {
 		accent = style.Primary
@@ -360,14 +379,10 @@ func (s *Shell) renderDialog() string {
 // DialogSize returns the interior content budget of the modal dialog:
 // renderDialog's width math (half the terminal, min 36, max width-4) minus
 // its border+padding, and a height that leaves the dialog fully on-screen.
-func (s *Shell) DialogSize() (int, int) {
-	dw := s.width / 2
-	if dw < 36 {
-		dw = 36
-	}
-	if dw > s.width-4 {
-		dw = s.width - 4
-	}
+func (s *Shell) DialogSize() (int, int) { return s.dialogSize(false) }
+
+func (s *Shell) dialogSize(wide bool) (int, int) {
+	dw := s.dialogOuterWidth(wide)
 	w := dw - 6 // border(2) + padding(4)
 	if w < 1 {
 		w = 1
@@ -377,6 +392,12 @@ func (s *Shell) DialogSize() (int, int) {
 		h = 1
 	}
 	return w, h
+}
+
+// WideDialogSize is DialogSize for a dialog set with SetWideDialog: the same
+// height, with the interior width of the wide dialog (width-8 outer).
+func (s *Shell) WideDialogSize() (int, int) {
+	return s.dialogSize(true)
 }
 
 // fitLines truncates every line of s to at most w display columns (ANSI-aware)

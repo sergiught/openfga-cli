@@ -2,6 +2,7 @@ package base
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -270,5 +271,40 @@ func TestAssertionsTestWithNoAssertionsEmitsOneDocument(t *testing.T) {
 				t.Errorf("agent mode printed the informational line: %q", errb)
 			}
 		})
+	}
+}
+
+func optimizeReference(t *testing.T) string {
+	t.Helper()
+	abs, err := filepath.Abs(filepath.Join("..", "..", "optimize", "testdata", "reference.fga"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return abs
+}
+
+// --json must put exactly one document on stdout and nothing else there.
+func TestOptimizeJSONIsSingleDocument(t *testing.T) {
+	out, errb, code := runOfga(t, t.TempDir(), "", nil,
+		"model", "optimize", optimizeReference(t), "--json", "--bench", "--synth", "--iterations", "2")
+	if code != 0 {
+		t.Fatalf("exit = %d (stdout=%q stderr=%q)", code, out, errb)
+	}
+	dec := json.NewDecoder(strings.NewReader(out))
+	var doc struct {
+		SchemaVersion int              `json:"schemaVersion"`
+		Bench         *json.RawMessage `json:"bench"`
+	}
+	if err := dec.Decode(&doc); err != nil {
+		t.Fatalf("decode stdout: %v (%q)", err, out)
+	}
+	if err := dec.Decode(new(json.RawMessage)); err != io.EOF {
+		t.Errorf("second Decode = %v, want io.EOF (stdout has more than one document)", err)
+	}
+	if doc.SchemaVersion != 1 {
+		t.Errorf("schemaVersion = %d, want 1", doc.SchemaVersion)
+	}
+	if doc.Bench == nil || string(*doc.Bench) == "null" {
+		t.Error("bench is null, want a result")
 	}
 }

@@ -1,0 +1,165 @@
+package model
+
+import (
+	"fmt"
+	"os"
+	"regexp"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/sergiught/openfga-cli/internal/modeltest"
+	"github.com/sergiught/openfga-cli/internal/optimize"
+)
+
+var hunkHeader = regexp.MustCompile(`(?m)^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@$`)
+
+func TestUnifiedDiff_RoundTripsAndNumbersHunks(t *testing.T) {
+	raw, err := os.ReadFile(optimizeReference)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Pad both sides with a distant, differing tail so the diff has a second
+	// hunk (the reference's own edits all fall within one context window).
+	pad := strings.Repeat("# pad\n", 20)
+	before := string(raw) + pad + "# old tail\n"
+	lm, err := modeltest.LoadModelBytes(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep, err := optimize.Analyze(lm.Proto)
+	if err != nil || rep.Rewrite == nil {
+		t.Fatalf("analyze: rewrite=%v err=%v", rep.Rewrite, err)
+	}
+	after, err := rep.Rewrite.After.DSL()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	after += pad + "# new tail\n"
+
+	d := optimize.UnifiedDiff("reference.fga", before, after)
+	got, err := applyUnified(d, before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != after {
+		t.Fatalf("diff does not round-trip\n%s", d)
+	}
+
+	// Every hunk's +start must be its -start shifted by the net line change
+	// of all earlier hunks; compute the expectation from the hunk bodies.
+	hs := hunkHeader.FindAllStringSubmatch(d, -1)
+	if len(hs) < 2 {
+		t.Fatalf("want at least 2 hunks to exercise numbering, got %d\n%s", len(hs), d)
+	}
+	count := func(s string) int {
+		if s == "" {
+			return 1
+		}
+		n, _ := strconv.Atoi(s)
+		return n
+	}
+	delta := 0
+	for i, h := range hs {
+		oldStart, _ := strconv.Atoi(h[1])
+		newStart, _ := strconv.Atoi(h[3])
+		if newStart != oldStart+delta {
+			t.Errorf("hunk %d: +%d, want +%d (delta %d)", i+1, newStart, oldStart+delta, delta)
+		}
+		delta += count(h[4]) - count(h[2])
+	}
+	if !strings.HasPrefix(d, "--- reference.fga\n+++ reference.fga (optimized)\n") {
+		t.Errorf("unexpected labels: %q", d[:60])
+	}
+}
+
+// applyUnified applies a unified diff with context lines. udiff.ApplyUnified
+// only supports zero-context diffs, so it cannot check ours.
+func applyUnified(diff, before string) (string, error) {
+	src := strings.SplitAfter(before, "\n")
+	var out strings.Builder
+	pos := 0
+	for _, l := range strings.SplitAfter(diff, "\n") {
+		switch {
+		case l == "", strings.HasPrefix(l, "--- "), strings.HasPrefix(l, "+++ "), strings.HasPrefix(l, "\\"):
+		case strings.HasPrefix(l, "@@"):
+			m := hunkHeader.FindStringSubmatch(strings.TrimSuffix(l, "\n"))
+			if m == nil {
+				return "", fmt.Errorf("bad header %q", l)
+			}
+			start, _ := strconv.Atoi(m[1])
+			for ; pos < start-1; pos++ {
+				out.WriteString(src[pos])
+			}
+		case l[0] == '-' || l[0] == ' ':
+			if pos >= len(src) || src[pos] != l[1:] {
+				return "", fmt.Errorf("line %d: diff has %q, file has %q", pos+1, l[1:], src[min(pos, len(src)-1)])
+			}
+			if l[0] == ' ' {
+				out.WriteString(src[pos])
+			}
+			pos++
+		case l[0] == '+':
+			out.WriteString(l[1:])
+		default:
+			return "", fmt.Errorf("bad line %q", l)
+		}
+	}
+	for ; pos < len(src); pos++ {
+		out.WriteString(src[pos])
+	}
+	return out.String(), nil
+}
+
+func TestColorDiffLine_StripsTerminalEscapes(t *testing.T) {
+	const osc52 = "\x1b]52;c;aGk=\x07"
+	for _, line := range []string{
+		"+ # comment " + osc52 + "\n",
+		"--- roles" + osc52 + ".fga\n",
+		"  context\x1b[2J line\n",
+	} {
+		got := colorDiffLine(line)
+		if strings.Contains(got, "]52;") || strings.Contains(got, "\x1b[2J") || strings.Contains(got, "\x07") {
+			t.Errorf("colorDiffLine(%q) = %q, still carries the escape", line, got)
+		}
+		if !strings.HasSuffix(got, "\n") {
+			t.Errorf("colorDiffLine(%q) = %q, lost the newline", line, got)
+		}
+	}
+}
+
+// TestRenderOptimize_StripsTerminalEscapes pins that model-derived text in
+// findings and held-back rewrites cannot replay terminal control sequences.
+func TestRenderOptimize_StripsTerminalEscapes(t *testing.T) {
+	const osc52 = "\x1b]52;c;aGk=\x07"
+	f := optimize.Finding{
+		ID: "A1", Tier: optimize.TierCaller, Type: "doc" + osc52, Relation: "viewer\x1b[2J",
+		Before: "a" + osc52, After: "b" + osc52, Reason: "r" + osc52, Proof: "p" + osc52,
+		Weights: map[string]int{"user" + osc52: 1},
+	}
+	g := optimize.GatedFinding{Finding: optimize.Finding{
+		ID: "S4", Tier: optimize.TierSafe, Type: "doc" + osc52, Relation: "viewer",
+		Before: "x" + osc52, After: "y" + osc52,
+	}, Gate: "changes the resolver OpenFGA picks"}
+	var buf strings.Builder
+	if err := renderOptimize(&buf, []optimize.Finding{f}, []optimize.GatedFinding{g}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if out := buf.String(); strings.Contains(out, "]52;") || strings.Contains(out, "\x1b[2J") || strings.Contains(out, "\x07") {
+		t.Errorf("output still carries an escape:\n%q", out)
+	}
+}
+
+func TestRenderOptimize_KeepsMultilineFragments(t *testing.T) {
+	g := optimize.GatedFinding{Finding: optimize.Finding{
+		ID: "S4", Tier: optimize.TierSafe, Type: "doc", Relation: "viewer", Before: "a or\nb", After: "a",
+	}, Gate: "changes the resolver OpenFGA picks"}
+	var buf strings.Builder
+	if err := renderOptimize(&buf, nil, []optimize.GatedFinding{g}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if out := buf.String(); !strings.Contains(out, "- b") {
+		t.Errorf("multiline Before was joined:\n%s", out)
+	}
+}

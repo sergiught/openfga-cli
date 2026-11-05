@@ -1,0 +1,19 @@
+model
+  schema 1.1
+
+type user
+
+type folder
+  relations
+    define admin: [user]
+    define viewer: [user, user:*] or admin
+
+type doc
+  relations
+    define parent: [folder with active]
+    define viewer: admin from parent or viewer from parent
+    define can_view: viewer and admin from parent
+
+condition active(now: timestamp, until: timestamp) {
+  now < until
+}

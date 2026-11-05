@@ -1,0 +1,12 @@
+model
+  schema 1.1
+
+type user
+
+type project
+  relations
+    define owner: [user]
+    define maintainer: [user] or owner
+    define contributor: [user] or maintainer or owner
+    define can_release: owner and maintainer
+    define can_read: contributor or contributor

@@ -17,6 +17,8 @@ Demo GIFs for the `ofga` CLI and TUI, generated with
 | ![profiles.gif](profiles.gif) | `ofga profiles`: manage named connection profiles. |
 | ![model-test.gif](model-test.gif) | `ofga model test --coverage`: running the example workspace's tests with branch-coverage reporting from the CLI. |
 | ![model-test-tui.gif](model-test-tui.gif) | `ofga model test --playground`: exploring test results and coverage in the playground's Tests tab. |
+| ![model-optimize.gif](model-optimize.gif) | `ofga model optimize`: safe rewrites with proofs, the diff, and a before/after benchmark on the embedded server. |
+| ![playground-optimize.gif](playground-optimize.gif) | The playground's Model tab: benchmark the model (`B`), review the safe rewrites and advisories (`o`), tick one, and write it as a new model version (`w`, `y`). |
 
 ## Regenerating
 
@@ -33,10 +35,14 @@ make gifs      # record every tape into examples/*.gif
 make demo-down # tear the stack down
 ```
 
-Most tapes talk to the `make demo` stack over a seeded profile. The two
-`model-test*` tapes are the exception: `model-test.tape` and
-`model-test-tui.tape` run `ofga model test` against OpenFGA's embedded,
-in-process server, so they need no stack at all.
+Most tapes talk to the `make demo` stack over a seeded profile. The
+`model-test*` and `model-optimize` tapes are the exception: they run
+`ofga model test` and `ofga model optimize` against OpenFGA's embedded,
+in-process server, so they need no stack at all. The runnable inputs live in
+[`model-tests/`](model-tests/) and [`model-optimize/`](model-optimize/).
+
+Recording forces `OPENFGA_AGENT_MODE=0` so the output is the human one even
+when `make gifs` runs from inside a coding agent.
 
 Every tape isolates `XDG_CONFIG_HOME` to a temporary directory before running,
 so recording never touches your real `ofga` config.

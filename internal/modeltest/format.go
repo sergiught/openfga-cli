@@ -251,3 +251,10 @@ func (e *ListUsersExpectation) UnmarshalYAML(value *yaml.Node) error {
 	e.Users = raw.Users
 	return nil
 }
+
+// Subjects returns the effective users and objects a check case asserts over:
+// its singular field, or its plural group field. Setting both the singular and
+// plural of either is an error.
+func (cc CheckCase) Subjects() (users, objects []string, err error) {
+	return cc.subjects()
+}

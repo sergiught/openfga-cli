@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/sergiught/go-openfga/openfga"
@@ -200,7 +202,11 @@ func NewEnvelope(err error) Envelope {
 	if s := SilentSummary(err); s != "" {
 		body.Message = s
 	} else {
-		body.Message, _, _ = strings.Cut(headline, "\n")
+		var rest string
+		body.Message, rest, _ = strings.Cut(headline, "\n")
+		// cobra's suggestions are reported as "suggestion" details below.
+		rest, _, _ = strings.Cut(rest, "Did you mean this?")
+		body.Details = append(body.Details, headlineDetails(rest)...)
 	}
 
 	var resp *openfga.ErrorResponse
@@ -230,6 +236,29 @@ func NewEnvelope(err error) Envelope {
 		}
 	}
 	return Envelope{Error: body}
+}
+
+// lineColumnRE matches the "line=N, column=M" position the DSL parser reports.
+var lineColumnRE = regexp.MustCompile(`line=(\d+), column=(\d+)`)
+
+// headlineDetails turns the lines after the first of a multi-line error (such
+// as a multierror's "\t* ..." entries) into details, adding line and column
+// when the line carries a parser position.
+func headlineDetails(rest string) []map[string]any {
+	var out []map[string]any
+	for _, line := range strings.Split(rest, "\n") {
+		line = strings.TrimPrefix(strings.TrimSpace(line), "* ")
+		if line == "" {
+			continue
+		}
+		d := map[string]any{"message": line}
+		if m := lineColumnRE.FindStringSubmatch(line); m != nil {
+			d["line"], _ = strconv.Atoi(m[1])
+			d["column"], _ = strconv.Atoi(m[2])
+		}
+		out = append(out, d)
+	}
+	return out
 }
 
 // cobraSuggestions extracts the entries under cobra's "Did you mean this?"

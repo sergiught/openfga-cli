@@ -152,7 +152,7 @@ gifs: build ## Record example GIFs from examples/tapes/*.tape (run `make demo` f
 	@curl -sf http://localhost:8080/healthz >/dev/null 2>&1 || { echo "demo stack not reachable on :8080, run 'make demo' first"; exit 1; }
 	@for tape in examples/tapes/*.tape; do \
 		case "$$tape" in */_setup.tape) continue;; esac; \
-		echo "▶ recording $$tape"; PATH="$(CURDIR)/bin:$$PATH" vhs "$$tape" || exit 1; \
+		echo "▶ recording $$tape"; OPENFGA_AGENT_MODE=0 PATH="$(CURDIR)/bin:$$PATH" vhs "$$tape" || exit 1; \
 	done
 	@echo "✓ recorded: $$(ls examples/*.gif 2>/dev/null)"
 
@@ -161,7 +161,7 @@ recordings: build ## Record per-command site demos from examples/tapes/commands/
 	@command -v vhs >/dev/null 2>&1 || { echo "vhs not found, install charmbracelet/vhs and ttyd"; exit 1; }
 	@curl -sf http://localhost:8080/healthz >/dev/null 2>&1 || { echo "demo stack not reachable on :8080, run 'make demo' first"; exit 1; }
 	@for tape in examples/tapes/commands/*.tape; do \
-		echo "▶ recording $$tape"; PATH="$(CURDIR)/bin:$$PATH" vhs "$$tape" || exit 1; \
+		echo "▶ recording $$tape"; OPENFGA_AGENT_MODE=0 PATH="$(CURDIR)/bin:$$PATH" vhs "$$tape" || exit 1; \
 	done
 	@echo "✓ $$(ls docs/site/public/recordings/*.webm 2>/dev/null | wc -l) recordings in docs/site/public/recordings"
 

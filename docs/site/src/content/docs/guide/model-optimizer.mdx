@@ -1,0 +1,332 @@
+---
+title: Optimizing authorization models
+description: Find redundant rewrites that never change a Check answer, get advice on recursion and exclusions, and prove the effect with an embedded before/after benchmark.
+sidebar:
+  order: 6
+---
+
+import CommandDemo from '../../../components/CommandDemo.astro';
+
+`ofga model optimize` analyzes an authorization model and reports what could
+be cheaper to evaluate. It applies only rewrites it can prove equivalent,
+recommends the changes it cannot prove, and can run the original and rewritten
+models side by side on an embedded OpenFGA server to show the effect.
+
+<CommandDemo slug="model-optimize" />
+
+The playground TUI offers the same analysis in its Model tab; see [Benchmark and optimize the model](../tui/#benchmark-and-optimize-the-model).
+
+```sh
+ofga model optimize model.fga            # findings and a diff of the safe rewrite
+ofga model optimize model.fga --bench    # also measure before and after
+ofga model optimize model.fga --write    # overwrite the file with the safe rewrite
+```
+
+The input is a DSL or JSON model file, or `-` for stdin. The model is never
+sent to a server unless you benchmark, and then only to a disposable in-memory
+one.
+
+Try it on the three small models shipped in the repository (see
+[`examples/model-optimize/`](https://github.com/sergiught/openfga-cli/blob/main/examples/model-optimize)
+and its README): one with redundant roles (S1, S2, S3), one with a redundant
+`from parent` operand (S4), and one where an exclusion disables every safe
+rewrite.
+
+```sh
+ofga model optimize examples/model-optimize/roles.fga
+ofga model optimize examples/model-optimize/hierarchy.fga --bench --iterations 20
+ofga model optimize examples/model-optimize/exclusion.fga
+```
+
+## The three tiers
+
+| Tier | What it is | Who acts |
+| --- | --- | --- |
+| `safe` | A rewrite that never changes any Check answer. Rules S1 to S4. | The tool can apply it |
+| `caller` | A pattern that makes Checks costlier or slower to short-circuit | You, in how the model is queried |
+| `tuple` | A shape that makes Checks cost more reads as stored data nests | You, in how tuples are stored |
+
+Use `--tier safe,caller` to filter what is **reported**. The filter never
+changes what is written.
+
+### Safe rules
+
+| Rule | Rewrite |
+| --- | --- |
+| S1 | In a union, drop an operand already included by another operand (`editor or owner` becomes `editor` when `owner` is part of `editor`) |
+| S2 | In an intersection, drop an operand implied by the other (`owner and editor` becomes `owner`) |
+| S3 | Drop a duplicated operand (`A or A` becomes `A`) |
+| S4 | In a union, drop a `X from parent` operand already included by another operand |
+
+Each finding states its proof, such as `folder#owner ⊆ folder#editor`. No rule
+removes or renames a relation or changes the directly related types of one:
+every relation is a Check entry point, so even one nothing references is a live
+permission. Rewrites are applied to a fixpoint (at most 10 passes).
+
+### Advisory findings
+
+These are reported and never applied.
+
+| ID | Tier | Meaning |
+| --- | --- | --- |
+| C1 | caller | A recursive operand (directly or through an alias or userset) in a top-level intersection or exclusion |
+| C2 | caller | An exclusion (`but not`) is present, so the subtracted side is always evaluated: an extra datastore read, plus an extra dispatch when the subtracted side is not a direct relation |
+| T1 | tuple | A relation introduces recursion: each nesting level in the tuple data costs one more datastore read and one more dispatch |
+| T2 | tuple | A union with 4 or more operands: each computed or tuple-to-userset operand is a separate dispatch, and a Check that misses evaluates all of them |
+
+Advisory findings are computed on the rewritten model, after the safe
+rewrites are applied.
+
+Advisory findings carry weights. An infinite weight is `-1` in JSON and YAML
+output and `inf` in human output. When OpenFGA cannot build the model's
+weighted graph (for example an `and` or `but not` on a tuple cycle, or a
+tupleset type that lacks the relation), findings carry no weights.
+
+## Worked example
+
+The repository's reference model (`internal/optimize/testdata/reference.fga`)
+has an organization, groups, a folder hierarchy and documents.
+
+```sh
+ofga model optimize internal/optimize/testdata/reference.fga
+```
+
+An excerpt of the output (`...` marks skipped lines):
+
+```text
+Safe rewrites (4)
+  organization#can_view  [S1]  member or admin → member
+    reason: operand is already included by another operand of the union
+    proof: organization#admin ⊆ organization#member
+  ...
+  folder#can_delete  [S2]  owner and editor → owner
+    reason: intersection operand is already implied by the other
+    proof: folder#owner ⊆ folder#editor
+  ...
+
+Caller recommendations (2)
+  document#can_edit  [C1]
+    reason: Recursive operand inside an exclusion: a Check may evaluate it fully, so a deep graph is expensive; keep the recursion out of the exclusion or cap depth in callers.
+    weights: user=inf
+  document#can_edit  [C2]
+    reason: Exclusion present: the subtracted side is always evaluated, so a Check on this relation costs an extra datastore read, and an extra dispatch when the subtracted side is not a direct relation.
+    weights: user=inf
+
+Tuple recommendations (5)
+  document#viewer  [T2]
+    reason: Union with 4 operands: each computed or tuple-to-userset operand is a separate dispatch; a Check that misses evaluates all of them. Consider consolidating roles.
+    weights: user=inf
+  ...
+```
+
+The safe rewrites are also printed as a unified diff. `document#can_view:
+viewer or can_view from parent` is not rewritten, even though `folder#can_view`
+is an alias of `folder#viewer`, because the userset `folder:1#can_view`
+satisfies `can_view` but not `viewer`.
+
+### Benchmark
+
+```sh
+ofga model optimize internal/optimize/testdata/reference.fga --bench --iterations 20 --plain
+```
+
+A real run (457 synthesized tuples, 117 checks). Your numbers will differ by
+machine and run:
+
+```text
+Benchmark · synthesis · 457 tuples · 117 checks · 20 runs
+
+  Deny reads       430 → 382   -11%
+  Deny dispatches   73 →  73
+  Answers          all 117 unchanged
+
+Deny checks whose cost changed (5)
+  CHECK                  READS            DISPATCHES    P50 ms
+  organization#can_view    7 →   6  -14%   1 →  1       0.32 → 0.50
+  folder#can_view         69 →  60  -13%  11 → 11       1.38 → 1.32
+  folder#viewer           69 →  60  -13%  11 → 11       1.35 → 1.43
+  document#can_view      158 → 139  -12%  28 → 28       2.07 → 2.28
+  document#viewer         88 →  78  -11%  16 → 16       1.38 → 1.71
+
+  84 deny checks unchanged · 28 allow checks not compared
+  (allow checks stop early, so their read counts are noise)
+  in-process, indicative only
+```
+
+Only deny checks whose cost changed are listed; allow checks are counted in
+the footer because they stop early and their read counts are noise.
+
+## The equivalence guarantee
+
+"Safe" means equivalent under OpenFGA's semantics: a safe rewrite returns the
+same `true` or `false` as the original for every possible set of tuples and
+**every valid Check request, including userset subjects such as
+`folder:1#viewer`**, whichever evaluation strategy OpenFGA picks. The
+OpenFGA server picks how to evaluate a Check from the model's shape, and some
+of those strategies have known defects. The tool steers around them rather
+than relying on them, which is why some rewrites are held back.
+
+This is proven and tested against OpenFGA v1.22.0 in its default
+configuration (the version the embedded benchmark server runs), and for
+Check only. Experimental check strategies, other server versions, and
+ListObjects and ListUsers are not covered by the gates or by any test. The
+caveats:
+
+- **Aliases are one-way.** `define can_view: viewer` proves that every viewer
+  can view, not the reverse: OpenFGA answers
+  `Check(folder:1#can_view, can_view, folder:1)` with `true` by definition, and
+  that userset is not a viewer. Rewrites that would need the reverse are not
+  proposed.
+- **Rewrites never change OpenFGA's resolver choice.** For every relation and
+  user type the server picks an evaluation strategy from the model's shape; a
+  rewrite that would change that choice for any surviving edge is skipped, on
+  every model.
+- **Conditions are handled conservatively.** A directly related type with a
+  condition (or a wildcard) is only comparable to an identical one, so a
+  conditioned term blocks every rule that would need to compare it. You may
+  miss a rewrite; you will not get a wrong one.
+- **A `but not` that subtracts a recursive relation disables every safe
+  rewrite.** If the subtracted side of any `but not` in the model can reach a
+  cycle, no safe rewrite is applied anywhere in the model, and the output says
+  why: a `safe rewrites disabled: <type>#<relation> subtracts a recursive
+  relation; ...` notice on stderr, and the `safeRewritesBlocked` field in JSON.
+  OpenFGA's cycle handling under an exclusion depends on its evaluation
+  strategy, which is chosen for the whole model, so a rewrite in any type can
+  change the answer there. Advisory findings are still reported.
+- **Models with conditions or wildcards keep their relation weights.** If any
+  directly related type in the model has a condition or a wildcard, a rewrite
+  that would change a relation's weight in OpenFGA's weighted graph is
+  skipped. OpenFGA's fast path for some `from` relations can answer wrongly
+  when a tuple whose condition is false and a wildcard tuple share an object,
+  and lowering a weight can move a relation onto that path. This weight gate
+  applies in addition to the resolver-choice gate above.
+- **Depth-limit errors are possible.** Equivalence is of the abstract
+  semantics. A rewrite only removes branches, but near the server's
+  resolve-node limit whether a Check errors can still change, from an error
+  to a result or the reverse.
+
+## Reading the benchmark
+
+`--bench` is opt-in. It builds two embedded servers, one per model, loads the
+same tuples, and runs the same Checks against both.
+
+- **The headline counts deny checks only.** A deny has to evaluate every
+  branch, so its datastore reads are nearly stable from run to run. Allow checks stop
+  early while parallel branches race, so their reads vary and are not
+  compared.
+- **Latency (p50) is in-process and indicative only.** It is
+  sub-millisecond and noisy. Do not make decisions on it.
+- **Dispatch counts are informational.** They can be 0 for a purely
+  self-recursive model.
+- **The oracle.** Every Check must give the same answer on both models. For
+  synthesized tuples, extra untimed probes (every synthesized leaf user
+  against every relation) also compare answers on paths the timed checks do not
+  reach; the result's `probes` field counts them. If one differs, the command
+  prints a `Changed answers` section, exits `3`, writes nothing, and still
+  emits JSON output so you can see the offending check.
+- **Cyclic data.** Synthesis adds a two-object cycle beside each
+  self-referencing parent chain (for example `folder:cyc1` and `folder:cyc2`,
+  each the other's parent, with `folder:cyc1` also a parent of `folder:t1`), so
+  checks and probes exercise OpenFGA's cycle detection.
+- **Unstable answers.** Every timed run's answer is compared, not just the
+  first, so a rewritten model that flips during the timed runs is caught. A
+  differing answer is re-run 5 times on the original model. It counts as engine nondeterminism, not the rewrite, only if the
+  original model disagrees with itself (in its timed runs or the re-runs), or if the check's relation cannot
+  reach any relation the rewrite changed (both models then evaluate the same
+  definitions). Such an answer is listed under an `Unstable answers (N)`
+  notice (and in the result's `unstable` field) and does not affect the exit
+  code. A difference where only the rewritten model varies, on a path the
+  rewrite changed, is a changed answer and exits `3`.
+
+### Where the tuples come from
+
+| Flag | Meaning |
+| --- | --- |
+| `--workspace` | Use the tuples of an `ofga.yaml` workspace. By default one is auto-detected by walking up from the model file's directory |
+| `--synth` | Ignore any workspace and synthesize tuples |
+| `--seed` | Seed for synthesis (default `1`) |
+| `--depth` | Synthesized parent-chain depth (default `6`) |
+| `--iterations` | Timed samples per check for latency (default `100`) |
+
+When synthesis cannot cover a restriction or a check, the report lists it under
+a `Not synthesized (N)` heading (the result's `skipped` field). If a skipped restriction
+reaches a relation the rewrite changed, a warning names it, for example
+`1 rewritten relation was only partly exercised (a skipped restriction reaches it): folder#viewer`,
+followed by the hint `benchmark with --workspace to cover them`. The relations
+are also listed in the result's `unexercised` field.
+
+A workspace benchmark gets the same treatment: a rewritten relation counts as
+exercised only when some workspace check is on that relation or on a relation
+that depends on it. Otherwise a warning names it, for example
+`3 rewritten relations were not exercised by any workspace check: project#can_read, project#can_release, project#contributor`,
+followed by the hint `add workspace checks that reach them`, and the relations
+are listed in `unexercised` too. A clean `Answers` line is not evidence about
+any of them.
+
+The `Answers` line counts every query compared, including the untimed probes a
+synthesized benchmark adds. It reads `all N unchanged` only when nothing is
+unstable or changed (`all N checks and P probes unchanged` when probes are
+compared), `M unchanged · K unstable` when engine nondeterminism made some
+answers vary between runs, and `C changed` (plus `· K unstable`) when a rewrite
+changed an answer.
+
+All of these require `--bench`. Workspace checks that use context or contextual
+tuples are skipped, each with a notice. If the workspace's tuples do not fit
+the model, the command fails with a usage error and a hint to try `--synth`.
+
+Synthesis reads the model's weighted graph, which OpenFGA cannot build, for
+example, with an `and` or `but not` on a tuple cycle or a tupleset type that
+lacks the relation. For such a model `--synth` (and the
+synthesis fallback when no workspace is found) fails with a usage error and a
+hint to benchmark with `--workspace` instead.
+
+## Writing the result
+
+```sh
+ofga model optimize model.fga --write
+ofga model optimize model.json --output-file optimized.fga
+```
+
+- `--write` overwrites the model file in place and follows symlinks. It
+  refuses stdin and JSON input.
+- `--output-file <path>` writes the rewritten DSL elsewhere and also accepts
+  JSON or stdin input.
+- `--output-file -` writes the rewritten DSL to stdout, so stdout carries
+  only the model and can be piped. The findings, the diff and the benchmark
+  report are not printed; notices and the `wrote rewritten model to stdout`
+  line go to stderr. It cannot be combined with `--json` or `--yaml`, which
+  also write to stdout.
+- The two flags are mutually exclusive. The global `--output/-o` selects the
+  output format and has nothing to do with the destination.
+- **The rewrite is regenerated from the parsed model, so `--write` reformats
+  the file and drops comments.** Review the diff first. When the output will
+  reformat the model, the command prints `rewrite reformats the model:
+  comments are dropped and relations are sorted` on stderr.
+- The diff and the `--write` output are the normalized DSL: relations are
+  sorted and the file is reformatted, so the diff can show lines that moved
+  without a rewrite.
+- When no safe rewrite applies, `--write` leaves the file alone, while
+  `--output-file` writes the unchanged model to its destination (the input bytes
+  for DSL, the DSL rendering for JSON) and says so on stderr. Nothing is written
+  when the benchmark finds a changed answer.
+
+## Exit codes
+
+| Exit | Meaning |
+| --- | --- |
+| 0 | ok |
+| 1 | error |
+| 2 | usage error, including an invalid model |
+| 3 | the benchmark found a check whose answer changed |
+
+In `--json` and `--yaml` output every finding carries a stable `key`
+(`type#relation:id:proof`, with `#N` appended when the same finding is applied
+more than once), and `rewrite.applied` lists the keys of the applied findings
+in order. A safe rewrite that was derived but not applied because a safety
+gate rejected it is listed in the top-level `gated` array, each entry being a
+finding plus a `gate` field with the reason. In human output these appear under
+a `Not applied (N)` heading.
+
+See [Testing authorization models](../model-testing/) for checking a model
+against your own expectations, and [Output schemas](../output-schemas/) for the
+`--json` shape.

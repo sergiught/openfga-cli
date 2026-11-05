@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -245,5 +247,43 @@ func TestAgentModeOptOutLookalikeValueKeepsEnvelope(t *testing.T) {
 	_, errb, code := runOfga(t, t.TempDir(), "", []string{"CLAUDECODE=1"}, "--profile", "--agent=false", "nosuchcmd")
 	if code != clierr.CodeUsage || !json.Valid([]byte(errb)) || !strings.Contains(errb, `"code":"usage"`) {
 		t.Fatalf("code=%d err=%q", code, errb)
+	}
+}
+
+// Under agent mode model optimize prints one compact JSON line, drops the
+// progress/success lines on stderr and still emits warnings.
+func TestOptimizeAgentModeCompactAndQuiet(t *testing.T) {
+	env := []string{"OPENFGA_AGENT_MODE=1"}
+	ref := optimizeReference(t)
+
+	out, errb, code := runOfga(t, t.TempDir(), "", env, "model", "optimize", ref)
+	if code != 0 || !oneLine(out) || !json.Valid([]byte(out)) {
+		t.Fatalf("code=%d out=%q err=%q", code, out, errb)
+	}
+	// The reference file is not in normalized form, so the reformat warning
+	// is expected; nothing else (no progress lines) may appear.
+	if strings.TrimSpace(strings.ReplaceAll(errb, "● rewrite reformats the model: comments are dropped and relations are sorted", "")) != "" {
+		t.Errorf("stderr should hold only the reformat warning (no progress), got %q", errb)
+	}
+
+	// --write is a Warnf path (kept) next to a Successf path (dropped).
+	data, err := os.ReadFile(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	model := filepath.Join(dir, "model.fga")
+	if err := os.WriteFile(model, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, errb, code = runOfga(t, dir, "", env, "model", "optimize", model, "--write")
+	if code != 0 || !oneLine(out) {
+		t.Fatalf("code=%d out=%q err=%q", code, out, errb)
+	}
+	if !strings.Contains(errb, "comments are dropped") {
+		t.Errorf("warning must survive agent mode: %q", errb)
+	}
+	if strings.Contains(errb, "wrote rewritten model") {
+		t.Errorf("success line must be dropped: %q", errb)
 	}
 }

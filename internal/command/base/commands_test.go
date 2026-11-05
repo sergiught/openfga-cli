@@ -76,6 +76,19 @@ func TestCommandsJSONListsEveryLeaf(t *testing.T) {
 	}
 }
 
+func TestCommandsListsModelOptimizeWithoutStore(t *testing.T) {
+	c, _ := decodeCatalog(t)
+	for _, cmd := range c.Commands {
+		if cmd.Path == "ofga model optimize" {
+			if cmd.RequiresStore {
+				t.Errorf("model optimize must not require a store: %+v", cmd)
+			}
+			return
+		}
+	}
+	t.Fatal("ofga model optimize missing from catalog")
+}
+
 func TestCommandsGlobalFlagsOnce(t *testing.T) {
 	c, _ := decodeCatalog(t)
 	var out *flagInfo

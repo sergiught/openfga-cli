@@ -374,3 +374,11 @@ func loadCSVTuples(path string) ([]TupleKey, error) {
 
 	return tuples, nil
 }
+
+// ResolveTestTuples resolves the tuple set for a single test (its file-level
+// fixtures plus the test's own fixtures and inline tuples). It is the exported
+// form of the resolution `ofga test` performs, for callers outside the package
+// that build tuple sets from a workspace.
+func ResolveTestTuples(ws *Workspace, tf *TestFile, tt Test) ([]TupleKey, error) {
+	return resolveFixtures(ws, tf, tt, false, nil)
+}

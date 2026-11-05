@@ -1,0 +1,13 @@
+model
+  schema 1.1
+
+type user
+
+type folder
+  relations
+    define parent: [folder]
+    define blocked: [user] or blocked from parent
+    define owner: [user]
+    define editor: [user] or owner
+    define viewer: [user] or editor or owner
+    define can_view: viewer but not blocked

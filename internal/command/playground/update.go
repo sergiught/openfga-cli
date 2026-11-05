@@ -1,6 +1,7 @@
 package playground
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/sergiught/openfga-cli/internal/dsl"
 	"github.com/sergiught/openfga-cli/internal/fga"
+	"github.com/sergiught/openfga-cli/internal/optimize/benchfmt"
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/list"
 	shell "github.com/sergiught/openfga-cli/internal/ui/shell"
@@ -217,6 +219,9 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.modelID != "" && msg.modelID != m.modelID {
 			m.clearResourcePending()
 		}
+		if msg.modelID != m.modelID || msg.dsl != m.modelDSL {
+			m.stopOptimizer()
+		}
 		m.modelID = msg.modelID
 		// ReadLatest flags it directly; a picked model is latest only if it is
 		// the newest in the (already loaded) models list.
@@ -234,6 +239,10 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = "model " + short(msg.modelID) + " · " + m.graph.Summary()
 		return m, nil
 
+	case optBenchMsg:
+		m.handleOptBench(msg)
+		return m, nil
+
 	case modelAppliedMsg:
 		m.endLoad()
 		if m.staleMutation(msg.origin, m.modelApplyGen) {
@@ -241,6 +250,15 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.modelApplying = false
 		m.mutationStatus = ""
+		if msg.err != nil && msg.optimized > 0 {
+			// An optimizer write: report in its dialog, leaving the DSL editor alone.
+			m.connLost = isConnErr(msg.err)
+			m.opt.writeErr = errStr(msg.err)
+			if m.opt.dialog {
+				return m, nil
+			}
+			return m, m.toasts.Push(toast.Error, "write optimized model: "+m.opt.writeErr)
+		}
 		if msg.err != nil {
 			m.connLost = isConnErr(msg.err)
 			m.editorErr = errStr(msg.err)
@@ -253,9 +271,15 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.toasts.Push(toast.Error, "apply model: "+m.editorErr)
 		}
 		m.connLost = false
-		m.editorOpen = false
-		m.editor.Blur()
+		if msg.optimized == 0 {
+			m.editorOpen = false
+			m.editor.Blur()
+		}
 		m.status = "model applied"
+		if msg.optimized > 0 {
+			m.stopOptimizer()
+			m.status = fmt.Sprintf("wrote model %s · %s", short(msg.modelID), benchfmt.Plural(msg.optimized, "rewrite"))
+		}
 		// A fresh reload of the just-applied model follows; begin its slot and
 		// bump modelGen so a slow in-flight model load from before the apply
 		// can't clobber it.
@@ -932,6 +956,11 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	// The write dialog captures input until written or closed.
+	if m.opt.dialog {
+		cmd := m.handleDialogKey(msg.String())
+		return m, cmd
+	}
 	if m.paletteOpen {
 		switch msg.String() {
 		case "esc", "ctrl+k":
@@ -1064,6 +1093,10 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// is section-specific logic. The query resolution view is a sub-mode, so Esc
 	// closes it first (layered).
 	if key == "esc" {
+		if m.section == secModel && m.opt.view != optNone {
+			m.stopOptimizer()
+			return m, nil
+		}
 		if m.section == secQuery && m.showRes {
 			m.showRes = false
 			return m, nil
@@ -1132,6 +1165,9 @@ func (m Model) gotoSection(to section) (tea.Model, tea.Cmd) {
 	// onEnterSection re-enters the query form either way, so leaving the tree
 	// up would paint it over a focused, invisible form.
 	m.showRes = false
+	if to != secModel {
+		m.stopOptimizer()
+	}
 	m.section = to
 	m.fading = true
 	nm, cmd := m.onEnterSection()

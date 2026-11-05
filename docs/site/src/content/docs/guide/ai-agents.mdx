@@ -2,7 +2,7 @@
 title: Using ofga with AI agents
 description: Run ofga from a coding agent - agent mode, machine-readable errors, command discovery, JSONL streaming, output schemas, docs search and the installable agent skill.
 sidebar:
-  order: 11
+  order: 12
 ---
 
 `ofga` is built to be driven by coding agents such as Claude Code or Gemini CLI as well as by people. This page collects what an agent needs; the [scripting guide](../scripting/) has the full detail on each piece.
@@ -25,7 +25,7 @@ With `--json`, `-o json|jsonl|yaml` or agent mode, a failing command writes exac
 {"error":{"code":"not_found","message":"...","status":404,"hint":"...","details":[]}}
 ```
 
-Branch on `code`, which is stable. The [error codes table](../scripting/#errors-as-json) lists every code, when it appears and its exit code. Exit codes keep their meaning: 0 success, 1 error, 2 usage, 3 test failure, 4 network, 130 canceled. A destructive command run without `--force` fails with `confirmation_required` rather than waiting for an answer.
+Branch on `code`, which is stable. The [error codes table](../scripting/#errors-as-json) lists every code, when it appears and its exit code. Exit codes keep their meaning: 0 success, 1 error, 2 usage, 3 test failure (or a `model optimize --bench` answer mismatch), 4 network, 130 canceled. A destructive command run without `--force` fails with `confirmation_required` rather than waiting for an answer.
 
 ## Discovering commands
 
@@ -58,7 +58,7 @@ ofga docs show /docs/modeling/conditions
 
 ## The ofga agent skill
 
-`ofga` ships a skill, a `SKILL.md` that teaches an agent the workflow above: agent mode, error codes, `--dry-run` before writes, `--force`, `--failed-file` re-runs, `-o jsonl`, `model test` and docs search. It is embedded in the binary, so it always matches the version you run.
+`ofga` ships a skill, a `SKILL.md` that teaches an agent the workflow above: agent mode, error codes, `--dry-run` before writes, `--force`, `--failed-file` re-runs, `-o jsonl`, `model test`, `model optimize` and docs search. It is embedded in the binary, so it always matches the version you run.
 
 ```bash
 ofga agent skill show      # print it

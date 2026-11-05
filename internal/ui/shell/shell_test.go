@@ -389,3 +389,32 @@ func stripAnsi(s string) string {
 	}
 	return b.String()
 }
+
+func TestShell_WideDialogSize(t *testing.T) {
+	s := New()
+	s.SetSize(120, 40)
+	if w, _ := s.WideDialogSize(); w != 106 {
+		t.Errorf("width 120: interior %d, want 106", w)
+	}
+	if w, _ := s.DialogSize(); w != 54 {
+		t.Errorf("DialogSize must stay half-width, got %d", w)
+	}
+	s.SetSize(40, 20)
+	if w, _ := s.WideDialogSize(); w != 30 {
+		t.Errorf("width 40: interior %d, want 30", w)
+	}
+}
+
+func TestShell_SetDialogResetsWide(t *testing.T) {
+	s := New()
+	s.SetSize(120, 40)
+	s.SetWideDialog("t", "body")
+	wide := s.renderDialog()
+	s.SetDialog("t", "body")
+	if narrow := s.renderDialog(); lipgloss.Width(narrow) >= lipgloss.Width(wide) {
+		t.Errorf("SetDialog kept the wide flag: %d vs %d", lipgloss.Width(narrow), lipgloss.Width(wide))
+	}
+	if lipgloss.Width(wide) != 112 {
+		t.Errorf("wide dialog outer width %d, want 112", lipgloss.Width(wide))
+	}
+}

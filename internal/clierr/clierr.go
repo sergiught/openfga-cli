@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"syscall"
 
@@ -246,9 +247,19 @@ func friendlyParts(err error) (headline, hint, cause string) {
 	// to the human too, so it is not visible only in the machine envelope.
 	var he *hintError
 	if errors.As(err, &he) && !strings.Contains(err.Error(), he.hint) {
-		return err.Error(), he.hint, ""
+		return tidyHeadline(err.Error()), he.hint, ""
 	}
-	return err.Error(), "", ""
+	return tidyHeadline(err.Error()), "", ""
+}
+
+// multierrorPreamble is the "1 error occurred:" line go-multierror puts
+// before its "\t* ..." entries; the entries carry the information.
+var multierrorPreamble = regexp.MustCompile(`(?m):? ?\d+ errors? occurred:$`)
+
+// tidyHeadline drops the multierror preamble (and the colon before it) and
+// the blank lines multierror leaves after its last entry.
+func tidyHeadline(s string) string {
+	return strings.TrimRight(multierrorPreamble.ReplaceAllString(s, ""), "\n")
 }
 
 // isTokenExchangeRejection reports whether the OAuth token exchange itself was
@@ -315,6 +326,10 @@ func IsConnErr(err error) bool {
 	// failures.
 	var pathErr *os.PathError
 	if errors.As(err, &pathErr) {
+		return false
+	}
+	var linkErr *os.LinkError
+	if errors.As(err, &linkErr) {
 		return false
 	}
 	var ne net.Error

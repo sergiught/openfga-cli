@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -69,6 +70,8 @@ func TestSchemasValidateRealOutput(t *testing.T) {
 		{"ofga model test", "test", []string{"--file", passingWorkspace}},
 		{"ofga model test", "test", []string{"--file", passingWorkspace, "--coverage"}},
 		{"ofga model test schema", "schema", nil},
+		{"ofga model optimize", "optimize", []string{optimizeReference}},
+		{"ofga model optimize", "optimize", []string{optimizeReference, "--bench", "--synth", "--iterations", "1"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.path+" "+strings.Join(tc.args, " "), func(t *testing.T) {
@@ -77,6 +80,7 @@ func TestSchemasValidateRealOutput(t *testing.T) {
 			cmd := map[string]func() *cobra.Command{
 				"write": c.writeCmd, "list": c.listCmd, "get": c.getCmd, "latest": c.latestCmd,
 				"graph": c.graphCmd, "test": c.testCmd, "schema": c.testSchemaCmd,
+				"optimize": c.optimizeCmd,
 			}[tc.sub]()
 			var out bytes.Buffer
 			cmd.SetOut(&out)
@@ -87,6 +91,19 @@ func TestSchemasValidateRealOutput(t *testing.T) {
 				t.Fatal(err)
 			}
 			outputschematest.Validate(t, tc.path, out.Bytes())
+			// The schema allows a null bench, so a silently skipped benchmark
+			// would still validate; require the object.
+			if slices.Contains(tc.args, "--bench") {
+				var doc struct {
+					Bench map[string]any `json:"bench"`
+				}
+				if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
+					t.Fatal(err)
+				}
+				if doc.Bench == nil {
+					t.Error("--bench output has a null or missing bench")
+				}
+			}
 		})
 	}
 
@@ -171,5 +188,35 @@ func TestSchemaValidatesTestInitOutput(t *testing.T) {
 	want := []string{"ofga.yaml", "workspace.schema.json", "model.fga", "fixtures/example.yaml", "tests/example.test.yaml"}
 	if got.Dir != dir || strings.Join(got.Created, ",") != strings.Join(want, ",") {
 		t.Errorf("got %+v, want dir %q created %v", got, dir, want)
+	}
+}
+
+// TestBenchSchemaDescribesEveryField: every property of the bench result types
+// in the model optimize schema carries a description.
+func TestBenchSchemaDescribesEveryField(t *testing.T) {
+	b, err := os.ReadFile("../../../docs/site/public/schemas/output/model-optimize.v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		Defs map[string]struct {
+			Properties map[string]struct {
+				Description string `json:"description"`
+			} `json:"properties"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(b, &schema); err != nil {
+		t.Fatal(err)
+	}
+	for _, def := range []string{"Result", "Totals", "CheckResult", "Metrics", "Mismatch", "Tuple"} {
+		props := schema.Defs[def].Properties
+		if len(props) == 0 {
+			t.Errorf("$defs.%s has no properties", def)
+		}
+		for name, p := range props {
+			if p.Description == "" {
+				t.Errorf("$defs.%s.properties.%s has no description", def, name)
+			}
+		}
 	}
 }

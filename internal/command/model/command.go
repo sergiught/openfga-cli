@@ -57,6 +57,7 @@ func (c *Command) RegisterSubCommands() {
 		cmdmeta.Set(c.latestCmd(), cmdmeta.Meta{RequiresStore: true}),
 		cmdmeta.Set(c.graphCmd(), cmdmeta.Meta{RequiresStore: true}),
 		cmdmeta.Set(c.testCmd(), cmdmeta.Meta{}),
+		cmdmeta.Set(c.optimizeCmd(), cmdmeta.Meta{}),
 	)
 }
 
@@ -144,10 +145,17 @@ func modelInputToJSON(data []byte, path string) ([]byte, error) {
 	case ".fga":
 		return dslToJSON(data)
 	}
-	if t := bytes.TrimSpace(data); len(t) > 0 && t[0] == '{' {
+	if isJSONModel(data) {
 		return data, nil
 	}
 	return dslToJSON(data)
+}
+
+// isJSONModel reports whether data looks like a JSON model (first non-space
+// byte is '{') rather than DSL.
+func isJSONModel(data []byte) bool {
+	t := bytes.TrimSpace(data)
+	return len(t) > 0 && t[0] == '{'
 }
 
 func dslToJSON(data []byte) ([]byte, error) {

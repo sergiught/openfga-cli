@@ -1,0 +1,486 @@
+{
+  "$defs": {
+    "CheckResult": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "$ref": "#/$defs/Metrics",
+          "description": "Metrics against the after model; absent for a single-model profile."
+        },
+        "allowed": {
+          "description": "The check answer under the before model.",
+          "type": "boolean"
+        },
+        "before": {
+          "$ref": "#/$defs/Metrics",
+          "description": "Metrics against the before model."
+        },
+        "name": {
+          "description": "Human-readable check label.",
+          "type": "string"
+        },
+        "object": {
+          "description": "The object checked, as type:id.",
+          "type": "string"
+        },
+        "relation": {
+          "description": "The relation checked.",
+          "type": "string"
+        },
+        "user": {
+          "description": "The user in the check, as type:id.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "user",
+        "relation",
+        "object",
+        "allowed",
+        "before"
+      ],
+      "type": "object"
+    },
+    "Finding": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "type": "string"
+        },
+        "before": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "key": {
+          "description": "Stable identity: type#relation:id:proof, with #N appended when the same finding is applied more than once.",
+          "type": "string"
+        },
+        "proof": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "relation": {
+          "type": "string"
+        },
+        "tier": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "weights": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "description": "Weight per user type; -1 means unbounded (infinite) weight.",
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "relation",
+        "before",
+        "after",
+        "reason",
+        "proof",
+        "tier",
+        "key",
+        "weights"
+      ],
+      "type": "object"
+    },
+    "GatedFinding": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "type": "string"
+        },
+        "before": {
+          "type": "string"
+        },
+        "gate": {
+          "description": "Why the rewrite was not applied.",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "key": {
+          "description": "Stable identity: type#relation:id:proof, with #N appended when the same finding is applied more than once.",
+          "type": "string"
+        },
+        "proof": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "relation": {
+          "type": "string"
+        },
+        "tier": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "weights": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "description": "Weight per user type; -1 means unbounded (infinite) weight.",
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "relation",
+        "before",
+        "after",
+        "reason",
+        "proof",
+        "tier",
+        "key",
+        "weights",
+        "gate"
+      ],
+      "type": "object"
+    },
+    "Metrics": {
+      "additionalProperties": false,
+      "properties": {
+        "dispatches": {
+          "description": "Dispatches the check performed, averaged over the iterations.",
+          "type": "number"
+        },
+        "p50Ms": {
+          "description": "Median latency in milliseconds.",
+          "type": "number"
+        },
+        "p95Ms": {
+          "description": "95th percentile latency in milliseconds.",
+          "type": "number"
+        },
+        "reads": {
+          "description": "Datastore reads the check performed.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "reads",
+        "dispatches",
+        "p50Ms",
+        "p95Ms"
+      ],
+      "type": "object"
+    },
+    "Mismatch": {
+      "additionalProperties": false,
+      "properties": {
+        "allowedAfter": {
+          "description": "The answer under the after model.",
+          "type": "boolean"
+        },
+        "allowedBefore": {
+          "description": "The answer under the before model.",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "Human-readable check label.",
+          "type": "string"
+        },
+        "object": {
+          "description": "The object checked, as type:id.",
+          "type": "string"
+        },
+        "relation": {
+          "description": "The relation checked.",
+          "type": "string"
+        },
+        "user": {
+          "description": "The user in the check, as type:id.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "user",
+        "relation",
+        "object",
+        "allowedBefore",
+        "allowedAfter"
+      ],
+      "type": "object"
+    },
+    "Result": {
+      "additionalProperties": false,
+      "properties": {
+        "checks": {
+          "description": "Per-check results.",
+          "items": {
+            "$ref": "#/$defs/CheckResult"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "iterations": {
+          "description": "Timed iterations per check.",
+          "type": "integer"
+        },
+        "mismatches": {
+          "description": "Checks whose answer differs between the models and is attributable to the rewrite.",
+          "items": {
+            "$ref": "#/$defs/Mismatch"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "probes": {
+          "description": "Number of untimed answer-only probe checks compared between the models.",
+          "type": "integer"
+        },
+        "seed": {
+          "description": "The synthesis seed, for reproducing the run.",
+          "type": "integer"
+        },
+        "skipped": {
+          "description": "Restrictions or checks synthesis could not cover.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "source": {
+          "description": "Where the tuples and checks came from: workspace or synthesis.",
+          "type": "string"
+        },
+        "totals": {
+          "$ref": "#/$defs/Totals",
+          "description": "Metrics summed by the before answer."
+        },
+        "tupleCount": {
+          "description": "Number of tuples the benchmark loaded.",
+          "type": "integer"
+        },
+        "tuples": {
+          "description": "The synthesized tuple set, for reproducing the run; absent for workspace sources.",
+          "items": {
+            "$ref": "#/$defs/Tuple"
+          },
+          "type": "array"
+        },
+        "unexercised": {
+          "description": "Relations the rewrite changed that no benchmark check exercised: for synthesis, those that depend on a skipped restriction; for a workspace, those no workspace check reaches.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "unstable": {
+          "description": "Differing answers that are engine nondeterminism, not an effect of the rewrite.",
+          "items": {
+            "$ref": "#/$defs/Mismatch"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "source",
+        "tupleCount",
+        "iterations",
+        "checks",
+        "totals",
+        "probes",
+        "mismatches",
+        "unstable"
+      ],
+      "type": "object"
+    },
+    "Totals": {
+      "additionalProperties": false,
+      "properties": {
+        "allowReadsAfter": {
+          "description": "Datastore reads summed over checks allowed before, against the after model.",
+          "type": "integer"
+        },
+        "allowReadsBefore": {
+          "description": "Datastore reads summed over checks allowed before, against the before model.",
+          "type": "integer"
+        },
+        "denyDispatchesAfter": {
+          "description": "Dispatches summed over checks denied before, against the after model.",
+          "type": "number"
+        },
+        "denyDispatchesBefore": {
+          "description": "Dispatches summed over checks denied before, against the before model.",
+          "type": "number"
+        },
+        "denyReadsAfter": {
+          "description": "Datastore reads summed over checks denied before, against the after model.",
+          "type": "integer"
+        },
+        "denyReadsBefore": {
+          "description": "Datastore reads summed over checks denied before, against the before model.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "denyReadsBefore",
+        "denyReadsAfter",
+        "denyDispatchesBefore",
+        "denyDispatchesAfter",
+        "allowReadsBefore",
+        "allowReadsAfter"
+      ],
+      "type": "object"
+    },
+    "Tuple": {
+      "additionalProperties": false,
+      "properties": {
+        "object": {
+          "description": "The tuple object, as type:id.",
+          "type": "string"
+        },
+        "relation": {
+          "description": "The tuple relation.",
+          "type": "string"
+        },
+        "user": {
+          "description": "The tuple user, as type:id or type:id#relation.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "user",
+        "relation",
+        "object"
+      ],
+      "type": "object"
+    },
+    "optimizeModelInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "file",
+        "format"
+      ],
+      "type": "object"
+    },
+    "optimizeOutput": {
+      "additionalProperties": false,
+      "properties": {
+        "bench": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Result"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "findings": {
+          "items": {
+            "$ref": "#/$defs/Finding"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "gated": {
+          "description": "Safe rewrites that were derived but not applied, with the gate reason.",
+          "items": {
+            "$ref": "#/$defs/GatedFinding"
+          },
+          "type": "array"
+        },
+        "model": {
+          "$ref": "#/$defs/optimizeModelInfo"
+        },
+        "rewrite": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/rewriteOutput"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "safeRewritesBlocked": {
+          "description": "Why no safe rewrite was applied at all; set only when an exclusion subtracts a recursive relation.",
+          "type": "string"
+        },
+        "schemaVersion": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "model",
+        "findings",
+        "rewrite",
+        "bench"
+      ],
+      "type": "object"
+    },
+    "rewriteOutput": {
+      "additionalProperties": false,
+      "properties": {
+        "applied": {
+          "description": "Keys of the applied safe findings, in order; equals findings[].key.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "diff": {
+          "type": "string"
+        },
+        "dsl": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "applied",
+        "dsl",
+        "diff"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/model-optimize.v1.json",
+  "$ref": "#/$defs/optimizeOutput",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

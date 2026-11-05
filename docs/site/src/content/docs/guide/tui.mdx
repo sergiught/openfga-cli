@@ -43,7 +43,7 @@ The `?` overlay renders this same list, filtered to the global keys plus whateve
 | `shift+tab` / `←` `↑` / `k` / `h` | Sidebar (tab bar) | Move to the previous tab |
 | `1`–`9` | Sidebar and panels (not in a text field or a dialog) | Jump straight to a section; `9` is Tests. While you're typing — a form, the DSL editor, an active `/` filter — a digit is just a digit, and dialogs keep their own keys |
 | `enter` | Sidebar (tab bar) | Enter the focused panel |
-| `esc` | Panel | Return focus to the sidebar tabs (closes the resolution tree first if it's open) |
+| `esc` | Panel | Return focus to the sidebar tabs (closes the resolution tree first if it's open; in the Model tab's benchmark and review views it returns to the graph) |
 | `ctrl+k` | Global | Open the command palette |
 | `ctrl+l` | Global | Redraw the screen (always active, even inside overlays and forms) |
 | `ctrl+g` | Global | Cycle glyph styles: nerdfont / unicode / off (always active, even inside overlays and forms) |
@@ -68,9 +68,23 @@ The `?` overlay renders this same list, filtered to the global keys plus whateve
 | `pgup`/`pgdn`, `b`/`f`, `space` | Model | Page the graph |
 | `g`/`home`, `G`/`end` | Model | Jump to top/bottom |
 | `v` | Model | Toggle weighted-graph / diagram view |
+| `B` | Model | Benchmark the model on synthesized data |
+| `o` | Model | Review the optimizer's safe rewrites |
 | `e` | Model | Edit the model DSL |
 | `m` | Model | Switch model |
 | `r` | Model | Reload |
+| `space` | Model → Optimize review | Accept or reject the rewrite under the cursor |
+| `a` | Model → Optimize review | Accept all rewrites, or clear them |
+| `w` | Model → Optimize review | Open the write dialog |
+| `B` | Model → Optimize review | Benchmark the selection (needs at least one applied rewrite) |
+| `↑` `↓` / `k` `j` | Model → Benchmark | Move through the check rows |
+| `↑` `↓` / `k` `j` | Model → Optimize review | Move through the rewrites and findings |
+| `v` | Model → Benchmark / Optimize review | Leave the view and toggle the graph/weighted view |
+| `esc` | Model → Benchmark | Back to the graph |
+| `esc` | Model → Optimize review | Back to the graph (discards ticks) |
+| `y` | Model → Optimize write dialog | Write the optimized model |
+| `esc` | Model → Optimize write dialog | Back to the review |
+| `↑` `↓` / `k` `j` | Model → Optimize write dialog | Scroll the diff |
 | `↑` `↓` | Tuples | Move selection |
 | `/` | Tuples | Find within the rows already loaded |
 | `f` | Tuples | Filter on the server (`/read`) by user, relation and object |
@@ -139,6 +153,25 @@ user field takes any `type:id` reference, including a userset (`team:eng#member`
 or a wildcard (`user:*`). Submitting all three fields blank clears the filter and
 re-reads the store, and switching store or profile clears it for you — the types
 and ids it names belong to the store it was written for.
+
+## Benchmark and optimize the model
+
+The Model tab can run the same analysis as [`ofga model optimize`](../model-optimizer/) without leaving the TUI.
+
+<CommandDemo slug="playground-optimize" />
+
+**Benchmark (`B`).** Times the model on a small data set synthesized from the model itself (seed 1, depth 6). Nothing is read from the store, so it is safe on a production profile. It does 20 runs, and the timings are indicative only.
+
+**Review (`o`).** Lists the safe rewrites as a checklist you can tick with `space`, or tick or clear all at once with `a`.
+
+- A row that depends on a rewrite you rejected is dimmed with "depends on a rejected rewrite", and it is not applied. When that makes M applied rewrites differ from K ticked, the header shows "(M apply)".
+- "Worth a look" lists the findings the optimizer cannot rewrite safely; they are read-only, and selecting one shows its cost per user type, where `inf` means the cost grows with your data.
+- If the model is blocked, the review shows the reason instead of the checklist, and `w` does nothing.
+- `B` in the review benchmarks the selection, and needs at least one applied rewrite.
+
+**Write (`w`).** Opens a dialog with the diff of the applied rewrites. Write stays disabled until the answer check finishes. Any changed answer blocks the write, while unstable answers only add a note. If the weighted graph can't be built, the dialog shows a warning that the rewrites are proven safe by the rules but not double-checked against answers, and Write is allowed right away. If you are viewing an older model version, the dialog warns that writing makes the optimized copy the latest and drops changes made in newer versions. `y` writes, `esc` goes back to the review, and `↑` `↓` / `j` `k` scroll the diff.
+
+The write creates a new model version. Older versions stay selectable with `m`.
 
 ## macOS: ⌘K blanks the screen
 
