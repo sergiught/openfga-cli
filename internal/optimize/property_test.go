@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	openfgav1 "github.com/openfga/api/proto/openfga/v1"
@@ -125,9 +126,10 @@ func TestProperty_RewritePreservesCheck(t *testing.T) {
 			// model (seeds 3 and 5). Drop the checks whose original answer
 			// varies, and after-only variance off the rewritten paths; the
 			// rest must still agree.
+			diff := differing(before, after)
 			unstableChecks += dropUnstable(rw, before, after,
-				engineUnstable(t, eng, rw.Before.Proto, tuples, checks, before),
-				engineUnstable(t, eng, rw.After.Proto, tuples, checks, after))
+				engineUnstable(t, eng, rw.Before.Proto, tuples, diff, before),
+				engineUnstable(t, eng, rw.After.Proto, tuples, diff, after))
 		}
 		if !maps.Equal(before, after) {
 			var diff []string
@@ -210,17 +212,50 @@ func affectedBy(rw *RewriteResult) func(checkKey) bool {
 	}
 }
 
-// engineUnstable returns the checks whose answer changes in any of 8 reruns
-// of model m against ref. It never short-circuits, so every unstable key is
-// found.
+// engineUnstable returns the checks whose answer differs from ref on model m
+// in any of 8 fresh stores, each asking every check 64 times from 8
+// goroutines. OpenFGA's planner picks a check strategy per store and model,
+// and a fresh store's first pick is nearly always the same one, so a single
+// check per store can miss a strategy that answers differently (a TTU over
+// conditioned parent tuples does in v1.22); repeats let it explore. It never
+// short-circuits, so every unstable key is found.
 func engineUnstable(t *testing.T, eng modeltest.Engine, m *openfgav1.AuthorizationModel, tuples []*openfgav1.TupleKey, checks []checkKey, ref map[checkKey]answer) map[checkKey]bool {
 	t.Helper()
+	ctx := t.Context()
+	var mu sync.Mutex
 	out := map[checkKey]bool{}
 	for range 8 {
-		for k, v := range runChecks(t, eng, m, tuples, checks) {
-			if ref[k] != v {
-				out[k] = true
-			}
+		storeID, modelID, err := eng.Setup(ctx, m, tuples)
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		sc := modeltest.Scope{StoreID: storeID, ModelID: modelID}
+		var wg sync.WaitGroup
+		for range 8 {
+			wg.Go(func() {
+				for range 8 {
+					for _, c := range checks {
+						if checkAnswer(ctx, eng, sc, c) != ref[c] {
+							mu.Lock()
+							out[c] = true
+							mu.Unlock()
+						}
+					}
+				}
+			})
+		}
+		wg.Wait()
+		_ = eng.DeleteStore(ctx, storeID)
+	}
+	return out
+}
+
+// differing returns the checks that answer differently in before and after.
+func differing(before, after map[checkKey]answer) []checkKey {
+	var out []checkKey
+	for k, v := range before {
+		if after[k] != v {
+			out = append(out, k)
 		}
 	}
 	return out
@@ -311,9 +346,10 @@ func TestProperty_RewriteSubsetPreservesCheck(t *testing.T) {
 		if maps.Equal(before, after) || onlyUnaffectedDiffer(rw, before, after) {
 			continue
 		}
+		diff := differing(before, after)
 		dropUnstable(rw, before, after,
-			engineUnstable(t, eng, rw.Before.Proto, tuples, checks, before),
-			engineUnstable(t, eng, rw.After.Proto, tuples, checks, after))
+			engineUnstable(t, eng, rw.Before.Proto, tuples, diff, before),
+			engineUnstable(t, eng, rw.After.Proto, tuples, diff, after))
 		if maps.Equal(before, after) {
 			continue
 		}

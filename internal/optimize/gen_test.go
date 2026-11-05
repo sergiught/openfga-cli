@@ -1,6 +1,7 @@
 package optimize
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"math/rand/v2"
@@ -394,17 +395,22 @@ func runChecks(t *testing.T, eng modeltest.Engine, m *openfgav1.AuthorizationMod
 	sc := modeltest.Scope{StoreID: storeID, ModelID: modelID}
 	res := make(map[checkKey]answer, len(checks))
 	for _, c := range checks {
-		ok, err := eng.Check(ctx, sc, modeltest.CheckReq{User: c.user, Relation: c.relation, Object: c.object})
-		switch {
-		case err != nil:
-			res[c] = checkErr
-		case ok:
-			res[c] = allow
-		default:
-			res[c] = deny
-		}
+		res[c] = checkAnswer(ctx, eng, sc, c)
 	}
 	return res
+}
+
+// checkAnswer runs c against the store in sc.
+func checkAnswer(ctx context.Context, eng modeltest.Engine, sc modeltest.Scope, c checkKey) answer {
+	ok, err := eng.Check(ctx, sc, modeltest.CheckReq{User: c.user, Relation: c.relation, Object: c.object})
+	switch {
+	case err != nil:
+		return checkErr
+	case ok:
+		return allow
+	default:
+		return deny
+	}
 }
 
 func TestGenModel_SometimesMultiParentAndConditioned(t *testing.T) {
