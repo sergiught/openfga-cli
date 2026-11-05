@@ -40,6 +40,8 @@ type Session struct {
 
 	mu     sync.Mutex
 	closed bool
+	// saveFailed makes Close keep the scratch database after a failed Save.
+	saveFailed bool
 }
 
 // Start launches the embedded server on a scratch database: a copy of
@@ -164,6 +166,18 @@ func (s *Session) Save() error {
 	if s.closed {
 		return errors.New("playground session already closed")
 	}
+	if err := s.save(); err != nil {
+		// The user chose to keep these changes: Close must not delete them.
+		s.saveFailed = true
+		return fmt.Errorf("%w\nyour changes are kept in %s: copy it to %s, or set OPENFGA_PLAYGROUND_DB to it next time",
+			err, s.scratchDB, s.savedPath)
+	}
+	s.closed = true
+	_ = os.RemoveAll(s.scratch)
+	return nil
+}
+
+func (s *Session) save() error {
 	if err := s.shutdown(); err != nil {
 		return err
 	}
@@ -173,12 +187,7 @@ func (s *Session) Save() error {
 	if err := os.MkdirAll(filepath.Dir(s.savedPath), 0o700); err != nil {
 		return fmt.Errorf("create playground data dir: %w", err)
 	}
-	if err := copyAtomic(s.scratchDB, s.savedPath); err != nil {
-		return err
-	}
-	s.closed = true
-	_ = os.RemoveAll(s.scratch)
-	return nil
+	return copyAtomic(s.scratchDB, s.savedPath)
 }
 
 // Close stops everything and removes the scratch dir without saving. It is
@@ -191,6 +200,10 @@ func (s *Session) Close() error {
 	}
 	s.closed = true
 	err := s.shutdown()
+	if s.saveFailed {
+		// Keep the scratch database: it holds the changes Save could not write.
+		return err
+	}
 	if rmErr := os.RemoveAll(s.scratch); err == nil {
 		err = rmErr
 	}

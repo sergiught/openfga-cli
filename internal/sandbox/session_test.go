@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sergiught/go-openfga/openfga"
@@ -240,4 +241,36 @@ func TestDefaultPath_EnvOverride(t *testing.T) {
 	p, err = DefaultPath()
 	require.NoError(t, err)
 	require.Equal(t, "playground.db", filepath.Base(p))
+}
+
+func TestSession_FailedSaveKeepsScratch(t *testing.T) {
+	configtest.Isolate(t)
+	blocker := filepath.Join(t.TempDir(), "dir")
+	s := startSession(t, Options{SavedPath: filepath.Join(blocker, "playground.db")})
+	writeTuple(t, storeClient(t, s, "github"), "user:zed", "reader", "repo:acme/foo")
+	// The saved path's parent becomes a regular file, so the data dir cannot be created.
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	saveErr := s.Save()
+	if saveErr == nil {
+		t.Fatal("Save succeeded, want error")
+	}
+	scratchDB := s.scratchDB
+	if !strings.Contains(saveErr.Error(), scratchDB) {
+		t.Errorf("Save error %q does not name the scratch database %s", saveErr, scratchDB)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if _, err := os.Stat(scratchDB); err != nil {
+		t.Fatalf("scratch database removed after failed Save: %v", err)
+	}
+	db, err := OpenDatastore(scratchDB)
+	if err != nil {
+		t.Fatalf("scratch database not openable: %v", err)
+	}
+	db.Close()
+	t.Cleanup(func() { _ = os.RemoveAll(filepath.Dir(scratchDB)) })
 }
