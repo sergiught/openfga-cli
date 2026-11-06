@@ -13,7 +13,7 @@ Breaking changes can make previously valid tuples or checks stop working: remove
 
 Cost compares the per-user-type weights of each relation (see `model optimize`); an increase means checks on that relation can need more work. A weight of -1 in --json/--yaml output means unbounded; human output renders it inf.
 
-Exit codes: 0 no breaking changes · 1 error · 2 usage (including an invalid model) · 3 a breaking change was found, or, with --fail-on-cost, a cost increase.
+Exit codes: 0 no breaking changes · 1 error · 2 usage (including an invalid model) · 3 a breaking change was found, or, with --fail-on-cost, a cost increase · 4 the server was unreachable.
 
 ## Usage
 

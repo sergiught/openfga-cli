@@ -125,7 +125,7 @@ func TestDiff(t *testing.T) {
 			name:     "condition param removed",
 			old:      condModel2("timestamp", "string", "true"),
 			new:      condModel("[user with non_expired]", "timestamp", "true"),
-			breaking: []want{{kind: modeldiff.ConditionParamRemoved, cond: "non_expired", detail: "s"}},
+			breaking: []want{{kind: modeldiff.ConditionParamRemoved, cond: "non_expired", detail: "parameter `s` removed from condition `non_expired`"}},
 		},
 		{
 			name:     "condition param type changed",
@@ -209,6 +209,16 @@ func TestDiffUnionOrderIgnored(t *testing.T) {
 		return mustModel(t, "model\n  schema 1.1\ntype user\ntype document\n  relations\n    define a: [user]\n    define b: [user]\n    define c: [user]\n    define viewer: "+a+"\n    define editor: "+b+"\n")
 	}
 	r := modeldiff.Diff(mk("a or b", "(a or b) and c"), mk("b or a", "c and (b or a)"))
+	if !r.Empty() {
+		t.Errorf("want empty, got %+v", r)
+	}
+}
+
+func TestDiffUnionOrderIgnoredInDifferenceAndIntersection(t *testing.T) {
+	mk := func(a, b string) *optimize.Model {
+		return mustModel(t, "model\n  schema 1.1\ntype user\ntype document\n  relations\n    define a: [user]\n    define b: [user]\n    define c: [user]\n    define viewer: "+a+"\n    define editor: "+b+"\n")
+	}
+	r := modeldiff.Diff(mk("(a or b) but not c", "(a or b) and c"), mk("(b or a) but not c", "c and (b or a)"))
 	if !r.Empty() {
 		t.Errorf("want empty, got %+v", r)
 	}

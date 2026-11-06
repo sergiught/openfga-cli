@@ -119,8 +119,11 @@ func TestCostSkippedWhenNoWeightedGraph(t *testing.T) {
 	})
 	t.Cleanup(func() { modeldiff.SetWeights(orig) })
 	r := modeldiff.Diff(oldM, newM)
-	if !strings.Contains(r.CostSkipped, "new model") {
-		t.Errorf("got %q, want it to contain %q", r.CostSkipped, "new model")
+	if !strings.HasPrefix(r.CostSkipped, "new model: ") {
+		t.Errorf("got %q, want prefix %q", r.CostSkipped, "new model: ")
+	}
+	if strings.Contains(r.CostSkipped, "cost comparison skipped") {
+		t.Errorf("got %q, want no command-level prefix", r.CostSkipped)
 	}
 	if !strings.Contains(r.CostSkipped, "boom") {
 		t.Errorf("got %q, want it to contain %q", r.CostSkipped, "boom")

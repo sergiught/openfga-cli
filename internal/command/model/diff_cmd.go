@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"fmt"
 	"io"
 
@@ -8,6 +9,7 @@ import (
 
 	"github.com/sergiught/openfga-cli/internal/atomicfile"
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/cmdmeta"
 	"github.com/sergiught/openfga-cli/internal/modeldiff"
 	"github.com/sergiught/openfga-cli/internal/modeltest"
 	"github.com/sergiught/openfga-cli/internal/output"
@@ -77,7 +79,7 @@ func (c *Command) diffCmd() *cobra.Command {
 			"Changed lists differences that alter behavior without removing anything, such as a rewritten relation definition or a changed condition expression. " +
 			"Added lists new types, relations, user types and conditions.\n\n" +
 			"Cost compares the per-user-type weights of each relation (see `model optimize`); an increase means checks on that relation can need more work. A weight of -1 in --json/--yaml output means unbounded; human output renders it inf.\n\n" +
-			"Exit codes: 0 no breaking changes · 1 error · 2 usage (including an invalid model) · 3 a breaking change was found, or, with --fail-on-cost, a cost increase.",
+			"Exit codes: 0 no breaking changes · 1 error · 2 usage (including an invalid model) · 3 a breaking change was found, or, with --fail-on-cost, a cost increase · 4 the server was unreachable.",
 		Args:         cobra.RangeArgs(1, 2),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -90,16 +92,32 @@ func (c *Command) diffCmd() *cobra.Command {
 			if report != "" && reportFile == "" && (c.cli.JSON || c.cli.YAML) {
 				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--report without --report-file prints to stdout, which conflicts with -o json/yaml; pass --report-file"))
 			}
+			if f := cmd.Flags().Lookup("model-id"); f != nil && f.Changed {
+				return clierr.WithCode(clierr.CodeUsage, errors.New("--model-id is not used by model diff; pass the model ID as an argument instead"))
+			}
 			oldArg, newArg, err := resolveDiffArgs(args)
 			if err != nil {
 				return err
 			}
-			oldSide, err := c.loadDiffSide(cmd.Context(), cmd.InOrStdin(), "old", oldArg)
-			if err != nil {
+			// Load file and stdin sides first so a bad local file is reported
+			// before any network round trip or "no store selected".
+			var oldSide, newSide diffSide
+			loadOld := func() (err error) {
+				oldSide, err = c.loadDiffSide(cmd.Context(), cmd.InOrStdin(), "old", oldArg)
 				return err
 			}
-			newSide, err := c.loadDiffSide(cmd.Context(), cmd.InOrStdin(), "new", newArg)
-			if err != nil {
+			loadNew := func() (err error) {
+				newSide, err = c.loadDiffSide(cmd.Context(), cmd.InOrStdin(), "new", newArg)
+				return err
+			}
+			first, second := loadOld, loadNew
+			if isStoreArg(oldArg) && !isStoreArg(newArg) {
+				first, second = loadNew, loadOld
+			}
+			if err := first(); err != nil {
+				return err
+			}
+			if err := second(); err != nil {
 				return err
 			}
 
@@ -115,7 +133,7 @@ func (c *Command) diffCmd() *cobra.Command {
 					return err
 				}
 			} else {
-				if err := renderDiff(cmd.OutOrStdout(), out); err != nil {
+				if err := renderDiff(cmd.OutOrStdout(), out, res); err != nil {
 					return err
 				}
 				if res.HasCostIncrease() && !failOnCost {
@@ -153,6 +171,8 @@ func (c *Command) diffCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&failOnCost, "fail-on-cost", false, "exit 3 when any relation got more expensive, not only on breaking changes")
 	cmd.Flags().StringVar(&report, "report", "", "write a report in this format (\"github\" annotations); to --report-file if set, otherwise printed to the terminal")
 	cmd.Flags().StringVar(&reportFile, "report-file", "", "path to write the --report file to (requires --report)")
+	_ = cmd.RegisterFlagCompletionFunc("report", cobra.FixedCompletions([]string{"github"}, cobra.ShellCompDirectiveNoFileComp))
+	cmdmeta.SetEnum(cmd, "report", "github")
 	return cmd
 }
 
@@ -177,7 +197,7 @@ func writeDiffAnnotations(w io.Writer, oldSide, newSide diffSide, r modeldiff.Re
 			continue
 		}
 		subject := annotationSubject(c.Type, c.Relation, "")
-		msg := "cost increased for " + subject + ": checks on it can need more work"
+		msg := "cost increased for " + subject + ": " + formatCostChange(c)
 		if err := modeltest.WriteGitHubAnnotation(w, "warning", file, "model diff: "+subject, msg); err != nil {
 			return err
 		}

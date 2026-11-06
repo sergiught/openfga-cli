@@ -12,7 +12,7 @@ import (
 
 // renderDiff prints the human report: the two sides, then the non-empty
 // sections in severity order, then a one-line summary.
-func renderDiff(w io.Writer, out diffOutput) error {
+func renderDiff(w io.Writer, out diffOutput, res modeldiff.Result) error {
 	c := style.SanitizeTerminal
 	if _, err := fmt.Fprintf(w, "%s %s\n%s %s\n", style.Faint.Render("old:"), c(out.Old), style.Faint.Render("new:"), c(out.New)); err != nil {
 		return err
@@ -45,8 +45,8 @@ func renderDiff(w io.Writer, out diffOutput) error {
 		}
 	}
 	line := "no changes"
-	if len(out.Breaking)+len(out.Changed)+len(out.Added)+len(out.Cost) > 0 {
-		line = diffSummaryText(out.Summary)
+	if !res.Empty() {
+		line = diffSummaryText(out.Summary) + " — " + out.Summary.Verdict
 	}
 	_, err := fmt.Fprintf(w, "\n%s\n", line)
 	return err
@@ -78,12 +78,20 @@ func formatCostChange(ce modeldiff.CostEntry) string {
 	sort.Strings(users)
 	parts := make([]string, 0, len(users))
 	for _, u := range users {
-		parts = append(parts, fmt.Sprintf("%s %s → %s", u, weightText(ce.Old[u]), weightText(ce.New[u])))
+		o, oOK := ce.Old[u]
+		n, nOK := ce.New[u]
+		if oOK && nOK && o == n {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s %s → %s", u, weightText(o, oOK), weightText(n, nOK)))
 	}
 	return strings.Join(parts, ", ")
 }
 
-func weightText(w int) string {
+func weightText(w int, present bool) string {
+	if !present {
+		return "-"
+	}
 	if w < 0 {
 		return "inf"
 	}

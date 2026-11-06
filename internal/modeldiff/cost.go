@@ -18,9 +18,9 @@ const (
 type CostEntry struct {
 	Type      string         `json:"type"`
 	Relation  string         `json:"relation"`
-	Direction string         `json:"direction"` // CostIncreased | CostDecreased
-	Old       map[string]int `json:"old"`       // -1 = unbounded
-	New       map[string]int `json:"new"`       // -1 = unbounded
+	Direction string         `json:"direction" jsonschema:"enum=increased,enum=decreased"`
+	Old       map[string]int `json:"old" jsonschema_description:"Weight per user type; -1 means unbounded (infinite) weight."`
+	New       map[string]int `json:"new" jsonschema_description:"Weight per user type; -1 means unbounded (infinite) weight."`
 }
 
 // HasCostIncrease reports whether any relation got more expensive.
@@ -72,9 +72,9 @@ func diffCost(r *Result, oldM, newM *optimize.Model) {
 
 func skipReason(side string, err error) string {
 	if reason, ok := optimize.NoWeightedGraphReason(err); ok {
-		return fmt.Sprintf("cost comparison skipped: %s: %s", side, reason)
+		return fmt.Sprintf("%s: %s", side, reason)
 	}
-	return fmt.Sprintf("cost comparison skipped: %s: %v", side, err)
+	return fmt.Sprintf("%s: %v", side, err)
 }
 
 // direction returns "" when the maps are equal, CostIncreased when any weight

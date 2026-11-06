@@ -39,7 +39,7 @@ const (
 
 // Entry is one difference between the two models.
 type Entry struct {
-	Kind      string `json:"kind"`
+	Kind      string `json:"kind" jsonschema:"enum=type_removed,enum=relation_removed,enum=direct_type_removed,enum=condition_removed,enum=condition_param_removed,enum=condition_param_type_changed,enum=rewrite_changed,enum=condition_expression_changed,enum=schema_version_changed,enum=type_added,enum=relation_added,enum=direct_type_added,enum=condition_added,enum=condition_param_added"`
 	Type      string `json:"type,omitempty"`
 	Relation  string `json:"relation,omitempty"`
 	Condition string `json:"condition,omitempty"`

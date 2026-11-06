@@ -13,7 +13,7 @@ import (
 
 func TestRenderDiffSections(t *testing.T) {
 	configtest.Isolate(t)
-	out := newDiffOutput("old.fga", "new.fga", modeldiff.Result{
+	res := modeldiff.Result{
 		Breaking: []modeldiff.Entry{{Kind: modeldiff.RelationRemoved, Type: "document", Relation: "viewer", Detail: "relation removed"}},
 		Changed:  []modeldiff.Entry{{Kind: modeldiff.SchemaVersionChanged, Detail: "schema version changed"}},
 		Added:    []modeldiff.Entry{{Kind: modeldiff.TypeAdded, Type: "team", Detail: "type added"}},
@@ -21,9 +21,10 @@ func TestRenderDiffSections(t *testing.T) {
 			Type: "document", Relation: "editor", Direction: modeldiff.CostIncreased,
 			Old: map[string]int{"user": 1}, New: map[string]int{"user": -1},
 		}},
-	})
+	}
+	out := newDiffOutput("old.fga", "new.fga", res)
 	var buf bytes.Buffer
-	if err := renderDiff(&buf, out); err != nil {
+	if err := renderDiff(&buf, out, res); err != nil {
 		t.Fatal(err)
 	}
 	got := ansi.Strip(buf.String())
@@ -38,7 +39,7 @@ func TestRenderDiffSections(t *testing.T) {
 		}
 		last = i
 	}
-	if !strings.HasSuffix(got, "1 breaking, 1 changed, 1 added, 1 cost increase\n") {
+	if !strings.HasSuffix(got, "1 breaking, 1 changed, 1 added, 1 cost increase — breaking\n") {
 		t.Errorf("unexpected summary line:\n%s", got)
 	}
 }
@@ -46,10 +47,32 @@ func TestRenderDiffSections(t *testing.T) {
 func TestRenderDiffNoChanges(t *testing.T) {
 	configtest.Isolate(t)
 	var buf bytes.Buffer
-	if err := renderDiff(&buf, newDiffOutput("a", "b", modeldiff.Result{})); err != nil {
+	if err := renderDiff(&buf, newDiffOutput("a", "b", modeldiff.Result{}), modeldiff.Result{}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasSuffix(ansi.Strip(buf.String()), "no changes\n") {
 		t.Errorf("got:\n%s", ansi.Strip(buf.String()))
+	}
+}
+
+func TestRenderDiffVerdictOnAddedOnly(t *testing.T) {
+	configtest.Isolate(t)
+	res := modeldiff.Result{Added: []modeldiff.Entry{{Kind: modeldiff.TypeAdded, Type: "team", Detail: "type added"}}}
+	var buf bytes.Buffer
+	if err := renderDiff(&buf, newDiffOutput("a", "b", res), res); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(ansi.Strip(buf.String()), "1 added — ok\n") {
+		t.Errorf("got:\n%s", ansi.Strip(buf.String()))
+	}
+}
+
+func TestFormatCostChangeOnlyChangedUsers(t *testing.T) {
+	got := formatCostChange(modeldiff.CostEntry{
+		Old: map[string]int{"user": 1, "group#member": 2, "gone": 3},
+		New: map[string]int{"user": 1, "group#member": -1, "team": 1},
+	})
+	if want := "gone 3 → -, group#member 2 → inf, team - → 1"; got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }

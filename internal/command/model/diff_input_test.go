@@ -189,3 +189,17 @@ func TestDiffFileVsStoreSameModel(t *testing.T) {
 		t.Fatal("the same model from a file and from the store must diff empty")
 	}
 }
+
+func TestLoadDiffSideMissingPathSaysNoSuchFile(t *testing.T) {
+	c := diffCommand(t, "http://127.0.0.1:1")
+	for _, arg := range []string{"nope.fga", "nope.json", "dir/nope"} {
+		_, err := c.loadDiffSide(t.Context(), nil, "new", arg)
+		if clierr.Code(err) != clierr.CodeUsage || !strings.Contains(err.Error(), "no such file") {
+			t.Errorf("%s: code = %v, err = %v", arg, clierr.Code(err), err)
+		}
+	}
+	_, err := c.loadDiffSide(t.Context(), nil, "new", "nope")
+	if err == nil || strings.Contains(err.Error(), "no such file") {
+		t.Errorf("a bare word should keep the keyword/ID hint: %v", err)
+	}
+}

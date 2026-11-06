@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/oklog/ulid/v2"
 	"github.com/sergiught/go-openfga/openfga"
@@ -89,7 +91,28 @@ func (c *Command) resolveDiffSide(ctx context.Context, stdin io.Reader, arg stri
 		}
 		return diffModelFromSDK("store model "+m.ID, m)
 	}
+	if looksLikePath(arg) {
+		return diffSide{}, clierr.WithCode(clierr.CodeUsage, fmt.Errorf("%s: no such file", arg))
+	}
 	return diffSide{}, clierr.WithCode(clierr.CodeUsage, fmt.Errorf(`%s: not a file, "store", or a model ID`, arg))
+}
+
+// looksLikePath reports whether an unresolvable argument was meant as a file.
+func looksLikePath(arg string) bool {
+	ext := strings.ToLower(filepath.Ext(arg))
+	return ext == ".fga" || ext == ".json" || strings.ContainsAny(arg, `/\`)
+}
+
+// isStoreArg reports whether arg is read from the store (the "store" keyword
+// or a model ID) rather than from stdin or a local file. An existing file wins.
+func isStoreArg(arg string) bool {
+	if arg == "-" {
+		return false
+	}
+	if fi, err := os.Stat(arg); err == nil && !fi.IsDir() {
+		return false
+	}
+	return arg == "store" || isModelID(arg)
 }
 
 // latestStoreModel reads the store's latest model, ignoring any pinned model

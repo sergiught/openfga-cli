@@ -4,12 +4,17 @@
       "additionalProperties": false,
       "properties": {
         "direction": {
+          "enum": [
+            "increased",
+            "decreased"
+          ],
           "type": "string"
         },
         "new": {
           "additionalProperties": {
             "type": "integer"
           },
+          "description": "Weight per user type; -1 means unbounded (infinite) weight.",
           "type": [
             "object",
             "null"
@@ -19,6 +24,7 @@
           "additionalProperties": {
             "type": "integer"
           },
+          "description": "Weight per user type; -1 means unbounded (infinite) weight.",
           "type": [
             "object",
             "null"
@@ -50,6 +56,22 @@
           "type": "string"
         },
         "kind": {
+          "enum": [
+            "type_removed",
+            "relation_removed",
+            "direct_type_removed",
+            "condition_removed",
+            "condition_param_removed",
+            "condition_param_type_changed",
+            "rewrite_changed",
+            "condition_expression_changed",
+            "schema_version_changed",
+            "type_added",
+            "relation_added",
+            "direct_type_added",
+            "condition_added",
+            "condition_param_added"
+          ],
           "type": "string"
         },
         "relation": {
