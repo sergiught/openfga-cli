@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -345,5 +346,59 @@ func TestDiffCmdReportEnumAndCompletion(t *testing.T) {
 	vals, _ := got(cmd, nil, "")
 	if !slices.Equal(vals, []string{"github"}) {
 		t.Errorf("completions = %v", vals)
+	}
+}
+
+func TestDiffCmdImplicitStoreSideNotShadowedByFile(t *testing.T) {
+	c := diffCommand(t, storeServer(t, nil, false))
+	dir := t.TempDir()
+	t.Chdir(dir)
+	for name, body := range map[string]string{"store": "model\n  schema 1.1\ntype other\n", "new.fga": diffTestDSL} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c.cli.JSON = true
+	cmd := c.diffCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	cmd.SetArgs([]string{"new.fga"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Old string `json:"old"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if want := "store latest " + diffTestModelID; doc.Old != want {
+		t.Errorf("old = %q, want %q", doc.Old, want)
+	}
+}
+
+func TestDiffCmdStatErrorIsLoadError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	c := diffCommand(t, "http://127.0.0.1:1")
+	dir := t.TempDir()
+	a, b := filepath.Join(dir, "a"), filepath.Join(dir, "b")
+	if err := os.Symlink(b, a); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(a, b); err != nil {
+		t.Fatal(err)
+	}
+	cmd := c.diffCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	cmd.SetArgs([]string{a})
+	err := cmd.Execute()
+	if err == nil || clierr.Code(err) == clierr.CodeUsage || !strings.Contains(err.Error(), a) {
+		t.Fatalf("err = %v (code %v), want a plain load error naming the path", err, clierr.Code(err))
 	}
 }

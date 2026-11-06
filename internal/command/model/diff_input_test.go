@@ -74,7 +74,7 @@ func storeServer(t *testing.T, paths *[]string, empty bool) string {
 
 func TestResolveDiffArgs(t *testing.T) {
 	configtest.Isolate(t)
-	if o, n, err := resolveDiffArgs([]string{"a.fga"}); err != nil || o != "store" || n != "a.fga" {
+	if o, n, err := resolveDiffArgs([]string{"a.fga"}); err != nil || o != implicitStoreArg || n != "a.fga" {
 		t.Fatalf("one arg = (%q, %q, %v)", o, n, err)
 	}
 	if o, n, err := resolveDiffArgs([]string{"a", "b"}); err != nil || o != "a" || n != "b" {

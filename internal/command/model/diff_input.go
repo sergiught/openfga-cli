@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,11 +28,15 @@ type diffSide struct {
 	Model *optimize.Model
 }
 
+// implicitStoreArg marks the old side of the one-argument form. The NUL byte
+// cannot occur in a real argument, so no file can shadow it.
+const implicitStoreArg = "\x00store"
+
 // resolveDiffArgs maps one or two arguments to the (old, new) pair: a single
 // argument is compared against the store's latest model.
 func resolveDiffArgs(args []string) (old, new string, err error) {
 	if len(args) == 1 {
-		return "store", args[0], nil
+		return implicitStoreArg, args[0], nil
 	}
 	if args[0] == "-" && args[1] == "-" {
 		return "", "", clierr.WithCode(clierr.CodeUsage, errors.New("only one side can be read from stdin"))
@@ -60,10 +65,17 @@ func (c *Command) resolveDiffSide(ctx context.Context, stdin io.Reader, arg stri
 		}
 		return diffModelFromBytes("stdin", "", data)
 	}
+	if arg == implicitStoreArg {
+		return c.latestStoreSide(ctx)
+	}
 	if err := modeltest.RejectModular(arg); err != nil {
 		return diffSide{}, clierr.WithCode(clierr.CodeUsage, err)
 	}
-	if fi, err := os.Stat(arg); err == nil && !fi.IsDir() {
+	fi, statErr := os.Stat(arg)
+	if statErr != nil && !errors.Is(statErr, fs.ErrNotExist) {
+		return diffSide{}, fmt.Errorf("model file %s: %w", arg, statErr)
+	}
+	if statErr == nil && !fi.IsDir() {
 		data, err := readlimit.File(arg, readlimit.Document, "model file")
 		if err != nil {
 			return diffSide{}, err
@@ -75,11 +87,7 @@ func (c *Command) resolveDiffSide(ctx context.Context, stdin io.Reader, arg stri
 	}
 	switch {
 	case arg == "store":
-		m, err := c.latestStoreModel(ctx)
-		if err != nil {
-			return diffSide{}, err
-		}
-		return diffModelFromSDK("store latest "+m.ID, m)
+		return c.latestStoreSide(ctx)
 	case isModelID(arg):
 		cl, _, err := c.cli.ClientWithStore()
 		if err != nil {
@@ -97,6 +105,14 @@ func (c *Command) resolveDiffSide(ctx context.Context, stdin io.Reader, arg stri
 	return diffSide{}, clierr.WithCode(clierr.CodeUsage, fmt.Errorf(`%s: not a file, "store", or a model ID`, arg))
 }
 
+func (c *Command) latestStoreSide(ctx context.Context) (diffSide, error) {
+	m, err := c.latestStoreModel(ctx)
+	if err != nil {
+		return diffSide{}, err
+	}
+	return diffModelFromSDK("store latest "+m.ID, m)
+}
+
 // looksLikePath reports whether an unresolvable argument was meant as a file.
 func looksLikePath(arg string) bool {
 	ext := strings.ToLower(filepath.Ext(arg))
@@ -109,7 +125,14 @@ func isStoreArg(arg string) bool {
 	if arg == "-" {
 		return false
 	}
-	if fi, err := os.Stat(arg); err == nil && !fi.IsDir() {
+	if arg == implicitStoreArg {
+		return true
+	}
+	if fi, err := os.Stat(arg); err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			return false // the local side loads first and reports the error
+		}
+	} else if !fi.IsDir() {
 		return false
 	}
 	return arg == "store" || isModelID(arg)
