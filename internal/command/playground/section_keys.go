@@ -648,7 +648,7 @@ func (m Model) handleTestResultsKey(key string) (tea.Model, tea.Cmd) {
 				if m.wb.workspace == nil || !withinRoot(m.wb.workspace.Root, tf.Path) {
 					return m.wbStatus(toast.Error, "refused: path outside workspace")
 				}
-				if err := os.Remove(tf.Path); err != nil {
+				if err := os.Remove(tf.Path); err != nil { //nolint:gosec // G703: withinRoot above confines tf.Path to the workspace
 					return m.wbStatus(toast.Error, "delete failed: "+err.Error())
 				}
 				// Reload the workspace so the parsed test files reflect the
