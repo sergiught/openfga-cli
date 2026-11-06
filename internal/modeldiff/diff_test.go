@@ -250,3 +250,29 @@ func TestDiffSlicesNonNil(t *testing.T) {
 		t.Errorf("got %q, want it to contain %q", string(b), `"cost":[]`)
 	}
 }
+
+func TestDiffConditionExpressionFormatting(t *testing.T) {
+	for _, tc := range []struct {
+		name, old, new string
+		changed        bool
+	}{
+		{"spacing around operator", "t > 0", "t>0", false},
+		{"spacing around logical and", "a && b", "a&&b", false},
+		{"string literal whitespace", `s == "a b"`, `s == "ab"`, true},
+		{"real change", "t > 0", "t > 1", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mk := func(expr string) *optimize.Model {
+				return mustModel(t, "model\n  schema 1.1\ntype user\ntype document\n  relations\n    define viewer: [user with c]\n"+
+					"condition c(t: int, a: bool, b: bool, s: string) {\n  "+expr+"\n}\n")
+			}
+			r := modeldiff.Diff(mk(tc.old), mk(tc.new))
+			if got := len(r.Changed) > 0; got != tc.changed {
+				t.Errorf("changed = %v, want %v: %+v", got, tc.changed, r.Changed)
+			}
+			if !tc.changed && len(r.Breaking)+len(r.Added)+len(r.Changed) != 0 {
+				t.Errorf("want no entries, got %+v", r)
+			}
+		})
+	}
+}

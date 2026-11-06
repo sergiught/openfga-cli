@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/google/cel-go/cel"
 	openfgav1 "github.com/openfga/api/proto/openfga/v1"
 	"google.golang.org/protobuf/proto"
 
@@ -251,7 +252,7 @@ func diffConditions(r *Result, oldC, newC map[string]*openfgav1.Condition) {
 				})
 			}
 		}
-		if oc.GetExpression() != nc.GetExpression() {
+		if canonicalCEL(oc.GetExpression()) != canonicalCEL(nc.GetExpression()) {
 			r.Changed = append(r.Changed, Entry{
 				Kind: ConditionExpressionChanged, Condition: name,
 				Detail: fmt.Sprintf("expression of condition `%s` changed", name),
@@ -301,5 +302,24 @@ func sortedKeys[V any](m map[string]V) []string {
 		out = append(out, k)
 	}
 	sort.Strings(out)
+	return out
+}
+
+// canonicalCEL unparses a CEL expression so formatting-only edits compare
+// equal. It parses without type-checking; an expression that does not parse
+// or unparse is compared as written.
+func canonicalCEL(expr string) string {
+	env, err := cel.NewEnv()
+	if err != nil {
+		return expr
+	}
+	ast, iss := env.Parse(expr)
+	if iss != nil && iss.Err() != nil {
+		return expr
+	}
+	out, err := cel.AstToString(ast)
+	if err != nil {
+		return expr
+	}
 	return out
 }
