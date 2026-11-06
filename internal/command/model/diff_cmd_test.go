@@ -233,7 +233,10 @@ func TestDiffCmdCostSkippedReasonPrefixedOnce(t *testing.T) {
 			if !strings.Contains(stderr, "cost comparison skipped: "+tc.side) {
 				t.Errorf("stderr = %q, want it to contain %q", stderr, "cost comparison skipped: "+tc.side)
 			}
-			out, _, _ := runDiff(t, tc.old, tc.new, true)
+			out, jsonStderr, _ := runDiff(t, tc.old, tc.new, true)
+			if strings.Contains(jsonStderr, "cost comparison skipped") {
+				t.Errorf("structured mode must not write the human warning to stderr: %q", jsonStderr)
+			}
 			var doc struct {
 				CostSkipped string           `json:"costSkipped"`
 				Breaking    []map[string]any `json:"breaking"`

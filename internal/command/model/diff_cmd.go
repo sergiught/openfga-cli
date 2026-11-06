@@ -125,7 +125,7 @@ func (c *Command) diffCmd() *cobra.Command {
 			out := newDiffOutput(oldSide.Label, newSide.Label, res)
 			structured := c.cli.JSON || c.cli.YAML
 
-			if res.CostSkipped != "" {
+			if res.CostSkipped != "" && !structured {
 				warnKeepPlain(cmd.ErrOrStderr(), "cost comparison skipped: %s", res.CostSkipped)
 			}
 			if structured {
