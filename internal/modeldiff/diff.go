@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/google/cel-go/cel"
 	openfgav1 "github.com/openfga/api/proto/openfga/v1"
@@ -305,11 +306,17 @@ func sortedKeys[V any](m map[string]V) []string {
 	return out
 }
 
+// celParseEnv is built once. Macro-call tracking is required for AstToString
+// to unparse comprehension macros (exists, all, map, filter, ...).
+var celParseEnv = sync.OnceValues(func() (*cel.Env, error) {
+	return cel.NewEnv(cel.EnableMacroCallTracking())
+})
+
 // canonicalCEL unparses a CEL expression so formatting-only edits compare
 // equal. It parses without type-checking; an expression that does not parse
 // or unparse is compared as written.
 func canonicalCEL(expr string) string {
-	env, err := cel.NewEnv()
+	env, err := celParseEnv()
 	if err != nil {
 		return expr
 	}

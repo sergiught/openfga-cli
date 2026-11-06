@@ -260,11 +260,13 @@ func TestDiffConditionExpressionFormatting(t *testing.T) {
 		{"spacing around logical and", "a && b", "a&&b", false},
 		{"string literal whitespace", `s == "a b"`, `s == "ab"`, true},
 		{"real change", "t > 0", "t > 1", true},
+		{"macro spacing", "xs.exists(x, x > 0)", "xs.exists(x,x>0)", false},
+		{"macro swapped", "xs.all(x, x > 0)", "xs.exists(x, x > 0)", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			mk := func(expr string) *optimize.Model {
 				return mustModel(t, "model\n  schema 1.1\ntype user\ntype document\n  relations\n    define viewer: [user with c]\n"+
-					"condition c(t: int, a: bool, b: bool, s: string) {\n  "+expr+"\n}\n")
+					"condition c(t: int, a: bool, b: bool, s: string, xs: list<int>) {\n  "+expr+"\n}\n")
 			}
 			r := modeldiff.Diff(mk(tc.old), mk(tc.new))
 			if got := len(r.Changed) > 0; got != tc.changed {
