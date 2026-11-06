@@ -42,5 +42,5 @@ $ echo $?
 
 Exit code 3 means at least one breaking change, so a CI step fails. Add
 `--fail-on-cost` to fail on cost increases too, or compare against the live
-model with `ofga model diff store new.fga`. See the
+model with `ofga model diff store examples/model-diff/new.fga`. See the
 [command reference](https://sergiught.github.io/openfga-cli/reference/model/diff/).
