@@ -16,6 +16,7 @@ import (
 	openfgav1 "github.com/openfga/api/proto/openfga/v1"
 
 	"github.com/sergiught/openfga-cli/internal/atomicfile"
+	"github.com/sergiught/openfga-cli/internal/filelock"
 	"github.com/sergiught/openfga-cli/internal/modeltest"
 )
 
@@ -207,7 +208,13 @@ func (s *Session) save() error {
 		return fmt.Errorf("create playground data dir: %w", err)
 	}
 	// Another playground may have saved since this one started; overwriting
-	// would silently drop its changes.
+	// would silently drop its changes. The lock makes check-and-replace atomic
+	// across processes, so two saves at once cannot both pass the check.
+	unlock, err := filelock.Lock(s.savedPath + ".lock")
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	cur, err := fileDigest(s.savedPath)
 	if err != nil {
 		return fmt.Errorf("read saved playground: %w", err)

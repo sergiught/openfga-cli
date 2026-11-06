@@ -9,10 +9,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sergiught/go-openfga/openfga"
 
 	"github.com/sergiught/openfga-cli/internal/configtest"
+	"github.com/sergiught/openfga-cli/internal/filelock"
 )
 
 func startSession(t *testing.T, o Options) *Session {
@@ -75,6 +77,23 @@ func writeTuple(t *testing.T, c *openfga.Client, user, rel, obj string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+// savedDirFiles lists the saved file's directory, leaving out the persistent
+// save lock beside it.
+func savedDirFiles(t *testing.T, saved string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Dir(saved))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range entries {
+		if e.Name() != filepath.Base(saved)+".lock" {
+			names = append(names, e.Name())
+		}
+	}
+	return names
 }
 
 func TestSession_FreshHasSamples(t *testing.T) {
@@ -236,12 +255,8 @@ func TestSession_SaveThenRestore(t *testing.T) {
 	if _, err := os.Stat(saved + "-wal"); err == nil {
 		t.Fatalf("%s exists, want it absent", saved+"-wal")
 	}
-	entries, err := os.ReadDir(filepath.Dir(saved))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 1 {
-		t.Fatalf("no staged temp files left: len = %d, want %d", len(entries), 1)
+	if got := savedDirFiles(t, saved); len(got) != 1 {
+		t.Fatalf("no staged temp files left: got %v, want only %s", got, filepath.Base(saved))
 	}
 
 	s2 := startSession(t, Options{SavedPath: saved})
@@ -308,12 +323,8 @@ func TestSession_DiscardLeavesSavedFile(t *testing.T) {
 		if !bytes.Equal(got, want) {
 			t.Fatalf("reset=%v: saved file changed by a discarded session", reset)
 		}
-		entries, err := os.ReadDir(filepath.Dir(saved))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(entries) != 1 {
-			t.Fatalf("len = %d, want %d", len(entries), 1)
+		if got := savedDirFiles(t, saved); len(got) != 1 {
+			t.Fatalf("got %v, want only %s", got, filepath.Base(saved))
 		}
 	}
 }
@@ -490,5 +501,35 @@ func TestSession_SaveRefusesConcurrentSave(t *testing.T) {
 		if _, err := os.Stat(scratchDB); err != nil {
 			t.Fatalf("existing=%v: refused changes not kept: %v", existing, err)
 		}
+	}
+}
+
+func TestSession_SaveWaitsForTheSaveLock(t *testing.T) {
+	configtest.Isolate(t)
+	saved := filepath.Join(t.TempDir(), "p.db")
+	s := startSession(t, Options{SavedPath: saved})
+	writeTuple(t, storeClient(t, s, "github"), "user:a", "reader", "repo:openfga/openfga")
+
+	// Another session mid-save holds the lock.
+	unlock, err := filelock.Lock(saved + ".lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- s.Save() }()
+	select {
+	case err := <-done:
+		unlock()
+		t.Fatalf("Save finished (%v) while another save held the lock", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	unlock()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Save did not finish after the lock was released")
 	}
 }
