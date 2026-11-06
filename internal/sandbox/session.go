@@ -1,7 +1,9 @@
 package sandbox
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -37,6 +39,9 @@ type Session struct {
 	stopHTTP   func()
 	endpoint   string
 	workspaces map[string]*modeltest.Workspace
+	// savedDigest is SavedPath's content hash at Start (nil if absent). Save
+	// refuses to replace a file another session saved in the meantime.
+	savedDigest []byte
 
 	mu     sync.Mutex
 	closed bool
@@ -84,6 +89,11 @@ func Start(ctx context.Context, o Options) (_ *Session, err error) {
 			restore = true
 		case !errors.Is(statErr, os.ErrNotExist):
 			return nil, fmt.Errorf("stat saved playground %s: %w", o.SavedPath, statErr)
+		}
+	}
+	if o.SavedPath != "" {
+		if s.savedDigest, err = fileDigest(o.SavedPath); err != nil {
+			return nil, fmt.Errorf("read saved playground %s: %w", o.SavedPath, err)
 		}
 	}
 	if restore {
@@ -196,7 +206,33 @@ func (s *Session) save() error {
 	if err := os.MkdirAll(filepath.Dir(s.savedPath), 0o700); err != nil {
 		return fmt.Errorf("create playground data dir: %w", err)
 	}
+	// Another playground may have saved since this one started; overwriting
+	// would silently drop its changes.
+	cur, err := fileDigest(s.savedPath)
+	if err != nil {
+		return fmt.Errorf("read saved playground: %w", err)
+	}
+	if !bytes.Equal(cur, s.savedDigest) {
+		return fmt.Errorf("%s was saved by another playground session since this one started; not overwriting it", s.savedPath)
+	}
 	return copyAtomic(s.scratchDB, s.savedPath)
+}
+
+// fileDigest is path's SHA-256, or nil if it does not exist.
+func fileDigest(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return nil, err
+	}
+	return h.Sum(nil), nil
 }
 
 // Close stops everything and removes the scratch dir without saving. It is

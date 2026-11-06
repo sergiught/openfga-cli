@@ -449,3 +449,46 @@ func TestSession_FailedSaveKeepsScratch(t *testing.T) {
 	db.Close()
 	t.Cleanup(func() { _ = os.RemoveAll(filepath.Dir(scratchDB)) })
 }
+
+func TestSession_SaveRefusesConcurrentSave(t *testing.T) {
+	configtest.Isolate(t)
+	for _, existing := range []bool{false, true} {
+		saved := filepath.Join(t.TempDir(), "p.db")
+		if existing {
+			seed := startSession(t, Options{SavedPath: saved})
+			if err := seed.Save(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		a := startSession(t, Options{SavedPath: saved})
+		b := startSession(t, Options{SavedPath: saved})
+		writeTuple(t, storeClient(t, a, "github"), "user:a", "reader", "repo:openfga/openfga")
+		writeTuple(t, storeClient(t, b, "github"), "user:b", "reader", "repo:openfga/openfga")
+		if err := a.Save(); err != nil {
+			t.Fatalf("existing=%v: first save: %v", existing, err)
+		}
+		want, err := os.ReadFile(saved)
+		if err != nil {
+			t.Fatal(err)
+		}
+		scratchDB := b.scratchDB
+		t.Cleanup(func() { _ = os.RemoveAll(filepath.Dir(scratchDB)) })
+		err = b.Save()
+		if err == nil || !strings.Contains(err.Error(), "another playground session") || !strings.Contains(err.Error(), scratchDB) {
+			t.Fatalf("existing=%v: second save error = %v, want a conflict naming %s", existing, err, scratchDB)
+		}
+		got, err := os.ReadFile(saved)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(got, want) {
+			t.Fatalf("existing=%v: the first session's save was overwritten", existing)
+		}
+		if err := b.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(scratchDB); err != nil {
+			t.Fatalf("existing=%v: refused changes not kept: %v", existing, err)
+		}
+	}
+}

@@ -58,6 +58,8 @@ Kept changes are saved to `playground.db` and reopened next time:
 
 Set `OPENFGA_PLAYGROUND_DB` to use another path.
 
+If another playground session saved since yours started, yours is not saved over it. The CLI prints where your changes were kept instead.
+
 **`--reset`** starts the session from fresh samples. The old save is replaced only if you keep the new session's changes at the prompt.
 
 A saved playground is left exactly as you kept it. Newer samples shipped by a CLI upgrade only appear after `--reset`.
