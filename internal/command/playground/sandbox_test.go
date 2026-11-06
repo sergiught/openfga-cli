@@ -341,3 +341,19 @@ func TestSandboxModel_AddProfileRejectsSandboxName(t *testing.T) {
 		t.Fatal("a real profile named after the sandbox was created")
 	}
 }
+
+// Sample test files live in the session's scratch dir, so editing one in the
+// sandbox must say the change is session-only rather than silently drop it at quit.
+func TestSandboxModel_TestEditNoteOnlyOnSandboxProfile(t *testing.T) {
+	m, _, _ := newTestSandbox(t)
+	if note := m.sandboxTestEditNote(); !strings.Contains(note, "not kept after quit") {
+		t.Fatalf("sandbox note = %q, want a session-only warning", note)
+	}
+	m.profile = "real"
+	if note := m.sandboxTestEditNote(); note != "" {
+		t.Fatalf("note on a real profile = %q, want none", note)
+	}
+	if note := (&Model{}).sandboxTestEditNote(); note != "" {
+		t.Fatalf("note outside the sandbox = %q, want none", note)
+	}
+}

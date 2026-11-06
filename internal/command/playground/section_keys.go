@@ -669,7 +669,7 @@ func (m Model) handleTestResultsKey(key string) (tea.Model, tea.Cmd) {
 				m.clampWbTreeSel()
 				// Confirm the deletion with a visible toast — the Tests footer shows
 				// no status text, so a status-only line would leave no feedback.
-				done := m.wbStatus(toast.Success, "deleted "+filepath.Base(tf.Path))
+				done := m.wbStatus(toast.Success, "deleted "+filepath.Base(tf.Path)+m.sandboxTestEditNote())
 				if len(m.wb.files) == 0 {
 					return done
 				}
