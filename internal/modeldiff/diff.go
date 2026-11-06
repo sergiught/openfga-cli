@@ -51,16 +51,20 @@ type Result struct {
 	Breaking []Entry `json:"breaking"`
 	Changed  []Entry `json:"changed"`
 	Added    []Entry `json:"added"`
+	// Cost lists relations whose per-user-type weights differ.
+	Cost []CostEntry `json:"cost"`
+	// CostSkipped explains why Cost could not be computed.
+	CostSkipped string `json:"costSkipped,omitempty"`
 }
 
 // Empty reports whether the models have no differences.
 func (r Result) Empty() bool {
-	return len(r.Breaking) == 0 && len(r.Changed) == 0 && len(r.Added) == 0
+	return len(r.Breaking) == 0 && len(r.Changed) == 0 && len(r.Added) == 0 && len(r.Cost) == 0
 }
 
 // Diff compares the shapes of old and new.
 func Diff(oldM, newM *optimize.Model) Result {
-	r := Result{Breaking: []Entry{}, Changed: []Entry{}, Added: []Entry{}}
+	r := Result{Breaking: []Entry{}, Changed: []Entry{}, Added: []Entry{}, Cost: []CostEntry{}}
 
 	if ov, nv := oldM.Proto.GetSchemaVersion(), newM.Proto.GetSchemaVersion(); ov != nv {
 		r.Changed = append(r.Changed, Entry{
@@ -88,6 +92,7 @@ func Diff(oldM, newM *optimize.Model) Result {
 	sortEntries(r.Breaking)
 	sortEntries(r.Changed)
 	sortEntries(r.Added)
+	diffCost(&r, oldM, newM)
 	return r
 }
 

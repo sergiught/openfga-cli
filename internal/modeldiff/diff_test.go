@@ -203,4 +203,5 @@ func TestDiffSlicesNonNil(t *testing.T) {
 	require.Contains(t, string(b), `"breaking":[]`)
 	require.Contains(t, string(b), `"changed":[]`)
 	require.Contains(t, string(b), `"added":[]`)
+	require.Contains(t, string(b), `"cost":[]`)
 }
