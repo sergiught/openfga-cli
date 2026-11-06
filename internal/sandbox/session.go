@@ -84,22 +84,13 @@ func Start(ctx context.Context, o Options) (_ *Session, err error) {
 	}
 
 	restore := false
-	if !o.Reset && o.SavedPath != "" {
-		switch _, statErr := os.Stat(o.SavedPath); {
-		case statErr == nil:
-			restore = true
-		case !errors.Is(statErr, os.ErrNotExist):
-			return nil, fmt.Errorf("stat saved playground %s: %w", o.SavedPath, statErr)
-		}
-	}
 	if o.SavedPath != "" {
-		if s.savedDigest, err = fileDigest(o.SavedPath); err != nil {
-			return nil, fmt.Errorf("read saved playground %s: %w", o.SavedPath, err)
+		dst := ""
+		if !o.Reset {
+			dst = s.scratchDB
 		}
-	}
-	if restore {
-		if err := copyFile(o.SavedPath, s.scratchDB); err != nil {
-			return nil, fmt.Errorf("copy saved playground: %w", err)
+		if s.savedDigest, restore, err = loadSaved(o.SavedPath, dst); err != nil {
+			return nil, fmt.Errorf("read saved playground %s: %w", o.SavedPath, err)
 		}
 	}
 
@@ -225,6 +216,41 @@ func (s *Session) save() error {
 	return copyAtomic(s.scratchDB, s.savedPath)
 }
 
+// loadSaved hashes the saved playground at path and, when dst is non-empty,
+// copies it there, all from one open so the digest Save later compares
+// against is exactly the content this session loaded (a concurrent save
+// renaming a new file into place cannot slip between hash and copy).
+// It reports a nil digest and restored=false when path does not exist.
+func loadSaved(path, dst string) (digest []byte, restored bool, err error) {
+	in, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = in.Close() }()
+	h := sha256.New()
+	if dst == "" {
+		if _, err := io.Copy(h, in); err != nil {
+			return nil, false, err
+		}
+		return h.Sum(nil), false, nil
+	}
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return nil, false, err
+	}
+	if _, err := io.Copy(io.MultiWriter(out, h), in); err != nil {
+		_ = out.Close()
+		return nil, false, err
+	}
+	if err := out.Close(); err != nil {
+		return nil, false, err
+	}
+	return h.Sum(nil), true, nil
+}
+
 // fileDigest is path's SHA-256, or nil if it does not exist.
 func fileDigest(path string) ([]byte, error) {
 	f, err := os.Open(path)
@@ -301,23 +327,6 @@ func checkpointWAL(dbPath string) error {
 		return errors.New("checkpoint playground database: write-ahead log still has content")
 	}
 	return nil
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = in.Close() }()
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		_ = out.Close()
-		return err
-	}
-	return out.Close()
 }
 
 // copyAtomic stages src next to dst and renames it into place (0o600), so dst

@@ -3,6 +3,7 @@ package sandbox
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"os"
@@ -531,5 +532,44 @@ func TestSession_SaveWaitsForTheSaveLock(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("Save did not finish after the lock was released")
+	}
+}
+
+// The save-conflict digest must describe exactly the bytes the session loaded,
+// so a save landing between hashing and copying cannot be overwritten later.
+func TestLoadSaved_DigestMatchesLoadedContent(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "playground.db")
+	if err := os.WriteFile(src, []byte("saved v1"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	want := sha256.Sum256([]byte("saved v1"))
+
+	dst := filepath.Join(dir, "scratch.db")
+	digest, restored, err := loadSaved(src, dst)
+	if err != nil || !restored {
+		t.Fatalf("loadSaved = restored %v, err %v", restored, err)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded := sha256.Sum256(got); !bytes.Equal(digest, loaded[:]) || !bytes.Equal(digest, want[:]) {
+		t.Fatalf("digest %x does not match loaded content %x", digest, loaded)
+	}
+
+	// --reset: hash only, no copy.
+	digest, restored, err = loadSaved(src, "")
+	if err != nil || restored || !bytes.Equal(digest, want[:]) {
+		t.Fatalf("hash-only = %x restored %v err %v", digest, restored, err)
+	}
+
+	// Absent file: nil digest, nothing restored.
+	digest, restored, err = loadSaved(filepath.Join(dir, "missing.db"), filepath.Join(dir, "x.db"))
+	if err != nil || restored || digest != nil {
+		t.Fatalf("missing = %x restored %v err %v", digest, restored, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "x.db")); !os.IsNotExist(err) {
+		t.Fatalf("missing source must not create dst: %v", err)
 	}
 }
