@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -211,5 +212,102 @@ func TestSandboxClient_RecordsCalls(t *testing.T) {
 	}
 	if rec.Len() != 1 {
 		t.Fatalf("recorded %d calls, want 1", rec.Len())
+	}
+}
+
+func TestSandboxModel_NameCollisionChain(t *testing.T) {
+	configtest.Isolate(t)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Set("playground", config.Profile{APIURL: "http://127.0.0.1:1"})
+	cfg.Set("playground (sandbox)", config.Profile{APIURL: "http://127.0.0.1:2"})
+	a := cli.New(log.New(io.Discard), cfg, "test")
+	cl, _ := openfga.NewClient(sandboxEndpoint)
+	m := newSandboxModel(context.Background(), a, cl, SandboxOptions{Endpoint: sandboxEndpoint})
+
+	if m.ephemeralProfile != "playground (sandbox 2)" {
+		t.Fatalf("sandbox profile = %q, want %q", m.ephemeralProfile, "playground (sandbox 2)")
+	}
+	ids := map[string]int{}
+	for _, it := range m.profilesList.Model.Items() {
+		ids[it.(uilist.Item).ID]++
+	}
+	for _, id := range []string{"playground", "playground (sandbox)", m.ephemeralProfile} {
+		if ids[id] != 1 {
+			t.Fatalf("profile row IDs = %v, want exactly one %q", ids, id)
+		}
+	}
+	m.switchProfile("playground (sandbox)")
+	if a.Config.Active != "playground (sandbox)" {
+		t.Fatalf("active = %q, want the real %q profile", a.Config.Active, "playground (sandbox)")
+	}
+}
+
+func TestSandboxModel_EditedWorkspaceSurvivesStoreSwitch(t *testing.T) {
+	m, _, wss := newTestSandbox(t)
+	root := copyDocsWorkspace(t)
+	ws, err := modeltest.LoadWorkspace(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wss["github"] = ws // the model shares this map
+	m.selectStore(openfga.Store{ID: "s1", Name: "github"})
+	before := len(m.wb.files)
+
+	path := filepath.Join(root, "tests", "extra.test.yaml")
+	body := "tests:\n  - name: extra\n    check:\n      - user: user:anne\n        object: document:1\n        assertions: {viewer: true}\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	nm, _ := m.Update(testFileEditedMsg{path: path})
+	m = nm.(Model)
+	if len(m.wb.files) != before+1 {
+		t.Fatalf("files after edit = %d, want %d", len(m.wb.files), before+1)
+	}
+
+	m.selectStore(openfga.Store{ID: "s2", Name: "gdrive"})
+	m.selectStore(openfga.Store{ID: "s1", Name: "github"})
+	if len(m.wb.files) != before+1 {
+		t.Fatalf("files after switching back = %d, want %d (startup snapshot restored)", len(m.wb.files), before+1)
+	}
+}
+
+func TestSandboxModel_StaleRunDroppedAfterStoreSwitch(t *testing.T) {
+	m, _, _ := newTestSandbox(t)
+	m.selectStore(openfga.Store{ID: "s1", Name: "github"})
+	m.runSuite("")
+	staleGen := m.wb.runGen
+	m.selectStore(openfga.Store{ID: "s2", Name: "gdrive"})
+	if m.wb.running {
+		t.Fatal("running still set after the workspace changed")
+	}
+
+	stale := &modeltest.Results{
+		Tests:    []modeltest.TestResult{{Name: "github-test"}},
+		Coverage: &modeltest.Coverage{},
+	}
+	loads := m.pendingLoads
+	nm, _ := m.Update(testsRanMsg{gen: staleGen, results: stale})
+	m = nm.(Model)
+	if len(m.wb.results) != 0 || m.wb.coverage != nil {
+		t.Fatalf("stale run applied: results=%d coverage=%v", len(m.wb.results), m.wb.coverage)
+	}
+	if m.pendingLoads != loads-1 {
+		t.Fatalf("pendingLoads = %d, want %d (a stale run must still end its load)", m.pendingLoads, loads-1)
+	}
+}
+
+func TestSandboxModel_StoreSwitchClearsCoverage(t *testing.T) {
+	m, _, _ := newTestSandbox(t)
+	m.selectStore(openfga.Store{ID: "s1", Name: "github"})
+	m.wb.coverage = &modeltest.Coverage{}
+	m.wb.showCoverage = true
+	m.wb.coverageErr = "x"
+	m.wb.covScroll, m.wb.detailScroll = 3, 2
+	m.selectStore(openfga.Store{ID: "s2", Name: "gdrive"})
+	if m.wb.coverage != nil || m.wb.showCoverage || m.wb.coverageErr != "" || m.wb.covScroll != 0 || m.wb.detailScroll != 0 {
+		t.Fatalf("coverage state survived the switch: %+v", m.wb)
 	}
 }

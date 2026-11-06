@@ -658,6 +658,9 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case testsRanMsg:
 		m.endLoad()
+		if msg.gen != m.wb.runGen {
+			return m, nil // its workspace was swapped out mid-run
+		}
 		m.wb.running = false
 		if msg.err != nil {
 			m.status = "run failed: " + errStr(msg.err)

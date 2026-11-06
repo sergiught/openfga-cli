@@ -122,6 +122,7 @@ type assertOneMsg struct {
 // testsRanMsg carries the outcome of a hermetic Tests-section run (see
 // runSuiteCmd) — the whole workspace, or a single file filtered via its stem.
 type testsRanMsg struct {
+	gen     int // the workbench runGen the run started under
 	results *modeltest.Results
 	err     error
 }
@@ -516,7 +517,7 @@ func runOneAssertionCmd(ctx context.Context, cl *openfga.Client, storeID, modelI
 // from and independent of the seeded/live server this playground session is
 // otherwise connected to. filter is passed straight through to
 // modeltest.Options.Run.
-func runSuiteCmd(ctx context.Context, ws *modeltest.Workspace, filter string) tea.Cmd {
+func runSuiteCmd(ctx context.Context, ws *modeltest.Workspace, filter string, gen int) tea.Cmd {
 	return func() tea.Msg {
 		var serverOpts map[string]any
 		if ws.Manifest != nil {
@@ -524,12 +525,12 @@ func runSuiteCmd(ctx context.Context, ws *modeltest.Workspace, filter string) te
 		}
 		eng, err := modeltest.NewEmbeddedEngine(serverOpts)
 		if err != nil {
-			return testsRanMsg{err: err}
+			return testsRanMsg{gen: gen, err: err}
 		}
 		defer func() { _ = eng.Close() }()
 
 		res, err := modeltest.Run(ctx, ws, modeltest.Options{Run: filter, Coverage: true, Engine: eng})
-		return testsRanMsg{results: res, err: err}
+		return testsRanMsg{gen: gen, results: res, err: err}
 	}
 }
 

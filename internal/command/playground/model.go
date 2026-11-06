@@ -418,6 +418,9 @@ type workbench struct {
 	// so the Tests body can show a spinner instead of the file/test list until
 	// the result lands.
 	running bool
+	// runGen tags each hermetic run; a testsRanMsg from an older generation
+	// (its workspace was swapped out mid-run) is dropped.
+	runGen int
 
 	// coverage is the coverage report from the last hermetic run (see
 	// runSuiteCmd, which always computes it), or nil before any run this
@@ -829,11 +832,17 @@ func newSandboxModel(ctx context.Context, cli *cli.CLI, cl *openfga.Client, o Sa
 	if m.sandboxWorkspaces == nil {
 		m.sandboxWorkspaces = map[string]*modeltest.Workspace{}
 	}
+	// Real profiles may already own the name; two rows with one ID would make
+	// the sandbox row delete or shadow the real profile.
 	name := sandboxProfileName
-	if _, taken := cli.Config.Get(name); taken {
-		// A real profile already owns the name; two rows with one ID would make
-		// the sandbox row delete or shadow the real profile.
-		name += " (sandbox)"
+	for i := 1; ; i++ {
+		if _, taken := cli.Config.Get(name); !taken {
+			break
+		}
+		name = sandboxProfileName + " (sandbox)"
+		if i > 1 {
+			name = fmt.Sprintf("%s (sandbox %d)", sandboxProfileName, i)
+		}
 	}
 	m.adoptEphemeral(name, cl, o.Endpoint, "", "")
 	if o.Endpoint != "" {
@@ -861,8 +870,22 @@ func (m *Model) applySandboxWorkspace() {
 	if ws != nil {
 		m.wb.files = ws.TestFiles
 	}
+	// Results, coverage and any in-flight run belong to the old workspace.
 	m.wb.results = nil
 	m.wb.treeSel = 0
+	m.wb.coverage, m.wb.showCoverage, m.wb.coverageErr = nil, false, ""
+	m.wb.covScroll, m.wb.detailScroll = 0, 0
+	m.wb.running = false
+	m.wb.runGen++
+}
+
+// rememberSandboxWorkspace records a reloaded workspace (after a test file was
+// edited, created or deleted) as the current store's, so a later
+// applySandboxWorkspace restores it rather than the startup snapshot.
+func (m *Model) rememberSandboxWorkspace() {
+	if m.sandboxWorkspaces != nil && m.profile == m.ephemeralProfile && m.wb.workspace != nil {
+		m.sandboxWorkspaces[m.storeName] = m.wb.workspace
+	}
 }
 
 // --- sizing ---

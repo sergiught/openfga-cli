@@ -662,6 +662,7 @@ func (m Model) handleTestResultsKey(key string) (tea.Model, tea.Cmd) {
 				if ws, err := modeltest.LoadWorkspace(m.wb.workspace.Root); err == nil {
 					m.wb.workspace = ws
 					m.wb.files = ws.TestFiles
+					m.rememberSandboxWorkspace()
 				} else {
 					m.wb.files = nil
 				}
