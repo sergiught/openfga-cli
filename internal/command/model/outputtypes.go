@@ -19,6 +19,7 @@ func OutputTypes() map[string]any {
 		"ofga model latest":   openfga.AuthorizationModel{},
 		"ofga model graph":    fga.Graph{},
 		"ofga model optimize": optimizeOutput{},
+		"ofga model diff":     diffOutput{},
 		"ofga model test":     modeltest.Results{},
 		// schema prints a JSON Schema document.
 		"ofga model test schema": map[string]any{},

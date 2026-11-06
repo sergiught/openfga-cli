@@ -1,0 +1,178 @@
+{
+  "$defs": {
+    "CostEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "direction": {
+          "type": "string"
+        },
+        "new": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "old": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "relation": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "relation",
+        "direction",
+        "old",
+        "new"
+      ],
+      "type": "object"
+    },
+    "Entry": {
+      "additionalProperties": false,
+      "properties": {
+        "condition": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "relation": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "detail"
+      ],
+      "type": "object"
+    },
+    "diffOutput": {
+      "additionalProperties": false,
+      "properties": {
+        "added": {
+          "items": {
+            "$ref": "#/$defs/Entry"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "breaking": {
+          "items": {
+            "$ref": "#/$defs/Entry"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "changed": {
+          "items": {
+            "$ref": "#/$defs/Entry"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "cost": {
+          "items": {
+            "$ref": "#/$defs/CostEntry"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "costSkipped": {
+          "description": "Why the cost comparison could not be computed.",
+          "type": "string"
+        },
+        "new": {
+          "type": "string"
+        },
+        "old": {
+          "type": "string"
+        },
+        "schemaVersion": {
+          "type": "integer"
+        },
+        "summary": {
+          "$ref": "#/$defs/diffSummary"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "old",
+        "new",
+        "breaking",
+        "changed",
+        "added",
+        "cost",
+        "summary"
+      ],
+      "type": "object"
+    },
+    "diffSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "added": {
+          "type": "integer"
+        },
+        "breaking": {
+          "type": "integer"
+        },
+        "changed": {
+          "type": "integer"
+        },
+        "costDecreased": {
+          "type": "integer"
+        },
+        "costIncreased": {
+          "type": "integer"
+        },
+        "verdict": {
+          "description": "breaking when any breaking change exists, else cost_increased when any relation got more expensive, else ok.",
+          "enum": [
+            "breaking",
+            "cost_increased",
+            "ok"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "breaking",
+        "changed",
+        "added",
+        "costIncreased",
+        "costDecreased",
+        "verdict"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/model-diff.v1.json",
+  "$ref": "#/$defs/diffOutput",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

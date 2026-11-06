@@ -58,6 +58,7 @@ func (c *Command) RegisterSubCommands() {
 		cmdmeta.Set(c.graphCmd(), cmdmeta.Meta{RequiresStore: true}),
 		cmdmeta.Set(c.testCmd(), cmdmeta.Meta{}),
 		cmdmeta.Set(c.optimizeCmd(), cmdmeta.Meta{}),
+		cmdmeta.Set(c.diffCmd(), cmdmeta.Meta{}),
 	)
 }
 
