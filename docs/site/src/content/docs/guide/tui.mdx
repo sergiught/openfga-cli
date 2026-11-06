@@ -44,7 +44,7 @@ ofga playground --reset   # start again from fresh samples
 
 The server comes preloaded with seven sample stores: `github`, `gdrive`, `slack`, `custom-roles`, `multitenant-rbac`, `temporal-access` and `expenses`. Open one from the Stores tab. The Tests tab shows that store's own tests. They run against the sample's original model and fixtures, so they keep passing after you edit the store.
 
-The samples come from [openfga/sample-stores](https://github.com/openfga/sample-stores) (Apache-2.0). Their license and notice are vendored in `internal/sandbox/samples/`.
+The samples come from [openfga/sample-stores](https://github.com/openfga/sample-stores) (Apache-2.0). Their license and notice are vendored in `internal/sandbox/samples/` and reproduced in the `THIRD_PARTY_LICENSES` file shipped with every release.
 
 **Keeping your changes.** When you quit after changing anything (stores, models, tuples or assertions), the CLI asks `Keep your playground changes? [Y/n]`. Enter means yes. An unrecognised answer asks again, and three in a row count as no. `n`, end of input or `ctrl+c` mean no. Browsing and running checks never trigger the prompt.
 
