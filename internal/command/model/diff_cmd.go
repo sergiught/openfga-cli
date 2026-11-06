@@ -75,8 +75,8 @@ func (c *Command) diffCmd() *cobra.Command {
 		Long: "Compare two authorization models and classify what changed.\n\n" +
 			"Each argument is a model file (DSL or JSON), '-' for stdin, 'store' for the active store's latest model, or a model ID in the active store. " +
 			"With one argument the old side is the store's latest model, so `ofga model diff model.fga` shows what would change if you wrote that file.\n\n" +
-			"Breaking changes can make previously valid tuples or checks stop working: removed types, relations, directly related user types and conditions, or condition parameters that were removed or changed type. " +
-			"Changed lists differences that alter behavior without removing anything, such as a rewritten relation definition or a changed condition expression. " +
+			"Breaking changes can make previously valid tuples or checks stop working: removed types, relations, directly related user types and conditions, or condition parameters that were added, removed or changed type. " +
+			"Changed lists differences whose effect on access is not analysed, such as a rewritten relation definition or a changed condition expression: they can grant or remove access, so review them. " +
 			"Added lists new types, relations, user types and conditions.\n\n" +
 			"Cost compares the per-user-type weights of each relation (see `model optimize`); an increase means checks on that relation can need more work. A weight of -1 in --json/--yaml output means unbounded; human output renders it inf.\n\n" +
 			"Exit codes: 0 no breaking changes · 1 error · 2 usage (including an invalid model) · 3 a breaking change was found, or, with --fail-on-cost, a cost increase · 4 the server was unreachable.",

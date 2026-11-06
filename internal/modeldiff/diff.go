@@ -23,6 +23,9 @@ const (
 	ConditionRemoved          = "condition_removed"
 	ConditionParamRemoved     = "condition_param_removed"
 	ConditionParamTypeChanged = "condition_param_type_changed"
+	// ConditionParamAdded is breaking: existing callers and stored tuple
+	// contexts do not supply the new parameter, so checks can fail.
+	ConditionParamAdded = "condition_param_added"
 
 	// Changed.
 	RewriteChanged             = "rewrite_changed"
@@ -30,11 +33,10 @@ const (
 	SchemaVersionChanged       = "schema_version_changed"
 
 	// Added.
-	TypeAdded           = "type_added"
-	RelationAdded       = "relation_added"
-	DirectTypeAdded     = "direct_type_added"
-	ConditionAdded      = "condition_added"
-	ConditionParamAdded = "condition_param_added"
+	TypeAdded       = "type_added"
+	RelationAdded   = "relation_added"
+	DirectTypeAdded = "direct_type_added"
+	ConditionAdded  = "condition_added"
 )
 
 // Entry is one difference between the two models.
@@ -243,7 +245,7 @@ func diffConditions(r *Result, oldC, newC map[string]*openfgav1.Condition) {
 		}
 		for _, p := range sortedKeys(nc.GetParameters()) {
 			if _, ok := oc.GetParameters()[p]; !ok {
-				r.Added = append(r.Added, Entry{
+				r.Breaking = append(r.Breaking, Entry{
 					Kind: ConditionParamAdded, Condition: name,
 					Detail: fmt.Sprintf("parameter `%s` added to condition `%s`", p, name),
 				})

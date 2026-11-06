@@ -134,17 +134,24 @@ func TestDiff(t *testing.T) {
 			breaking: []want{{kind: modeldiff.ConditionParamTypeChanged, cond: "non_expired", detail: "timestamp"}},
 		},
 		{
+			name:     "condition param added is breaking",
+			old:      "model\n  schema 1.1\ntype user\ntype doc\n  relations\n    define viewer: [user with c]\ncondition c(t: int) {\n  t > 0\n}\n",
+			new:      "model\n  schema 1.1\ntype user\ntype doc\n  relations\n    define viewer: [user with c]\ncondition c(t: int, enabled: bool) {\n  t > 0 && enabled\n}\n",
+			breaking: []want{{kind: modeldiff.ConditionParamAdded, cond: "c", detail: "enabled"}},
+			changed:  []want{{kind: modeldiff.ConditionExpressionChanged, cond: "c"}},
+		},
+		{
 			name:    "condition expression changed",
 			old:     condModel("[user with non_expired]", "timestamp", "true"),
 			new:     condModel("[user with non_expired]", "timestamp", "false"),
 			changed: []want{{kind: modeldiff.ConditionExpressionChanged, cond: "non_expired"}},
 		},
 		{
-			name: "added things",
-			old:  condModel("[user]", "timestamp", "true"),
-			new:  addedModel,
+			name:     "added things",
+			old:      condModel("[user]", "timestamp", "true"),
+			new:      addedModel,
+			breaking: []want{{kind: modeldiff.ConditionParamAdded, cond: "non_expired", detail: "extra"}},
 			added: []want{
-				{kind: modeldiff.ConditionParamAdded, cond: "non_expired", detail: "extra"},
 				{kind: modeldiff.ConditionAdded, cond: "other"},
 				{kind: modeldiff.RelationAdded, typ: "document", rel: "editor"},
 				{kind: modeldiff.DirectTypeAdded, typ: "document", rel: "viewer", detail: "user:*"},
