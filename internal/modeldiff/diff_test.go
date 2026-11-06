@@ -5,8 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/sergiught/openfga-cli/internal/modeldiff"
 	"github.com/sergiught/openfga-cli/internal/modeltest"
 	"github.com/sergiught/openfga-cli/internal/optimize"
@@ -15,9 +13,13 @@ import (
 func mustModel(t *testing.T, dsl string) *optimize.Model {
 	t.Helper()
 	lm, err := modeltest.LoadModelBytes([]byte(dsl))
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	m, err := optimize.NewModel(lm.Proto)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return m
 }
 
@@ -28,13 +30,25 @@ type want struct {
 
 func assertEntries(t *testing.T, section string, got []modeldiff.Entry, wants []want) {
 	t.Helper()
-	require.Len(t, got, len(wants), "%s: %+v", section, got)
+	if len(got) != len(wants) {
+		t.Fatalf("%s: got %d entries, want %d: %+v", section, len(got), len(wants), got)
+	}
 	for i, w := range wants {
-		require.Equal(t, w.kind, got[i].Kind, "%s[%d]", section, i)
-		require.Equal(t, w.typ, got[i].Type, "%s[%d]", section, i)
-		require.Equal(t, w.rel, got[i].Relation, "%s[%d]", section, i)
-		require.Equal(t, w.cond, got[i].Condition, "%s[%d]", section, i)
-		require.Contains(t, got[i].Detail, w.detail, "%s[%d]", section, i)
+		if got[i].Kind != w.kind {
+			t.Errorf("%s[%d]: got %v, want %v", section, i, got[i].Kind, w.kind)
+		}
+		if got[i].Type != w.typ {
+			t.Errorf("%s[%d]: got %v, want %v", section, i, got[i].Type, w.typ)
+		}
+		if got[i].Relation != w.rel {
+			t.Errorf("%s[%d]: got %v, want %v", section, i, got[i].Relation, w.rel)
+		}
+		if got[i].Condition != w.cond {
+			t.Errorf("%s[%d]: got %v, want %v", section, i, got[i].Condition, w.cond)
+		}
+		if !strings.Contains(got[i].Detail, w.detail) {
+			t.Errorf("%s[%d]: got %q, want it to contain %q", section, i, got[i].Detail, w.detail)
+		}
 	}
 }
 
@@ -150,7 +164,9 @@ func TestDiff(t *testing.T) {
 			assertEntries(t, "breaking", r.Breaking, tc.breaking)
 			assertEntries(t, "changed", r.Changed, tc.changed)
 			assertEntries(t, "added", r.Added, tc.added)
-			require.Equal(t, len(tc.breaking)+len(tc.changed)+len(tc.added) == 0, r.Empty())
+			if wantEmpty := len(tc.breaking)+len(tc.changed)+len(tc.added) == 0; r.Empty() != wantEmpty {
+				t.Errorf("Empty() = %v, want %v", r.Empty(), wantEmpty)
+			}
 		})
 	}
 }
@@ -193,15 +209,27 @@ func TestDiffUnionOrderIgnored(t *testing.T) {
 		return mustModel(t, "model\n  schema 1.1\ntype user\ntype document\n  relations\n    define a: [user]\n    define b: [user]\n    define c: [user]\n    define viewer: "+a+"\n    define editor: "+b+"\n")
 	}
 	r := modeldiff.Diff(mk("a or b", "(a or b) and c"), mk("b or a", "c and (b or a)"))
-	require.True(t, r.Empty(), "%+v", r)
+	if !r.Empty() {
+		t.Errorf("want empty, got %+v", r)
+	}
 }
 
 func TestDiffSlicesNonNil(t *testing.T) {
 	m := mustModel(t, base)
 	b, err := json.Marshal(modeldiff.Diff(m, m))
-	require.NoError(t, err)
-	require.Contains(t, string(b), `"breaking":[]`)
-	require.Contains(t, string(b), `"changed":[]`)
-	require.Contains(t, string(b), `"added":[]`)
-	require.Contains(t, string(b), `"cost":[]`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"breaking":[]`) {
+		t.Errorf("got %q, want it to contain %q", string(b), `"breaking":[]`)
+	}
+	if !strings.Contains(string(b), `"changed":[]`) {
+		t.Errorf("got %q, want it to contain %q", string(b), `"changed":[]`)
+	}
+	if !strings.Contains(string(b), `"added":[]`) {
+		t.Errorf("got %q, want it to contain %q", string(b), `"added":[]`)
+	}
+	if !strings.Contains(string(b), `"cost":[]`) {
+		t.Errorf("got %q, want it to contain %q", string(b), `"cost":[]`)
+	}
 }

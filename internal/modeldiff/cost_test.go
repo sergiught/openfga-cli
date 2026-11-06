@@ -2,9 +2,8 @@ package modeldiff_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 
 	"github.com/sergiught/openfga-cli/internal/modeldiff"
 	"github.com/sergiught/openfga-cli/internal/optimize"
@@ -36,21 +35,41 @@ type document
 
 func TestCostIncreasedByNewTupleToUserset(t *testing.T) {
 	r := modeldiff.Diff(mustModel(t, costBase), mustModel(t, costWider))
-	require.Len(t, r.Cost, 1)
+	if len(r.Cost) != 1 {
+		t.Fatalf("got %d entries, want 1: %+v", len(r.Cost), r.Cost)
+	}
 	c := r.Cost[0]
-	require.Equal(t, "document", c.Type)
-	require.Equal(t, "viewer", c.Relation)
-	require.Equal(t, modeldiff.CostIncreased, c.Direction)
-	require.True(t, c.New["user"] > c.Old["user"] || c.New["user"] == -1, "%+v", c)
-	require.True(t, r.HasCostIncrease())
-	require.False(t, r.Empty())
+	if c.Type != "document" {
+		t.Errorf("got %v, want %v", c.Type, "document")
+	}
+	if c.Relation != "viewer" {
+		t.Errorf("got %v, want %v", c.Relation, "viewer")
+	}
+	if c.Direction != modeldiff.CostIncreased {
+		t.Errorf("got %v, want %v", c.Direction, modeldiff.CostIncreased)
+	}
+	if c.New["user"] <= c.Old["user"] && c.New["user"] != -1 {
+		t.Errorf("weight did not rise: %+v", c)
+	}
+	if !r.HasCostIncrease() {
+		t.Error("HasCostIncrease = false, want true")
+	}
+	if r.Empty() {
+		t.Error("Empty = true, want false")
+	}
 }
 
 func TestCostDecreased(t *testing.T) {
 	r := modeldiff.Diff(mustModel(t, costWider), mustModel(t, costBase))
-	require.Len(t, r.Cost, 1)
-	require.Equal(t, modeldiff.CostDecreased, r.Cost[0].Direction)
-	require.False(t, r.HasCostIncrease())
+	if len(r.Cost) != 1 {
+		t.Fatalf("got %d entries, want 1: %+v", len(r.Cost), r.Cost)
+	}
+	if r.Cost[0].Direction != modeldiff.CostDecreased {
+		t.Errorf("got %v, want %v", r.Cost[0].Direction, modeldiff.CostDecreased)
+	}
+	if r.HasCostIncrease() {
+		t.Error("HasCostIncrease = true, want false")
+	}
 }
 
 func TestCostUnboundedIsMinusOne(t *testing.T) {
@@ -71,15 +90,23 @@ type group
     define member: [user] or member from parent
 `
 	r := modeldiff.Diff(mustModel(t, old), mustModel(t, nw))
-	require.Len(t, r.Cost, 1)
-	require.Equal(t, -1, r.Cost[0].New["user"])
+	if len(r.Cost) != 1 {
+		t.Fatalf("got %d entries, want 1: %+v", len(r.Cost), r.Cost)
+	}
+	if got := r.Cost[0].New["user"]; got != -1 {
+		t.Errorf("New[user] = %d, want -1", got)
+	}
 }
 
 func TestCostOnlyOneSideRelationsSkipped(t *testing.T) {
 	added := costBase + "    define editor: [user]\n"
 	r := modeldiff.Diff(mustModel(t, costBase), mustModel(t, added))
-	require.Empty(t, r.Cost)
-	require.NotEmpty(t, r.Added)
+	if len(r.Cost) != 0 {
+		t.Errorf("want no cost entries, got %+v", r.Cost)
+	}
+	if len(r.Added) == 0 {
+		t.Error("want an added entry")
+	}
 }
 
 func TestCostSkippedWhenNoWeightedGraph(t *testing.T) {
@@ -92,8 +119,16 @@ func TestCostSkippedWhenNoWeightedGraph(t *testing.T) {
 	})
 	t.Cleanup(func() { modeldiff.SetWeights(orig) })
 	r := modeldiff.Diff(oldM, newM)
-	require.Contains(t, r.CostSkipped, "new model")
-	require.Contains(t, r.CostSkipped, "boom")
-	require.NotNil(t, r.Cost)
-	require.Empty(t, r.Cost)
+	if !strings.Contains(r.CostSkipped, "new model") {
+		t.Errorf("got %q, want it to contain %q", r.CostSkipped, "new model")
+	}
+	if !strings.Contains(r.CostSkipped, "boom") {
+		t.Errorf("got %q, want it to contain %q", r.CostSkipped, "boom")
+	}
+	if r.Cost == nil {
+		t.Error("Cost is nil, want non-nil")
+	}
+	if len(r.Cost) != 0 {
+		t.Errorf("want no cost entries, got %+v", r.Cost)
+	}
 }
