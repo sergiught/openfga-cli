@@ -5,6 +5,10 @@ sidebar:
   order: 100
 ---
 
+import CommandDemo from '../../../../components/CommandDemo.astro';
+
+<CommandDemo slug="model-diff" />
+
 Compare two authorization models and classify what changed.
 
 Each argument is a model file (DSL or JSON), '-' for stdin, 'store' for the active store's latest model, or a model ID in the active store. With one argument the old side is the store's latest model, so `ofga model diff model.fga` shows what would change if you wrote that file.
