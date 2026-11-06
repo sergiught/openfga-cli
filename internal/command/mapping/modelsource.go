@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -32,8 +31,8 @@ func (c *Command) loadModelIndex(ctx context.Context, f modelFlags) (*mapping.Mo
 	switch {
 	case f.file != "" && f.fromStore:
 		return nil, "", clierr.WithCode(clierr.CodeUsage, errors.New("--model-file and --model-from-store are mutually exclusive"))
-	case strings.HasSuffix(f.file, ".mod"):
-		return nil, "", errors.New("modular models (fga.mod) are not supported yet; pass the model's .fga or .json file")
+	case modeltest.RejectModular(f.file) != nil:
+		return nil, "", modeltest.ErrModularModel
 	case f.file != "":
 		raw, err := os.ReadFile(f.file)
 		if errors.Is(err, os.ErrNotExist) {
