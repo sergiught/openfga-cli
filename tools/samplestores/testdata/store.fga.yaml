@@ -1,0 +1,105 @@
+name: Inline Docs
+model: |
+  model
+    schema 1.1
+
+  type user
+
+  type group
+    relations
+      define member: [user]
+
+  type document
+    relations
+      define viewer: [user, group#member, user with in_window]
+
+  condition in_window(current_time: timestamp, grant_time: timestamp, grant_duration: duration) {
+    current_time < grant_time + grant_duration
+  }
+
+tuples:
+  # Anne is in the readers group
+  - user: user:anne
+    relation: member
+    object: group:readers
+  - user: group:readers#member
+    relation: viewer
+    object: document:1
+  - user: user:bob
+    relation: viewer
+    object: document:2
+    condition:
+      name: in_window
+      context:
+        grant_time: "2023-01-01T00:00:00Z"
+        grant_duration: 1h
+
+tests:
+  - name: Group membership grants access
+    description: anne reads through the readers group
+    check:
+      - user: user:anne
+        object: document:1
+        assertions:
+          viewer: true
+      - user: user:bob
+        object: document:1
+        assertions:
+          viewer: false
+  - name: Conditional grant
+    check:
+      - user: user:bob
+        object: document:2
+        context:
+          current_time: "2023-01-01T00:10:00Z"
+        assertions:
+          viewer: true
+      - user: user:bob
+        object: document:2
+        context:
+          current_time: "2023-01-01T02:00:00Z"
+        assertions:
+          viewer: false
+    list_objects:
+      - user: user:bob
+        type: document
+        context:
+          current_time: "2023-01-01T00:10:00Z"
+        assertions:
+          viewer:
+            - document:2
+  - name: Test-level tuples and contextual tuples
+    tuples:
+      - user: user:carol
+        relation: member
+        object: group:readers
+    check:
+      - user: user:carol
+        object: document:1
+        assertions:
+          viewer: true
+      - user: user:dave
+        object: document:1
+        contextual_tuples:
+          - user: user:dave
+            relation: member
+            object: group:readers
+        assertions:
+          viewer: true
+  - name: Who can view
+    list_users:
+      - object: document:1
+        user_filter:
+          - type: user
+        assertions:
+          viewer:
+            users:
+              - user:anne
+      - object: document:1
+        user_filter:
+          - type: group
+            relation: member
+        assertions:
+          viewer:
+            users:
+              - group:readers#member

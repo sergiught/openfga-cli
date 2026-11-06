@@ -18,6 +18,7 @@ import (
 	gap "github.com/muesli/go-app-paths"
 	"github.com/zalando/go-keyring"
 
+	"github.com/sergiught/openfga-cli/internal/filelock"
 	"github.com/sergiught/openfga-cli/internal/readlimit"
 )
 
@@ -547,7 +548,7 @@ func (c *Config) lockForSave() (func(), error) {
 	if err := os.MkdirAll(filepath.Dir(c.path), 0o700); err != nil {
 		return nil, fmt.Errorf("create config dir: %w", err)
 	}
-	unlock, err := lockConfig(c.path)
+	unlock, err := filelock.Lock(c.path + ".lock")
 	if err != nil {
 		return nil, err
 	}

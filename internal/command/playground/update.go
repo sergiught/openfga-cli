@@ -173,6 +173,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.storeName = s.Name
 			}
 		}
+		m.applySandboxWorkspace()
 		m.populateStores()
 		m.status = plural(len(msg.stores), "store")
 		// First run with nothing selected yet: adopt the first store (and persist
@@ -538,6 +539,13 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case storeDeletedMsg:
 		m.endLoad()
+		// The ephemeral profile's remembered store must forget a store that is
+		// gone — even when this message is otherwise stale because the user
+		// switched profile while the delete was in flight — or switching back
+		// would point every store-scoped request at the deleted store.
+		if msg.err == nil && m.ephemeralProfile != "" && msg.origin.profile == m.ephemeralProfile && msg.id == m.ephemeralStoreID {
+			m.ephemeralStoreID, m.ephemeralModelID = "", ""
+		}
 		if m.staleMutation(msg.origin, m.storeDeleteGen) {
 			return m, nil
 		}
@@ -657,6 +665,9 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case testsRanMsg:
 		m.endLoad()
+		if msg.gen != m.wb.runGen {
+			return m, nil // its workspace was swapped out mid-run
+		}
 		m.wb.running = false
 		if msg.err != nil {
 			m.status = "run failed: " + errStr(msg.err)

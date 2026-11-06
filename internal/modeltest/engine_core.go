@@ -66,7 +66,24 @@ func rpcMessage(err error) error {
 }
 
 func (e *engine) Setup(ctx context.Context, model *openfgav1.AuthorizationModel, tuples []*openfgav1.TupleKey) (string, string, error) {
-	storeResp, err := e.api.CreateStore(ctx, &openfgav1.CreateStoreRequest{Name: "modeltest"})
+	return e.setupStore(ctx, "modeltest", model, tuples)
+}
+
+// SetupStore creates a store called name on eng, writes model and tuples
+// (chunked) and returns the store and model ids. It works on engines built by
+// the in-package constructors (NewEmbeddedEngine, NewEmbeddedEngineOn,
+// NewCountingEmbeddedEngine, container/remote); a foreign Engine
+// implementation is rejected with an error. On failure the store is deleted.
+func SetupStore(ctx context.Context, eng Engine, name string, model *openfgav1.AuthorizationModel, tuples []*openfgav1.TupleKey) (storeID, modelID string, err error) {
+	e, ok := eng.(*engine)
+	if !ok {
+		return "", "", fmt.Errorf("setup store: unsupported engine %T", eng)
+	}
+	return e.setupStore(ctx, name, model, tuples)
+}
+
+func (e *engine) setupStore(ctx context.Context, name string, model *openfgav1.AuthorizationModel, tuples []*openfgav1.TupleKey) (string, string, error) {
+	storeResp, err := e.api.CreateStore(ctx, &openfgav1.CreateStoreRequest{Name: name})
 	if err != nil {
 		return "", "", fmt.Errorf("create store: %w", rpcMessage(err))
 	}

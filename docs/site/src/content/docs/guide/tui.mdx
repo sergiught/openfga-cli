@@ -1,6 +1,6 @@
 ---
 title: The interactive TUI
-description: Run ofga with no arguments to launch the playground, a keyboard- and mouse-driven TUI for the whole OpenFGA surface.
+description: Run ofga to open the TUI on your profile, or ofga playground for a sandbox with sample stores. Keyboard- and mouse-driven.
 sidebar:
   order: 4
 ---
@@ -9,14 +9,14 @@ import CommandDemo from '../../../components/CommandDemo.astro';
 
 <CommandDemo slug="playground" />
 
-Run `ofga` with no arguments to launch the interactive playground. It's a keyboard- **and mouse**-driven cockpit for the whole OpenFGA surface.
+Run `ofga` with no arguments to launch the interactive TUI on your real profile. It's a keyboard- **and mouse**-driven cockpit for the whole OpenFGA surface. To try it with no server, run `ofga playground` instead (see [The sandbox playground](#the-sandbox-playground)).
 
 The mapping workspace (`ofga mappings`) is a separate TUI with its own guide: [Syncing events into tuples](../mappings/).
 
-The playground uses the same resolved profile as CLI commands: `ofga --profile
-staging playground` opens staging without changing the saved default. Profile,
-store, and model switches made inside the playground are reflected immediately
-in its footer and subsequent actions.
+Bare `ofga` uses the same resolved profile as CLI commands: `ofga --profile
+staging` opens staging without changing the saved default. Profile, store, and
+model switches made inside the TUI are reflected immediately in its footer and
+subsequent actions.
 
 **Sections** (switch with `tab`, the number keys `1`–`9`, `ctrl+k` for the command palette, or **click a tab**): Profiles · Stores · Model · Tuples · Changes · Tuple Queries · Assertions · API Logs · Tests. Each tab is labeled with its digit (`[1]` Profiles … `[9]` Tests) as a reminder of the shortcut.
 
@@ -32,6 +32,39 @@ in its footer and subsequent actions.
 **Keys:** press `?` at any time for the full, context-aware keybinding overlay.
 
 > The TUI only launches on an interactive terminal. In a pipe or CI, bare `ofga` prints help instead of hanging.
+
+## The sandbox playground
+
+`ofga playground` opens the same TUI against a built-in OpenFGA server, under a synthetic profile named `playground`. It needs no server and no network, and it never writes anything about itself to `config.toml`.
+
+```bash
+ofga playground           # open the sandbox
+ofga playground --reset   # start again from fresh samples
+```
+
+The server comes preloaded with seven sample stores: `github`, `gdrive`, `slack`, `custom-roles`, `multitenant-rbac`, `temporal-access` and `expenses`. Open one from the Stores tab. The Tests tab shows that store's own tests. They run against the sample's original model and fixtures, so they keep passing after you edit the store. Edits to the sample test files themselves last only for the session: they are not saved with your playground.
+
+The samples come from [openfga/sample-stores](https://github.com/openfga/sample-stores) (Apache-2.0). Their license and notice are vendored in `internal/sandbox/samples/` and reproduced in the `THIRD_PARTY_LICENSES` file shipped with every release.
+
+**Keeping your changes.** When you quit after changing anything (stores, models, tuples or assertions), the CLI asks `Keep your playground changes? [Y/n]`. Enter means yes. An unrecognised answer asks again, and three in a row count as no. `n`, end of input or `ctrl+c` mean no. Browsing and running checks never trigger the prompt.
+
+Kept changes are saved to `playground.db` and reopened next time:
+
+| OS | Default location |
+| --- | --- |
+| Linux | `~/.local/share/ofga/playground.db` |
+| macOS | `~/Library/Application Support/ofga/playground.db` |
+| Windows | `%LOCALAPPDATA%\ofga\playground.db` |
+
+Set `OPENFGA_PLAYGROUND_DB` to use another path.
+
+If another playground session saved since yours started, yours is not saved over it. The CLI prints where your changes were kept instead.
+
+**`--reset`** starts the session from fresh samples. The old save is replaced only if you keep the new session's changes at the prompt.
+
+A saved playground is left exactly as you kept it. Newer samples shipped by a CLI upgrade only appear after `--reset`.
+
+**Real profiles.** Switching to a real profile from inside the playground behaves exactly like bare `ofga`: it becomes the active profile in your config, and writes go to that server.
 
 ## Keybinding reference
 

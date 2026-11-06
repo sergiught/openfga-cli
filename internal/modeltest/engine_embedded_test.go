@@ -28,7 +28,7 @@ func TestEmbeddedEngineChecksOwner(t *testing.T) {
 	}
 	defer func() { _ = eng.Close() }()
 
-	lm, err := loadModel(filepath.Join("testdata", "docs", "model.fga"))
+	lm, err := LoadModel(filepath.Join("testdata", "docs", "model.fga"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestNewEmbeddedEngineMaxTypesOptionIsWired(t *testing.T) {
 	}
 	defer func() { _ = eng.Close() }()
 
-	lm, err := loadModel(filepath.Join("testdata", "docs", "model.fga"))
+	lm, err := LoadModel(filepath.Join("testdata", "docs", "model.fga"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestEmbeddedEngineSetupChunksTupleWrites(t *testing.T) {
 	}
 	defer func() { _ = eng.Close() }()
 
-	lm, err := loadModel(filepath.Join("testdata", "docs", "model.fga"))
+	lm, err := LoadModel(filepath.Join("testdata", "docs", "model.fga"))
 	if err != nil {
 		t.Fatal(err)
 	}

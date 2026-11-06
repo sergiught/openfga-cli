@@ -214,3 +214,27 @@ example.com/b	v2.0.0	/mod/b
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
+
+// The playground's sample stores are Apache-2.0 files embedded in the binary,
+// not a linked module, so go list never reports them; their LICENSE and NOTICE
+// must still reach the bundle.
+func TestBundleAttributesTheVendoredSampleStores(t *testing.T) {
+	t.Chdir("../..") // vendored dirs are relative to the repository root
+	var buf bytes.Buffer
+	if err := bundle(&buf, nil); err != nil {
+		t.Fatalf("bundle: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"Vendored: 1",
+		"github.com/openfga/sample-stores",
+		"License: Apache-2.0",
+		"--- LICENSE ---",
+		"--- NOTICE.txt ---",
+		"Copyright 2022 Okta, Inc.",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("bundle is missing %q", want)
+		}
+	}
+}

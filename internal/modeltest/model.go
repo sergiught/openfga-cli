@@ -20,9 +20,9 @@ type LoadedModel struct {
 	SDK   *openfga.AuthorizationModel
 }
 
-// loadModel reads the authorization model at path (DSL or JSON) and decodes
+// LoadModel reads the authorization model at path (DSL or JSON) and decodes
 // it into both a proto.AuthorizationModel and an openfga.AuthorizationModel.
-func loadModel(path string) (*LoadedModel, error) {
+func LoadModel(path string) (*LoadedModel, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", path, err)
@@ -35,7 +35,7 @@ func loadModel(path string) (*LoadedModel, error) {
 }
 
 // LoadModelBytes decodes an authorization model from raw bytes (DSL or JSON),
-// autodetecting the format. It backs loadModel and lets callers load a model
+// autodetecting the format. It backs LoadModel and lets callers load a model
 // that isn't on disk (e.g. one fetched from a git ref for coverage diffing).
 func LoadModelBytes(data []byte) (*LoadedModel, error) {
 	jsonStr := string(data)

@@ -37,7 +37,7 @@ func Seed(ctx context.Context, ws *Workspace, sel string, opts Options) (endpoin
 	if err != nil {
 		return "", "", "", nil, fmt.Errorf("seed %s: %w", tk.name, err)
 	}
-	lm, err := loadModel(modelPath)
+	lm, err := LoadModel(modelPath)
 	if err != nil {
 		return "", "", "", nil, fmt.Errorf("seed %s: %w", tk.name, err)
 	}
@@ -56,7 +56,7 @@ func Seed(ctx context.Context, ws *Workspace, sel string, opts Options) (endpoin
 	// in-process server (to expose over HTTP), so a container/remote engine
 	// can't be reused — we build our own embedded one.
 	setupEngine := opts.Engine
-	srv, reused := embeddedServerOf(opts.Engine)
+	_, reused := embeddedServerOf(opts.Engine)
 	ownEngine := !reused
 	if ownEngine {
 		var serverOpts map[string]any
@@ -68,7 +68,6 @@ func Seed(ctx context.Context, ws *Workspace, sel string, opts Options) (endpoin
 			return "", "", "", nil, fmt.Errorf("seed %s: %w", tk.name, buildErr)
 		}
 		setupEngine = built
-		srv, _ = embeddedServerOf(built)
 	}
 
 	closeEngine := func() {
@@ -83,18 +82,41 @@ func Seed(ctx context.Context, ws *Workspace, sel string, opts Options) (endpoin
 		return "", "", "", nil, fmt.Errorf("seed %s: %w", tk.name, err)
 	}
 
-	// Wire the in-process server to HTTP routes via grpc-gateway (no gRPC
-	// listener, no network hop between the gateway and the server).
+	endpoint, stopHTTP, err := ServeHTTP(ctx, setupEngine)
+	if err != nil {
+		closeEngine()
+		return "", "", "", nil, fmt.Errorf("seed %s: %w", tk.name, err)
+	}
+
+	var stopOnce sync.Once
+	stop = func() {
+		stopOnce.Do(func() {
+			stopHTTP()
+			closeEngine()
+		})
+	}
+
+	return endpoint, storeID, modelID, stop, nil
+}
+
+// ServeHTTP exposes the in-process server behind eng over HTTP on a
+// loopback-only ephemeral port via grpc-gateway (no gRPC listener, no network
+// hop between the gateway and the server). It errors for engines without a
+// local server (container/remote). stop shuts the HTTP server down and is
+// idempotent; it does NOT close eng, which the caller still owns.
+func ServeHTTP(ctx context.Context, eng Engine) (endpoint string, stop func(), err error) {
+	srv, ok := embeddedServerOf(eng)
+	if !ok {
+		return "", nil, fmt.Errorf("serve http: engine %T has no in-process server", eng)
+	}
 	mux := runtime.NewServeMux()
 	if err = openfgav1.RegisterOpenFGAServiceHandlerServer(ctx, mux, srv); err != nil {
-		closeEngine()
-		return "", "", "", nil, fmt.Errorf("seed %s: register http handlers: %w", tk.name, err)
+		return "", nil, fmt.Errorf("register http handlers: %w", err)
 	}
 
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		closeEngine()
-		return "", "", "", nil, fmt.Errorf("seed %s: listen: %w", tk.name, err)
+		return "", nil, fmt.Errorf("listen: %w", err)
 	}
 
 	// ReadHeaderTimeout bounds how long a connection can hold the server open
@@ -107,10 +129,14 @@ func Seed(ctx context.Context, ws *Workspace, sel string, opts Options) (endpoin
 	var stopOnce sync.Once
 	stop = func() {
 		stopOnce.Do(func() {
-			_ = httpSrv.Shutdown(context.Background())
-			closeEngine()
+			// Bounded: a stuck connection must not hang the quit path, where
+			// Ctrl+C is no longer deliverable.
+			sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := httpSrv.Shutdown(sctx); err != nil {
+				_ = httpSrv.Close()
+			}
 		})
 	}
-
-	return "http://" + lis.Addr().String(), storeID, modelID, stop, nil
+	return "http://" + lis.Addr().String(), stop, nil
 }

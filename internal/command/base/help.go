@@ -112,6 +112,7 @@ func docsURL(cmd *cobra.Command) string {
 // list. FGA_* aliases are accepted for compatibility with the official CLI.
 func envList() string {
 	rows := [][2]string{
+		{"OPENFGA_PLAYGROUND_DB", "path to the saved playground database"},
 		{"OPENFGA_API_URL", "OpenFGA API URL (alias: FGA_API_URL)"},
 		{"OPENFGA_STORE_ID", "active store ID (alias: FGA_STORE_ID)"},
 		{"OPENFGA_MODEL_ID", "authorization model ID (aliases: OPENFGA_AUTHORIZATION_MODEL_ID, FGA_MODEL_ID, FGA_AUTHORIZATION_MODEL_ID)"},

@@ -43,6 +43,10 @@ const editorNoWrapWidth = 10000
 // seeded data rather than one of their real, saved profiles.
 const ephemeralProfileName = "model-test (seeded)"
 
+// sandboxProfileName labels the synthetic profile of an `ofga playground`
+// sandbox session.
+const sandboxProfileName = "playground"
+
 type section int
 
 const (
@@ -287,6 +291,10 @@ type Model struct {
 	ephemeralEndpoint string
 	ephemeralStoreID  string
 	ephemeralModelID  string
+	// sandboxWorkspaces is non-nil only in a `ofga playground` sandbox session:
+	// per-store sample workspaces keyed by store name, applied on store
+	// selection while the active profile is the sandbox's own.
+	sandboxWorkspaces map[string]*modeltest.Workspace
 
 	stores     []openfga.Store
 	storesList *uilist.List
@@ -410,6 +418,9 @@ type workbench struct {
 	// so the Tests body can show a spinner instead of the file/test list until
 	// the result lands.
 	running bool
+	// runGen tags each hermetic run; a testsRanMsg from an older generation
+	// (its workspace was swapped out mid-run) is dropped.
+	runGen int
 
 	// coverage is the coverage report from the last hermetic run (see
 	// runSuiteCmd, which always computes it), or nil before any run this
@@ -761,18 +772,120 @@ func newSeededModel(ctx context.Context, cli *cli.CLI, o SeedOptions) Model {
 	// profile as if it were full of seeded data. The ephemeral profile is pure
 	// Model state (never added to cli.Config), so it can never be written to
 	// config.toml — even if the user switches profiles mid-session.
-	m.ephemeralProfile = ephemeralProfileName
-	m.ephemeralClient = o.Client
-	m.ephemeralEndpoint = o.Endpoint
-	m.ephemeralStoreID = o.StoreID
-	m.ephemeralModelID = o.ModelID
-	m.profile = ephemeralProfileName
-	m.populateProfiles()
+	m.adoptEphemeral(ephemeralProfileName, o.Client, o.Endpoint, o.StoreID, o.ModelID)
 	if o.Endpoint != "" {
-		m.apiURL = o.Endpoint
 		m.bootNotice = "seeded playground at " + o.Endpoint
 	}
 	return m
+}
+
+// adoptEphemeral presents an injected client as the active ephemeral profile
+// called name. The profile is pure Model state (never added to cli.Config).
+func (m *Model) adoptEphemeral(name string, cl *openfga.Client, endpoint, storeID, modelID string) {
+	m.ephemeralProfile = name
+	m.ephemeralClient = cl
+	m.ephemeralEndpoint = endpoint
+	m.ephemeralStoreID = storeID
+	m.ephemeralModelID = modelID
+	m.profile = name
+	m.populateProfiles()
+	if endpoint != "" {
+		m.apiURL = endpoint
+	}
+}
+
+// SandboxOptions configures RunSandbox: the embedded sandbox server's endpoint
+// and the sample workspaces keyed by store name.
+type SandboxOptions struct {
+	Endpoint   string
+	Workspaces map[string]*modeltest.Workspace
+}
+
+// RunSandbox launches the playground against the embedded sandbox server,
+// presented under the synthetic `playground` profile. Nothing about it is ever
+// written to config.toml.
+func RunSandbox(ctx context.Context, cli *cli.CLI, o SandboxOptions) error {
+	rec := apilog.NewRecorder(apiLogHistory)
+	cl, err := newSandboxClient(cli, o.Endpoint, rec)
+	if err != nil {
+		return err
+	}
+	return launch(ctx, cli, newSandboxModel(ctx, cli, cl, o), rec)
+}
+
+// newSandboxClient builds the client for the sandbox server, with the API-log
+// recorder wired in so the API Logs tab shows its calls. The sandbox has no
+// auth, so a bare resolved config with just the URL is enough.
+func newSandboxClient(cli *cli.CLI, endpoint string, rec *apilog.Recorder) (*openfga.Client, error) {
+	return client.New(config.Resolved{APIURL: endpoint}, client.WithCapture(rec), client.WithTimeout(cli.RequestTimeout))
+}
+
+// newSandboxModel builds (but does not launch) the sandbox Model. No store is
+// preselected, so first-store adoption opens the first store; it opens on the
+// Stores section. Like newSeededModel it pins cli.Overrides.APIURL, the guard
+// that keeps persistStore/persistModel off the real config.
+func newSandboxModel(ctx context.Context, cli *cli.CLI, cl *openfga.Client, o SandboxOptions) Model {
+	cli.Overrides.APIURL = o.Endpoint
+	m := newModel(ctx, cli, cl, "", "")
+	m.section = secStores
+	m.sandboxWorkspaces = o.Workspaces
+	if m.sandboxWorkspaces == nil {
+		m.sandboxWorkspaces = map[string]*modeltest.Workspace{}
+	}
+	// Real profiles may already own the name; two rows with one ID would make
+	// the sandbox row delete or shadow the real profile.
+	name := sandboxProfileName
+	for i := 1; ; i++ {
+		if _, taken := cli.Config.Get(name); !taken {
+			break
+		}
+		name = sandboxProfileName + " (sandbox)"
+		if i > 1 {
+			name = fmt.Sprintf("%s (sandbox %d)", sandboxProfileName, i)
+		}
+	}
+	m.adoptEphemeral(name, cl, o.Endpoint, "", "")
+	if o.Endpoint != "" {
+		m.bootNotice = "playground at " + o.Endpoint
+	}
+	return m
+}
+
+// applySandboxWorkspace syncs the workbench with the current store in a sandbox
+// session: on the playground profile it loads the sample workspace for the
+// store's name; on any other profile (or an unknown store) it clears it. It is
+// a no-op outside sandbox mode. Model state only, never config.
+func (m *Model) applySandboxWorkspace() {
+	if m.sandboxWorkspaces == nil {
+		return
+	}
+	var ws *modeltest.Workspace
+	if m.profile == m.ephemeralProfile {
+		ws = m.sandboxWorkspaces[m.storeName]
+	}
+	if ws == m.wb.workspace {
+		return // a stores reload must not wipe results for the same store
+	}
+	m.wb.workspace, m.wb.files = ws, nil
+	if ws != nil {
+		m.wb.files = ws.TestFiles
+	}
+	// Results, coverage and any in-flight run belong to the old workspace.
+	m.wb.results = nil
+	m.wb.treeSel = 0
+	m.wb.coverage, m.wb.showCoverage, m.wb.coverageErr = nil, false, ""
+	m.wb.covScroll, m.wb.detailScroll = 0, 0
+	m.wb.running = false
+	m.wb.runGen++
+}
+
+// rememberSandboxWorkspace records a reloaded workspace (after a test file was
+// edited, created or deleted) as the current store's, so a later
+// applySandboxWorkspace restores it rather than the startup snapshot.
+func (m *Model) rememberSandboxWorkspace() {
+	if m.sandboxWorkspaces != nil && m.profile == m.ephemeralProfile && m.wb.workspace != nil {
+		m.sandboxWorkspaces[m.storeName] = m.wb.workspace
+	}
 }
 
 // --- sizing ---
@@ -1217,6 +1330,10 @@ func (m *Model) selectStore(s openfga.Store) tea.Cmd {
 	m.clearResourcePending()
 	m.storeID = s.ID
 	m.storeName = s.Name
+	if m.sandboxWorkspaces != nil && m.profile == m.ephemeralProfile {
+		m.ephemeralStoreID = s.ID
+	}
+	m.applySandboxWorkspace()
 	m.modelID = ""
 	m.modelIsLatest = false
 	m.graph = fga.Graph{}
@@ -1538,6 +1655,7 @@ func (m *Model) activateResolved(r config.Resolved, cl *openfga.Client, status s
 	// Reset every per-connection field, then adopt the profile's store/model.
 	m.storeID = r.StoreID
 	m.storeName = ""
+	m.applySandboxWorkspace()
 	m.modelID = r.ModelID
 	m.modelIsLatest = false
 	m.stores = nil

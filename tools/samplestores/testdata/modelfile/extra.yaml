@@ -1,0 +1,3 @@
+- user: user:erin
+  relation: owner
+  object: doc:3

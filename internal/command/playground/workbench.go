@@ -237,9 +237,10 @@ func (m *Model) runSuite(filter string) (tea.Model, tea.Cmd) {
 		return *m, nil
 	}
 	m.wb.running = true
+	m.wb.runGen++
 	m.beginLoad()
 	m.status = "running tests…"
-	return *m, runSuiteCmd(m.ctx, m.wb.workspace, filter)
+	return *m, runSuiteCmd(m.ctx, m.wb.workspace, filter, m.wb.runGen)
 }
 
 // wbStatus sets the status line and raises a matching toast. The Tests section's
@@ -299,6 +300,7 @@ func (m *Model) handleTestFileEdited(msg testFileEditedMsg) (tea.Model, tea.Cmd)
 		if ws, err := modeltest.LoadWorkspace(m.wb.workspace.Root); err == nil {
 			m.wb.workspace = ws
 			m.wb.files = ws.TestFiles
+			m.rememberSandboxWorkspace()
 			m.clampWbTreeSel()
 		}
 	}
@@ -313,7 +315,21 @@ func (m *Model) handleTestFileEdited(msg testFileEditedMsg) (tea.Model, tea.Cmd)
 	if warn != "" {
 		return *m, tea.Batch(cmd, m.toasts.Push(toast.Error, warn))
 	}
+	if note := m.sandboxTestEditNote(); note != "" {
+		return *m, tea.Batch(cmd, m.toasts.Push(toast.Info, status+note))
+	}
 	return *m, cmd
+}
+
+// sandboxTestEditNote is the suffix telling the user a test-file change in a
+// playground sample is session-only: sample workspaces live in the session's
+// scratch dir, and only the server state is offered for keeping at quit. It is
+// empty outside the sandbox's own profile.
+func (m *Model) sandboxTestEditNote() string {
+	if m.sandboxWorkspaces == nil || m.profile != m.ephemeralProfile {
+		return ""
+	}
+	return " (sample test files are not kept after quit)"
 }
 
 // openWorkbenchEditor launches the user's real terminal editor ($VISUAL /

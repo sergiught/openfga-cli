@@ -55,7 +55,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 		case "e":
 			if it, ok := m.profilesList.Selected(); ok {
 				if it.ID == m.ephemeralProfile {
-					m.status = "the seeded profile is ephemeral and can't be edited"
+					m.status = "the " + it.ID + " profile is ephemeral and can't be edited"
 					return m, nil
 				}
 				p, _ := m.cli.Config.Get(it.ID)
@@ -74,6 +74,10 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 		case "d":
 			if it, ok := m.profilesList.Selected(); ok {
 				id := it.ID
+				if id == m.ephemeralProfile {
+					m.status = "the " + id + " profile is ephemeral and can't be removed"
+					return m, m.toasts.Push(toast.Error, m.status)
+				}
 				if id == m.profile {
 					m.status = "cannot remove the active profile " + id + "; switch first"
 					return m, m.toasts.Push(toast.Error, m.status)
@@ -658,13 +662,14 @@ func (m Model) handleTestResultsKey(key string) (tea.Model, tea.Cmd) {
 				if ws, err := modeltest.LoadWorkspace(m.wb.workspace.Root); err == nil {
 					m.wb.workspace = ws
 					m.wb.files = ws.TestFiles
+					m.rememberSandboxWorkspace()
 				} else {
 					m.wb.files = nil
 				}
 				m.clampWbTreeSel()
 				// Confirm the deletion with a visible toast — the Tests footer shows
 				// no status text, so a status-only line would leave no feedback.
-				done := m.wbStatus(toast.Success, "deleted "+filepath.Base(tf.Path))
+				done := m.wbStatus(toast.Success, "deleted "+filepath.Base(tf.Path)+m.sandboxTestEditNote())
 				if len(m.wb.files) == 0 {
 					return done
 				}

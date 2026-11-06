@@ -24,7 +24,6 @@ import (
 	"github.com/sergiught/openfga-cli/internal/command/docs"
 	"github.com/sergiught/openfga-cli/internal/command/mapping"
 	"github.com/sergiught/openfga-cli/internal/command/model"
-	"github.com/sergiught/openfga-cli/internal/command/playground"
 	"github.com/sergiught/openfga-cli/internal/command/profiles"
 	"github.com/sergiught/openfga-cli/internal/command/query"
 	"github.com/sergiught/openfga-cli/internal/command/store"
@@ -584,16 +583,22 @@ func (c *Command) RegisterSubCommands() {
 
 func (c *Command) playgroundCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "playground",
-		Short:   "Launch the interactive playground",
-		Example: "  ofga playground",
-		Long: "Launch the interactive terminal UI for browsing stores, editing models and running queries. " +
-			"Running `ofga` with no arguments does the same thing.\n\n" +
+		Use:   "playground",
+		Short: "Explore OpenFGA in a local sandbox with sample stores",
+		Example: "  ofga playground\n" +
+			"  ofga playground --reset",
+		Long: "Launch the interactive terminal UI against a built-in OpenFGA server preloaded with sample stores, " +
+			"under a synthetic `playground` profile. It needs no server and never writes the sandbox to your config.\n\n" +
+			"When you quit after making changes you are asked whether to keep them. Kept changes are saved to a " +
+			"playground database (set OPENFGA_PLAYGROUND_DB to choose the path) and reopened next time; --reset " +
+			"discards that save and starts again from the samples.\n\n" +
+			"Running `ofga` with no arguments opens the same TUI against your real profile.\n\n" +
 			"The playground needs an interactive terminal: with stdin or stdout redirected, or under --no-input, " +
 			"it exits with a usage error rather than hanging.",
 		Args: cobra.NoArgs,
 		RunE: c.runPlayground,
 	}
+	cmd.Flags().Bool("reset", false, "discard the saved playground and start from the sample stores")
 	return cmdmeta.Set(cmd, playgroundMeta)
 }
 
@@ -612,7 +617,7 @@ func (c *Command) runPlayground(cmd *cobra.Command, _ []string) error {
 		}
 		return c.conciseHelp(cmd)
 	}
-	return playground.Run(cmd.Context(), c.cli)
+	return c.launchPlayground(cmd)
 }
 
 func (c *Command) conciseHelp(cmd *cobra.Command) error {

@@ -1,0 +1,23 @@
+name: Model File
+model_file: model.fga
+tuple_file: ./tuples.yaml
+tuples:
+  - user: user:anne
+    relation: owner
+    object: doc:1
+tests:
+  - name: Owner views and bob views via file
+    tuple_file: ./extra.yaml
+    check:
+      - user: user:anne
+        object: doc:1
+        assertions:
+          viewer: true
+      - user: user:bob
+        object: doc:2
+        assertions:
+          viewer: true
+      - user: user:erin
+        object: doc:3
+        assertions:
+          viewer: true

@@ -1,4 +1,4 @@
-package config
+package filelock
 
 import (
 	"fmt"
@@ -7,15 +7,15 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func lockConfig(path string) (func(), error) {
-	f, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+func Lock(path string) (func(), error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
-		return nil, fmt.Errorf("open config lock: %w", err)
+		return nil, fmt.Errorf("open lock %s: %w", path, err)
 	}
 	lock := unix.Flock_t{Type: unix.F_WRLCK, Whence: 0, Start: 0, Len: 1}
 	if err := unix.FcntlFlock(f.Fd(), unix.F_SETLKW, &lock); err != nil {
 		_ = f.Close()
-		return nil, fmt.Errorf("lock config: %w", err)
+		return nil, fmt.Errorf("lock %s: %w", path, err)
 	}
 	return func() {
 		lock.Type = unix.F_UNLCK

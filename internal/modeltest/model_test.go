@@ -3,9 +3,9 @@ package modeltest
 import "testing"
 
 func TestLoadModelBuildsBothViews(t *testing.T) {
-	lm, err := loadModel("testdata/docs/model.fga")
+	lm, err := LoadModel("testdata/docs/model.fga")
 	if err != nil {
-		t.Fatalf("loadModel: %v", err)
+		t.Fatalf("LoadModel: %v", err)
 	}
 
 	if got := lm.Proto.GetSchemaVersion(); got != "1.1" {
