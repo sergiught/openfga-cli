@@ -56,6 +56,9 @@ func TestSchemasValidateRealOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	diffOld := writeDiffFile(t, "old.fga", diffBase)
+	diffNew := writeDiffFile(t, "new.fga", diffAdded)
+
 	cases := []struct {
 		path string
 		sub  string
@@ -72,6 +75,7 @@ func TestSchemasValidateRealOutput(t *testing.T) {
 		{"ofga model test schema", "schema", nil},
 		{"ofga model optimize", "optimize", []string{optimizeReference}},
 		{"ofga model optimize", "optimize", []string{optimizeReference, "--bench", "--synth", "--iterations", "1"}},
+		{"ofga model diff", "diff", []string{diffOld, diffNew}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.path+" "+strings.Join(tc.args, " "), func(t *testing.T) {
@@ -80,7 +84,7 @@ func TestSchemasValidateRealOutput(t *testing.T) {
 			cmd := map[string]func() *cobra.Command{
 				"write": c.writeCmd, "list": c.listCmd, "get": c.getCmd, "latest": c.latestCmd,
 				"graph": c.graphCmd, "test": c.testCmd, "schema": c.testSchemaCmd,
-				"optimize": c.optimizeCmd,
+				"optimize": c.optimizeCmd, "diff": c.diffCmd,
 			}[tc.sub]()
 			var out bytes.Buffer
 			cmd.SetOut(&out)

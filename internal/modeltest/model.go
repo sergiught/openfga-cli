@@ -2,6 +2,7 @@ package modeltest
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -11,6 +12,17 @@ import (
 	"github.com/sergiught/go-openfga/openfga"
 	protojson "google.golang.org/protobuf/encoding/protojson"
 )
+
+// ErrModularModel reports a modular model (fga.mod), which is not supported yet.
+var ErrModularModel = errors.New("modular models (fga.mod) are not supported yet; pass the model's .fga or .json file")
+
+// RejectModular returns ErrModularModel when path ends in ".mod", else nil.
+func RejectModular(path string) error {
+	if strings.HasSuffix(path, ".mod") {
+		return ErrModularModel
+	}
+	return nil
+}
 
 // LoadedModel holds an authorization model decoded into both the proto view
 // (for the embedded engine) and the SDK view (for the narrator), built from

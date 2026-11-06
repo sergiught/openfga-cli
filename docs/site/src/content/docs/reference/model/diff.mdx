@@ -1,0 +1,79 @@
+---
+title: "ofga model diff"
+description: "Compare two authorization models and report breaking and cost changes"
+sidebar:
+  order: 100
+---
+
+Compare two authorization models and classify what changed.
+
+Each argument is a model file (DSL or JSON), '-' for stdin, 'store' for the active store's latest model, or a model ID in the active store. With one argument the old side is the store's latest model, so `ofga model diff model.fga` shows what would change if you wrote that file.
+
+Breaking changes can make previously valid tuples or checks stop working: removed types, relations, directly related user types and conditions, or condition parameters that were added, removed or changed type. Changed lists differences whose effect on access is not analysed, such as a rewritten relation definition or a changed condition expression: they can grant or remove access, so review them. Added lists new types, relations, user types and conditions.
+
+Cost compares the per-user-type weights of each relation (see `model optimize`); an increase means checks on that relation can need more work. A weight of -1 in --json/--yaml output means unbounded; human output renders it inf.
+
+Exit codes: 0 no breaking changes · 1 error · 2 usage (including an invalid model) · 3 a breaking change was found, or, with --fail-on-cost, a cost increase · 4 the server was unreachable.
+
+## Usage
+
+```sh
+ofga model diff <old> [new] [flags]
+```
+
+## Examples
+
+```sh
+  ofga model diff model.fga
+  ofga model diff old.fga new.fga
+  ofga model diff store model.fga --fail-on-cost
+  ofga model diff 01H… store
+```
+
+## Flags
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--fail-on-cost` | exit 3 when any relation got more expensive, not only on breaking changes | `false` |
+| `--report` | write a report in this format ("github" annotations); to --report-file if set, otherwise printed to the terminal |   |
+| `--report-file` | path to write the --report file to (requires --report) |   |
+
+<details>
+<summary>Global flags</summary>
+
+```
+      --agent[=true|false]               agent mode: compact JSON, no prompts, no color, no success chatter (also OPENFGA_AGENT_MODE=1)
+      --api-url string                   OpenFGA API URL (overrides profile/env)
+      --auth-client-secret-file string   read the process-scoped OAuth client secret from a file
+      --auth-private-key-file string     read the process-scoped private-key JWT signing key from a file
+      --auth-token-file string           read the process-scoped API token from a file
+      --config string                    path to the config file (overrides OPENFGA_CONFIG)
+  -d, --debug[=true|false]               enable debug logging
+      --header stringArray               extra request header as 'Name: value' (repeatable; adds to the profile's headers)
+      --jq string                        filter machine-readable output through this jq expression (implies -o json)
+      --json[=true|false]                output machine-readable JSON (alias for --output json)
+      --model-id string                  authorization model ID (overrides profile/env)
+      --no-color[=true|false]            disable colored output
+      --no-input[=true|false]            never prompt or launch the interactive TUI
+  -o, --output string                    output format: json, jsonl, yaml, plain or table (takes precedence over --json/--yaml/--plain)
+      --plain[=true|false]               output unstyled, tab-separated rows (alias for --output plain)
+  -p, --profile string                   configuration profile to use
+  -q, --quiet[=true|false]               suppress incidental output
+      --store-id string                  store ID (overrides profile/env)
+      --theme string                     color theme (aurora, catppuccin, charm, dracula, gruvbox, nord, tokyonight, mono)
+      --timeout duration                 per-request timeout (0 disables) (default 30s)
+  -v, --verbose[=true|false]             alias for --debug
+      --yaml[=true|false]                output machine-readable YAML (alias for --output yaml)
+```
+
+</details>
+
+## Related
+
+- [ofga model get](../get/)
+- [ofga model graph](../graph/)
+- [ofga model latest](../latest/)
+- [ofga model list](../list/)
+- [ofga model optimize](../optimize/)
+- [ofga model test](../test/)
+- [ofga model write](../write/)

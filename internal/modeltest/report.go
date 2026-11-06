@@ -68,6 +68,19 @@ func writeGitHubReport(w io.Writer, res *Results) error {
 	return nil
 }
 
+// WriteGitHubAnnotation writes one "::<level> file=…,title=…::msg" line. level
+// is "error" or "warning"; an empty file omits the file property. Every part
+// is sanitized and escaped as model test's annotations are.
+func WriteGitHubAnnotation(w io.Writer, level, file, title, msg string) error {
+	var props []string
+	if file != "" {
+		props = append(props, "file="+ghEscapeProp(file))
+	}
+	props = append(props, "title="+ghEscapeProp(ghText(title)))
+	_, err := fmt.Fprintf(w, "::%s %s::%s\n", level, strings.Join(props, ","), ghEscapeData(ghText(msg)))
+	return err
+}
+
 func githubAnnotationFile(t TestResult) string {
 	if t.sourcePath == "" {
 		return t.File

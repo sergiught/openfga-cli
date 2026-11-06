@@ -23,7 +23,7 @@ import (
 const (
 	CodeError      = 1   // generic runtime failure (load/parse errors, I/O, etc.)
 	CodeUsage      = 2   // bad invocation (unknown flag, wrong arg count)
-	CodeTestFailed = 3   // tests ran and some failed: `model test` (or coverage below --coverage-min), or `assertions test`
+	CodeTestFailed = 3   // tests ran and some failed: `model test` (or coverage below --coverage-min), `assertions test`, or `model diff` found a breaking change (or, with --fail-on-cost, a cost increase)
 	CodeNetwork    = 4   // could not reach the OpenFGA server
 	CodeCanceled   = 130 // interrupted (Ctrl-C); 128 + SIGINT
 )

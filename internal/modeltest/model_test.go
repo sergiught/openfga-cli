@@ -1,6 +1,9 @@
 package modeltest
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestLoadModelBuildsBothViews(t *testing.T) {
 	lm, err := LoadModel("testdata/docs/model.fga")
@@ -16,5 +19,14 @@ func TestLoadModelBuildsBothViews(t *testing.T) {
 	}
 	if got := len(lm.SDK.TypeDefinitions); got != 3 {
 		t.Fatalf("len(SDK.TypeDefinitions) = %d, want 3", got)
+	}
+}
+
+func TestRejectModular(t *testing.T) {
+	if err := RejectModular("x/fga.mod"); !errors.Is(err, ErrModularModel) {
+		t.Fatalf("RejectModular(fga.mod) = %v, want ErrModularModel", err)
+	}
+	if err := RejectModular("model.fga"); err != nil {
+		t.Fatalf("RejectModular(model.fga) = %v, want nil", err)
 	}
 }

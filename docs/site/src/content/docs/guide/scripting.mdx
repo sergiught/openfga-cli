@@ -21,7 +21,7 @@ sidebar:
   remains one record. Key/value results are `key<TAB>value`, so
   `query check --plain` prints `allowed<TAB>true` or `allowed<TAB>false`
   (a denied check is still a successful query, so the exit code stays `0`).
-- Meaningful **exit codes**: `0` success, `1` generic failure, `2` usage error, `3` failed tests — `model test` (or its coverage gate), `assertions test` and a `model optimize --bench` answer mismatch — `4` network error, `130` interrupted by Ctrl-C/SIGINT.
+- Meaningful **exit codes**: `0` success, `1` generic failure, `2` usage error, `3` failed tests — `model test` (or its coverage gate), `assertions test`, a `model optimize --bench` answer mismatch and a `model diff` breaking change (or, with `--fail-on-cost`, a cost increase) — `4` network error, `130` interrupted by Ctrl-C/SIGINT.
 - First-class server mutation commands support `-n`/`--dry-run`; `ofga api` is an expert escape hatch.
 - Destructive replacements and deletes prompt on a TTY and require `--force` when non-interactive, so scripts fail safe.
 - Piped output drops colors and box-drawing automatically.
@@ -81,7 +81,7 @@ exit code is unchanged. `--quiet` does not suppress it.
 | `rate_limited` | The server throttled the request (429) | 1 |
 | `server` | The server failed (5xx) | 1 |
 | `network` | The server could not be reached | 4 |
-| `test_failed` | `model test`, `assertions test` or a coverage gate failed | 3 |
+| `test_failed` | `model test`, `assertions test` or a coverage gate failed, or `model diff` found a breaking change (or a cost increase with `--fail-on-cost`) | 3 |
 | `partial_failure` | A bulk write/delete or `mappings apply` finished with some failures. When the server became unreachable partway, the code is `network` and the exit code 4 | 1 |
 | `canceled` | Interrupted by Ctrl-C or SIGTERM | 130 |
 | `error` | Anything else, including a config file that will not load | 1 |

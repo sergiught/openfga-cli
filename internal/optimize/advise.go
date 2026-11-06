@@ -37,7 +37,7 @@ func advise(m *Model) []Finding {
 	for _, td := range m.Proto.GetTypeDefinitions() {
 		typ := td.GetType()
 		for rel, us := range td.GetRelations() {
-			wts := copyWeights(w[typ+"#"+rel])
+			wts := JSONWeights(w[typ+"#"+rel])
 			add := func(dst *[]Finding, id string, tier Tier, reason string) {
 				*dst = append(*dst, Finding{ID: id, Type: typ, Relation: rel, Reason: reason, Tier: tier, Weights: wts})
 			}
@@ -81,9 +81,9 @@ func sortFindings(fs []Finding) {
 	})
 }
 
-// copyWeights returns a fresh map with graph.Infinite replaced by -1; the
+// JSONWeights returns a fresh map with graph.Infinite replaced by -1; the
 // input aliases the weighted graph's internal maps and must not be mutated.
-func copyWeights(in map[string]int) map[string]int {
+func JSONWeights(in map[string]int) map[string]int {
 	out := make(map[string]int, len(in))
 	for k, v := range in {
 		if v == graph.Infinite {

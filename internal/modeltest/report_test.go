@@ -428,3 +428,20 @@ func TestRepoPathIsRelativeToTheRepositoryRoot(t *testing.T) {
 		t.Fatalf("relative to the working directory: %q", got)
 	}
 }
+
+func TestWriteGitHubAnnotation(t *testing.T) {
+	var b bytes.Buffer
+	if err := WriteGitHubAnnotation(&b, "warning", "a,b.fga", "t:1", "x\ny"); err != nil {
+		t.Fatal(err)
+	}
+	if want := "::warning file=a%2Cb.fga,title=t%3A1::x%0Ay\n"; b.String() != want {
+		t.Errorf("got %q, want %q", b.String(), want)
+	}
+	b.Reset()
+	if err := WriteGitHubAnnotation(&b, "error", "", "t", "m"); err != nil {
+		t.Fatal(err)
+	}
+	if want := "::error title=t::m\n"; b.String() != want {
+		t.Errorf("got %q, want %q", b.String(), want)
+	}
+}
