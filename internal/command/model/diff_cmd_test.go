@@ -3,6 +3,8 @@ package model
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -100,5 +102,83 @@ func TestDiffCmdJSON(t *testing.T) {
 func TestDiffCmdAlias(t *testing.T) {
 	if !slices.Contains(diffCommand(t, "http://127.0.0.1:1").diffCmd().Aliases, "compare") {
 		t.Error("missing compare alias")
+	}
+}
+
+func TestDiffCmdReportGitHub(t *testing.T) {
+	out, _, err := runDiff(t, diffBase, diffBroken, false, "--report", "github")
+	if clierr.Code(err) != clierr.CodeTestFailed {
+		t.Fatalf("got %v, want exit code %d", err, clierr.CodeTestFailed)
+	}
+	if !strings.Contains(out, "\n::error file=") && !strings.HasPrefix(out, "::error file=") {
+		t.Errorf("want an ::error file= line:\n%s", out)
+	}
+	out, _, err = runDiff(t, diffBase, diffWider, false, "--report", "github")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "\n::warning ") && !strings.HasPrefix(out, "::warning ") {
+		t.Errorf("want a ::warning line:\n%s", out)
+	}
+	if strings.Contains(out, "::error") {
+		t.Errorf("cost increase must not be an error:\n%s", out)
+	}
+}
+
+func TestDiffCmdReportFileWrittenBeforeExit3(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "r", "diff.txt")
+	out, _, err := runDiff(t, diffBase, diffBroken, false, "--report", "github", "--report-file", path)
+	if clierr.Code(err) != clierr.CodeTestFailed {
+		t.Fatalf("got %v, want exit code %d", err, clierr.CodeTestFailed)
+	}
+	b, rerr := os.ReadFile(path)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if !strings.Contains(string(b), "::error") {
+		t.Errorf("report file: %q", b)
+	}
+	if strings.Contains(out, "::error") {
+		t.Errorf("annotations leaked to stdout:\n%s", out)
+	}
+}
+
+func TestDiffCmdReportFileRequiresReport(t *testing.T) {
+	_, _, err := runDiff(t, diffBase, diffBase, false, "--report-file", filepath.Join(t.TempDir(), "x"))
+	if clierr.Code(err) != clierr.CodeUsage || !strings.Contains(err.Error(), "--report-file requires --report") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestDiffCmdReportRejectsJunit(t *testing.T) {
+	_, _, err := runDiff(t, diffBase, diffBase, false, "--report", "junit")
+	if clierr.Code(err) != clierr.CodeUsage {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestDiffCmdReportStdoutConflictsWithJSON(t *testing.T) {
+	_, _, err := runDiff(t, diffBase, diffBase, true, "--report", "github")
+	if clierr.Code(err) != clierr.CodeUsage {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestDiffCmdReportStoreSidesNoFile(t *testing.T) {
+	// Old side is the store's model, new side is stdin: neither is a file.
+	c := diffCommand(t, storeServer(t, nil, false))
+	cmd := c.diffCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetIn(strings.NewReader("model\n  schema 1.1\ntype user\ntype doc\n"))
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	cmd.SetArgs([]string{"store", "-", "--report", "github"})
+	err := cmd.Execute()
+	if clierr.Code(err) != clierr.CodeTestFailed {
+		t.Fatalf("got %v, want exit code %d", err, clierr.CodeTestFailed)
+	}
+	if !strings.Contains(out.String(), "::error title=") || strings.Contains(out.String(), "file=") {
+		t.Errorf("got:\n%s", out.String())
 	}
 }

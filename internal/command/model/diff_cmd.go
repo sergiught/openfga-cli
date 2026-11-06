@@ -1,10 +1,15 @@
 package model
 
 import (
+	"fmt"
+	"io"
+
 	"github.com/spf13/cobra"
 
+	"github.com/sergiught/openfga-cli/internal/atomicfile"
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/modeldiff"
+	"github.com/sergiught/openfga-cli/internal/modeltest"
 	"github.com/sergiught/openfga-cli/internal/output"
 )
 
@@ -56,6 +61,7 @@ func newDiffOutput(old, new string, r modeldiff.Result) diffOutput {
 
 func (c *Command) diffCmd() *cobra.Command {
 	var failOnCost bool
+	var report, reportFile string
 	cmd := &cobra.Command{
 		Use:     "diff <old> [new]",
 		Aliases: []string{"compare"},
@@ -75,6 +81,15 @@ func (c *Command) diffCmd() *cobra.Command {
 		Args:         cobra.RangeArgs(1, 2),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if report != "" && report != "github" {
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("invalid --report %q (want \"github\")", report))
+			}
+			if reportFile != "" && report == "" {
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--report-file requires --report"))
+			}
+			if report != "" && reportFile == "" && (c.cli.JSON || c.cli.YAML) {
+				return clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--report without --report-file prints to stdout, which conflicts with -o json/yaml; pass --report-file"))
+			}
 			oldArg, newArg, err := resolveDiffArgs(args)
 			if err != nil {
 				return err
@@ -108,6 +123,27 @@ func (c *Command) diffCmd() *cobra.Command {
 				}
 			}
 
+			if report != "" {
+				w := cmd.OutOrStdout()
+				var staged *atomicfile.File
+				if reportFile != "" {
+					f, err := createReportFile(reportFile)
+					if err != nil {
+						return err
+					}
+					defer f.Abort()
+					staged, w = f, f
+				}
+				if err := writeDiffAnnotations(w, oldSide, newSide, res); err != nil {
+					return err
+				}
+				if staged != nil {
+					if err := staged.Commit(); err != nil {
+						return err
+					}
+				}
+			}
+
 			if len(res.Breaking) > 0 || (failOnCost && res.HasCostIncrease()) {
 				return clierr.Silent(clierr.CodeTestFailed, diffSummaryText(out.Summary))
 			}
@@ -115,5 +151,48 @@ func (c *Command) diffCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&failOnCost, "fail-on-cost", false, "exit 3 when any relation got more expensive, not only on breaking changes")
+	cmd.Flags().StringVar(&report, "report", "", "write a report in this format (\"github\" annotations); to --report-file if set, otherwise printed to the terminal")
+	cmd.Flags().StringVar(&reportFile, "report-file", "", "path to write the --report file to (requires --report)")
 	return cmd
+}
+
+// writeDiffAnnotations emits an error annotation per breaking change and a
+// warning per cost increase. They point at the new side's file when it is a
+// file, else the old side's, else carry no file.
+func writeDiffAnnotations(w io.Writer, oldSide, newSide diffSide, r modeldiff.Result) error {
+	file := ""
+	switch {
+	case newSide.File != "":
+		file = modeltest.RepoPath(newSide.File)
+	case oldSide.File != "":
+		file = modeltest.RepoPath(oldSide.File)
+	}
+	for _, e := range r.Breaking {
+		if err := modeltest.WriteGitHubAnnotation(w, "error", file, "model diff: "+annotationSubject(e.Type, e.Relation, e.Condition), e.Detail); err != nil {
+			return err
+		}
+	}
+	for _, c := range r.Cost {
+		if c.Direction != modeldiff.CostIncreased {
+			continue
+		}
+		subject := annotationSubject(c.Type, c.Relation, "")
+		msg := "cost increased for " + subject + ": checks on it can need more work"
+		if err := modeltest.WriteGitHubAnnotation(w, "warning", file, "model diff: "+subject, msg); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func annotationSubject(typ, relation, condition string) string {
+	switch {
+	case condition != "":
+		return "condition " + condition
+	case typ != "" && relation != "":
+		return typ + "#" + relation
+	case typ != "":
+		return typ
+	}
+	return "schema"
 }
