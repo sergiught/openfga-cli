@@ -3,12 +3,14 @@ package model
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"charm.land/log/v2"
@@ -404,4 +406,49 @@ func TestDiffCmdStatErrorIsLoadError(t *testing.T) {
 	if err == nil || clierr.Code(err) == clierr.CodeUsage || !strings.Contains(err.Error(), a) {
 		t.Fatalf("err = %v (code %v), want a plain load error naming the path", err, clierr.Code(err))
 	}
+}
+
+// epipeWriter simulates stdout closed early (`| head`).
+type epipeWriter struct{}
+
+func (epipeWriter) Write([]byte) (int, error) { return 0, syscall.EPIPE }
+
+func runDiffEPIPE(t *testing.T, oldDSL, newDSL string, asJSON bool, flags ...string) error {
+	t.Helper()
+	c := diffCommand(t, "http://127.0.0.1:1")
+	c.cli.JSON = asJSON
+	cmd := c.diffCmd()
+	cmd.SetOut(epipeWriter{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	cmd.SetArgs(append([]string{writeDiffFile(t, "old.fga", oldDSL), writeDiffFile(t, "new.fga", newDSL)}, flags...))
+	return cmd.Execute()
+}
+
+func TestDiffCmdBrokenPipeKeepsGateExit(t *testing.T) {
+	exitCode := func(err error) int {
+		var coded *clierr.Coded
+		if errors.As(err, &coded) {
+			return coded.C
+		}
+		return 0
+	}
+	t.Run("breaking human output", func(t *testing.T) {
+		err := runDiffEPIPE(t, diffBase, diffBroken, false)
+		if exitCode(err) != clierr.CodeTestFailed || clierr.IsIgnorableBrokenPipe(err) {
+			t.Fatalf("want exit 3 not ignorable, got %v", err)
+		}
+	})
+	t.Run("json fail-on-cost", func(t *testing.T) {
+		err := runDiffEPIPE(t, diffBase, diffWider, true, "--fail-on-cost")
+		if exitCode(err) != clierr.CodeTestFailed {
+			t.Fatalf("want exit 3, got %v", err)
+		}
+	})
+	t.Run("clean diff stays ignorable", func(t *testing.T) {
+		err := runDiffEPIPE(t, diffBase, diffBase, false)
+		if !clierr.IsIgnorableBrokenPipe(err) {
+			t.Fatalf("want ignorable broken pipe, got %v", err)
+		}
+	})
 }

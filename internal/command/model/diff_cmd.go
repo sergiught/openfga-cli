@@ -128,13 +128,19 @@ func (c *Command) diffCmd() *cobra.Command {
 			if res.CostSkipped != "" && !structured {
 				warnKeepPlain(cmd.ErrOrStderr(), "cost comparison skipped: %s", res.CostSkipped)
 			}
+			// Computed before any output so a closed stdout cannot turn a
+			// failing diff into an ignorable broken pipe (exit 0).
+			var gateErr error
+			if len(res.Breaking) > 0 || (failOnCost && res.HasCostIncrease()) {
+				gateErr = clierr.Silent(clierr.CodeTestFailed, diffSummaryText(out.Summary))
+			}
 			if structured {
 				if err := output.Emit(cmd.OutOrStdout(), c.cli.YAML, out); err != nil {
-					return err
+					return preferGateOnBrokenPipe(err, gateErr)
 				}
 			} else {
 				if err := renderDiff(cmd.OutOrStdout(), out, res); err != nil {
-					return err
+					return preferGateOnBrokenPipe(err, gateErr)
 				}
 				if res.HasCostIncrease() && !failOnCost {
 					warnKeepPlain(cmd.ErrOrStderr(), "cost increased for %d relation(s); pass --fail-on-cost to fail on this", out.Summary.CostIncreased)
@@ -153,7 +159,7 @@ func (c *Command) diffCmd() *cobra.Command {
 					staged, w = f, f
 				}
 				if err := writeDiffAnnotations(w, oldSide, newSide, res); err != nil {
-					return err
+					return preferGateOnBrokenPipe(err, gateErr)
 				}
 				if staged != nil {
 					if err := staged.Commit(); err != nil {
@@ -162,10 +168,7 @@ func (c *Command) diffCmd() *cobra.Command {
 				}
 			}
 
-			if len(res.Breaking) > 0 || (failOnCost && res.HasCostIncrease()) {
-				return clierr.Silent(clierr.CodeTestFailed, diffSummaryText(out.Summary))
-			}
-			return nil
+			return gateErr
 		},
 	}
 	cmd.Flags().BoolVar(&failOnCost, "fail-on-cost", false, "exit 3 when any relation got more expensive, not only on breaking changes")
@@ -174,6 +177,15 @@ func (c *Command) diffCmd() *cobra.Command {
 	_ = cmd.RegisterFlagCompletionFunc("report", cobra.FixedCompletions([]string{"github"}, cobra.ShellCompDirectiveNoFileComp))
 	cmdmeta.SetEnum(cmd, "report", "github")
 	return cmd
+}
+
+// preferGateOnBrokenPipe keeps a failing diff's exit 3 when an output write hit
+// a closed pipe; other write errors (e.g. a failed --report-file) stay visible.
+func preferGateOnBrokenPipe(err, gateErr error) error {
+	if gateErr != nil && clierr.IsBrokenPipe(err) {
+		return gateErr
+	}
+	return err
 }
 
 // writeDiffAnnotations emits an error annotation per breaking change and a
