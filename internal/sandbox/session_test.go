@@ -180,6 +180,34 @@ func TestSession_WriteDirties(t *testing.T) {
 	}
 }
 
+func TestSession_StopThenSave(t *testing.T) {
+	configtest.Isolate(t)
+	saved := filepath.Join(t.TempDir(), "p.db")
+	s := startSession(t, Options{SavedPath: saved})
+	c := storeClient(t, s, "github")
+	before := tupleCount(t, c)
+	writeTuple(t, c, "user:newbie", "reader", "repo:openfga/openfga")
+	if err := s.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Stop(); err != nil {
+		t.Fatalf("second Stop: %v", err)
+	}
+	if !s.Dirty() {
+		t.Fatal("Dirty after Stop = false, want true")
+	}
+	if _, err := c.Stores.List(context.Background(), nil); err == nil {
+		t.Fatal("server still answering after Stop")
+	}
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	s2 := startSession(t, Options{SavedPath: saved})
+	if got := tupleCount(t, storeClient(t, s2, "github")); got != before+1 {
+		t.Fatalf("restored tuples = %d, want %d", got, before+1)
+	}
+}
+
 func TestSession_SaveThenRestore(t *testing.T) {
 	configtest.Isolate(t)
 	saved := filepath.Join(t.TempDir(), "sub", "p.db")

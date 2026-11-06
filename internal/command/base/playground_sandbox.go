@@ -52,33 +52,37 @@ func (c *Command) runSandbox(ctx context.Context, reset bool) error {
 		Endpoint:   sess.Endpoint(),
 		Workspaces: sess.Workspaces(),
 	})
-	return finishSandbox(sess, os.Stdin, os.Stderr, runErr)
+	return finishSandbox(ctx, sess, os.Stdin, os.Stderr, runErr)
 }
 
 // sandboxSession is the part of sandbox.Session the quit step needs.
 type sandboxSession interface {
+	Stop() error
 	Dirty() bool
 	Save() error
 	Close() error
 }
 
-// finishSandbox runs after the TUI returns: prompt when the session changed,
-// save or discard, and always Close. It returns runErr joined with any
-// save/close failure.
-func finishSandbox(s sandboxSession, in io.Reader, out io.Writer, runErr error) error {
+// finishSandbox runs after the TUI returns: stop the server, prompt when the
+// session changed, save or discard, and always Close. It returns runErr joined
+// with any stop/save/close failure.
+func finishSandbox(ctx context.Context, s sandboxSession, in io.Reader, out io.Writer, runErr error) error {
+	// Drain in-flight requests first, so a write the TUI fired just before
+	// quitting is counted by Dirty instead of landing after it.
+	stopErr := s.Stop()
 	var saveErr error
 	if s.Dirty() {
-		// Ctrl+C at the prompt means "no". main's own SIGINT handler only
-		// cancels its context and does not unblock the blocking read, so this
-		// inner NotifyContext is what lets askKeepCtx give up and Close run.
-		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-		keep := askKeepCtx(ctx, in, out)
+		// A cancelled ctx (SIGTERM, SIGHUP) skips the prompt and counts as
+		// "no"; a signal during the prompt gives up the same way. Ctrl+C at
+		// the prompt means "no" too, even when ctx does not carry SIGINT.
+		pctx, stop := signal.NotifyContext(ctx, os.Interrupt)
+		keep := ctx.Err() == nil && askKeepCtx(pctx, in, out)
 		stop()
 		if keep {
 			saveErr = s.Save()
 		}
 	}
-	return errors.Join(runErr, saveErr, s.Close())
+	return errors.Join(runErr, stopErr, saveErr, s.Close())
 }
 
 // askKeepCtx is askKeep that gives up (answering no) when ctx is cancelled.

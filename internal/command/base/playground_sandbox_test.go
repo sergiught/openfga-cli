@@ -33,11 +33,18 @@ func TestAskKeep(t *testing.T) {
 }
 
 type fakeSession struct {
-	dirty         bool
-	saved, closed int
-	path          string
+	dirty bool
+	// dirtyOnStop simulates a write that commits while Stop drains requests.
+	dirtyOnStop            bool
+	stopped, saved, closed int
+	path                   string
 }
 
+func (f *fakeSession) Stop() error {
+	f.stopped++
+	f.dirty = f.dirty || f.dirtyOnStop
+	return nil
+}
 func (f *fakeSession) Dirty() bool { return f.dirty }
 func (f *fakeSession) Save() error {
 	f.saved++
@@ -49,7 +56,7 @@ func TestPlaygroundQuit_NoPromptWhenClean(t *testing.T) {
 	configtest.Isolate(t)
 	f := &fakeSession{}
 	var out bytes.Buffer
-	if err := finishSandbox(f, strings.NewReader("y\n"), &out, nil); err != nil {
+	if err := finishSandbox(context.Background(), f, strings.NewReader("y\n"), &out, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(out.String()) != 0 {
@@ -71,7 +78,7 @@ func TestPlaygroundQuit_NoKeepsOldSave(t *testing.T) {
 	}
 	for _, in := range []string{"n\n", ""} {
 		f := &fakeSession{dirty: true, path: path}
-		if err := finishSandbox(f, strings.NewReader(in), &bytes.Buffer{}, nil); err != nil {
+		if err := finishSandbox(context.Background(), f, strings.NewReader(in), &bytes.Buffer{}, nil); err != nil {
 			t.Fatal(err)
 		}
 		if f.saved != 0 {
@@ -93,7 +100,7 @@ func TestPlaygroundQuit_NoKeepsOldSave(t *testing.T) {
 func TestPlaygroundQuit_YesSaves(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "p.db")
 	f := &fakeSession{dirty: true, path: path}
-	if err := finishSandbox(f, strings.NewReader("\n"), &bytes.Buffer{}, nil); err != nil {
+	if err := finishSandbox(context.Background(), f, strings.NewReader("\n"), &bytes.Buffer{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if f.saved != 1 {
@@ -144,7 +151,7 @@ func TestPlaygroundQuit_TUIErrorStillPromptsAndCloses(t *testing.T) {
 	f := &fakeSession{dirty: true, path: path}
 	runErr := errors.New("tui crashed")
 	var out bytes.Buffer
-	err := finishSandbox(f, strings.NewReader("y\n"), &out, runErr)
+	err := finishSandbox(context.Background(), f, strings.NewReader("y\n"), &out, runErr)
 	if !errors.Is(err, runErr) {
 		t.Fatalf("error = %v, want %v", err, runErr)
 	}
@@ -162,7 +169,7 @@ func TestPlaygroundQuit_TUIErrorStillPromptsAndCloses(t *testing.T) {
 func TestPlaygroundQuit_SaveErrorStillCloses(t *testing.T) {
 	configtest.Isolate(t)
 	f := &fakeSession{dirty: true, path: filepath.Join(t.TempDir(), "missing", "playground.db")}
-	err := finishSandbox(f, strings.NewReader("y\n"), &bytes.Buffer{}, nil)
+	err := finishSandbox(context.Background(), f, strings.NewReader("y\n"), &bytes.Buffer{}, nil)
 	if err == nil {
 		t.Fatal("expected an error")
 	}
@@ -171,5 +178,38 @@ func TestPlaygroundQuit_SaveErrorStillCloses(t *testing.T) {
 	}
 	if f.closed != 1 {
 		t.Fatalf("got %v, want %v", f.closed, 1)
+	}
+}
+
+func TestPlaygroundQuit_WriteDrainedByStopIsPrompted(t *testing.T) {
+	configtest.Isolate(t)
+	f := &fakeSession{dirtyOnStop: true, path: filepath.Join(t.TempDir(), "p.db")}
+	var out bytes.Buffer
+	if err := finishSandbox(context.Background(), f, strings.NewReader("y\n"), &out, nil); err != nil {
+		t.Fatal(err)
+	}
+	if f.stopped != 1 || f.saved != 1 || f.closed != 1 {
+		t.Fatalf("stopped=%d saved=%d closed=%d, want 1/1/1", f.stopped, f.saved, f.closed)
+	}
+	if !strings.Contains(out.String(), "Keep your playground changes?") {
+		t.Fatalf("no prompt for a write that landed during Stop: %q", out.String())
+	}
+}
+
+func TestPlaygroundQuit_CancelledContextSkipsPrompt(t *testing.T) {
+	configtest.Isolate(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	f := &fakeSession{dirty: true, path: filepath.Join(t.TempDir(), "p.db")}
+	var out bytes.Buffer
+	// The reader would answer yes; a cancelled context must not read it.
+	if err := finishSandbox(ctx, f, strings.NewReader("y\n"), &out, nil); err != nil {
+		t.Fatal(err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("prompted after cancellation: %q", out.String())
+	}
+	if f.saved != 0 || f.closed != 1 {
+		t.Fatalf("saved=%d closed=%d, want 0/1", f.saved, f.closed)
 	}
 }

@@ -158,6 +158,15 @@ func (s *Session) Workspaces() map[string]*modeltest.Workspace { return s.worksp
 // Dirty reports whether anything was successfully written since Start.
 func (s *Session) Dirty() bool { return s.ds != nil && s.ds.dirty.Load() }
 
+// Stop stops the HTTP server, waiting for in-flight requests, and closes the
+// engine, so Dirty reflects every write that will ever land. Save and Close
+// still work afterwards; Stop is idempotent.
+func (s *Session) Stop() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.shutdown()
+}
+
 // Save stops the server, then atomically replaces SavedPath with the scratch
 // database and removes the scratch dir. On failure SavedPath is untouched.
 func (s *Session) Save() error {
