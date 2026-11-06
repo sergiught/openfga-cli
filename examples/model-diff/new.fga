@@ -1,0 +1,21 @@
+model
+  schema 1.1
+
+type user
+
+type group
+  relations
+    define member: [user]
+
+type folder
+  relations
+    define owner: [user]
+    define viewer: [user, group#member] or owner
+
+type document
+  relations
+    define parent: [folder]
+    define owner: [user]
+    define editor: [user, group#member] or owner
+    define commenter: [user, group#member] or editor
+    define viewer: [user] or commenter or viewer from parent

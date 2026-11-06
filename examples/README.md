@@ -19,6 +19,7 @@ Demo GIFs for the `ofga` CLI and TUI, generated with
 | ![model-test-tui.gif](model-test-tui.gif) | `ofga model test --playground`: exploring test results and coverage in the playground's Tests tab. |
 | ![model-optimize.gif](model-optimize.gif) | `ofga model optimize`: safe rewrites with proofs, the diff, and a before/after benchmark on the embedded server. |
 | ![playground-optimize.gif](playground-optimize.gif) | The playground's Model tab: benchmark the model (`B`), review the safe rewrites and advisories (`o`), tick one, and write it as a new model version (`w`, `y`). |
+| ![model-diff.gif](model-diff.gif) | `ofga model diff`: breaking, changed, added and cost changes between two model files, and the exit code 3 that fails CI on a breaking change. |
 
 ## Regenerating
 

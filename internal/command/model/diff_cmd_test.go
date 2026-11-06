@@ -452,3 +452,35 @@ func TestDiffCmdBrokenPipeKeepsGateExit(t *testing.T) {
 		}
 	})
 }
+
+// TestDiffCmdExampleModels pins what examples/model-diff/README.md and the
+// model-diff demo recording show, so neither drifts from the real output.
+func TestDiffCmdExampleModels(t *testing.T) {
+	read := func(name string) string {
+		b, err := os.ReadFile(filepath.Join("../../../examples/model-diff", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	out, _, err := runDiff(t, read("old.fga"), read("new.fga"), true)
+	if clierr.Code(err) != clierr.CodeTestFailed {
+		t.Fatalf("want exit 3, got %v", err)
+	}
+	var doc struct {
+		Summary struct {
+			Breaking      int    `json:"breaking"`
+			Changed       int    `json:"changed"`
+			Added         int    `json:"added"`
+			CostIncreased int    `json:"costIncreased"`
+			Verdict       string `json:"verdict"`
+		} `json:"summary"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	s := doc.Summary
+	if s.Breaking != 1 || s.Changed != 1 || s.Added != 2 || s.CostIncreased != 1 || s.Verdict != "breaking" {
+		t.Errorf("example summary changed; update examples/model-diff/README.md and re-record the tape: %+v", s)
+	}
+}
