@@ -210,6 +210,11 @@ func (m Model) advanceTakeoverForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if _, exists := m.cli.Config.Get(name); exists {
 				return resume("profile " + name + " already exists")
 			}
+			if m.ephemeralProfile != "" && name == m.ephemeralProfile {
+				// Two rows with one ID: switching would always pick the
+				// ephemeral one, and its guards would block editing the real one.
+				return resume("profile name " + name + " is in use by this session")
+			}
 			if err := p.Auth.Validate(); err != nil {
 				return resume(err.Error())
 			}

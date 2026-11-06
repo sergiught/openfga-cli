@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/log/v2"
 
 	"github.com/sergiught/go-openfga/openfga"
@@ -309,5 +310,34 @@ func TestSandboxModel_StoreSwitchClearsCoverage(t *testing.T) {
 	m.selectStore(openfga.Store{ID: "s2", Name: "gdrive"})
 	if m.wb.coverage != nil || m.wb.showCoverage || m.wb.coverageErr != "" || m.wb.covScroll != 0 || m.wb.detailScroll != 0 {
 		t.Fatalf("coverage state survived the switch: %+v", m.wb)
+	}
+}
+
+func TestSandboxModel_AddProfileRejectsSandboxName(t *testing.T) {
+	m0, a, _ := newTestSandbox(t)
+	var m tea.Model = m0
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
+	m, _ = m.Update(key("1"))     // Profiles
+	m, _ = m.Update(key("enter")) // descend into the panel
+	m, _ = m.Update(key("a"))     // add-profile form
+	if m.(Model).formKind != formAddProfile {
+		t.Fatalf("a should open the add-profile form; got kind=%d", m.(Model).formKind)
+	}
+	for _, r := range "playground" {
+		m, _ = m.Update(key(string(r)))
+	}
+	m, _ = m.Update(key("enter")) // -> api_url field
+	for _, r := range "http://example:9090" {
+		m, _ = m.Update(key(string(r)))
+	}
+	for i := 0; i < 6 && m.(Model).formErr == ""; i++ {
+		m, _ = m.Update(key("enter"))
+	}
+	mm := m.(Model)
+	if !strings.Contains(mm.formErr, "in use by this session") {
+		t.Fatalf("formErr = %q, want the sandbox-name rejection", mm.formErr)
+	}
+	if _, ok := a.Config.Get("playground"); ok {
+		t.Fatal("a real profile named after the sandbox was created")
 	}
 }
