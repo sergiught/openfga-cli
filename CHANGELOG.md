@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.270.0](https://github.com/sergiught/openfga-cli/compare/v0.269.0...v0.270.0) (2026-11-06)
+
+
+### Features
+
+* **model:** add model diff to report breaking and cost changes between models ([#222](https://github.com/sergiught/openfga-cli/issues/222)) ([c3b1254](https://github.com/sergiught/openfga-cli/commit/c3b12542b26621b8343362a638ea6ea052a590be))
+* **playground:** open a sandbox with sample stores on the embedded server ([#217](https://github.com/sergiught/openfga-cli/issues/217)) ([ebab6c3](https://github.com/sergiught/openfga-cli/commit/ebab6c3971822f4df76e57a0d4242c9cebc63245))
+
+
+### Bug fixes
+
+* **deps:** bump klauspost/compress to v1.20.2 for GO-2026-6865 ([#218](https://github.com/sergiught/openfga-cli/issues/218)) ([4945a63](https://github.com/sergiught/openfga-cli/commit/4945a63f5f3e627c6429299e5fcb7f8cfc1807d4))
+
+
+### Documentation
+
+* **model:** add model diff demo recording and example models ([#224](https://github.com/sergiught/openfga-cli/issues/224)) ([039222a](https://github.com/sergiught/openfga-cli/commit/039222a1644f1a23425c8d5886166dd6090d0875))
+
 ## [0.269.0](https://github.com/sergiught/openfga-cli/compare/v0.268.0...v0.269.0) (2026-11-05)
 
 
