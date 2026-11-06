@@ -539,6 +539,13 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case storeDeletedMsg:
 		m.endLoad()
+		// The ephemeral profile's remembered store must forget a store that is
+		// gone — even when this message is otherwise stale because the user
+		// switched profile while the delete was in flight — or switching back
+		// would point every store-scoped request at the deleted store.
+		if msg.err == nil && m.ephemeralProfile != "" && msg.origin.profile == m.ephemeralProfile && msg.id == m.ephemeralStoreID {
+			m.ephemeralStoreID, m.ephemeralModelID = "", ""
+		}
 		if m.staleMutation(msg.origin, m.storeDeleteGen) {
 			return m, nil
 		}

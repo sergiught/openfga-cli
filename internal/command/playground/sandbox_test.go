@@ -2,6 +2,7 @@ package playground
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -355,5 +356,41 @@ func TestSandboxModel_TestEditNoteOnlyOnSandboxProfile(t *testing.T) {
 	}
 	if note := (&Model{}).sandboxTestEditNote(); note != "" {
 		t.Fatalf("note outside the sandbox = %q, want none", note)
+	}
+}
+
+// Deleting the sandbox's selected store must also forget it as the sandbox
+// profile's remembered store, or switching back to the sandbox would aim every
+// store-scoped request at the deleted store.
+func TestSandboxModel_DeletedStoreNotRestoredOnSwitchBack(t *testing.T) {
+	for _, inFlight := range []bool{false, true} {
+		m, _, _ := newTestSandbox(t)
+		m.selectStore(openfga.Store{ID: "s1", Name: "github"})
+		origin := m.mutationOrigin("s1", "", m.storeDeleteGen)
+		if inFlight {
+			// The user left the sandbox while the delete was in flight, so the
+			// reply is stale for everything except the remembered store.
+			m.profile = "real"
+			m.storeDeleteGen++
+		}
+		nm, _ := m.Update(storeDeletedMsg{origin: origin, id: "s1"})
+		m = nm.(Model)
+		if m.ephemeralStoreID != "" {
+			t.Fatalf("inFlight=%v: ephemeralStoreID = %q after its store was deleted", inFlight, m.ephemeralStoreID)
+		}
+		m.switchToEphemeral()
+		if m.storeID == "s1" {
+			t.Fatalf("inFlight=%v: switching back restored the deleted store", inFlight)
+		}
+	}
+}
+
+// A failed delete leaves the store in place, so it stays remembered.
+func TestSandboxModel_FailedDeleteKeepsRememberedStore(t *testing.T) {
+	m, _, _ := newTestSandbox(t)
+	m.selectStore(openfga.Store{ID: "s1", Name: "github"})
+	nm, _ := m.Update(storeDeletedMsg{origin: m.mutationOrigin("s1", "", m.storeDeleteGen), id: "s1", err: errors.New("boom")})
+	if got := nm.(Model).ephemeralStoreID; got != "s1" {
+		t.Fatalf("ephemeralStoreID = %q after a failed delete, want s1", got)
 	}
 }
