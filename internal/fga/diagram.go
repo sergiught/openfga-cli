@@ -40,8 +40,23 @@ func ExpandAll(g Graph) map[string]bool {
 // RenderDiagramWith is RenderDiagram with per-type expansion, selection
 // highlighting and wrapping of tall cards controlled by opts.
 func (g Graph) RenderDiagramWith(opts DiagramOptions) string {
+	out, _ := g.RenderDiagramLayout(opts)
+	return out
+}
+
+// CardBounds locates one type's card in the string RenderDiagramLayout returns.
+// X is a column and Y a line index, both from the start of that string, so Y
+// includes the header lines.
+type CardBounds struct {
+	Type       string
+	X, Y, W, H int
+}
+
+// RenderDiagramLayout is RenderDiagramWith that also reports where each type's
+// card sits, sorted by X then Y (layout order).
+func (g Graph) RenderDiagramLayout(opts DiagramOptions) (string, []CardBounds) {
 	if len(g.Types) == 0 {
-		return style.Faint.Render("no authorization model in this store")
+		return style.Faint.Render("no authorization model in this store"), nil
 	}
 
 	boxes := g.buildBoxes(opts)
@@ -56,7 +71,20 @@ func (g Graph) RenderDiagramWith(opts DiagramOptions) string {
 	}
 	drawPorts(c, boxes, g.Edges)
 
-	return g.diagramHeader() + "\n\n" + c.String()
+	header := g.diagramHeader()
+	headerLines := strings.Count(header, "\n") + 2
+	bounds := make([]CardBounds, 0, len(boxes))
+	for _, b := range boxes {
+		bounds = append(bounds, CardBounds{Type: b.typ, X: b.x, Y: b.y + headerLines, W: b.w, H: b.h})
+	}
+	sort.Slice(bounds, func(i, j int) bool {
+		if bounds[i].X != bounds[j].X {
+			return bounds[i].X < bounds[j].X
+		}
+		return bounds[i].Y < bounds[j].Y
+	})
+
+	return header + "\n\n" + c.String(), bounds
 }
 
 func (g Graph) diagramHeader() string {

@@ -457,3 +457,35 @@ func TestUsersetAndTypeEdgesLandSeparately(t *testing.T) {
 		t.Errorf("member row should hold a port, got %q", r)
 	}
 }
+
+func TestRenderDiagramLayoutBoundsEncloseTitles(t *testing.T) {
+	g := ParseModel(githubModel())
+	out, bounds := g.RenderDiagramLayout(DiagramOptions{})
+	lines := strings.Split(ansi.Strip(out), "\n")
+	if len(bounds) != len(g.Types) {
+		t.Fatalf("want %d bounds, got %d", len(g.Types), len(bounds))
+	}
+	for _, b := range bounds {
+		title := string([]rune(lines[b.Y+1])[b.X : b.X+b.W])
+		if !strings.Contains(title, b.Type) {
+			t.Errorf("bounds for %s do not enclose its title: %q", b.Type, title)
+		}
+		if r := []rune(lines[b.Y])[b.X]; r != '╭' {
+			t.Errorf("%s top-left is %q", b.Type, r)
+		}
+		if r := []rune(lines[b.Y+b.H-1])[b.X+b.W-1]; r != '╯' {
+			t.Errorf("%s bottom-right is %q", b.Type, r)
+		}
+	}
+}
+
+func TestRenderDiagramLayoutOrder(t *testing.T) {
+	g := ParseModel(githubModel())
+	_, bounds := g.RenderDiagramLayout(DiagramOptions{})
+	for i := 1; i < len(bounds); i++ {
+		p, c := bounds[i-1], bounds[i]
+		if p.X > c.X || (p.X == c.X && p.Y > c.Y) {
+			t.Errorf("bounds out of order: %+v before %+v", p, c)
+		}
+	}
+}
