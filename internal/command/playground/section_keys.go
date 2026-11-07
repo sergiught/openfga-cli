@@ -219,7 +219,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			}
 			return m, nil
 		case "tab", "shift+tab":
-			if m.graphView != 0 || len(m.graphBounds) == 0 {
+			if m.graphView != 0 || m.opt.view != optNone || len(m.graphBounds) == 0 {
 				return m, nil
 			}
 			delta := 1
@@ -227,15 +227,18 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 				delta = -1
 			}
 			b := m.selectGraphCard(delta)
+			if title := b.Y + 1; title >= m.graphVP.YOffset() && title < m.graphVP.YOffset()+m.graphVP.Height() {
+				return m, nil
+			}
 			return m.scrollGraphTo(float64(b.Y))
 		case "enter":
-			if m.graphView != 0 || m.graphSel == "" {
+			if m.graphView != 0 || m.opt.view != optNone || m.graphSel == "" {
 				return m, nil
 			}
 			m.toggleGraphCard()
 			return m, nil
 		case "E":
-			if m.graphView != 0 || len(m.graph.Types) == 0 {
+			if m.graphView != 0 || m.opt.view != optNone || len(m.graph.Types) == 0 {
 				return m, nil
 			}
 			m.toggleGraphAll()

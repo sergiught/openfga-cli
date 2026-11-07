@@ -1223,8 +1223,9 @@ func TestVerdictFlashGatedOnBadge(t *testing.T) {
 // recreating the viewport.
 func TestGraphViewportScrollOffsetsPreservedOnResize(t *testing.T) {
 	m := newTestModel()
-	// One type with many relations: its card is taller than the viewport and
-	// cannot wrap into columns, so the diagram scrolls.
+	// One type with many relations: its 80 rows wrap into 3 columns in the
+	// 29-row viewport, but the header and margins still leave a few lines to
+	// scroll.
 	rels := map[string]openfga.Userset{}
 	meta := map[string]openfga.RelationMetadata{}
 	for i := 0; i < 80; i++ {

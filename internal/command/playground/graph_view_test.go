@@ -239,7 +239,7 @@ func TestGraphFooterAndHelpAdvertiseExpand(t *testing.T) {
 	m, _ = m.Update(key("3"))
 	m, _ = m.Update(key("enter"))
 	out := ansi.Strip(m.(Model).viewString())
-	if !strings.Contains(out, "tab select") || !strings.Contains(out, "expand") {
+	if !strings.Contains(out, "tab select") || !strings.Contains(out, "↵ expand") {
 		t.Errorf("footer lacks expand hint:\n%s", out)
 	}
 	m, _ = m.Update(key("?"))
@@ -297,7 +297,7 @@ func TestGraphClickOnEmptyCanvasKeepsSelection(t *testing.T) {
 	}
 }
 
-func TestGraphClickPastLineEndIsIgnored(t *testing.T) {
+func TestGraphClickBelowCardIsIgnored(t *testing.T) {
 	m := loadedFocused(largeGraph())
 	mm := m.(Model)
 	sel := mm.graphSel
@@ -308,5 +308,124 @@ func TestGraphClickPastLineEndIsIgnored(t *testing.T) {
 	mm = m.(Model)
 	if mm.graphSel != sel || len(mm.graphExpanded) != 0 {
 		t.Fatalf("click past card changed state: sel=%q expanded=%v", mm.graphSel, mm.graphExpanded)
+	}
+}
+
+func TestGraphClickOutsidePaneIgnored(t *testing.T) {
+	m := loadedFocused(largeGraph())
+	mm := m.(Model)
+	mm.graphVP.SetXOffset(180)
+	sel := mm.graphSel
+	// Screen (5, 10) is in the sidebar; with the pan it maps into a card.
+	if typ, ok := mm.graphCardAt(5, 10); ok {
+		t.Fatalf("sidebar click resolved to card %q", typ)
+	}
+	var next tea.Model = mm
+	next, _ = next.Update(tea.MouseClickMsg{X: 5, Y: 10, Button: tea.MouseLeft})
+	if got := next.(Model).graphSel; got != sel {
+		t.Fatalf("sidebar click changed selection %q -> %q", sel, got)
+	}
+}
+
+func TestGraphKeysIgnoredInOptimizerView(t *testing.T) {
+	m := loadedFocused(largeGraph())
+	mm := m.(Model)
+	mm.opt.view = optBench
+	sel, nexp := mm.graphSel, len(mm.graphExpanded)
+	var cur tea.Model = mm
+	for _, k := range []string{"tab", "shift+tab", "enter", "E"} {
+		cur, _ = cur.Update(key(k))
+		got := cur.(Model)
+		if got.graphSel != sel || len(got.graphExpanded) != nexp {
+			t.Fatalf("%s changed graph state in bench view: sel=%q expanded=%d", k, got.graphSel, len(got.graphExpanded))
+		}
+	}
+}
+
+func TestGraphCardClickIgnoredWhileEditorOpen(t *testing.T) {
+	m := loadedFocused(largeGraph())
+	m, _ = m.Update(key("e"))
+	mm := m.(Model)
+	if !mm.editorOpen {
+		t.Fatal("editor did not open")
+	}
+	sel := mm.graphSel
+	bx, by := mm.sh.MainBodyOrigin()
+	b := mm.graphBounds[0]
+	click := tea.MouseClickMsg{X: bx + b.X + 1, Y: by + b.Y + 1, Button: tea.MouseLeft}
+	m, _ = m.Update(click)
+	m, _ = m.Update(click)
+	got := m.(Model)
+	if got.graphSel != sel || len(got.graphExpanded) != 0 {
+		t.Fatalf("editor-open click changed graph: sel=%q expanded=%v", got.graphSel, got.graphExpanded)
+	}
+}
+
+func TestGraphTabKeepsTitleVisibleOnWideCard(t *testing.T) {
+	g := largeGraph()
+	wide := strings.Repeat("w", 70)
+	g.Types[3].Relations[0].Name = wide
+	m := loadedFocused(g)
+	m, _ = m.Update(key("E"))
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 70, Height: 30})
+	for i := 0; i < 14; i++ {
+		m, _ = m.Update(key("tab"))
+		mm := m.(Model)
+		b, ok := mm.cardBounds(mm.graphSel)
+		if !ok {
+			t.Fatal("selected card has no bounds")
+		}
+		if b.X-2 < mm.graphVP.XOffset() {
+			t.Fatalf("title of %s hidden: card X=%d xoffset=%d", b.Type, b.X, mm.graphVP.XOffset())
+		}
+	}
+}
+
+func TestGraphTabDoesNotScrollWhenCardVisible(t *testing.T) {
+	m := loadedFocused(largeGraph())
+	m, _ = m.Update(key("tab"))
+	mm := m.(Model)
+	if mm.graphVP.YOffset() != 0 || mm.graphTarget != 0 {
+		t.Fatalf("tab to a visible card scrolled: y=%d target=%v", mm.graphVP.YOffset(), mm.graphTarget)
+	}
+	// The 81-column viewport clips the hint after "tab/enter".
+	if !strings.Contains(ansi.Strip(mm.graphVP.View()), "tab/enter") {
+		t.Error("header hint scrolled out of view")
+	}
+}
+
+func TestGraphLeafTypesAreNotExpandable(t *testing.T) {
+	m := loadedFocused(largeGraph())
+	mm := m.(Model)
+	for _, b := range mm.graphBounds {
+		if b.Type == "user" {
+			mm.graphSel = "user"
+		}
+	}
+	if mm.graphSel != "user" {
+		t.Fatal("user card not found")
+	}
+	var cur tea.Model = mm
+	cur, _ = cur.Update(key("enter"))
+	if n := len(cur.(Model).graphExpanded); n != 0 {
+		t.Fatalf("enter on leaf expanded %d types", n)
+	}
+	// Expand every non-leaf type one by one.
+	for _, td := range mm.graph.Types {
+		if len(td.Relations) == 0 {
+			continue
+		}
+		g := cur.(Model)
+		g.graphSel = td.Name
+		cur = g
+		cur, _ = cur.Update(key("enter"))
+	}
+	g := cur.(Model)
+	if strings.Contains(ansi.Strip(g.graphVP.View()), "tab/enter") {
+		t.Error("header still advertises expand with only leaf types collapsed")
+	}
+	cur, _ = cur.Update(key("E"))
+	if n := len(cur.(Model).graphExpanded); n != 0 {
+		t.Fatalf("E should collapse all, %d still expanded", n)
 	}
 }

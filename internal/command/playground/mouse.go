@@ -215,7 +215,7 @@ func (m Model) handleClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 	// Click a model diagram card to select it; clicking the selected card
 	// toggles its expansion.
-	if m.section == secModel && m.graphView == 0 && m.opt.view == optNone && !m.modelPicking {
+	if m.section == secModel && m.graphView == 0 && m.opt.view == optNone && !m.modelPicking && !m.editorOpen {
 		if typ, ok := m.graphCardAt(msg.X, msg.Y); ok {
 			m.focus = shell.FocusPanel
 			if typ == m.graphSel {
@@ -268,6 +268,9 @@ func (m Model) handleClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 // through the pane origin and the viewport scroll offsets.
 func (m *Model) graphCardAt(x, y int) (string, bool) {
 	bx, by := m.sh.MainBodyOrigin()
+	if w, h := m.contentSize(); x < bx || x >= bx+w || y < by || y >= by+h {
+		return "", false
+	}
 	dx := x - bx + m.graphVP.XOffset()
 	dy := y - by + m.graphVP.YOffset()
 	for _, b := range m.graphBounds {

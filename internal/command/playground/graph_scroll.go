@@ -112,14 +112,28 @@ func (m *Model) selectGraphCard(delta int) fga.CardBounds {
 	if x := m.graphVP.XOffset(); b.X < x {
 		m.graphVP.SetXOffset(max(0, b.X-2))
 	} else if w := m.graphVP.Width(); b.X+b.W > x+w {
-		m.graphVP.SetXOffset(max(0, b.X+b.W-w+2))
+		m.graphVP.SetXOffset(max(0, min(b.X+b.W-w+2, b.X-2)))
 	}
 	return b
+}
+
+// hasRelations reports whether typ has relations to expand; leaf types
+// render the same compact and expanded.
+func (m *Model) hasRelations(typ string) bool {
+	for _, t := range m.graph.Types {
+		if t.Name == typ {
+			return len(t.Relations) > 0
+		}
+	}
+	return false
 }
 
 // toggleGraphCard expands or collapses the selected card, keeping its title on
 // the same screen row.
 func (m *Model) toggleGraphCard() {
+	if !m.hasRelations(m.graphSel) {
+		return
+	}
 	old, _ := m.cardBounds(m.graphSel)
 	rel := old.Y - m.graphVP.YOffset()
 	if m.graphExpanded == nil {
@@ -141,7 +155,7 @@ func (m *Model) toggleGraphCard() {
 func (m *Model) toggleGraphAll() {
 	all := true
 	for _, t := range m.graph.Types {
-		if !m.graphExpanded[t.Name] {
+		if len(t.Relations) > 0 && !m.graphExpanded[t.Name] {
 			all = false
 			break
 		}

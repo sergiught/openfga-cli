@@ -1023,7 +1023,7 @@ func (m Model) statusKeys() []string {
 		}
 		hints := []string{"↑↓/hjkl pan", m.graphViewHint()}
 		if m.graphView == 0 && len(m.graph.Types) > 0 {
-			hints = append(hints, "tab select · ↵ expand")
+			hints = append(hints, "tab select", "↵ expand")
 		}
 		return append(hints, "B benchmark · o optimize", "e edit DSL", "m switch", "r reload", "esc")
 	case secTuples:
