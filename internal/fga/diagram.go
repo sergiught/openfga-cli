@@ -73,7 +73,7 @@ func (g Graph) RenderDiagramLayout(opts DiagramOptions) (string, []CardBounds) {
 
 	allExpanded := true
 	for _, t := range g.Types {
-		if !opts.Expanded[t.Name] {
+		if len(t.Relations) > 0 && !opts.Expanded[t.Name] {
 			allExpanded = false
 			break
 		}
