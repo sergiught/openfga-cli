@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/fga"
+	"github.com/sergiught/openfga-cli/internal/ui/shell"
 )
 
 // TestGraphViewToggle covers the `v` key switching the model pane between the
@@ -251,5 +252,61 @@ func TestGraphFooterNoExpandHintOnEmptyModel(t *testing.T) {
 	m := loadedFocused(fga.Graph{})
 	if out := ansi.Strip(m.(Model).viewString()); strings.Contains(out, "tab select") {
 		t.Errorf("empty model should show no expand hint:\n%s", out)
+	}
+}
+
+func TestGraphClickSelectsThenExpands(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(modelLoadedMsg{modelID: "big", graph: largeGraph()})
+	m, _ = m.Update(key("3"))
+	mm := m.(Model)
+	bx, by := mm.sh.MainBodyOrigin()
+	target := mm.graphBounds[1] // not the initially selected card
+	click := tea.MouseClickMsg{X: bx + target.X + 1, Y: by + target.Y + 1, Button: tea.MouseLeft}
+	m, _ = m.Update(click)
+	mm = m.(Model)
+	if mm.graphSel != target.Type || mm.focus != shell.FocusPanel {
+		t.Fatalf("click should select %s and focus panel", target.Type)
+	}
+	m, _ = m.Update(click)
+	if !m.(Model).graphExpanded[target.Type] {
+		t.Error("second click should expand")
+	}
+}
+
+func TestGraphClickOnEmptyCanvasKeepsSelection(t *testing.T) {
+	g := largeGraph()
+	g.Types = g.Types[:2] // narrow canvas, far smaller than the pane
+	m := loadedFocused(g)
+	m, _ = m.Update(key("tab"))
+	mm := m.(Model)
+	sel := mm.graphSel
+	bx, by := mm.sh.MainBodyOrigin()
+	right := 0
+	for _, b := range mm.graphBounds {
+		right = max(right, b.X+b.W)
+	}
+	w, _ := mm.contentSize()
+	if bx+right+1 >= bx+w {
+		t.Skip("canvas not narrower than the pane")
+	}
+	m, _ = m.Update(tea.MouseClickMsg{X: bx + right + 1, Y: by + mm.graphBounds[0].Y + 1, Button: tea.MouseLeft})
+	mm = m.(Model)
+	if mm.graphSel != sel || len(mm.graphExpanded) != 2 {
+		t.Fatalf("empty-canvas click changed state: sel=%q expanded=%v", mm.graphSel, mm.graphExpanded)
+	}
+}
+
+func TestGraphClickPastLineEndIsIgnored(t *testing.T) {
+	m := loadedFocused(largeGraph())
+	mm := m.(Model)
+	sel := mm.graphSel
+	bx, by := mm.sh.MainBodyOrigin()
+	// The row just below a card belongs to no card bound.
+	b0 := mm.graphBounds[0]
+	m, _ = m.Update(tea.MouseClickMsg{X: bx + b0.X + 1, Y: by + b0.Y + b0.H, Button: tea.MouseLeft})
+	mm = m.(Model)
+	if mm.graphSel != sel || len(mm.graphExpanded) != 0 {
+		t.Fatalf("click past card changed state: sel=%q expanded=%v", mm.graphSel, mm.graphExpanded)
 	}
 }
