@@ -489,3 +489,13 @@ func TestRenderDiagramLayoutOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestDiagramHeaderHintOnlyWhenCompact(t *testing.T) {
+	g := ParseModel(githubModel())
+	if !strings.Contains(ansi.Strip(g.RenderDiagramWith(DiagramOptions{})), "tab/enter expand") {
+		t.Error("compact header lacks hint")
+	}
+	if strings.Contains(ansi.Strip(g.RenderDiagram()), "tab/enter expand") {
+		t.Error("expanded header must not show hint")
+	}
+}

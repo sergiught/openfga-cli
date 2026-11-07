@@ -948,6 +948,9 @@ func (m *Model) resize() {
 		// Resize: just update dimensions to preserve scroll offset.
 		m.graphVP.SetWidth(w)
 		m.graphVP.SetHeight(h)
+		if len(m.graph.Types) > 0 {
+			m.graphVP.SetContent(m.renderGraph())
+		}
 	}
 	m.editor.SetWidth(editorNoWrapWidth) // fixed no-wrap width; display width handled by render
 	m.editor.SetHeight(h - 2)

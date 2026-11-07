@@ -197,3 +197,49 @@ func TestGraphTabFromNoSelectionPicksFirstThenLast(t *testing.T) {
 		t.Fatalf("shift+tab picked %q, want last", mm.graphSel)
 	}
 }
+
+func TestGraphResizeKeepsSelectionAndExpansion(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(modelLoadedMsg{modelID: "big", graph: largeGraph()})
+	m, _ = m.Update(key("3"))
+	m, _ = m.Update(key("enter"))
+	m, _ = m.Update(key("tab"))
+	m, _ = m.Update(key("enter"))
+	before := m.(Model)
+	sel := before.graphSel
+	if sel == "" || !before.graphExpanded[sel] {
+		t.Fatalf("setup: sel=%q expanded=%v", sel, before.graphExpanded)
+	}
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
+	after := m.(Model)
+	if after.graphSel != sel || !after.graphExpanded[sel] || len(after.graphExpanded) != len(before.graphExpanded) {
+		t.Errorf("state lost: sel=%q expanded=%v", after.graphSel, after.graphExpanded)
+	}
+	if len(after.graphBounds) == 0 {
+		t.Error("bounds empty after resize")
+	}
+	if after.graphVP.Height() == before.graphVP.Height() {
+		t.Fatal("viewport height did not change; test is vacuous")
+	}
+	wantBounds := fmt.Sprint(after.graphBounds)
+	fresh := after
+	fresh.renderGraph()
+	if fmt.Sprint(fresh.graphBounds) != wantBounds {
+		t.Error("bounds are stale relative to the resized viewport")
+	}
+}
+
+func TestGraphFooterAndHelpAdvertiseExpand(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(modelLoadedMsg{modelID: "big", graph: largeGraph()})
+	m, _ = m.Update(key("3"))
+	m, _ = m.Update(key("enter"))
+	out := ansi.Strip(m.(Model).viewString())
+	if !strings.Contains(out, "tab select") || !strings.Contains(out, "expand") {
+		t.Errorf("footer lacks expand hint:\n%s", out)
+	}
+	m, _ = m.Update(key("?"))
+	if h := ansi.Strip(view(m)); !strings.Contains(h, "expand/collapse all") {
+		t.Errorf("help lacks 'expand/collapse all':\n%s", h)
+	}
+}

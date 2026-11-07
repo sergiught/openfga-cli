@@ -71,7 +71,14 @@ func (g Graph) RenderDiagramLayout(opts DiagramOptions) (string, []CardBounds) {
 	}
 	drawPorts(c, boxes, g.Edges)
 
-	header := g.diagramHeader()
+	allExpanded := true
+	for _, t := range g.Types {
+		if !opts.Expanded[t.Name] {
+			allExpanded = false
+			break
+		}
+	}
+	header := g.diagramHeader(allExpanded)
 	headerLines := strings.Count(header, "\n") + 2
 	bounds := make([]CardBounds, 0, len(boxes))
 	for _, b := range boxes {
@@ -87,12 +94,16 @@ func (g Graph) RenderDiagramLayout(opts DiagramOptions) (string, []CardBounds) {
 	return header + "\n\n" + c.String(), bounds
 }
 
-func (g Graph) diagramHeader() string {
-	legend := strings.Join([]string{
+func (g Graph) diagramHeader(allExpanded bool) string {
+	parts := []string{
 		colorRune('─', style.Green) + " " + style.Faint.Render("direct"),
 		colorRune('─', style.Amber) + " " + style.Faint.Render("inherited (tuple-to-userset)"),
 		style.Faint.Render("↑↓←→ pan"),
-	}, "    ")
+	}
+	if !allExpanded {
+		parts = append(parts, style.Faint.Render("tab/enter expand"))
+	}
+	legend := strings.Join(parts, "    ")
 	return style.Subtitle.Render("schema "+style.SanitizeTerminal(g.SchemaVersion)) + "    " + legend + "\n" + weightLegend()
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1222,21 +1223,26 @@ func TestVerdictFlashGatedOnBadge(t *testing.T) {
 // recreating the viewport.
 func TestGraphViewportScrollOffsetsPreservedOnResize(t *testing.T) {
 	m := newTestModel()
+	// One type with many relations: its card is taller than the viewport and
+	// cannot wrap into columns, so the diagram scrolls.
+	rels := map[string]openfga.Userset{}
+	meta := map[string]openfga.RelationMetadata{}
+	for i := 0; i < 80; i++ {
+		r := fmt.Sprintf("r%d", i)
+		rels[r] = openfga.This()
+		meta[r] = openfga.RelationMetadata{DirectlyRelatedUserTypes: []openfga.RelationReference{openfga.DirectType("user")}}
+	}
+	tall := fga.ParseModel(&openfga.AuthorizationModel{ID: "tall", SchemaVersion: "1.1", TypeDefinitions: []openfga.TypeDefinition{
+		{Type: "user"},
+		{Type: "doc", Relations: rels, Metadata: &openfga.Metadata{Relations: meta}},
+	}})
+	m, _ = m.Update(modelLoadedMsg{modelID: "tall", graph: tall})
 	m, _ = m.Update(key("3")) // Model section (graph view)
 
 	mod := m.(Model)
 
-	// Ensure we have tall enough content to scroll. If the diagram is short,
-	// extend it so we can test scrolling.
-	if mod.graphVP.TotalLineCount() < 50 {
-		currentContent := mod.graphVP.GetContent()
-		// Add enough lines to make scrolling meaningful.
-		extendedContent := currentContent + strings.Repeat("extension line\n", 100)
-		mod.graphVP.SetContent(extendedContent)
-	}
-
 	// Scroll to a nonzero offset.
-	mod.graphVP.ScrollDown(10)
+	mod.graphVP.ScrollDown(2)
 	originalOffset := mod.graphVP.YOffset()
 	if originalOffset == 0 {
 		t.Skipf("viewport height >= total lines, cannot test offset preservation")
