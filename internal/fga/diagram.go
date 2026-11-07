@@ -18,11 +18,33 @@ import (
 // wide, multi-line string meant to be shown inside a scrollable/pannable
 // viewport.
 func (g Graph) RenderDiagram() string {
+	return g.RenderDiagramWith(DiagramOptions{Expanded: ExpandAll(g)})
+}
+
+// DiagramOptions tunes how RenderDiagramWith draws the model.
+type DiagramOptions struct {
+	Expanded       map[string]bool // types drawn with full rows; nil/empty = all compact
+	Selected       string          // type whose border is highlighted; "" none
+	ViewportHeight int             // wrap cards taller than this; 0 = never wrap
+}
+
+// ExpandAll returns an Expanded set naming every type of g.
+func ExpandAll(g Graph) map[string]bool {
+	m := make(map[string]bool, len(g.Types))
+	for _, t := range g.Types {
+		m[t.Name] = true
+	}
+	return m
+}
+
+// RenderDiagramWith is RenderDiagram with per-type expansion, selection
+// highlighting and wrapping of tall cards controlled by opts.
+func (g Graph) RenderDiagramWith(opts DiagramOptions) string {
 	if len(g.Types) == 0 {
 		return style.Faint.Render("no authorization model in this store")
 	}
 
-	boxes := g.buildBoxes()
+	boxes := g.buildBoxes(opts)
 	layoutBoxes(boxes, g.Edges)
 
 	w, h := canvasBounds(boxes)
@@ -30,7 +52,7 @@ func (g Graph) RenderDiagram() string {
 
 	routeEdges(c, boxes, g.Edges)
 	for _, b := range boxes {
-		drawBox(c, b)
+		drawBox(c, b, b.typ == opts.Selected)
 	}
 	drawPorts(c, boxes, g.Edges)
 
@@ -59,6 +81,10 @@ type nodeBox struct {
 	typ    string
 	title  []scell
 	rows   [][]scell
+	rels   []string    // relation names, parallel to rows
+	cols   [][][]scell // rows arranged into interior columns
+	colW   []int
+	rowY   map[string]int // relation name -> absolute canvas row; title keyed by ""
 	innerW int
 	w, h   int
 	x, y   int
@@ -72,7 +98,7 @@ const (
 	margin = 3  // free border around the whole canvas for detours
 )
 
-func (g Graph) buildBoxes() []*nodeBox {
+func (g Graph) buildBoxes(opts DiagramOptions) []*nodeBox {
 	boxes := make([]*nodeBox, 0, len(g.Types))
 	for _, t := range g.Types {
 		b := &nodeBox{typ: t.Name}
@@ -81,24 +107,68 @@ func (g Graph) buildBoxes() []*nodeBox {
 			b.title[i].bold = true
 		}
 		for _, r := range t.Relations {
-			b.rows = append(b.rows, relationRow(r))
-		}
-		// Cards fit their widest relation row; the pannable viewport absorbs the
-		// extra width so nothing is truncated.
-		b.innerW = len(b.title)
-		for _, row := range b.rows {
-			if len(row) > b.innerW {
-				b.innerW = len(row)
+			if opts.Expanded[t.Name] {
+				b.rows = append(b.rows, relationRow(r))
+			} else {
+				b.rows = append(b.rows, compactRow(r))
 			}
+			b.rels = append(b.rels, r.Name)
 		}
+
+		// Arrange rows into interior columns so a tall card fits the viewport.
+		ncols := 1
+		if maxRows := opts.ViewportHeight - 4; maxRows >= 1 && len(b.rows) > maxRows {
+			ncols = (len(b.rows) + maxRows - 1) / maxRows
+		}
+		perCol := len(b.rows)
+		if ncols > 1 {
+			perCol = (len(b.rows) + ncols - 1) / ncols
+		}
+		for i := 0; i < len(b.rows); i += max(perCol, 1) {
+			b.cols = append(b.cols, b.rows[i:min(i+perCol, len(b.rows))])
+		}
+		b.colW = make([]int, len(b.cols))
+		b.innerW = 0
+		for i, col := range b.cols {
+			for _, row := range col {
+				b.colW[i] = max(b.colW[i], len(row))
+			}
+			b.innerW += b.colW[i]
+		}
+		if len(b.cols) > 1 {
+			b.innerW += 2 * (len(b.cols) - 1)
+		}
+		// Cards fit their widest content; the pannable viewport absorbs the
+		// extra width so nothing is truncated.
+		b.innerW = max(b.innerW, len(b.title))
 		b.w = b.innerW + 4 // borders + one space of padding each side
 		b.h = 3            // top border + title + bottom border
 		if len(b.rows) > 0 {
-			b.h += 1 + len(b.rows) // separator + one line per relation
+			b.h += 1 + perCol // separator + one line per relation row
 		}
 		boxes = append(boxes, b)
 	}
 	return boxes
+}
+
+// compactRow renders a relation as its heat glyph and name only.
+func compactRow(r Relation) []scell {
+	gr, gc := r.heatGlyph()
+	cells := []scell{{r: gr, fg: gc}, {r: ' '}}
+	return append(cells, styledRunes(r.Name, style.Cyan)...)
+}
+
+// fillRowIndex records the absolute canvas row of the title and of every
+// relation; b.y must already be known.
+func fillRowIndex(b *nodeBox) {
+	b.rowY = map[string]int{"": b.y + 1}
+	i := 0
+	for _, col := range b.cols {
+		for j := range col {
+			b.rowY[b.rels[i]] = b.y + 3 + j
+			i++
+		}
+	}
 }
 
 // relationRow renders one relation line: the relation name followed by compact,
@@ -213,6 +283,7 @@ func layoutBoxes(boxes []*nodeBox, edges []DiagramEdge) {
 			b.x = colX[c]
 			b.y = y
 			y += b.h + vgap
+			fillRowIndex(b)
 		}
 	}
 }
@@ -384,8 +455,11 @@ func (c *canvas) String() string {
 
 // --- box drawing ---
 
-func drawBox(c *canvas, b *nodeBox) {
+func drawBox(c *canvas, b *nodeBox, selected bool) {
 	bc := style.Subtle
+	if selected {
+		bc = style.Accent
+	}
 	left, right := b.x, b.x+b.w-1
 	top := b.y
 	innerStart := b.x + 2
@@ -411,25 +485,28 @@ func drawBox(c *canvas, b *nodeBox) {
 		c.set(innerStart+i, ty, s)
 	}
 
-	rowY := ty + 1
 	if len(b.rows) > 0 {
-		c.set(left, rowY, scell{r: '├', fg: bc})
-		c.set(right, rowY, scell{r: '┤', fg: bc})
+		sep := ty + 1
+		c.set(left, sep, scell{r: '├', fg: bc})
+		c.set(right, sep, scell{r: '┤', fg: bc})
 		for x := left + 1; x < right; x++ {
-			c.set(x, rowY, scell{r: '─', fg: bc})
+			c.set(x, sep, scell{r: '─', fg: bc})
 		}
-		rowY++
-		for _, row := range b.rows {
-			c.set(left, rowY, scell{r: '│', fg: bc})
-			c.set(right, rowY, scell{r: '│', fg: bc})
+		for y := sep + 1; y < b.y+b.h-1; y++ {
+			c.set(left, y, scell{r: '│', fg: bc})
+			c.set(right, y, scell{r: '│', fg: bc})
 			for i := 0; i < b.innerW; i++ {
-				s := scell{r: ' '}
-				if i < len(row) {
-					s = row[i]
-				}
-				c.set(innerStart+i, rowY, s)
+				c.set(innerStart+i, y, scell{r: ' '})
 			}
-			rowY++
+		}
+		off := 0
+		for ci, col := range b.cols {
+			for j, row := range col {
+				for i, s := range row {
+					c.set(innerStart+off+i, sep+1+j, s)
+				}
+			}
+			off += b.colW[ci] + 2
 		}
 	}
 
