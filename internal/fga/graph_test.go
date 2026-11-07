@@ -90,3 +90,49 @@ func TestParseModelTTUEdgesHaveNoToRelation(t *testing.T) {
 		t.Fatal("fixture has no ttu edge")
 	}
 }
+
+func twoTupleModel() *openfga.AuthorizationModel {
+	folderRef := []openfga.RelationReference{openfga.DirectType("folder")}
+	return &openfga.AuthorizationModel{
+		SchemaVersion: "1.1",
+		TypeDefinitions: []openfga.TypeDefinition{
+			{Type: "user"},
+			{Type: "folder", Relations: map[string]openfga.Userset{"viewer": openfga.This()},
+				Metadata: &openfga.Metadata{Relations: map[string]openfga.RelationMetadata{
+					"viewer": {DirectlyRelatedUserTypes: []openfga.RelationReference{openfga.DirectType("user")}},
+				}}},
+			{Type: "doc", Relations: map[string]openfga.Userset{
+				"parent":       openfga.This(),
+				"owner_folder": openfga.This(),
+				"can_view":     openfga.TupleTo("parent", "viewer"),
+				"can_edit":     openfga.TupleTo("owner_folder", "viewer"),
+			}, Metadata: &openfga.Metadata{Relations: map[string]openfga.RelationMetadata{
+				"parent":       {DirectlyRelatedUserTypes: folderRef},
+				"owner_folder": {DirectlyRelatedUserTypes: folderRef},
+			}}},
+		},
+	}
+}
+
+func TestParseModelKeepsTTUEdgesPerVia(t *testing.T) {
+	g := ParseModel(twoTupleModel())
+	vias := map[string]bool{}
+	direct := 0
+	for _, e := range g.Edges {
+		if e.From != "doc" || e.To != "folder" {
+			continue
+		}
+		switch e.Kind {
+		case "ttu":
+			vias[e.Via] = true
+		case "direct":
+			direct++
+		}
+	}
+	if len(vias) != 2 || !vias["parent"] || !vias["owner_folder"] {
+		t.Errorf("want ttu edges via parent and owner_folder, got %v", vias)
+	}
+	if direct != 1 {
+		t.Errorf("want exactly one direct doc->folder edge, got %d", direct)
+	}
+}

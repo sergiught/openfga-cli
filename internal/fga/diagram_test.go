@@ -499,3 +499,14 @@ func TestDiagramHeaderHintOnlyWhenCompact(t *testing.T) {
 		t.Error("expanded header must not show hint")
 	}
 }
+
+func TestBothTupleRelationsCarryPorts(t *testing.T) {
+	plain := ansi.Strip(ParseModel(twoTupleModel()).RenderDiagram())
+	lines := strings.Split(plain, "\n")
+	rx := cardRight(t, plain, "doc")
+	for _, rel := range []string{"parent", "owner_folder"} {
+		if r := runeAt(lines, rowOf(t, plain, "doc", "● "+rel), rx); r != '├' {
+			t.Errorf("%s row should carry a source port, got %q", rel, r)
+		}
+	}
+}

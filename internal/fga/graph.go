@@ -168,6 +168,9 @@ func addEdge(g *Graph, seen *map[string]bool, e DiagramEdge) {
 		return
 	}
 	key := e.From + "\x00" + e.To + "\x00" + e.Kind + "\x00" + e.ToRelation
+	if e.Kind == "ttu" {
+		key += "\x00" + e.Via
+	}
 	if (*seen)[key] {
 		return
 	}
