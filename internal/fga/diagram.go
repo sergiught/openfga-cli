@@ -18,11 +18,48 @@ import (
 // wide, multi-line string meant to be shown inside a scrollable/pannable
 // viewport.
 func (g Graph) RenderDiagram() string {
+	return g.RenderDiagramWith(DiagramOptions{Expanded: ExpandAll(g)})
+}
+
+// DiagramOptions tunes how RenderDiagramWith draws the model.
+type DiagramOptions struct {
+	Expanded       map[string]bool // types drawn with full rows; nil/empty = all compact
+	Selected       string          // type whose border is highlighted; "" none
+	ViewportHeight int             // wrap cards taller than this; 0 = never wrap
+}
+
+// ExpandAll returns an Expanded set naming every type of g.
+func ExpandAll(g Graph) map[string]bool {
+	m := make(map[string]bool, len(g.Types))
+	for _, t := range g.Types {
+		m[t.Name] = true
+	}
+	return m
+}
+
+// RenderDiagramWith is RenderDiagram with per-type expansion, selection
+// highlighting and wrapping of tall cards controlled by opts.
+func (g Graph) RenderDiagramWith(opts DiagramOptions) string {
+	out, _ := g.RenderDiagramLayout(opts)
+	return out
+}
+
+// CardBounds locates one type's card in the string RenderDiagramLayout returns.
+// X is a column and Y a line index, both from the start of that string, so Y
+// includes the header lines.
+type CardBounds struct {
+	Type       string
+	X, Y, W, H int
+}
+
+// RenderDiagramLayout is RenderDiagramWith that also reports where each type's
+// card sits, sorted by X then Y (layout order).
+func (g Graph) RenderDiagramLayout(opts DiagramOptions) (string, []CardBounds) {
 	if len(g.Types) == 0 {
-		return style.Faint.Render("no authorization model in this store")
+		return style.Faint.Render("no authorization model in this store"), nil
 	}
 
-	boxes := g.buildBoxes()
+	boxes := g.buildBoxes(opts)
 	layoutBoxes(boxes, g.Edges)
 
 	w, h := canvasBounds(boxes)
@@ -30,19 +67,43 @@ func (g Graph) RenderDiagram() string {
 
 	routeEdges(c, boxes, g.Edges)
 	for _, b := range boxes {
-		drawBox(c, b)
+		drawBox(c, b, b.typ == opts.Selected)
 	}
 	drawPorts(c, boxes, g.Edges)
 
-	return g.diagramHeader() + "\n\n" + c.String()
+	allExpanded := true
+	for _, t := range g.Types {
+		if len(t.Relations) > 0 && !opts.Expanded[t.Name] {
+			allExpanded = false
+			break
+		}
+	}
+	header := g.diagramHeader(allExpanded)
+	headerLines := strings.Count(header, "\n") + 2
+	bounds := make([]CardBounds, 0, len(boxes))
+	for _, b := range boxes {
+		bounds = append(bounds, CardBounds{Type: b.typ, X: b.x, Y: b.y + headerLines, W: b.w, H: b.h})
+	}
+	sort.Slice(bounds, func(i, j int) bool {
+		if bounds[i].X != bounds[j].X {
+			return bounds[i].X < bounds[j].X
+		}
+		return bounds[i].Y < bounds[j].Y
+	})
+
+	return header + "\n\n" + c.String(), bounds
 }
 
-func (g Graph) diagramHeader() string {
-	legend := strings.Join([]string{
+func (g Graph) diagramHeader(allExpanded bool) string {
+	parts := []string{
 		colorRune('─', style.Green) + " " + style.Faint.Render("direct"),
 		colorRune('─', style.Amber) + " " + style.Faint.Render("inherited (tuple-to-userset)"),
 		style.Faint.Render("↑↓←→ pan"),
-	}, "    ")
+	}
+	if !allExpanded {
+		parts = append(parts, style.Faint.Render("tab/enter expand"))
+	}
+	legend := strings.Join(parts, "    ")
 	return style.Subtitle.Render("schema "+style.SanitizeTerminal(g.SchemaVersion)) + "    " + legend + "\n" + weightLegend()
 }
 
@@ -59,6 +120,10 @@ type nodeBox struct {
 	typ    string
 	title  []scell
 	rows   [][]scell
+	rels   []string    // relation names, parallel to rows
+	cols   [][][]scell // rows arranged into interior columns
+	colW   []int
+	rowY   map[string]int // relation name -> absolute canvas row; title keyed by ""
 	innerW int
 	w, h   int
 	x, y   int
@@ -72,7 +137,7 @@ const (
 	margin = 3  // free border around the whole canvas for detours
 )
 
-func (g Graph) buildBoxes() []*nodeBox {
+func (g Graph) buildBoxes(opts DiagramOptions) []*nodeBox {
 	boxes := make([]*nodeBox, 0, len(g.Types))
 	for _, t := range g.Types {
 		b := &nodeBox{typ: t.Name}
@@ -81,24 +146,68 @@ func (g Graph) buildBoxes() []*nodeBox {
 			b.title[i].bold = true
 		}
 		for _, r := range t.Relations {
-			b.rows = append(b.rows, relationRow(r))
-		}
-		// Cards fit their widest relation row; the pannable viewport absorbs the
-		// extra width so nothing is truncated.
-		b.innerW = len(b.title)
-		for _, row := range b.rows {
-			if len(row) > b.innerW {
-				b.innerW = len(row)
+			if opts.Expanded[t.Name] {
+				b.rows = append(b.rows, relationRow(r))
+			} else {
+				b.rows = append(b.rows, compactRow(r))
 			}
+			b.rels = append(b.rels, r.Name)
 		}
+
+		// Arrange rows into interior columns so a tall card fits the viewport.
+		ncols := 1
+		if maxRows := opts.ViewportHeight - 4; maxRows >= 1 && len(b.rows) > maxRows {
+			ncols = (len(b.rows) + maxRows - 1) / maxRows
+		}
+		perCol := len(b.rows)
+		if ncols > 1 {
+			perCol = (len(b.rows) + ncols - 1) / ncols
+		}
+		for i := 0; i < len(b.rows); i += max(perCol, 1) {
+			b.cols = append(b.cols, b.rows[i:min(i+perCol, len(b.rows))])
+		}
+		b.colW = make([]int, len(b.cols))
+		b.innerW = 0
+		for i, col := range b.cols {
+			for _, row := range col {
+				b.colW[i] = max(b.colW[i], len(row))
+			}
+			b.innerW += b.colW[i]
+		}
+		if len(b.cols) > 1 {
+			b.innerW += 2 * (len(b.cols) - 1)
+		}
+		// Cards fit their widest content; the pannable viewport absorbs the
+		// extra width so nothing is truncated.
+		b.innerW = max(b.innerW, len(b.title))
 		b.w = b.innerW + 4 // borders + one space of padding each side
 		b.h = 3            // top border + title + bottom border
 		if len(b.rows) > 0 {
-			b.h += 1 + len(b.rows) // separator + one line per relation
+			b.h += 1 + perCol // separator + one line per relation row
 		}
 		boxes = append(boxes, b)
 	}
 	return boxes
+}
+
+// compactRow renders a relation as its heat glyph and name only.
+func compactRow(r Relation) []scell {
+	gr, gc := r.heatGlyph()
+	cells := []scell{{r: gr, fg: gc}, {r: ' '}}
+	return append(cells, styledRunes(r.Name, style.Cyan)...)
+}
+
+// fillRowIndex records the absolute canvas row of the title and of every
+// relation; b.y must already be known.
+func fillRowIndex(b *nodeBox) {
+	b.rowY = map[string]int{"": b.y + 1}
+	i := 0
+	for _, col := range b.cols {
+		for j := range col {
+			b.rowY[b.rels[i]] = b.y + 3 + j
+			i++
+		}
+	}
 }
 
 // relationRow renders one relation line: the relation name followed by compact,
@@ -213,6 +322,7 @@ func layoutBoxes(boxes []*nodeBox, edges []DiagramEdge) {
 			b.x = colX[c]
 			b.y = y
 			y += b.h + vgap
+			fillRowIndex(b)
 		}
 	}
 }
@@ -384,8 +494,11 @@ func (c *canvas) String() string {
 
 // --- box drawing ---
 
-func drawBox(c *canvas, b *nodeBox) {
+func drawBox(c *canvas, b *nodeBox, selected bool) {
 	bc := style.Subtle
+	if selected {
+		bc = style.Accent
+	}
 	left, right := b.x, b.x+b.w-1
 	top := b.y
 	innerStart := b.x + 2
@@ -411,25 +524,28 @@ func drawBox(c *canvas, b *nodeBox) {
 		c.set(innerStart+i, ty, s)
 	}
 
-	rowY := ty + 1
 	if len(b.rows) > 0 {
-		c.set(left, rowY, scell{r: '├', fg: bc})
-		c.set(right, rowY, scell{r: '┤', fg: bc})
+		sep := ty + 1
+		c.set(left, sep, scell{r: '├', fg: bc})
+		c.set(right, sep, scell{r: '┤', fg: bc})
 		for x := left + 1; x < right; x++ {
-			c.set(x, rowY, scell{r: '─', fg: bc})
+			c.set(x, sep, scell{r: '─', fg: bc})
 		}
-		rowY++
-		for _, row := range b.rows {
-			c.set(left, rowY, scell{r: '│', fg: bc})
-			c.set(right, rowY, scell{r: '│', fg: bc})
+		for y := sep + 1; y < b.y+b.h-1; y++ {
+			c.set(left, y, scell{r: '│', fg: bc})
+			c.set(right, y, scell{r: '│', fg: bc})
 			for i := 0; i < b.innerW; i++ {
-				s := scell{r: ' '}
-				if i < len(row) {
-					s = row[i]
-				}
-				c.set(innerStart+i, rowY, s)
+				c.set(innerStart+i, y, scell{r: ' '})
 			}
-			rowY++
+		}
+		off := 0
+		for ci, col := range b.cols {
+			for j, row := range col {
+				for i, s := range row {
+					c.set(innerStart+off+i, sep+1+j, s)
+				}
+			}
+			off += b.colW[ci] + 2
 		}
 	}
 
@@ -445,14 +561,14 @@ func drawBox(c *canvas, b *nodeBox) {
 // obvious after the boxes are painted over the routed lines.
 func drawPorts(c *canvas, boxes []*nodeBox, edges []DiagramEdge) {
 	byType := indexBoxes(boxes)
-	for _, e := range edges {
+	for _, e := range routableEdges(edges, byType) {
 		src, dst := byType[e.From], byType[e.To]
 		if src == nil || dst == nil {
 			continue
 		}
 		col := edgeColor(e.Kind)
-		sy := portRow(src, e, edges, true)
-		ty := portRow(dst, e, edges, false)
+		sy := sourcePortRow(src, e)
+		ty := targetPortRow(dst, e)
 		c.set(src.x+src.w-1, sy, scell{r: '├', fg: col})
 		c.set(dst.x, ty, scell{r: '┤', fg: col})
 	}
@@ -469,7 +585,7 @@ func routeEdges(c *canvas, boxes []*nodeBox, edges []DiagramEdge) {
 	// Stable order so port assignment is deterministic. Grouping by target
 	// (To) first lets edges that converge on the same node bundle onto a shared
 	// trunk instead of fanning into parallel lanes.
-	sorted := append([]DiagramEdge(nil), edges...)
+	sorted := routableEdges(edges, byType)
 	sort.SliceStable(sorted, func(i, j int) bool {
 		if sorted[i].To != sorted[j].To {
 			return sorted[i].To < sorted[j].To
@@ -482,8 +598,8 @@ func routeEdges(c *canvas, boxes []*nodeBox, edges []DiagramEdge) {
 		if src == nil || dst == nil {
 			continue
 		}
-		sy := portRow(src, e, edges, true)
-		ty := portRow(dst, e, edges, false)
+		sy := sourcePortRow(src, e)
+		ty := targetPortRow(dst, e)
 		start := [2]int{src.x + src.w, sy} // gutter cell right of source
 		goal := [2]int{dst.x - 1, ty}      // gutter cell left of target
 		path := routeAStar(c, blocked, used, usedBy, dst.typ, start, goal)
@@ -511,56 +627,46 @@ func obstacleGrid(c *canvas, boxes []*nodeBox) [][]bool {
 	return g
 }
 
-// portRow distributes a box's edges across its vertical extent so multiple
-// edges connect at distinct rows instead of stacking on one.
-func portRow(b *nodeBox, e DiagramEdge, edges []DiagramEdge, outgoing bool) int {
-	var group []DiagramEdge
-	for _, x := range edges {
-		if (outgoing && x.From == b.typ) || (!outgoing && x.To == b.typ) {
-			group = append(group, x)
+// sourcePortRow is the row an edge leaves its source box from: the source
+// relation's row, else the title row.
+func sourcePortRow(b *nodeBox, e DiagramEdge) int {
+	if y, ok := b.rowY[e.Via]; ok && e.Via != "" {
+		return y
+	}
+	return b.rowY[""]
+}
+
+// targetPortRow is the row an edge arrives on: the target relation's row when
+// the edge names one, else the title row.
+func targetPortRow(b *nodeBox, e DiagramEdge) int {
+	if y, ok := b.rowY[e.ToRelation]; ok && e.ToRelation != "" {
+		return y
+	}
+	return b.rowY[""]
+}
+
+// routableEdges drops edges to relation-less boxes (leaf types such as user)
+// and direct edges made redundant by a ttu edge over the same tupleset.
+func routableEdges(edges []DiagramEdge, byType map[string]*nodeBox) []DiagramEdge {
+	type key struct{ from, to, via string }
+	ttu := map[key]bool{}
+	for _, e := range edges {
+		if e.Kind == "ttu" {
+			ttu[key{e.From, e.To, e.Via}] = true
 		}
 	}
-	sort.SliceStable(group, func(i, j int) bool {
-		a, c := group[i], group[j]
-		if outgoing {
-			if a.To != c.To {
-				return a.To < c.To
-			}
-			return a.Kind < c.Kind
+	out := make([]DiagramEdge, 0, len(edges))
+	for _, e := range edges {
+		dst := byType[e.To]
+		if dst == nil || len(dst.rows) == 0 {
+			continue
 		}
-		if a.From != c.From {
-			return a.From < c.From
+		if e.Kind == "direct" && ttu[key{e.From, e.To, e.Via}] {
+			continue
 		}
-		return a.Kind < c.Kind
-	})
-	idx, total := 0, len(group)
-	for i, x := range group {
-		if x == e {
-			idx = i
-			break
-		}
+		out = append(out, e)
 	}
-	// Attach ports to the relation rows only. Rows span [b.y+3, b.y+b.h-2]
-	// (skipping the top border, title, and its separator); a relation-less box
-	// such as `user` has none, so its single title row (b.y+1) is the target.
-	lo, hi := b.y+1, b.y+b.h-2
-	if len(b.rows) > 0 {
-		lo = b.y + 3
-	}
-	if hi < lo {
-		hi = lo
-	}
-	if total <= 1 {
-		return (lo + hi) / 2
-	}
-	row := lo + (idx+1)*(hi-lo)/(total+1)
-	if row < lo {
-		row = lo
-	}
-	if row > hi {
-		row = hi
-	}
-	return row
+	return out
 }
 
 // dirs: 0=E 1=W 2=S 3=N

@@ -213,6 +213,20 @@ func (m Model) handleClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	// Click a model diagram card to select it; clicking the selected card
+	// toggles its expansion.
+	if m.section == secModel && m.graphView == 0 && m.opt.view == optNone && !m.modelPicking && !m.editorOpen {
+		if typ, ok := m.graphCardAt(msg.X, msg.Y); ok {
+			m.focus = shell.FocusPanel
+			if typ == m.graphSel {
+				m.toggleGraphCard()
+			} else {
+				m.graphSel = typ
+				m.graphVP.SetContent(m.renderGraph())
+			}
+			return m, nil
+		}
+	}
 	// Click a list row to select it.
 	if lst, off := m.sectionList(); lst != nil {
 		bx, by := m.sh.MainBodyOrigin()
@@ -248,4 +262,21 @@ func (m Model) handleClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		m.focus = shell.FocusPanel
 	}
 	return m, nil
+}
+
+// graphCardAt hit-tests screen (x, y) against the diagram cards, translating
+// through the pane origin and the viewport scroll offsets.
+func (m *Model) graphCardAt(x, y int) (string, bool) {
+	bx, by := m.sh.MainBodyOrigin()
+	if w, h := m.contentSize(); x < bx || x >= bx+w || y < by || y >= by+h {
+		return "", false
+	}
+	dx := x - bx + m.graphVP.XOffset()
+	dy := y - by + m.graphVP.YOffset()
+	for _, b := range m.graphBounds {
+		if b.X <= dx && dx < b.X+b.W && b.Y <= dy && dy < b.Y+b.H {
+			return b.Type, true
+		}
+	}
+	return "", false
 }

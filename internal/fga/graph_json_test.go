@@ -29,6 +29,23 @@ func TestGraphJSONTags(t *testing.T) {
 	}
 }
 
+func TestGraphJSONToRelation(t *testing.T) {
+	with, err := json.Marshal(DiagramEdge{From: "a", To: "b", Kind: "direct", ToRelation: "member"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(with), `"to_relation":"member"`) {
+		t.Errorf("missing to_relation: %s", with)
+	}
+	without, err := json.Marshal(DiagramEdge{From: "a", To: "b", Kind: "direct"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(without), "to_relation") {
+		t.Errorf("empty to_relation must be omitted: %s", without)
+	}
+}
+
 func TestGraphJSONEmptySlices(t *testing.T) {
 	// A model with a type that has no relations must serialize its relations
 	// (and the graph's edges) as [] not null.
