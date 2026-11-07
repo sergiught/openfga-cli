@@ -229,6 +229,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.modelIsLatest = msg.latest || (len(m.models) > 0 && msg.modelID == m.models[0].ID)
 		m.graph = msg.graph
 		m.modelDSL = msg.dsl
+		m.initGraphState()
 		m.graphVP.SetContent(m.renderGraph())
 		m.resetGraphScroll()
 		// A failed persist must never be reported as a clean success — see

@@ -317,6 +317,12 @@ type Model struct {
 	// graphView selects the model pane renderer: 0 = node-link diagram,
 	// 1 = weighted graph. Toggled with `v`.
 	graphView int
+	// graphSel is the selected diagram card's type ("" when nothing is
+	// selected, e.g. small models); graphExpanded lists the cards showing their
+	// relation detail; graphBounds are the cards of the last diagram render.
+	graphSel      string
+	graphExpanded map[string]bool
+	graphBounds   []fga.CardBounds
 
 	// graph viewport spring scrolling: graphPos is the animated (fractional)
 	// scroll offset that eases toward graphTarget via graphSpring.
@@ -935,6 +941,7 @@ func (m *Model) resize() {
 		// First time: create the viewport and populate it.
 		m.graphVP = viewport.New(viewport.WithWidth(w), viewport.WithHeight(h))
 		if len(m.graph.Types) > 0 {
+			m.initGraphState()
 			m.graphVP.SetContent(m.renderGraph())
 		}
 	} else {

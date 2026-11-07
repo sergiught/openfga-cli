@@ -5,6 +5,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/sergiught/openfga-cli/internal/fga"
 )
 
 const (
@@ -25,13 +27,134 @@ func graphTick() tea.Cmd {
 	})
 }
 
-// renderGraph renders the model pane in the active view: the node-link diagram
-// (default) or the weighted graph (toggled with `v`).
+// graphOpts is the diagram state handed to the renderer.
+func (m *Model) graphOpts() fga.DiagramOptions {
+	return fga.DiagramOptions{Expanded: m.graphExpanded, Selected: m.graphSel, ViewportHeight: m.graphVP.Height()}
+}
+
+// renderGraph renders the model pane in the active view: the node-link
+// diagram (default) or the weighted graph (toggled with `v`). The diagram path
+// records card bounds for selection.
 func (m *Model) renderGraph() string {
 	if m.graphView == 1 {
+		m.graphBounds = nil
 		return m.graph.RenderWeightedDiagram()
 	}
-	return m.graph.RenderDiagram()
+	out, bounds := m.graph.RenderDiagramLayout(m.graphOpts())
+	m.graphBounds = bounds
+	return out
+}
+
+// graphIsSmall reports whether a model is small enough to open fully expanded.
+func graphIsSmall(g fga.Graph) bool {
+	rels := 0
+	for _, t := range g.Types {
+		rels += len(t.Relations)
+	}
+	return len(g.Types) <= 8 && rels <= 40
+}
+
+// initGraphState resets selection and expansion for the active view: small
+// models open expanded with no selection, large ones compact with the first
+// card selected, and the weighted view carries no diagram state.
+func (m *Model) initGraphState() {
+	m.graphSel, m.graphExpanded, m.graphBounds = "", nil, nil
+	if m.graphView == 1 || len(m.graph.Types) == 0 {
+		return
+	}
+	if graphIsSmall(m.graph) {
+		m.graphExpanded = fga.ExpandAll(m.graph)
+		return
+	}
+	m.graphExpanded = map[string]bool{}
+	m.renderGraph()
+	if len(m.graphBounds) > 0 {
+		m.graphSel = m.graphBounds[0].Type
+	}
+}
+
+// cardBounds finds the last-rendered bounds of typ.
+func (m *Model) cardBounds(typ string) (fga.CardBounds, bool) {
+	for _, b := range m.graphBounds {
+		if b.Type == typ {
+			return b, true
+		}
+	}
+	return fga.CardBounds{}, false
+}
+
+// selectGraphCard moves the selection by delta in render order (wrapping),
+// re-renders, and pans horizontally so the card is visible. The caller scrolls
+// vertically to the returned bounds.
+func (m *Model) selectGraphCard(delta int) fga.CardBounds {
+	n := len(m.graphBounds)
+	idx := 0
+	for i, b := range m.graphBounds {
+		if b.Type == m.graphSel {
+			idx = i
+			break
+		}
+	}
+	idx = ((idx+delta)%n + n) % n
+	m.graphSel = m.graphBounds[idx].Type
+	m.graphVP.SetContent(m.renderGraph())
+	b, _ := m.cardBounds(m.graphSel)
+	if x := m.graphVP.XOffset(); b.X < x {
+		m.graphVP.SetXOffset(max(0, b.X-2))
+	} else if w := m.graphVP.Width(); b.X+b.W > x+w {
+		m.graphVP.SetXOffset(max(0, b.X+b.W-w+2))
+	}
+	return b
+}
+
+// toggleGraphCard expands or collapses the selected card, keeping its title on
+// the same screen row.
+func (m *Model) toggleGraphCard() {
+	old, _ := m.cardBounds(m.graphSel)
+	rel := old.Y - m.graphVP.YOffset()
+	if m.graphExpanded == nil {
+		m.graphExpanded = map[string]bool{}
+	}
+	m.graphExpanded[m.graphSel] = !m.graphExpanded[m.graphSel]
+	m.graphVP.SetContent(m.renderGraph())
+	if b, ok := m.cardBounds(m.graphSel); ok {
+		m.snapGraphTo(max(0, b.Y-rel))
+	}
+	if m.graphExpanded[m.graphSel] {
+		m.status = "expanded " + m.graphSel
+	} else {
+		m.status = "collapsed " + m.graphSel
+	}
+}
+
+// toggleGraphAll collapses every card when all are expanded, else expands all.
+func (m *Model) toggleGraphAll() {
+	all := true
+	for _, t := range m.graph.Types {
+		if !m.graphExpanded[t.Name] {
+			all = false
+			break
+		}
+	}
+	if all {
+		m.graphExpanded = map[string]bool{}
+		m.status = "collapsed all types"
+	} else {
+		m.graphExpanded = fga.ExpandAll(m.graph)
+		m.status = "expanded all types"
+	}
+	m.graphVP.SetContent(m.renderGraph())
+	if b, ok := m.cardBounds(m.graphSel); ok {
+		m.snapGraphTo(b.Y)
+	}
+}
+
+// snapGraphTo jumps the vertical scroll to line y with no animation.
+func (m *Model) snapGraphTo(y int) {
+	y = min(max(0, y), m.graphMaxOffset())
+	m.graphPos, m.graphVel, m.graphTarget = float64(y), 0, float64(y)
+	m.graphAnimating = false
+	m.graphVP.SetYOffset(y)
 }
 
 // resetGraphScroll snaps the graph viewport back to the top-left with no motion.
