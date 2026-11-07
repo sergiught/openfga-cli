@@ -121,11 +121,17 @@ func TestGraphEnterTogglesExpansion(t *testing.T) {
 	sel := m.(Model).graphSel
 	m, _ = m.Update(key("enter"))
 	mm := m.(Model)
+	if !strings.Contains(ansi.Strip(mm.graphVP.View()), "←user") {
+		t.Error("expanded card should show relation detail")
+	}
 	if !mm.graphExpanded[sel] || !strings.Contains(mm.status, "expanded") {
 		t.Fatalf("expand failed: %v %q", mm.graphExpanded, mm.status)
 	}
 	m, _ = m.Update(key("enter"))
 	mm = m.(Model)
+	if strings.Contains(ansi.Strip(mm.graphVP.View()), "←user") {
+		t.Error("collapsed card should hide relation detail")
+	}
 	if mm.graphExpanded[sel] || !strings.Contains(mm.status, "collapsed") {
 		t.Fatalf("collapse failed: %v %q", mm.graphExpanded, mm.status)
 	}
@@ -168,8 +174,26 @@ func TestGraphTabNoopWithoutTypesOrInWeighted(t *testing.T) {
 	}
 	m = loadedFocused(largeGraph())
 	m, _ = m.Update(key("v"))
+	before := m.(Model)
+	y := before.graphVP.YOffset()
 	m, _ = m.Update(key("tab"))
-	if m.(Model).graphSel != "" {
-		t.Fatal("tab changed sel in weighted view")
+	after := m.(Model)
+	if after.graphSel != "" || after.graphBounds != nil || after.graphVP.YOffset() != y {
+		t.Fatal("tab changed state in weighted view")
+	}
+}
+
+func TestGraphTabFromNoSelectionPicksFirstThenLast(t *testing.T) {
+	m := loadedFocused(sampleGraph())
+	m, _ = m.Update(key("tab"))
+	mm := m.(Model)
+	if mm.graphSel != mm.graphBounds[0].Type {
+		t.Fatalf("tab picked %q, want first", mm.graphSel)
+	}
+	mm.graphSel = ""
+	m, _ = mm.Update(key("shift+tab"))
+	mm = m.(Model)
+	if mm.graphSel != mm.graphBounds[len(mm.graphBounds)-1].Type {
+		t.Fatalf("shift+tab picked %q, want last", mm.graphSel)
 	}
 }

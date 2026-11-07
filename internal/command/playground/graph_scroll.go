@@ -88,14 +88,24 @@ func (m *Model) cardBounds(typ string) (fga.CardBounds, bool) {
 // vertically to the returned bounds.
 func (m *Model) selectGraphCard(delta int) fga.CardBounds {
 	n := len(m.graphBounds)
-	idx := 0
+	if n == 0 {
+		return fga.CardBounds{}
+	}
+	idx, found := 0, false
 	for i, b := range m.graphBounds {
 		if b.Type == m.graphSel {
-			idx = i
+			idx, found = i, true
 			break
 		}
 	}
-	idx = ((idx+delta)%n + n) % n
+	switch {
+	case found:
+		idx = ((idx+delta)%n + n) % n
+	case delta > 0:
+		idx = 0
+	default:
+		idx = n - 1
+	}
 	m.graphSel = m.graphBounds[idx].Type
 	m.graphVP.SetContent(m.renderGraph())
 	b, _ := m.cardBounds(m.graphSel)
