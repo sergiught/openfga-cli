@@ -221,6 +221,9 @@ func TestGraphResizeKeepsSelectionAndExpansion(t *testing.T) {
 	if after.graphVP.Height() == before.graphVP.Height() {
 		t.Fatal("viewport height did not change; test is vacuous")
 	}
+	if !strings.Contains(ansi.Strip(after.graphVP.GetContent()), "←user") {
+		t.Error("expanded card detail missing after resize")
+	}
 	wantBounds := fmt.Sprint(after.graphBounds)
 	fresh := after
 	fresh.renderGraph()
@@ -241,5 +244,12 @@ func TestGraphFooterAndHelpAdvertiseExpand(t *testing.T) {
 	m, _ = m.Update(key("?"))
 	if h := ansi.Strip(view(m)); !strings.Contains(h, "expand/collapse all") {
 		t.Errorf("help lacks 'expand/collapse all':\n%s", h)
+	}
+}
+
+func TestGraphFooterNoExpandHintOnEmptyModel(t *testing.T) {
+	m := loadedFocused(fga.Graph{})
+	if out := ansi.Strip(m.(Model).viewString()); strings.Contains(out, "tab select") {
+		t.Errorf("empty model should show no expand hint:\n%s", out)
 	}
 }

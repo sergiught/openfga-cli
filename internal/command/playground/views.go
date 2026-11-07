@@ -1022,7 +1022,7 @@ func (m Model) statusKeys() []string {
 			return []string{"o optimize", "B re-run", "↑↓ move", "esc back to graph"}
 		}
 		hints := []string{"↑↓/hjkl pan", m.graphViewHint()}
-		if m.graphView == 0 {
+		if m.graphView == 0 && len(m.graph.Types) > 0 {
 			hints = append(hints, "tab select · ↵ expand")
 		}
 		return append(hints, "B benchmark · o optimize", "e edit DSL", "m switch", "r reload", "esc")
