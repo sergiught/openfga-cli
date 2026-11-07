@@ -522,14 +522,14 @@ func drawBox(c *canvas, b *nodeBox, selected bool) {
 // obvious after the boxes are painted over the routed lines.
 func drawPorts(c *canvas, boxes []*nodeBox, edges []DiagramEdge) {
 	byType := indexBoxes(boxes)
-	for _, e := range edges {
+	for _, e := range routableEdges(edges, byType) {
 		src, dst := byType[e.From], byType[e.To]
 		if src == nil || dst == nil {
 			continue
 		}
 		col := edgeColor(e.Kind)
-		sy := portRow(src, e, edges, true)
-		ty := portRow(dst, e, edges, false)
+		sy := sourcePortRow(src, e)
+		ty := targetPortRow(dst, e)
 		c.set(src.x+src.w-1, sy, scell{r: '├', fg: col})
 		c.set(dst.x, ty, scell{r: '┤', fg: col})
 	}
@@ -546,7 +546,7 @@ func routeEdges(c *canvas, boxes []*nodeBox, edges []DiagramEdge) {
 	// Stable order so port assignment is deterministic. Grouping by target
 	// (To) first lets edges that converge on the same node bundle onto a shared
 	// trunk instead of fanning into parallel lanes.
-	sorted := append([]DiagramEdge(nil), edges...)
+	sorted := routableEdges(edges, byType)
 	sort.SliceStable(sorted, func(i, j int) bool {
 		if sorted[i].To != sorted[j].To {
 			return sorted[i].To < sorted[j].To
@@ -559,8 +559,8 @@ func routeEdges(c *canvas, boxes []*nodeBox, edges []DiagramEdge) {
 		if src == nil || dst == nil {
 			continue
 		}
-		sy := portRow(src, e, edges, true)
-		ty := portRow(dst, e, edges, false)
+		sy := sourcePortRow(src, e)
+		ty := targetPortRow(dst, e)
 		start := [2]int{src.x + src.w, sy} // gutter cell right of source
 		goal := [2]int{dst.x - 1, ty}      // gutter cell left of target
 		path := routeAStar(c, blocked, used, usedBy, dst.typ, start, goal)
@@ -588,56 +588,46 @@ func obstacleGrid(c *canvas, boxes []*nodeBox) [][]bool {
 	return g
 }
 
-// portRow distributes a box's edges across its vertical extent so multiple
-// edges connect at distinct rows instead of stacking on one.
-func portRow(b *nodeBox, e DiagramEdge, edges []DiagramEdge, outgoing bool) int {
-	var group []DiagramEdge
-	for _, x := range edges {
-		if (outgoing && x.From == b.typ) || (!outgoing && x.To == b.typ) {
-			group = append(group, x)
+// sourcePortRow is the row an edge leaves its source box from: the source
+// relation's row, else the title row.
+func sourcePortRow(b *nodeBox, e DiagramEdge) int {
+	if y, ok := b.rowY[e.Via]; ok && e.Via != "" {
+		return y
+	}
+	return b.rowY[""]
+}
+
+// targetPortRow is the row an edge arrives on: the target relation's row when
+// the edge names one, else the title row.
+func targetPortRow(b *nodeBox, e DiagramEdge) int {
+	if y, ok := b.rowY[e.ToRelation]; ok && e.ToRelation != "" {
+		return y
+	}
+	return b.rowY[""]
+}
+
+// routableEdges drops edges to relation-less boxes (leaf types such as user)
+// and direct edges made redundant by a ttu edge over the same tupleset.
+func routableEdges(edges []DiagramEdge, byType map[string]*nodeBox) []DiagramEdge {
+	type key struct{ from, to, via string }
+	ttu := map[key]bool{}
+	for _, e := range edges {
+		if e.Kind == "ttu" {
+			ttu[key{e.From, e.To, e.Via}] = true
 		}
 	}
-	sort.SliceStable(group, func(i, j int) bool {
-		a, c := group[i], group[j]
-		if outgoing {
-			if a.To != c.To {
-				return a.To < c.To
-			}
-			return a.Kind < c.Kind
+	out := make([]DiagramEdge, 0, len(edges))
+	for _, e := range edges {
+		dst := byType[e.To]
+		if dst == nil || len(dst.rows) == 0 {
+			continue
 		}
-		if a.From != c.From {
-			return a.From < c.From
+		if e.Kind == "direct" && ttu[key{e.From, e.To, e.Via}] {
+			continue
 		}
-		return a.Kind < c.Kind
-	})
-	idx, total := 0, len(group)
-	for i, x := range group {
-		if x == e {
-			idx = i
-			break
-		}
+		out = append(out, e)
 	}
-	// Attach ports to the relation rows only. Rows span [b.y+3, b.y+b.h-2]
-	// (skipping the top border, title, and its separator); a relation-less box
-	// such as `user` has none, so its single title row (b.y+1) is the target.
-	lo, hi := b.y+1, b.y+b.h-2
-	if len(b.rows) > 0 {
-		lo = b.y + 3
-	}
-	if hi < lo {
-		hi = lo
-	}
-	if total <= 1 {
-		return (lo + hi) / 2
-	}
-	row := lo + (idx+1)*(hi-lo)/(total+1)
-	if row < lo {
-		row = lo
-	}
-	if row > hi {
-		row = hi
-	}
-	return row
+	return out
 }
 
 // dirs: 0=E 1=W 2=S 3=N

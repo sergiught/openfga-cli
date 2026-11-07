@@ -8,6 +8,8 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/sergiught/go-openfga/openfga"
+
+	"github.com/sergiught/openfga-cli/internal/style"
 )
 
 func githubModel() *openfga.AuthorizationModel {
@@ -108,6 +110,9 @@ func cardLines(t *testing.T, out, name string) (lines []string, top int) {
 	all := strings.Split(out, "\n")
 	for i, l := range all {
 		idx := strings.Index(l, "│ "+name)
+		if p := strings.Index(l, "┤ "+name); idx < 0 && p >= 0 {
+			idx = p
+		}
 		if idx < 0 {
 			continue
 		}
@@ -262,4 +267,193 @@ func BenchmarkRenderDiagramWithLargeModel(b *testing.B) {
 			g.RenderDiagram()
 		}
 	})
+}
+
+// rowOf returns the line index (in the stripped render) of the named relation
+// inside the named card.
+func rowOf(t *testing.T, out, card, relation string) int {
+	t.Helper()
+	lines, top := cardLines(t, out, card)
+	for i := 2; i < len(lines); i++ {
+		if strings.Contains(lines[i], relation) && !strings.Contains(lines[i], "╰") {
+			return top + i
+		}
+	}
+	t.Fatalf("relation %q not found in card %q", relation, card)
+	return -1
+}
+
+// cardLeft returns the rune column of the card's left border.
+func cardLeft(t *testing.T, out, card string) int {
+	t.Helper()
+	for _, l := range strings.Split(out, "\n") {
+		idx := strings.Index(l, "│ "+card)
+		if p := strings.Index(l, "┤ "+card); idx < 0 && p >= 0 {
+			idx = p
+		}
+		if idx >= 0 {
+			return len([]rune(l[:idx]))
+		}
+	}
+	t.Fatalf("card %q not found", card)
+	return -1
+}
+
+// cardRight returns the rune column of the card's right border.
+func cardRight(t *testing.T, out, card string) int {
+	t.Helper()
+	lines, _ := cardLines(t, out, card)
+	return cardLeft(t, out, card) + len([]rune(lines[0])) - 1
+}
+
+func runeAt(lines []string, y, x int) rune {
+	r := []rune(lines[y])
+	if x >= len(r) {
+		return 0
+	}
+	return r[x]
+}
+
+func portModel() *openfga.AuthorizationModel {
+	return &openfga.AuthorizationModel{
+		SchemaVersion: "1.1",
+		TypeDefinitions: []openfga.TypeDefinition{
+			{Type: "user"},
+			{Type: "group", Relations: map[string]openfga.Userset{"member": openfga.This()},
+				Metadata: &openfga.Metadata{Relations: map[string]openfga.RelationMetadata{
+					"member": {DirectlyRelatedUserTypes: []openfga.RelationReference{openfga.DirectType("user")}},
+				}}},
+			{Type: "doc", Relations: map[string]openfga.Userset{"viewer": openfga.This()},
+				Metadata: &openfga.Metadata{Relations: map[string]openfga.RelationMetadata{
+					"viewer": {DirectlyRelatedUserTypes: []openfga.RelationReference{
+						openfga.DirectType("user"), {Type: "group", Relation: "member"},
+					}},
+				}}},
+		},
+	}
+}
+
+func TestPortsAttachToViaAndTargetRelation(t *testing.T) {
+	g := ParseModel(portModel())
+	out := ansi.Strip(g.RenderDiagram())
+	lines := strings.Split(out, "\n")
+	vy := rowOf(t, out, "doc", "viewer")
+	if r := runeAt(lines, vy, cardRight(t, out, "doc")); r != '├' {
+		t.Errorf("source port should be on viewer row, got %q", r)
+	}
+	my := rowOf(t, out, "group", "member")
+	if r := runeAt(lines, my, cardLeft(t, out, "group")); r != '┤' {
+		t.Errorf("target port should be on member row, got %q", r)
+	}
+}
+
+func TestLeafEdgesNotRouted(t *testing.T) {
+	g := ParseModel(portModel())
+	out := ansi.Strip(g.RenderDiagram())
+	lines := strings.Split(out, "\n")
+	x := cardLeft(t, out, "user")
+	_, top := cardLines(t, out, "user")
+	ul, _ := cardLines(t, out, "user")
+	for y := top; y < top+len(ul); y++ {
+		if r := runeAt(lines, y, x); r != '│' && r != '╭' && r != '╰' {
+			t.Errorf("user left border row %d holds %q", y, r)
+		}
+	}
+}
+
+func ttuModel() *openfga.AuthorizationModel {
+	return &openfga.AuthorizationModel{
+		SchemaVersion: "1.1",
+		TypeDefinitions: []openfga.TypeDefinition{
+			{Type: "user"},
+			{Type: "folder", Relations: map[string]openfga.Userset{"viewer": openfga.This()},
+				Metadata: &openfga.Metadata{Relations: map[string]openfga.RelationMetadata{
+					"viewer": {DirectlyRelatedUserTypes: []openfga.RelationReference{openfga.DirectType("user")}},
+				}}},
+			{Type: "doc", Relations: map[string]openfga.Userset{
+				"parent": openfga.This(),
+				"viewer": openfga.TupleTo("parent", "viewer"),
+			}, Metadata: &openfga.Metadata{Relations: map[string]openfga.RelationMetadata{
+				"parent": {DirectlyRelatedUserTypes: []openfga.RelationReference{openfga.DirectType("folder")}},
+			}}},
+		},
+	}
+}
+
+func TestTTUEdgeLandsOnTitleAndSuppressesDirect(t *testing.T) {
+	g := ParseModel(ttuModel())
+	plain := ansi.Strip(g.RenderDiagram())
+	lines := strings.Split(plain, "\n")
+
+	rx := cardRight(t, plain, "doc")
+	_, dtop := cardLines(t, plain, "doc")
+	dl, _ := cardLines(t, plain, "doc")
+	var ports []int
+	for y := dtop; y < dtop+len(dl); y++ {
+		if runeAt(lines, y, rx) == '├' {
+			ports = append(ports, y)
+		}
+	}
+	if len(ports) != 1 || ports[0] != rowOf(t, plain, "doc", "parent") {
+		t.Errorf("want exactly one source port on parent row, got %v", ports)
+	}
+
+	lx := cardLeft(t, plain, "folder")
+	fl, ftop := cardLines(t, plain, "folder")
+	for y := ftop; y < ftop+len(fl); y++ {
+		r := runeAt(lines, y, lx)
+		if y == ftop+1 && r != '┤' {
+			t.Errorf("folder title row should hold target port, got %q", r)
+		}
+		if y != ftop+1 && r == '┤' {
+			t.Errorf("unexpected target port on folder row %d", y)
+		}
+	}
+
+	// Colour: the doc source port must be amber (ttu), not green. Cells of the
+	// same colour are merged into one escape run, so match the run prefix.
+	cell := strings.Split(g.RenderDiagram(), "\n")[ports[0]]
+	amber := strings.TrimSuffix(colorRune('x', style.Amber), "x\x1b[m")
+	green := strings.TrimSuffix(colorRune('x', style.Green), "x\x1b[m")
+	if !strings.Contains(cell, amber+"├") {
+		t.Errorf("source port should be amber: %q", cell)
+	}
+	if strings.Contains(cell, green+"├") {
+		t.Errorf("no green port expected on doc row: %q", cell)
+	}
+}
+
+func TestMissingViaFallsBackToTitle(t *testing.T) {
+	g := Graph{
+		Types: []TypeNode{
+			{Name: "a", Relations: []Relation{{Name: "x"}}},
+			{Name: "b", Relations: []Relation{{Name: "y"}}},
+		},
+		Edges: []DiagramEdge{{From: "a", To: "b", Kind: "ttu", Via: "nope"}},
+	}
+	out := ansi.Strip(g.RenderDiagram())
+	lines := strings.Split(out, "\n")
+	_, top := cardLines(t, out, "a")
+	if r := runeAt(lines, top+1, cardRight(t, out, "a")); r != '├' {
+		t.Errorf("port should sit on a's title row, got %q", r)
+	}
+}
+
+func TestUsersetAndTypeEdgesLandSeparately(t *testing.T) {
+	m := portModel()
+	m.TypeDefinitions[2].Metadata.Relations["viewer"] = openfga.RelationMetadata{
+		DirectlyRelatedUserTypes: []openfga.RelationReference{
+			openfga.DirectType("group"), {Type: "group", Relation: "member"},
+		},
+	}
+	out := ansi.Strip(ParseModel(m).RenderDiagram())
+	lines := strings.Split(out, "\n")
+	x := cardLeft(t, out, "group")
+	_, top := cardLines(t, out, "group")
+	if r := runeAt(lines, top+1, x); r != '┤' {
+		t.Errorf("title row should hold a port, got %q", r)
+	}
+	if r := runeAt(lines, rowOf(t, out, "group", "member"), x); r != '┤' {
+		t.Errorf("member row should hold a port, got %q", r)
+	}
 }
