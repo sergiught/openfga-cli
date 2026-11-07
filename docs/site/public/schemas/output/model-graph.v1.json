@@ -12,6 +12,9 @@
         "to": {
           "type": "string"
         },
+        "to_relation": {
+          "type": "string"
+        },
         "via": {
           "type": "string"
         }
