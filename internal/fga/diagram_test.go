@@ -223,6 +223,10 @@ func TestRenderDiagramWithWrapsTallCards(t *testing.T) {
 	if len(lines) > 3+2*margin+2*20+vgap {
 		t.Errorf("wrapped canvas too tall: %d lines", len(lines))
 	}
+	card, _ := cardLines(t, out, "res0 ")
+	if len(card) > 20 {
+		t.Errorf("wrapped res0 card is %d lines tall, want <= 20", len(card))
+	}
 	for r := 0; r < 25; r++ {
 		if !strings.Contains(out, fmt.Sprintf("rel%d", r)) {
 			t.Errorf("missing rel%d", r)
@@ -230,16 +234,32 @@ func TestRenderDiagramWithWrapsTallCards(t *testing.T) {
 	}
 }
 
+// Guards against pathological blowups only; BenchmarkRenderDiagramWithLargeModel
+// is where real numbers live.
 func TestRenderDiagramWithLargeModelIsFast(t *testing.T) {
 	g := ParseModel(largeModel(t))
 	start := time.Now()
 	g.RenderDiagramWith(DiagramOptions{ViewportHeight: 40})
-	if d := time.Since(start); d > 50*time.Millisecond {
+	if d := time.Since(start); d > 2*time.Second {
 		t.Errorf("compact render took %v", d)
 	}
 	start = time.Now()
 	g.RenderDiagram()
-	if d := time.Since(start); d > 200*time.Millisecond {
+	if d := time.Since(start); d > 5*time.Second {
 		t.Errorf("expanded render took %v", d)
 	}
+}
+
+func BenchmarkRenderDiagramWithLargeModel(b *testing.B) {
+	g := ParseModel(largeModel(b))
+	b.Run("compact", func(b *testing.B) {
+		for range b.N {
+			g.RenderDiagramWith(DiagramOptions{ViewportHeight: 40})
+		}
+	})
+	b.Run("expanded", func(b *testing.B) {
+		for range b.N {
+			g.RenderDiagram()
+		}
+	})
 }

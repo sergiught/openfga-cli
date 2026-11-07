@@ -11,7 +11,7 @@ import (
 
 // largeModel loads the synthetic 22-type model used by the diagram
 // performance and wrapping tests.
-func largeModel(t *testing.T) *openfga.AuthorizationModel {
+func largeModel(t testing.TB) *openfga.AuthorizationModel {
 	t.Helper()
 
 	dsl, err := os.ReadFile("testdata/large_model.fga")
