@@ -593,44 +593,60 @@ func routeEdges(c *canvas, boxes []*nodeBox, edges []DiagramEdge) {
 		return sorted[i].From < sorted[j].From
 	})
 
-	// Every arrowhead cell (the gutter cell left of a target port) is an
-	// obstacle to every other path: a trunk running through it would have to
-	// share the cell with the arrowhead and one of the two would be cut.
-	// Edges ending on the same cell share one arrowhead, so each edge unblocks
-	// only its own goal while it routes.
-	type endpoints struct{ start, goal [2]int }
-	ends := make([]endpoints, len(sorted))
-	for i, e := range sorted {
-		src, dst := byType[e.From], byType[e.To]
-		if src == nil || dst == nil {
-			continue
-		}
-		ends[i] = endpoints{
-			start: [2]int{src.x + src.w, sourcePortRow(src, e)}, // gutter cell right of source
-			goal:  [2]int{dst.x - 1, targetPortRow(dst, e)},     // gutter cell left of target
-		}
-		if g := ends[i].goal; !oob(c, g[0], g[1]) {
-			blocked[g[1]][g[0]] = true
+	// The two gutter columns left of every card are reserved: the arrow column
+	// (x-1) holds nothing but arrowheads, and the trunk lane (x-2) only carries
+	// edges bound for that card. Through traffic to other cards routes further
+	// out (hgap leaves eight free columns), so a card's bundle reads as one
+	// trunk with arrows branching off and never crosses another bundle.
+	lane := make([][]string, c.h)
+	for y := range lane {
+		lane[y] = make([]string, c.w)
+	}
+	for _, b := range boxes {
+		for y := b.y; y < b.y+b.h && y < c.h; y++ {
+			if b.x-1 >= 0 {
+				blocked[y][b.x-1] = true
+			}
+			if b.x-2 >= 0 {
+				lane[y][b.x-2] = b.typ
+			}
 		}
 	}
 
-	for i, e := range sorted {
-		dst := byType[e.To]
-		if byType[e.From] == nil || dst == nil {
+	for _, e := range sorted {
+		src, dst := byType[e.From], byType[e.To]
+		if src == nil || dst == nil || dst.x < 2 {
 			continue
 		}
-		start, goal := ends[i].start, ends[i].goal
-		if oob(c, goal[0], goal[1]) {
+		start := [2]int{src.x + src.w, sourcePortRow(src, e)} // gutter cell right of source
+		ty := targetPortRow(dst, e)
+		if oob(c, dst.x-1, ty) {
 			continue
 		}
-		blocked[goal[1]][goal[0]] = false
-		path := routeAStar(c, blocked, used, usedBy, dst.typ, start, goal)
-		blocked[goal[1]][goal[0]] = true
+		// Phase one: find the cheapest way onto the target's trunk lane.
+		// Phase two: ride the lane to the port row and step into the arrow
+		// cell. Every edge into a card therefore shares the one trunk.
+		path := routeAStar(c, blocked, lane, used, usedBy, dst.typ, start, dst.x-2, dst.y, dst.y+dst.h-1)
 		if path == nil {
 			continue
 		}
+		for y := path[len(path)-1][1]; y != ty; {
+			y += sign(ty - y)
+			path = append(path, [2]int{dst.x - 2, y})
+		}
+		path = append(path, [2]int{dst.x - 1, ty})
 		paintPath(c, path, used, usedBy, dst.typ, edgeColor(e.Kind))
 	}
+}
+
+func sign(n int) int {
+	switch {
+	case n < 0:
+		return -1
+	case n > 0:
+		return 1
+	}
+	return 0
 }
 
 func obstacleGrid(c *canvas, boxes []*nodeBox) [][]bool {
@@ -724,19 +740,22 @@ func (p *pq) Push(x any)        { n := x.(*aStarNode); n.index = len(*p); *p = a
 func (p *pq) Pop() any          { old := *p; n := old[len(old)-1]; *p = old[:len(old)-1]; return n }
 
 const (
-	stepCost     = 1
-	turnPenalty  = 5
-	reusePenalty = 3
+	stepCost     = 2
+	siblingCost  = 1 // cell already carrying an edge into the same card
+	turnPenalty  = 10
+	reusePenalty = 6
 )
 
-// routeAStar finds an orthogonal path from start to goal avoiding blocked cells,
-// preferring straight runs (turn penalty) and avoiding already-drawn edge cells
-// (reuse penalty) so parallel edges fan out into separate channels.
-func routeAStar(c *canvas, blocked [][]bool, used map[[2]int]bool, usedBy map[[2]int]string, dstType string, start, goal [2]int) [][2]int {
-	if oob(c, start[0], start[1]) || oob(c, goal[0], goal[1]) {
+// routeAStar finds an orthogonal path from start onto the trunk lane at column
+// laneX between rows laneY0 and laneY1, avoiding blocked cells and lanes
+// reserved for other destination types. It prefers straight runs (turn
+// penalty) and avoids already-drawn edge cells (reuse penalty) so parallel
+// edges fan out into separate channels.
+func routeAStar(c *canvas, blocked [][]bool, lane [][]string, used map[[2]int]bool, usedBy map[[2]int]string, dstType string, start [2]int, laneX, laneY0, laneY1 int) [][2]int {
+	if oob(c, start[0], start[1]) || oob(c, laneX, laneY0) {
 		return nil
 	}
-	h := func(x, y int) int { return abs(x-goal[0]) + abs(y-goal[1]) }
+	h := func(x, y int) int { return abs(x-laneX) + max(0, laneY0-y, y-laneY1) }
 	type key struct{ x, y, dir int }
 	best := map[key]int{}
 	parent := map[key]key{}
@@ -757,9 +776,7 @@ func routeAStar(c *canvas, blocked [][]bool, used map[[2]int]bool, usedBy map[[2
 		if g, ok := best[ck]; ok && cur.g > g {
 			continue
 		}
-		// Require the target to be entered heading east so the arrowhead always
-		// points into the card rather than running vertically alongside it.
-		if cur.x == goal[0] && cur.y == goal[1] && cur.dir == 0 {
+		if cur.x == laneX && cur.y >= laneY0 && cur.y <= laneY1 {
 			goalKey = ck
 			found = true
 			break
@@ -772,14 +789,18 @@ func routeAStar(c *canvas, blocked [][]bool, used map[[2]int]bool, usedBy map[[2
 			if oob(c, nx, ny) || blocked[ny][nx] {
 				continue
 			}
+			if l := lane[ny][nx]; l != "" && l != dstType {
+				continue
+			}
 			step := stepCost
 			if used[[2]int{nx, ny}] {
 				if usedBy[[2]int{nx, ny}] == dstType {
-					// A sibling edge heading to the same node already passes
-					// here; travelling along its trunk is free so the paths
-					// merge onto one shared "last vertical line" instead of
-					// running parallel lanes. (Kept non-negative for A*.)
-					step = 0
+					// A sibling edge heading to the same card already passes
+					// here; riding its feeder is cheaper than a fresh cell so
+					// siblings merge, but not free, so an edge joins the trunk
+					// lane where the feeder first meets it instead of riding
+					// on and branching into the lane a second time.
+					step = siblingCost
 				} else {
 					step += reusePenalty
 				}

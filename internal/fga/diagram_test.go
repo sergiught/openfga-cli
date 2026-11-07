@@ -583,3 +583,45 @@ func TestDiagramLinesAreContinuous(t *testing.T) {
 		}
 	}
 }
+
+// Every edge into a card rides one trunk in the lane two cells left of it and
+// branches into the arrow column: the arrow column holds only arrowheads, the
+// lane cell feeds each arrowhead, and no second trunk one cell further out
+// branches into an arrow row (a ├ there is a parallel trunk; a ┼ is just
+// through traffic crossing an entry).
+func TestEdgesIntoCardShareOneTrunk(t *testing.T) {
+	large, stacked := ParseModel(largeModel(t)), ParseModel(stackedModel(t))
+	for name, tc := range map[string]struct {
+		g   Graph
+		opt DiagramOptions
+	}{
+		"large/compact":    {large, DiagramOptions{ViewportHeight: 47}},
+		"large/expanded":   {large, DiagramOptions{Expanded: ExpandAll(large), ViewportHeight: 47}},
+		"stacked/compact":  {stacked, DiagramOptions{ViewportHeight: 47}},
+		"stacked/expanded": {stacked, DiagramOptions{Expanded: ExpandAll(stacked), ViewportHeight: 47}},
+	} {
+		out, cards := tc.g.RenderDiagramLayout(tc.opt)
+		lines := strings.Split(ansi.Strip(out), "\n")
+		arrows := 0
+		for _, b := range cards {
+			for y := b.Y; y < b.Y+b.H; y++ {
+				switch r := runeAt(lines, y, b.X-1); r {
+				case ' ', 0:
+				case '▸':
+					arrows++
+					if arms, _ := armsOf(runeAt(lines, y, b.X-2)); arms&armE == 0 {
+						t.Errorf("%s: %s row %d arrow not fed from the trunk lane", name, b.Type, y)
+					}
+					if arms, _ := armsOf(runeAt(lines, y, b.X-3)); arms == armN|armS|armE {
+						t.Errorf("%s: %s row %d fed by a second trunk outside the lane", name, b.Type, y)
+					}
+				default:
+					t.Errorf("%s: %s row %d arrow column holds %q", name, b.Type, y, r)
+				}
+			}
+		}
+		if arrows == 0 {
+			t.Fatalf("%s: no arrowheads found", name)
+		}
+	}
+}

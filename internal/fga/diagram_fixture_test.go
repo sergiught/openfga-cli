@@ -13,8 +13,21 @@ import (
 // performance and wrapping tests.
 func largeModel(t testing.TB) *openfga.AuthorizationModel {
 	t.Helper()
+	return fixtureModel(t, "large_model.fga")
+}
 
-	dsl, err := os.ReadFile("testdata/large_model.fga")
+// stackedModel loads a model whose layout stacks organization above sheet in
+// one column, with document and folder feeding both, so sheet's bundle has
+// to coexist with through traffic bound for organization.
+func stackedModel(t testing.TB) *openfga.AuthorizationModel {
+	t.Helper()
+	return fixtureModel(t, "stacked_model.fga")
+}
+
+func fixtureModel(t testing.TB, name string) *openfga.AuthorizationModel {
+	t.Helper()
+
+	dsl, err := os.ReadFile("testdata/" + name)
 	if err != nil {
 		t.Fatal(err)
 	}
