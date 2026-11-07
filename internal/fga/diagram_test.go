@@ -514,3 +514,72 @@ func TestBothTupleRelationsCarryPorts(t *testing.T) {
 		}
 	}
 }
+
+// lineArms returns the connection arms of a canvas glyph, treating arrowheads
+// as a line continuing in their direction.
+func lineArms(r rune) (int, bool) {
+	switch r {
+	case '▸', '◂':
+		return armE | armW, true
+	case '▾', '▴':
+		return armN | armS, true
+	}
+	return armsOf(r)
+}
+
+// brokenJoins lists every line glyph whose arm points at a neighbouring line
+// glyph that has no matching arm: a trunk cut by a crossing, a corner painted
+// over a junction, a port whose path leaves without a bend. Free ends (a
+// neighbour that is not a line glyph) are not reported, so card borders and
+// the legend do not count.
+func brokenJoins(plain string) []string {
+	rows := strings.Split(plain, "\n")
+	grid := make([][]rune, len(rows))
+	for i, r := range rows {
+		grid[i] = []rune(r)
+	}
+	at := func(x, y int) rune {
+		if y < 0 || y >= len(grid) || x < 0 || x >= len(grid[y]) {
+			return ' '
+		}
+		return grid[y][x]
+	}
+	var out []string
+	for y := range grid {
+		for x, r := range grid[y] {
+			a, ok := lineArms(r)
+			if !ok {
+				continue
+			}
+			check := func(arm, dx, dy, need int) {
+				if a&arm == 0 {
+					return
+				}
+				n := at(x+dx, y+dy)
+				na, ok := lineArms(n)
+				if !ok || na&need != 0 {
+					return
+				}
+				out = append(out, fmt.Sprintf("(%d,%d) %q arm->%q", x, y, r, n))
+			}
+			check(armE, 1, 0, armW)
+			check(armW, -1, 0, armE)
+			check(armS, 0, 1, armN)
+			check(armN, 0, -1, armS)
+		}
+	}
+	return out
+}
+
+func TestDiagramLinesAreContinuous(t *testing.T) {
+	g := ParseModel(largeModel(t))
+	for name, opt := range map[string]DiagramOptions{
+		"compact":  {ViewportHeight: 47},
+		"expanded": {Expanded: ExpandAll(g), ViewportHeight: 47},
+	} {
+		out, _ := g.RenderDiagramLayout(opt)
+		if bad := brokenJoins(ansi.Strip(out)); len(bad) > 0 {
+			t.Errorf("%s: %d cut lines, first %v", name, len(bad), bad[:min(5, len(bad))])
+		}
+	}
+}

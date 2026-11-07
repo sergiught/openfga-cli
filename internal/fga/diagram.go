@@ -593,16 +593,39 @@ func routeEdges(c *canvas, boxes []*nodeBox, edges []DiagramEdge) {
 		return sorted[i].From < sorted[j].From
 	})
 
-	for _, e := range sorted {
+	// Every arrowhead cell (the gutter cell left of a target port) is an
+	// obstacle to every other path: a trunk running through it would have to
+	// share the cell with the arrowhead and one of the two would be cut.
+	// Edges ending on the same cell share one arrowhead, so each edge unblocks
+	// only its own goal while it routes.
+	type endpoints struct{ start, goal [2]int }
+	ends := make([]endpoints, len(sorted))
+	for i, e := range sorted {
 		src, dst := byType[e.From], byType[e.To]
 		if src == nil || dst == nil {
 			continue
 		}
-		sy := sourcePortRow(src, e)
-		ty := targetPortRow(dst, e)
-		start := [2]int{src.x + src.w, sy} // gutter cell right of source
-		goal := [2]int{dst.x - 1, ty}      // gutter cell left of target
+		ends[i] = endpoints{
+			start: [2]int{src.x + src.w, sourcePortRow(src, e)}, // gutter cell right of source
+			goal:  [2]int{dst.x - 1, targetPortRow(dst, e)},     // gutter cell left of target
+		}
+		if g := ends[i].goal; !oob(c, g[0], g[1]) {
+			blocked[g[1]][g[0]] = true
+		}
+	}
+
+	for i, e := range sorted {
+		dst := byType[e.To]
+		if byType[e.From] == nil || dst == nil {
+			continue
+		}
+		start, goal := ends[i].start, ends[i].goal
+		if oob(c, goal[0], goal[1]) {
+			continue
+		}
+		blocked[goal[1]][goal[0]] = false
 		path := routeAStar(c, blocked, used, usedBy, dst.typ, start, goal)
+		blocked[goal[1]][goal[0]] = true
 		if path == nil {
 			continue
 		}
@@ -790,9 +813,9 @@ func routeAStar(c *canvas, blocked [][]bool, used map[[2]int]bool, usedBy map[[2
 }
 
 // paintPath stamps a routed path with rounded corners, crossing glyphs, and a
-// terminal arrowhead. Where the path rides a trunk already laid by a sibling
-// edge (same destination), it unions the two glyphs into a proper T-junction so
-// the bundle reads as one line branching, not a stack of parallel lanes.
+// terminal arrowhead. Where the path shares a cell with an edge already drawn,
+// it unions the two glyphs so a trunk ridden by a sibling edge reads as one
+// line branching and an unrelated crossing keeps both lines intact.
 func paintPath(c *canvas, path [][2]int, used map[[2]int]bool, usedBy map[[2]int]string, dstType string, col color.Color) {
 	dirOf := func(a, b [2]int) int {
 		switch {
@@ -814,21 +837,23 @@ func paintPath(c *canvas, path [][2]int, used map[[2]int]bool, usedBy map[[2]int
 			in := dirOf(path[i-1], p)
 			r = arrowFor(in)
 		case i == 0:
+			// The first gutter cell continues the source port to its left, so
+			// a path that leaves vertically starts with a corner, not a bar.
 			out := dirOf(p, path[i+1])
-			r = lineFor(out)
+			r = glyphOfArms(armW | armOfDir(out))
 		default:
 			in := dirOf(path[i-1], p)
 			out := dirOf(p, path[i+1])
 			r = glyphFor(in, out)
 		}
-		cur := c.at(p[0], p[1])
-		switch {
-		case used[cell] && usedBy[cell] == dstType:
-			// Bundle onto a sibling's trunk: merge the arms into a junction.
+		// Overlapping edges, bundled or merely crossing, union their arms so
+		// neither line is cut: a sibling trunk becomes a T-junction, a plain
+		// crossing becomes ┼, and a corner landing on a trunk keeps the trunk.
+		// An arrowhead already on the cell is kept; a line never erases it.
+		if cur := c.at(p[0], p[1]); isArrowhead(cur) && i != len(path)-1 {
+			r = cur
+		} else {
 			r = mergeGlyph(cur, r)
-		case (cur == '│' && r == '─') || (cur == '─' && r == '│'):
-			// Unrelated edges crossing: mark with a simple crossing.
-			r = '┼'
 		}
 		used[cell] = true
 		usedBy[cell] = dstType
@@ -937,6 +962,15 @@ func glyphFor(in, out int) rune {
 		return '╰'
 	}
 	return lineFor(out)
+}
+
+// armOfDir maps a routing direction (0=E 1=W 2=S 3=N) to its glyph arm.
+func armOfDir(d int) int {
+	return [4]int{armE, armW, armS, armN}[d]
+}
+
+func isArrowhead(r rune) bool {
+	return r == '▸' || r == '◂' || r == '▾' || r == '▴'
 }
 
 func arrowFor(dir int) rune {
