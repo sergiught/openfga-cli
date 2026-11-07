@@ -347,15 +347,17 @@ func TestPortsAttachToViaAndTargetRelation(t *testing.T) {
 	}
 }
 
-func TestLeafEdgesNotRouted(t *testing.T) {
+func TestLeafEdgesLandOnTitleRow(t *testing.T) {
 	g := ParseModel(portModel())
 	out := ansi.Strip(g.RenderDiagram())
 	lines := strings.Split(out, "\n")
 	x := cardLeft(t, out, "user")
-	_, top := cardLines(t, out, "user")
-	ul, _ := cardLines(t, out, "user")
-	for y := top; y < top+len(ul); y++ {
-		if r := runeAt(lines, y, x); r != '│' && r != '╭' && r != '╰' {
+	ul, top := cardLines(t, out, "user")
+	if r := runeAt(lines, top+1, x); r != '┤' {
+		t.Errorf("user title row should carry a target port, got %q", r)
+	}
+	for y := top + 2; y < top+len(ul); y++ {
+		if r := runeAt(lines, y, x); r != '│' && r != '╰' {
 			t.Errorf("user left border row %d holds %q", y, r)
 		}
 	}
@@ -411,8 +413,10 @@ func TestTTUEdgeLandsOnTitleAndSuppressesDirect(t *testing.T) {
 	}
 
 	// Colour: the doc source port must be amber (ttu), not green. Cells of the
-	// same colour are merged into one escape run, so match the run prefix.
-	cell := strings.Split(g.RenderDiagram(), "\n")[ports[0]]
+	// same colour are merged into one escape run, so match the run prefix. Cut
+	// the line at doc's right border so folder's own green edge (to user) on
+	// the same canvas row is not mistaken for a doc port.
+	cell := ansi.Cut(strings.Split(g.RenderDiagram(), "\n")[ports[0]], 0, rx+2)
 	amber := strings.TrimSuffix(colorRune('x', style.Amber), "x\x1b[m")
 	green := strings.TrimSuffix(colorRune('x', style.Green), "x\x1b[m")
 	if !strings.Contains(cell, amber+"├") {

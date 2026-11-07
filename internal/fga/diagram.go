@@ -645,8 +645,9 @@ func targetPortRow(b *nodeBox, e DiagramEdge) int {
 	return b.rowY[""]
 }
 
-// routableEdges drops edges to relation-less boxes (leaf types such as user)
-// and direct edges made redundant by a ttu edge over the same tupleset.
+// routableEdges drops edges to types absent from the layout and direct edges
+// made redundant by a ttu edge over the same tupleset. Edges into relation-less
+// leaf types (such as user) are kept and land on the leaf card's title row.
 func routableEdges(edges []DiagramEdge, byType map[string]*nodeBox) []DiagramEdge {
 	type key struct{ from, to, via string }
 	ttu := map[key]bool{}
@@ -657,8 +658,7 @@ func routableEdges(edges []DiagramEdge, byType map[string]*nodeBox) []DiagramEdg
 	}
 	out := make([]DiagramEdge, 0, len(edges))
 	for _, e := range edges {
-		dst := byType[e.To]
-		if dst == nil || len(dst.rows) == 0 {
+		if byType[e.To] == nil {
 			continue
 		}
 		if e.Kind == "direct" && ttu[key{e.From, e.To, e.Via}] {
