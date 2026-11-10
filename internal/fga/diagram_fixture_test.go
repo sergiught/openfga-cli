@@ -24,6 +24,13 @@ func stackedModel(t testing.TB) *openfga.AuthorizationModel {
 	return fixtureModel(t, "stacked_model.fga")
 }
 
+// stressModel loads a 22-type, 900-relation model whose stacked columns wall
+// off most of the canvas, the case that once made edge routing take seconds.
+func stressModel(t testing.TB) *openfga.AuthorizationModel {
+	t.Helper()
+	return fixtureModel(t, "stress_model.fga")
+}
+
 func fixtureModel(t testing.TB, name string) *openfga.AuthorizationModel {
 	t.Helper()
 

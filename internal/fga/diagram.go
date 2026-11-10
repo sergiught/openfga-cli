@@ -1,8 +1,9 @@
 package fga
 
 import (
-	"container/heap"
 	"image/color"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -26,6 +27,10 @@ type DiagramOptions struct {
 	Expanded       map[string]bool // types drawn with full rows; nil/empty = all compact
 	Selected       string          // type whose border is highlighted; "" none
 	ViewportHeight int             // wrap cards taller than this; 0 = never wrap
+	// FocusEdges draws only the edges into or out of Selected, so a large
+	// model reads as one card's neighbourhood. Cards stay where they would be
+	// with every edge drawn. Ignored when Selected is "".
+	FocusEdges bool
 }
 
 // ExpandAll returns an Expanded set naming every type of g.
@@ -55,21 +60,97 @@ type CardBounds struct {
 // RenderDiagramLayout is RenderDiagramWith that also reports where each type's
 // card sits, sorted by X then Y (layout order).
 func (g Graph) RenderDiagramLayout(opts DiagramOptions) (string, []CardBounds) {
+	return g.RenderDiagramCached(nil, opts)
+}
+
+// DiagramCache keeps the most recent layout and edge routing so a render that
+// changes only DiagramOptions.Selected skips both, the costly part of drawing
+// a large model. The zero value is ready to use; it is not safe for
+// concurrent use.
+type DiagramCache struct {
+	types    []TypeNode // identifies the graph the cached layout belongs to
+	expanded map[string]bool
+	height   int
+	focus    string // Selected when the routing drew only its edges, else ""
+	routed   *routedDiagram
+}
+
+// routedDiagram is a laid-out diagram with its edges drawn but no cards yet.
+type routedDiagram struct {
+	boxes  []*nodeBox
+	shown  []DiagramEdge // the edges drawn
+	edges  *canvas
+	header string
+	bounds []CardBounds
+}
+
+// RenderDiagramCached is RenderDiagramLayout reusing cache's layout when only
+// the selection changed since the last call. A nil cache always re-routes.
+func (g Graph) RenderDiagramCached(cache *DiagramCache, opts DiagramOptions) (string, []CardBounds) {
 	if len(g.Types) == 0 {
 		return style.Faint.Render("no authorization model in this store"), nil
 	}
 
+	var r *routedDiagram
+	if cache != nil && cache.matches(g, opts) {
+		r = cache.routed
+	} else {
+		r = g.routeDiagram(opts)
+		if cache != nil {
+			*cache = DiagramCache{types: g.Types, expanded: maps.Clone(opts.Expanded), height: opts.ViewportHeight, focus: focusOf(opts), routed: r}
+		}
+	}
+
+	c := r.edges.clone()
+	for _, b := range r.boxes {
+		drawBox(c, b, b.typ == opts.Selected)
+	}
+	drawPorts(c, r.boxes, r.shown)
+	return r.header + "\n\n" + c.String(), slices.Clone(r.bounds)
+}
+
+func (dc *DiagramCache) matches(g Graph, opts DiagramOptions) bool {
+	if dc.routed == nil || len(dc.types) != len(g.Types) || &dc.types[0] != &g.Types[0] || dc.height != opts.ViewportHeight || dc.focus != focusOf(opts) {
+		return false
+	}
+	for _, t := range g.Types {
+		if dc.expanded[t.Name] != opts.Expanded[t.Name] {
+			return false
+		}
+	}
+	return true
+}
+
+// focusOf returns the type whose edges alone are drawn, or "" for all edges.
+func focusOf(opts DiagramOptions) string {
+	if opts.FocusEdges {
+		return opts.Selected
+	}
+	return ""
+}
+
+// routeDiagram lays out the cards and routes the edges between them: every
+// part of a render that does not depend on the selection (beyond which edges
+// FocusEdges keeps).
+func (g Graph) routeDiagram(opts DiagramOptions) *routedDiagram {
 	boxes := g.buildBoxes(opts)
+	// Layout always sees every edge, so cards keep their place as the
+	// focused selection moves.
 	layoutBoxes(boxes, g.Edges)
+
+	shown := g.Edges
+	if focus := focusOf(opts); focus != "" {
+		shown = nil
+		for _, e := range g.Edges {
+			if e.From == focus || e.To == focus {
+				shown = append(shown, e)
+			}
+		}
+	}
 
 	w, h := canvasBounds(boxes)
 	c := newCanvas(w, h)
-
-	routeEdges(c, boxes, g.Edges)
-	for _, b := range boxes {
-		drawBox(c, b, b.typ == opts.Selected)
-	}
-	drawPorts(c, boxes, g.Edges)
+	routeEdges(c, boxes, shown)
 
 	allExpanded := true
 	for _, t := range g.Types {
@@ -78,7 +159,7 @@ func (g Graph) RenderDiagramLayout(opts DiagramOptions) (string, []CardBounds) {
 			break
 		}
 	}
-	header := g.diagramHeader(allExpanded)
+	header := g.diagramHeader(allExpanded, focusOf(opts))
 	headerLines := strings.Count(header, "\n") + 2
 	bounds := make([]CardBounds, 0, len(boxes))
 	for _, b := range boxes {
@@ -90,11 +171,10 @@ func (g Graph) RenderDiagramLayout(opts DiagramOptions) (string, []CardBounds) {
 		}
 		return bounds[i].Y < bounds[j].Y
 	})
-
-	return header + "\n\n" + c.String(), bounds
+	return &routedDiagram{boxes: boxes, shown: shown, edges: c, header: header, bounds: bounds}
 }
 
-func (g Graph) diagramHeader(allExpanded bool) string {
+func (g Graph) diagramHeader(allExpanded bool, focus string) string {
 	parts := []string{
 		colorRune('─', style.Green) + " " + style.Faint.Render("direct"),
 		colorRune('─', style.Amber) + " " + style.Faint.Render("inherited (tuple-to-userset)"),
@@ -102,6 +182,9 @@ func (g Graph) diagramHeader(allExpanded bool) string {
 	}
 	if !allExpanded {
 		parts = append(parts, style.Faint.Render("tab/enter expand"))
+	}
+	if focus != "" {
+		parts = append(parts, style.Faint.Render("lines of "+style.SanitizeTerminal(focus)+" only · a all"))
 	}
 	legend := strings.Join(parts, "    ")
 	return style.Subtitle.Render("schema "+style.SanitizeTerminal(g.SchemaVersion)) + "    " + legend + "\n" + weightLegend()
@@ -437,6 +520,14 @@ func newCanvas(w, h int) *canvas {
 	return c
 }
 
+func (c *canvas) clone() *canvas {
+	out := &canvas{w: c.w, h: c.h, cells: make([][]scell, c.h)}
+	for y, row := range c.cells {
+		out.cells[y] = slices.Clone(row)
+	}
+	return out
+}
+
 func (c *canvas) set(x, y int, s scell) {
 	if x < 0 || y < 0 || x >= c.w || y >= c.h {
 		return
@@ -577,10 +668,13 @@ func drawPorts(c *canvas, boxes []*nodeBox, edges []DiagramEdge) {
 // --- edge routing (A* around the boxes) ---
 
 func routeEdges(c *canvas, boxes []*nodeBox, edges []DiagramEdge) {
-	blocked := obstacleGrid(c, boxes)
-	used := map[[2]int]bool{}
-	usedBy := map[[2]int]string{} // cell -> destination type occupying it
+	grid := newRouteGrid(c, boxes)
+	search := newAStarScratch(c.w * c.h)
 	byType := indexBoxes(boxes)
+	ids := make(map[string]int32, len(boxes))
+	for i, b := range boxes {
+		ids[b.typ] = int32(i + 1)
+	}
 
 	// Stable order so port assignment is deterministic. Grouping by target
 	// (To) first lets edges that converge on the same node bundle onto a shared
@@ -598,17 +692,13 @@ func routeEdges(c *canvas, boxes []*nodeBox, edges []DiagramEdge) {
 	// edges bound for that card. Through traffic to other cards routes further
 	// out (hgap leaves eight free columns), so a card's bundle reads as one
 	// trunk with arrows branching off and never crosses another bundle.
-	lane := make([][]string, c.h)
-	for y := range lane {
-		lane[y] = make([]string, c.w)
-	}
 	for _, b := range boxes {
 		for y := b.y; y < b.y+b.h && y < c.h; y++ {
 			if b.x-1 >= 0 {
-				blocked[y][b.x-1] = true
+				grid.blocked[y*c.w+b.x-1] = true
 			}
 			if b.x-2 >= 0 {
-				lane[y][b.x-2] = b.typ
+				grid.lane[y*c.w+b.x-2] = ids[b.typ]
 			}
 		}
 	}
@@ -626,7 +716,7 @@ func routeEdges(c *canvas, boxes []*nodeBox, edges []DiagramEdge) {
 		// Phase one: find the cheapest way onto the target's trunk lane.
 		// Phase two: ride the lane to the port row and step into the arrow
 		// cell. Every edge into a card therefore shares the one trunk.
-		path := routeAStar(c, blocked, lane, used, usedBy, dst.typ, start, dst.x-2, dst.y, dst.y+dst.h-1)
+		path := routeAStar(grid, search, ids[dst.typ], start, dst.x-2, dst.y, dst.y+dst.h-1)
 		if path == nil {
 			continue
 		}
@@ -635,7 +725,7 @@ func routeEdges(c *canvas, boxes []*nodeBox, edges []DiagramEdge) {
 			path = append(path, [2]int{dst.x - 2, y})
 		}
 		path = append(path, [2]int{dst.x - 1, ty})
-		paintPath(c, path, used, usedBy, dst.typ, edgeColor(e.Kind))
+		paintPath(c, path, grid.usedBy, ids[dst.typ], edgeColor(e.Kind))
 	}
 }
 
@@ -649,21 +739,39 @@ func sign(n int) int {
 	return 0
 }
 
-func obstacleGrid(c *canvas, boxes []*nodeBox) [][]bool {
-	g := make([][]bool, c.h)
-	for y := range g {
-		g[y] = make([]bool, c.w)
+// routeGrid is the routing state over the canvas, flattened row-major
+// (cell = y*w + x). Types are identified by a nonzero id; 0 means none.
+type routeGrid struct {
+	w, h    int
+	blocked []bool  // card cells and arrow columns
+	lane    []int32 // trunk-lane owner: only edges into that type may enter
+	usedBy  []int32 // destination type of the edge already drawn there
+}
+
+func newRouteGrid(c *canvas, boxes []*nodeBox) *routeGrid {
+	g := &routeGrid{
+		w: c.w, h: c.h,
+		blocked: make([]bool, c.w*c.h),
+		lane:    make([]int32, c.w*c.h),
+		usedBy:  make([]int32, c.w*c.h),
 	}
 	for _, b := range boxes {
-		for y := b.y; y < b.y+b.h; y++ {
-			for x := b.x; x < b.x+b.w; x++ {
-				if y >= 0 && y < c.h && x >= 0 && x < c.w {
-					g[y][x] = true
-				}
+		for y := max(0, b.y); y < b.y+b.h && y < c.h; y++ {
+			for x := max(0, b.x); x < b.x+b.w && x < c.w; x++ {
+				g.blocked[y*c.w+x] = true
 			}
 		}
 	}
 	return g
+}
+
+// passable reports whether an edge into dst may enter (x, y).
+func (g *routeGrid) passable(x, y int, dst int32) bool {
+	if x < 0 || y < 0 || x >= g.w || y >= g.h {
+		return false
+	}
+	i := y*g.w + x
+	return !g.blocked[i] && (g.lane[i] == 0 || g.lane[i] == dst)
 }
 
 // sourcePortRow is the row an edge leaves its source box from: the source
@@ -728,16 +836,74 @@ func opposite(d int) int {
 type aStarNode struct {
 	x, y, dir int
 	g, f      int
-	index     int
 }
 
-type pq []*aStarNode
+// bucketQueue is a monotone priority queue for A*: costs are small integers
+// and the heuristic is consistent (every step costs at least 1 and moves the
+// Manhattan estimate by at most 1), so popped f values never decrease and a
+// bucket per f gives O(1) push and pop. Within a bucket the newest state pops
+// first, which favours the deeper of equally promising states.
+type bucketQueue struct {
+	buckets [][]aStarNode
+	cur, n  int
+}
 
-func (p pq) Len() int           { return len(p) }
-func (p pq) Less(i, j int) bool { return p[i].f < p[j].f }
-func (p pq) Swap(i, j int)      { p[i], p[j] = p[j], p[i]; p[i].index = i; p[j].index = j }
-func (p *pq) Push(x any)        { n := x.(*aStarNode); n.index = len(*p); *p = append(*p, n) }
-func (p *pq) Pop() any          { old := *p; n := old[len(old)-1]; *p = old[:len(old)-1]; return n }
+func (q *bucketQueue) reset() {
+	for i := range q.buckets {
+		q.buckets[i] = q.buckets[i][:0]
+	}
+	q.cur, q.n = 0, 0
+}
+
+func (q *bucketQueue) push(n aStarNode) {
+	for n.f >= len(q.buckets) {
+		q.buckets = append(q.buckets, nil)
+	}
+	if n.f < q.cur { // cannot happen with a consistent heuristic; stay safe
+		q.cur = n.f
+	}
+	q.buckets[n.f] = append(q.buckets[n.f], n)
+	q.n++
+}
+
+func (q *bucketQueue) pop() aStarNode {
+	for len(q.buckets[q.cur]) == 0 {
+		q.cur++
+	}
+	b := q.buckets[q.cur]
+	n := b[len(b)-1]
+	q.buckets[q.cur] = b[:len(b)-1]
+	q.n--
+	return n
+}
+
+// aStarScratch holds the per-search state, indexed by (cell, direction) and
+// reused across every edge's search. A state belongs to the current search
+// only when its stamp matches gen, so starting a search costs no clearing.
+type aStarScratch struct {
+	gen    uint32
+	stamp  []uint32
+	closed []uint32
+	best   []int
+	parent []int // -1 for the start state
+	open   bucketQueue
+	// dist[cell] is the fewest steps from cell to the current target's trunk
+	// lane through free cells, the obstacle-aware part of the A* estimate.
+	// It depends only on static obstacles, so it is computed once per target.
+	dist     []int32
+	distFor  int32
+	frontier []int
+}
+
+func newAStarScratch(cells int) *aStarScratch {
+	return &aStarScratch{
+		stamp:  make([]uint32, cells*4),
+		closed: make([]uint32, cells*4),
+		best:   make([]int, cells*4),
+		parent: make([]int, cells*4),
+		dist:   make([]int32, cells),
+	}
+}
 
 const (
 	stepCost     = 2
@@ -746,39 +912,113 @@ const (
 	reusePenalty = 6
 )
 
+// fillDist runs a breadth-first search back from dstType's trunk lane over the
+// cells an edge into dstType may use, recording each cell's step count.
+func (s *aStarScratch) fillDist(g *routeGrid, dst int32, laneX, y0, y1 int) {
+	s.distFor = dst
+	for i := range s.dist {
+		s.dist[i] = -1
+	}
+	q := s.frontier[:0]
+	for y := max(0, y0); y <= y1 && y < g.h; y++ {
+		if laneX >= 0 && laneX < g.w {
+			s.dist[y*g.w+laneX] = 0
+			q = append(q, y*g.w+laneX)
+		}
+	}
+	for i := 0; i < len(q); i++ {
+		cell := q[i]
+		x, y := cell%g.w, cell/g.w
+		for d := 0; d < 4; d++ {
+			nx, ny := x+dirDX[d], y+dirDY[d]
+			if !g.passable(nx, ny, dst) {
+				continue
+			}
+			if n := ny*g.w + nx; s.dist[n] < 0 {
+				s.dist[n] = s.dist[cell] + 1
+				q = append(q, n)
+			}
+		}
+	}
+	s.frontier = q
+}
+
+// minTurns is a lower bound on the turns a path heading dir from (x, y) needs
+// to reach column laneX between rows y0 and y1, so the A* estimate can charge
+// turnPenalty for them and stay admissible.
+func minTurns(x, y, dir, laneX, y0, y1 int) int {
+	h, v := -1, -1 // direction still required on each axis, -1 when none
+	switch {
+	case laneX > x:
+		h = 0
+	case laneX < x:
+		h = 1
+	}
+	switch {
+	case y < y0:
+		v = 2
+	case y > y1:
+		v = 3
+	}
+	switch {
+	case h < 0 && v < 0:
+		return 0
+	case h >= 0 && v >= 0:
+		if dir == h || dir == v {
+			return 1
+		}
+		return 2
+	}
+	need := max(h, v)
+	switch {
+	case dir == need:
+		return 0
+	case dir == opposite(need):
+		return 2
+	default:
+		return 1
+	}
+}
+
 // routeAStar finds an orthogonal path from start onto the trunk lane at column
 // laneX between rows laneY0 and laneY1, avoiding blocked cells and lanes
 // reserved for other destination types. It prefers straight runs (turn
 // penalty) and avoids already-drawn edge cells (reuse penalty) so parallel
 // edges fan out into separate channels.
-func routeAStar(c *canvas, blocked [][]bool, lane [][]string, used map[[2]int]bool, usedBy map[[2]int]string, dstType string, start [2]int, laneX, laneY0, laneY1 int) [][2]int {
-	if oob(c, start[0], start[1]) || oob(c, laneX, laneY0) {
+func routeAStar(g *routeGrid, s *aStarScratch, dst int32, start [2]int, laneX, laneY0, laneY1 int) [][2]int {
+	if start[0] < 0 || start[1] < 0 || start[0] >= g.w || start[1] >= g.h || laneX < 0 || laneX >= g.w || laneY0 < 0 || laneY0 >= g.h {
 		return nil
 	}
-	h := func(x, y int) int { return abs(x-laneX) + max(0, laneY0-y, y-laneY1) }
-	type key struct{ x, y, dir int }
-	best := map[key]int{}
-	parent := map[key]key{}
-	hasParent := map[key]bool{}
+	if s.distFor != dst {
+		s.fillDist(g, dst, laneX, laneY0, laneY1)
+	}
+	if s.dist[start[1]*g.w+start[0]] < 0 {
+		return nil // walled off from the lane
+	}
+	// Admissible and consistent: every remaining step costs at least
+	// siblingCost and every remaining turn turnPenalty.
+	h := func(x, y, dir int) int {
+		return siblingCost*int(s.dist[y*g.w+x]) + turnPenalty*minTurns(x, y, dir, laneX, laneY0, laneY1)
+	}
+	key := func(x, y, dir int) int { return (y*g.w+x)*4 + dir }
+	s.gen++
+	s.open.reset()
 
-	open := &pq{}
-	heap.Init(open)
 	startDir := 0 // bias toward exiting east
-	sk := key{start[0], start[1], startDir}
-	best[sk] = 0
-	heap.Push(open, &aStarNode{x: start[0], y: start[1], dir: startDir, g: 0, f: h(start[0], start[1])})
+	sk := key(start[0], start[1], startDir)
+	s.stamp[sk], s.best[sk], s.parent[sk] = s.gen, 0, -1
+	s.open.push(aStarNode{x: start[0], y: start[1], dir: startDir, g: 0, f: h(start[0], start[1], startDir)})
 
-	var goalKey key
-	found := false
-	for open.Len() > 0 {
-		cur := heap.Pop(open).(*aStarNode)
-		ck := key{cur.x, cur.y, cur.dir}
-		if g, ok := best[ck]; ok && cur.g > g {
+	goal := -1
+	for s.open.n > 0 {
+		cur := s.open.pop()
+		ck := key(cur.x, cur.y, cur.dir)
+		if cur.g > s.best[ck] || s.closed[ck] == s.gen {
 			continue
 		}
+		s.closed[ck] = s.gen
 		if cur.x == laneX && cur.y >= laneY0 && cur.y <= laneY1 {
-			goalKey = ck
-			found = true
+			goal = ck
 			break
 		}
 		for d := 0; d < 4; d++ {
@@ -786,15 +1026,14 @@ func routeAStar(c *canvas, blocked [][]bool, lane [][]string, used map[[2]int]bo
 				continue
 			}
 			nx, ny := cur.x+dirDX[d], cur.y+dirDY[d]
-			if oob(c, nx, ny) || blocked[ny][nx] {
-				continue
-			}
-			if l := lane[ny][nx]; l != "" && l != dstType {
+			// dist < 0 also covers every impassable cell: the BFS that
+			// filled it uses the same passability rule.
+			if !g.passable(nx, ny, dst) || s.dist[ny*g.w+nx] < 0 {
 				continue
 			}
 			step := stepCost
-			if used[[2]int{nx, ny}] {
-				if usedBy[[2]int{nx, ny}] == dstType {
+			if by := g.usedBy[ny*g.w+nx]; by != 0 {
+				if by == dst {
 					// A sibling edge heading to the same card already passes
 					// here; riding its feeder is cheaper than a fresh cell so
 					// siblings merge, but not free, so an edge joins the trunk
@@ -809,26 +1048,23 @@ func routeAStar(c *canvas, blocked [][]bool, lane [][]string, used map[[2]int]bo
 			if d != cur.dir {
 				ng += turnPenalty
 			}
-			nk := key{nx, ny, d}
-			if g, ok := best[nk]; !ok || ng < g {
-				best[nk] = ng
-				parent[nk] = ck
-				hasParent[nk] = true
-				heap.Push(open, &aStarNode{x: nx, y: ny, dir: d, g: ng, f: ng + h(nx, ny)})
+			nk := key(nx, ny, d)
+			if s.stamp[nk] != s.gen || (ng < s.best[nk] && s.closed[nk] != s.gen) {
+				s.stamp[nk], s.best[nk], s.parent[nk] = s.gen, ng, ck
+				s.open.push(aStarNode{x: nx, y: ny, dir: d, g: ng, f: ng + h(nx, ny, d)})
 			}
 		}
 	}
-	if !found {
+	if goal < 0 {
 		return nil
 	}
 	var path [][2]int
-	k := goalKey
-	for {
-		path = append([][2]int{{k.x, k.y}}, path...)
-		if !hasParent[k] {
-			break
-		}
-		k = parent[k]
+	for k := goal; k >= 0; k = s.parent[k] {
+		cell := k / 4
+		path = append(path, [2]int{cell % g.w, cell / g.w})
+	}
+	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
+		path[i], path[j] = path[j], path[i]
 	}
 	return path
 }
@@ -837,7 +1073,7 @@ func routeAStar(c *canvas, blocked [][]bool, lane [][]string, used map[[2]int]bo
 // terminal arrowhead. Where the path shares a cell with an edge already drawn,
 // it unions the two glyphs so a trunk ridden by a sibling edge reads as one
 // line branching and an unrelated crossing keeps both lines intact.
-func paintPath(c *canvas, path [][2]int, used map[[2]int]bool, usedBy map[[2]int]string, dstType string, col color.Color) {
+func paintPath(c *canvas, path [][2]int, usedBy []int32, dst int32, col color.Color) {
 	dirOf := func(a, b [2]int) int {
 		switch {
 		case b[0] > a[0]:
@@ -851,7 +1087,6 @@ func paintPath(c *canvas, path [][2]int, used map[[2]int]bool, usedBy map[[2]int
 		}
 	}
 	for i, p := range path {
-		cell := [2]int{p[0], p[1]}
 		var r rune
 		switch {
 		case i == len(path)-1:
@@ -876,8 +1111,7 @@ func paintPath(c *canvas, path [][2]int, used map[[2]int]bool, usedBy map[[2]int
 		} else {
 			r = mergeGlyph(cur, r)
 		}
-		used[cell] = true
-		usedBy[cell] = dstType
+		usedBy[p[1]*c.w+p[0]] = dst
 		c.set(p[0], p[1], scell{r: r, fg: col})
 	}
 }
@@ -1029,10 +1263,3 @@ func colorRune(r rune, fg color.Color) string {
 }
 
 func oob(c *canvas, x, y int) bool { return x < 0 || y < 0 || x >= c.w || y >= c.h }
-
-func abs(n int) int {
-	if n < 0 {
-		return -n
-	}
-	return n
-}

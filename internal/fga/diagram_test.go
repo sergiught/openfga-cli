@@ -255,6 +255,97 @@ func TestRenderDiagramWithLargeModelIsFast(t *testing.T) {
 	}
 }
 
+// Guards the router against search blowups on a model whose stacked cards
+// leave edges only narrow detours (it once took 14s per render).
+func TestRenderDiagramWithStressModelIsFast(t *testing.T) {
+	g := ParseModel(stressModel(t))
+	start := time.Now()
+	g.RenderDiagramWith(DiagramOptions{ViewportHeight: 40})
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("compact render took %v", d)
+	}
+}
+
+func TestRenderDiagramCachedMatchesUncached(t *testing.T) {
+	g := ParseModel(stackedModel(t))
+	cache := &DiagramCache{}
+	steps := []DiagramOptions{
+		{Selected: "document"},
+		{Selected: "folder"}, // selection only: served from the cache
+		{Selected: "folder", Expanded: map[string]bool{"sheet": true}},
+		{Selected: "sheet", Expanded: map[string]bool{"sheet": true}},
+		{Selected: "sheet", Expanded: map[string]bool{"sheet": true}, ViewportHeight: 12},
+	}
+	for i, opts := range steps {
+		got, gotBounds := g.RenderDiagramCached(cache, opts)
+		want, wantBounds := g.RenderDiagramLayout(opts)
+		if got != want {
+			t.Errorf("step %d: cached render differs from uncached", i)
+		}
+		if fmt.Sprint(gotBounds) != fmt.Sprint(wantBounds) {
+			t.Errorf("step %d: bounds = %v, want %v", i, gotBounds, wantBounds)
+		}
+	}
+
+	// A different graph, even one with as many types, must not reuse the
+	// layout cached for this one.
+	other := ParseModel(stackedModel(t))
+	other.Types[0].Name = "account"
+	last := steps[len(steps)-1]
+	got, _ := other.RenderDiagramCached(cache, last)
+	if want, _ := other.RenderDiagramLayout(last); got != want {
+		t.Error("cache reused across graphs")
+	}
+}
+
+func TestFocusEdgesDrawsOnlySelectedCardsEdges(t *testing.T) {
+	g := ParseModel(stackedModel(t))
+	all, allBounds := g.RenderDiagramLayout(DiagramOptions{Selected: "user"})
+	focus, focusBounds := g.RenderDiagramLayout(DiagramOptions{Selected: "user", FocusEdges: true})
+
+	if fmt.Sprint(allBounds) != fmt.Sprint(focusBounds) {
+		t.Errorf("focusing moved cards:\n all   %v\n focus %v", allBounds, focusBounds)
+	}
+	arrows := func(s string) int { return strings.Count(ansi.Strip(s), "▸") }
+	want := 0
+	for _, e := range g.Edges {
+		if e.To == "user" || e.From == "user" {
+			want++
+		}
+	}
+	if want == 0 {
+		t.Fatal("fixture has no edges touching user")
+	}
+	if got := arrows(focus); got == 0 || got >= arrows(all) {
+		t.Errorf("focused render has %d arrowheads, full render %d; want some, but fewer", got, arrows(all))
+	}
+	if !strings.Contains(ansi.Strip(focus), "lines of user only") {
+		t.Error("header should say only user's lines are drawn")
+	}
+
+	// Without a selection there is nothing to focus on: draw everything.
+	none, _ := g.RenderDiagramLayout(DiagramOptions{FocusEdges: true})
+	if arrows(none) != arrows(all) {
+		t.Errorf("FocusEdges with no selection drew %d arrowheads, want all %d", arrows(none), arrows(all))
+	}
+}
+
+func TestDiagramCacheTracksFocusedSelection(t *testing.T) {
+	g := ParseModel(stackedModel(t))
+	cache := &DiagramCache{}
+	for i, opts := range []DiagramOptions{
+		{Selected: "folder", FocusEdges: true},
+		{Selected: "user", FocusEdges: true}, // new focus: must re-route
+		{Selected: "user"},                   // focus off: must re-route
+		{Selected: "sheet"},                  // selection only: cached
+	} {
+		got, _ := g.RenderDiagramCached(cache, opts)
+		if want, _ := g.RenderDiagramLayout(opts); got != want {
+			t.Errorf("step %d: cached render differs from uncached", i)
+		}
+	}
+}
+
 func BenchmarkRenderDiagramWithLargeModel(b *testing.B) {
 	g := ParseModel(largeModel(b))
 	b.Run("compact", func(b *testing.B) {
@@ -265,6 +356,12 @@ func BenchmarkRenderDiagramWithLargeModel(b *testing.B) {
 	b.Run("expanded", func(b *testing.B) {
 		for range b.N {
 			g.RenderDiagram()
+		}
+	})
+	b.Run("stress", func(b *testing.B) {
+		s := ParseModel(stressModel(b))
+		for range b.N {
+			s.RenderDiagramWith(DiagramOptions{ViewportHeight: 40})
 		}
 	})
 }

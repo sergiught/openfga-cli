@@ -1,0 +1,997 @@
+model
+  schema 1.1
+
+type user
+
+type service_account
+
+type anonymous
+
+type group
+  relations
+    define admin: [user] or member
+    define inherited_member: member or inherited_member from parent
+    define member: [user, user:*, service_account, group#member]
+    define parent: [group]
+
+type team
+  relations
+    define lead: [user]
+    define member: [user, group#member] or member from parent
+    define parent: [team]
+
+type tag
+  relations
+    define group: [group]
+
+type organization
+  relations
+    define absurdly_long_relation_name_that_widens_the_card_x: [user] or owner
+    define admin: [user, group#member, group#inherited_member] or owner
+    define billing: [user with non_expired_grant] or owner
+    define can_delete: owner but not suspended
+    define can_view: member or billing or absurdly_long_relation_name_that_widens_the_card_x
+    define member: [user, user:*, group#member, team#member] or admin
+    define owner: [user, service_account]
+    define perm0: [user, group#member] or member
+    define perm1: [user, group#member] or member
+    define perm10: [user, group#member] or member
+    define perm11: [user, group#member] or member
+    define perm12: [user, group#member] or member
+    define perm13: [user, group#member] or member
+    define perm14: [user, group#member] or member
+    define perm15: [user, group#member] or member
+    define perm16: [user, group#member] or member
+    define perm17: [user, group#member] or member
+    define perm18: [user, group#member] or member
+    define perm19: [user, group#member] or member
+    define perm2: [user, group#member] or member
+    define perm20: [user, group#member] or member
+    define perm21: [user, group#member] or member
+    define perm22: [user, group#member] or member
+    define perm23: [user, group#member] or member
+    define perm24: [user, group#member] or member
+    define perm25: [user, group#member] or member
+    define perm26: [user, group#member] or member
+    define perm27: [user, group#member] or member
+    define perm28: [user, group#member] or member
+    define perm29: [user, group#member] or member
+    define perm3: [user, group#member] or member
+    define perm30: [user, group#member] or member
+    define perm31: [user, group#member] or member
+    define perm32: [user, group#member] or member
+    define perm33: [user, group#member] or member
+    define perm34: [user, group#member] or member
+    define perm35: [user, group#member] or member
+    define perm36: [user, group#member] or member
+    define perm37: [user, group#member] or member
+    define perm38: [user, group#member] or member
+    define perm39: [user, group#member] or member
+    define perm4: [user, group#member] or member
+    define perm5: [user, group#member] or member
+    define perm6: [user, group#member] or member
+    define perm7: [user, group#member] or member
+    define perm8: [user, group#member] or member
+    define perm9: [user, group#member] or member
+    define suspended: [user]
+
+type folder
+  relations
+    define blocked: [user, group#member]
+    define can_read: viewer but not blocked
+    define can_share: editor and owner
+    define can_view: viewer or can_view from organization_viewer
+    define editor: [user, group#member] or owner or editor from parent
+    define feature0: [user] or editor or feature0 from parent
+    define feature1: [user, group#member] or viewer or perm1 from organization
+    define feature10: [user, group#member] or viewer or perm10 from organization
+    define feature11: [user] or can_view from organization_viewer
+    define feature12: [user] or editor or feature12 from parent
+    define feature13: [user, group#member] or viewer or perm13 from organization
+    define feature14: [user] or can_view from organization_viewer
+    define feature15: [user] or editor or feature15 from parent
+    define feature16: [user, group#member] or viewer or perm16 from organization
+    define feature17: [user] or can_view from organization_viewer
+    define feature18: [user] or editor or feature18 from parent
+    define feature19: [user, group#member] or viewer or perm19 from organization
+    define feature2: [user] or can_view from organization_viewer
+    define feature20: [user] or can_view from organization_viewer
+    define feature21: [user] or editor or feature21 from parent
+    define feature22: [user, group#member] or viewer or perm22 from organization
+    define feature23: [user] or can_view from organization_viewer
+    define feature24: [user] or editor or feature24 from parent
+    define feature25: [user, group#member] or viewer or perm25 from organization
+    define feature26: [user] or can_view from organization_viewer
+    define feature27: [user] or editor or feature27 from parent
+    define feature28: [user, group#member] or viewer or perm28 from organization
+    define feature29: [user] or can_view from organization_viewer
+    define feature3: [user] or editor or feature3 from parent
+    define feature30: [user] or editor or feature30 from parent
+    define feature31: [user, group#member] or viewer or perm31 from organization
+    define feature32: [user] or can_view from organization_viewer
+    define feature33: [user] or editor or feature33 from parent
+    define feature34: [user, group#member] or viewer or perm34 from organization
+    define feature35: [user] or can_view from organization_viewer
+    define feature36: [user] or editor or feature36 from parent
+    define feature37: [user, group#member] or viewer or perm37 from organization
+    define feature38: [user] or can_view from organization_viewer
+    define feature39: [user] or editor or feature39 from parent
+    define feature4: [user, group#member] or viewer or perm4 from organization
+    define feature40: [user, group#member] or viewer or perm0 from organization
+    define feature41: [user] or can_view from organization_viewer
+    define feature42: [user] or editor or feature42 from parent
+    define feature43: [user, group#member] or viewer or perm3 from organization
+    define feature44: [user] or can_view from organization_viewer
+    define feature45: [user] or editor or feature45 from parent
+    define feature46: [user, group#member] or viewer or perm6 from organization
+    define feature47: [user] or can_view from organization_viewer
+    define feature48: [user] or editor or feature48 from parent
+    define feature49: [user, group#member] or viewer or perm9 from organization
+    define feature5: [user] or can_view from organization_viewer
+    define feature50: [user] or can_view from organization_viewer
+    define feature51: [user] or editor or feature51 from parent
+    define feature52: [user, group#member] or viewer or perm12 from organization
+    define feature53: [user] or can_view from organization_viewer
+    define feature54: [user] or editor or feature54 from parent
+    define feature55: [user, group#member] or viewer or perm15 from organization
+    define feature56: [user] or can_view from organization_viewer
+    define feature57: [user] or editor or feature57 from parent
+    define feature58: [user, group#member] or viewer or perm18 from organization
+    define feature59: [user] or can_view from organization_viewer
+    define feature6: [user] or editor or feature6 from parent
+    define feature7: [user, group#member] or viewer or perm7 from organization
+    define feature8: [user] or can_view from organization_viewer
+    define feature9: [user] or editor or feature9 from parent
+    define nested: ((viewer and editor) or owner) but not (blocked or suspended)
+    define organization: [organization]
+    define organization_viewer: [organization]
+    define owner: [user, organization#owner, organization#admin]
+    define parent: [folder]
+    define restricted: (viewer or editor) but not blocked
+    define suspended: suspended from organization
+    define viewer: [user, user:*, group#member, folder#viewer] or owner or viewer from parent
+
+type document
+  relations
+    define can_delete: owner but not locked
+    define can_edit: editor and can_view
+    define can_view: viewer or can_view from workspace
+    define commenter: [user, sheet#cell_editor249] or viewer
+    define editor: [user with non_expired_grant, group#member] or owner or editor from parent
+    define field0: [user, group#member] or editor
+    define field1: [user] or viewer or feature1 from parent
+    define field10: editor and field9
+    define field100: [user with non_expired_grant] or feature40 from owner_folder
+    define field101: editor and field100
+    define field102: viewer but not locked
+    define field103: [user, sheet#cell_viewer221, folder#feature43] or owner
+    define field104: [user:*] or can_view from workspace
+    define field105: [user, group#member] or editor
+    define field106: [user] or viewer or feature46 from parent
+    define field107: [user with non_expired_grant] or feature29 from owner_folder
+    define field108: editor and field107
+    define field109: viewer but not locked
+    define field11: viewer but not locked
+    define field110: [user, sheet#cell_viewer20, folder#feature50] or owner
+    define field111: [user:*] or can_view from workspace
+    define field112: [user, group#member] or editor
+    define field113: [user] or viewer or feature53 from parent
+    define field114: [user with non_expired_grant] or feature18 from owner_folder
+    define field115: editor and field114
+    define field116: viewer but not locked
+    define field117: [user, sheet#cell_viewer69, folder#feature57] or owner
+    define field118: [user:*] or can_view from workspace
+    define field119: [user, group#member] or editor
+    define field12: [user, sheet#cell_viewer84, folder#feature12] or owner
+    define field120: [user] or viewer or feature0 from parent
+    define field121: [user with non_expired_grant] or feature7 from owner_folder
+    define field122: editor and field121
+    define field123: viewer but not locked
+    define field124: [user, sheet#cell_viewer118, folder#feature4] or owner
+    define field125: [user:*] or can_view from workspace
+    define field126: [user, group#member] or editor
+    define field127: [user] or viewer or feature7 from parent
+    define field128: [user with non_expired_grant] or feature56 from owner_folder
+    define field129: editor and field128
+    define field13: [user:*] or can_view from workspace
+    define field130: viewer but not locked
+    define field131: [user, sheet#cell_viewer167, folder#feature11] or owner
+    define field132: [user:*] or can_view from workspace
+    define field133: [user, group#member] or editor
+    define field134: [user] or viewer or feature14 from parent
+    define field135: [user with non_expired_grant] or feature45 from owner_folder
+    define field136: editor and field135
+    define field137: viewer but not locked
+    define field138: [user, sheet#cell_viewer216, folder#feature18] or owner
+    define field139: [user:*] or can_view from workspace
+    define field14: [user, group#member] or editor
+    define field140: [user, group#member] or editor
+    define field141: [user] or viewer or feature21 from parent
+    define field142: [user with non_expired_grant] or feature34 from owner_folder
+    define field143: editor and field142
+    define field144: viewer but not locked
+    define field145: [user, sheet#cell_viewer15, folder#feature25] or owner
+    define field146: [user:*] or can_view from workspace
+    define field147: [user, group#member] or editor
+    define field148: [user] or viewer or feature28 from parent
+    define field149: [user with non_expired_grant] or feature23 from owner_folder
+    define field15: [user] or viewer or feature15 from parent
+    define field150: editor and field149
+    define field151: viewer but not locked
+    define field152: [user, sheet#cell_viewer64, folder#feature32] or owner
+    define field153: [user:*] or can_view from workspace
+    define field154: [user, group#member] or editor
+    define field155: [user] or viewer or feature35 from parent
+    define field156: [user with non_expired_grant] or feature12 from owner_folder
+    define field157: editor and field156
+    define field158: viewer but not locked
+    define field159: [user, sheet#cell_viewer113, folder#feature39] or owner
+    define field16: [user with non_expired_grant] or feature52 from owner_folder
+    define field160: [user:*] or can_view from workspace
+    define field161: [user, group#member] or editor
+    define field162: [user] or viewer or feature42 from parent
+    define field163: [user with non_expired_grant] or feature1 from owner_folder
+    define field164: editor and field163
+    define field165: viewer but not locked
+    define field166: [user, sheet#cell_viewer162, folder#feature46] or owner
+    define field167: [user:*] or can_view from workspace
+    define field168: [user, group#member] or editor
+    define field169: [user] or viewer or feature49 from parent
+    define field17: editor and field16
+    define field170: [user with non_expired_grant] or feature50 from owner_folder
+    define field171: editor and field170
+    define field172: viewer but not locked
+    define field173: [user, sheet#cell_viewer211, folder#feature53] or owner
+    define field174: [user:*] or can_view from workspace
+    define field175: [user, group#member] or editor
+    define field176: [user] or viewer or feature56 from parent
+    define field177: [user with non_expired_grant] or feature39 from owner_folder
+    define field178: editor and field177
+    define field179: viewer but not locked
+    define field18: viewer but not locked
+    define field180: [user, sheet#cell_viewer10, folder#feature0] or owner
+    define field181: [user:*] or can_view from workspace
+    define field182: [user, group#member] or editor
+    define field183: [user] or viewer or feature3 from parent
+    define field184: [user with non_expired_grant] or feature28 from owner_folder
+    define field185: editor and field184
+    define field186: viewer but not locked
+    define field187: [user, sheet#cell_viewer59, folder#feature7] or owner
+    define field188: [user:*] or can_view from workspace
+    define field189: [user, group#member] or editor
+    define field19: [user, sheet#cell_viewer133, folder#feature19] or owner
+    define field190: [user] or viewer or feature10 from parent
+    define field191: [user with non_expired_grant] or feature17 from owner_folder
+    define field192: editor and field191
+    define field193: viewer but not locked
+    define field194: [user, sheet#cell_viewer108, folder#feature14] or owner
+    define field195: [user:*] or can_view from workspace
+    define field196: [user, group#member] or editor
+    define field197: [user] or viewer or feature17 from parent
+    define field198: [user with non_expired_grant] or feature6 from owner_folder
+    define field199: editor and field198
+    define field2: [user with non_expired_grant] or feature14 from owner_folder
+    define field20: [user:*] or can_view from workspace
+    define field200: viewer but not locked
+    define field201: [user, sheet#cell_viewer157, folder#feature21] or owner
+    define field202: [user:*] or can_view from workspace
+    define field203: [user, group#member] or editor
+    define field204: [user] or viewer or feature24 from parent
+    define field205: [user with non_expired_grant] or feature55 from owner_folder
+    define field206: editor and field205
+    define field207: viewer but not locked
+    define field208: [user, sheet#cell_viewer206, folder#feature28] or owner
+    define field209: [user:*] or can_view from workspace
+    define field21: [user, group#member] or editor
+    define field210: [user, group#member] or editor
+    define field211: [user] or viewer or feature31 from parent
+    define field212: [user with non_expired_grant] or feature44 from owner_folder
+    define field213: editor and field212
+    define field214: viewer but not locked
+    define field215: [user, sheet#cell_viewer5, folder#feature35] or owner
+    define field216: [user:*] or can_view from workspace
+    define field217: [user, group#member] or editor
+    define field218: [user] or viewer or feature38 from parent
+    define field219: [user with non_expired_grant] or feature33 from owner_folder
+    define field22: [user] or viewer or feature22 from parent
+    define field220: editor and field219
+    define field221: viewer but not locked
+    define field222: [user, sheet#cell_viewer54, folder#feature42] or owner
+    define field223: [user:*] or can_view from workspace
+    define field224: [user, group#member] or editor
+    define field225: [user] or viewer or feature45 from parent
+    define field226: [user with non_expired_grant] or feature22 from owner_folder
+    define field227: editor and field226
+    define field228: viewer but not locked
+    define field229: [user, sheet#cell_viewer103, folder#feature49] or owner
+    define field23: [user with non_expired_grant] or feature41 from owner_folder
+    define field230: [user:*] or can_view from workspace
+    define field231: [user, group#member] or editor
+    define field232: [user] or viewer or feature52 from parent
+    define field233: [user with non_expired_grant] or feature11 from owner_folder
+    define field234: editor and field233
+    define field235: viewer but not locked
+    define field236: [user, sheet#cell_viewer152, folder#feature56] or owner
+    define field237: [user:*] or can_view from workspace
+    define field238: [user, group#member] or editor
+    define field239: [user] or viewer or feature59 from parent
+    define field24: editor and field23
+    define field240: [user with non_expired_grant] or feature0 from owner_folder
+    define field241: editor and field240
+    define field242: viewer but not locked
+    define field243: [user, sheet#cell_viewer201, folder#feature3] or owner
+    define field244: [user:*] or can_view from workspace
+    define field245: [user, group#member] or editor
+    define field246: [user] or viewer or feature6 from parent
+    define field247: [user with non_expired_grant] or feature49 from owner_folder
+    define field248: editor and field247
+    define field249: viewer but not locked
+    define field25: viewer but not locked
+    define field26: [user, sheet#cell_viewer182, folder#feature26] or owner
+    define field27: [user:*] or can_view from workspace
+    define field28: [user, group#member] or editor
+    define field29: [user] or viewer or feature29 from parent
+    define field3: editor and field2
+    define field30: [user with non_expired_grant] or feature30 from owner_folder
+    define field31: editor and field30
+    define field32: viewer but not locked
+    define field33: [user, sheet#cell_viewer231, folder#feature33] or owner
+    define field34: [user:*] or can_view from workspace
+    define field35: [user, group#member] or editor
+    define field36: [user] or viewer or feature36 from parent
+    define field37: [user with non_expired_grant] or feature19 from owner_folder
+    define field38: editor and field37
+    define field39: viewer but not locked
+    define field4: viewer but not locked
+    define field40: [user, sheet#cell_viewer30, folder#feature40] or owner
+    define field41: [user:*] or can_view from workspace
+    define field42: [user, group#member] or editor
+    define field43: [user] or viewer or feature43 from parent
+    define field44: [user with non_expired_grant] or feature8 from owner_folder
+    define field45: editor and field44
+    define field46: viewer but not locked
+    define field47: [user, sheet#cell_viewer79, folder#feature47] or owner
+    define field48: [user:*] or can_view from workspace
+    define field49: [user, group#member] or editor
+    define field5: [user, sheet#cell_viewer35, folder#feature5] or owner
+    define field50: [user] or viewer or feature50 from parent
+    define field51: [user with non_expired_grant] or feature57 from owner_folder
+    define field52: editor and field51
+    define field53: viewer but not locked
+    define field54: [user, sheet#cell_viewer128, folder#feature54] or owner
+    define field55: [user:*] or can_view from workspace
+    define field56: [user, group#member] or editor
+    define field57: [user] or viewer or feature57 from parent
+    define field58: [user with non_expired_grant] or feature46 from owner_folder
+    define field59: editor and field58
+    define field6: [user:*] or can_view from workspace
+    define field60: viewer but not locked
+    define field61: [user, sheet#cell_viewer177, folder#feature1] or owner
+    define field62: [user:*] or can_view from workspace
+    define field63: [user, group#member] or editor
+    define field64: [user] or viewer or feature4 from parent
+    define field65: [user with non_expired_grant] or feature35 from owner_folder
+    define field66: editor and field65
+    define field67: viewer but not locked
+    define field68: [user, sheet#cell_viewer226, folder#feature8] or owner
+    define field69: [user:*] or can_view from workspace
+    define field7: [user, group#member] or editor
+    define field70: [user, group#member] or editor
+    define field71: [user] or viewer or feature11 from parent
+    define field72: [user with non_expired_grant] or feature24 from owner_folder
+    define field73: editor and field72
+    define field74: viewer but not locked
+    define field75: [user, sheet#cell_viewer25, folder#feature15] or owner
+    define field76: [user:*] or can_view from workspace
+    define field77: [user, group#member] or editor
+    define field78: [user] or viewer or feature18 from parent
+    define field79: [user with non_expired_grant] or feature13 from owner_folder
+    define field8: [user] or viewer or feature8 from parent
+    define field80: editor and field79
+    define field81: viewer but not locked
+    define field82: [user, sheet#cell_viewer74, folder#feature22] or owner
+    define field83: [user:*] or can_view from workspace
+    define field84: [user, group#member] or editor
+    define field85: [user] or viewer or feature25 from parent
+    define field86: [user with non_expired_grant] or feature2 from owner_folder
+    define field87: editor and field86
+    define field88: viewer but not locked
+    define field89: [user, sheet#cell_viewer123, folder#feature29] or owner
+    define field9: [user with non_expired_grant] or feature3 from owner_folder
+    define field90: [user:*] or can_view from workspace
+    define field91: [user, group#member] or editor
+    define field92: [user] or viewer or feature32 from parent
+    define field93: [user with non_expired_grant] or feature51 from owner_folder
+    define field94: editor and field93
+    define field95: viewer but not locked
+    define field96: [user, sheet#cell_viewer172, folder#feature36] or owner
+    define field97: [user:*] or can_view from workspace
+    define field98: [user, group#member] or editor
+    define field99: [user] or viewer or feature39 from parent
+    define locked: [user]
+    define owner: [user, organization#owner]
+    define owner_folder: [folder]
+    define parent: [folder]
+    define viewer: [user, user:*, group#member, sheet#cell_viewer199] or owner or viewer from parent or viewer from owner_folder
+    define workspace: [folder, organization]
+
+type sheet
+  relations
+    define cell_editor0: [user, team#member] or cell_viewer0
+    define cell_editor1: cell_editor0 or editor from parent
+    define cell_editor10: cell_editor9 or editor from parent
+    define cell_editor100: cell_editor99 or editor from parent
+    define cell_editor101: [user] or (cell_editor100 and cell_viewer101)
+    define cell_editor102: [user, team#member] or cell_viewer102
+    define cell_editor103: cell_editor102 or editor from parent
+    define cell_editor104: [user] or (cell_editor103 and cell_viewer104)
+    define cell_editor105: [user, team#member] or cell_viewer105
+    define cell_editor106: cell_editor105 or editor from parent
+    define cell_editor107: [user] or (cell_editor106 and cell_viewer107)
+    define cell_editor108: [user, team#member] or cell_viewer108
+    define cell_editor109: cell_editor108 or editor from parent
+    define cell_editor11: [user] or (cell_editor10 and cell_viewer11)
+    define cell_editor110: [user] or (cell_editor109 and cell_viewer110)
+    define cell_editor111: [user, team#member] or cell_viewer111
+    define cell_editor112: cell_editor111 or editor from parent
+    define cell_editor113: [user] or (cell_editor112 and cell_viewer113)
+    define cell_editor114: [user, team#member] or cell_viewer114
+    define cell_editor115: cell_editor114 or editor from parent
+    define cell_editor116: [user] or (cell_editor115 and cell_viewer116)
+    define cell_editor117: [user, team#member] or cell_viewer117
+    define cell_editor118: cell_editor117 or editor from parent
+    define cell_editor119: [user] or (cell_editor118 and cell_viewer119)
+    define cell_editor12: [user, team#member] or cell_viewer12
+    define cell_editor120: [user, team#member] or cell_viewer120
+    define cell_editor121: cell_editor120 or editor from parent
+    define cell_editor122: [user] or (cell_editor121 and cell_viewer122)
+    define cell_editor123: [user, team#member] or cell_viewer123
+    define cell_editor124: cell_editor123 or editor from parent
+    define cell_editor125: [user] or (cell_editor124 and cell_viewer125)
+    define cell_editor126: [user, team#member] or cell_viewer126
+    define cell_editor127: cell_editor126 or editor from parent
+    define cell_editor128: [user] or (cell_editor127 and cell_viewer128)
+    define cell_editor129: [user, team#member] or cell_viewer129
+    define cell_editor13: cell_editor12 or editor from parent
+    define cell_editor130: cell_editor129 or editor from parent
+    define cell_editor131: [user] or (cell_editor130 and cell_viewer131)
+    define cell_editor132: [user, team#member] or cell_viewer132
+    define cell_editor133: cell_editor132 or editor from parent
+    define cell_editor134: [user] or (cell_editor133 and cell_viewer134)
+    define cell_editor135: [user, team#member] or cell_viewer135
+    define cell_editor136: cell_editor135 or editor from parent
+    define cell_editor137: [user] or (cell_editor136 and cell_viewer137)
+    define cell_editor138: [user, team#member] or cell_viewer138
+    define cell_editor139: cell_editor138 or editor from parent
+    define cell_editor14: [user] or (cell_editor13 and cell_viewer14)
+    define cell_editor140: [user] or (cell_editor139 and cell_viewer140)
+    define cell_editor141: [user, team#member] or cell_viewer141
+    define cell_editor142: cell_editor141 or editor from parent
+    define cell_editor143: [user] or (cell_editor142 and cell_viewer143)
+    define cell_editor144: [user, team#member] or cell_viewer144
+    define cell_editor145: cell_editor144 or editor from parent
+    define cell_editor146: [user] or (cell_editor145 and cell_viewer146)
+    define cell_editor147: [user, team#member] or cell_viewer147
+    define cell_editor148: cell_editor147 or editor from parent
+    define cell_editor149: [user] or (cell_editor148 and cell_viewer149)
+    define cell_editor15: [user, team#member] or cell_viewer15
+    define cell_editor150: [user, team#member] or cell_viewer150
+    define cell_editor151: cell_editor150 or editor from parent
+    define cell_editor152: [user] or (cell_editor151 and cell_viewer152)
+    define cell_editor153: [user, team#member] or cell_viewer153
+    define cell_editor154: cell_editor153 or editor from parent
+    define cell_editor155: [user] or (cell_editor154 and cell_viewer155)
+    define cell_editor156: [user, team#member] or cell_viewer156
+    define cell_editor157: cell_editor156 or editor from parent
+    define cell_editor158: [user] or (cell_editor157 and cell_viewer158)
+    define cell_editor159: [user, team#member] or cell_viewer159
+    define cell_editor16: cell_editor15 or editor from parent
+    define cell_editor160: cell_editor159 or editor from parent
+    define cell_editor161: [user] or (cell_editor160 and cell_viewer161)
+    define cell_editor162: [user, team#member] or cell_viewer162
+    define cell_editor163: cell_editor162 or editor from parent
+    define cell_editor164: [user] or (cell_editor163 and cell_viewer164)
+    define cell_editor165: [user, team#member] or cell_viewer165
+    define cell_editor166: cell_editor165 or editor from parent
+    define cell_editor167: [user] or (cell_editor166 and cell_viewer167)
+    define cell_editor168: [user, team#member] or cell_viewer168
+    define cell_editor169: cell_editor168 or editor from parent
+    define cell_editor17: [user] or (cell_editor16 and cell_viewer17)
+    define cell_editor170: [user] or (cell_editor169 and cell_viewer170)
+    define cell_editor171: [user, team#member] or cell_viewer171
+    define cell_editor172: cell_editor171 or editor from parent
+    define cell_editor173: [user] or (cell_editor172 and cell_viewer173)
+    define cell_editor174: [user, team#member] or cell_viewer174
+    define cell_editor175: cell_editor174 or editor from parent
+    define cell_editor176: [user] or (cell_editor175 and cell_viewer176)
+    define cell_editor177: [user, team#member] or cell_viewer177
+    define cell_editor178: cell_editor177 or editor from parent
+    define cell_editor179: [user] or (cell_editor178 and cell_viewer179)
+    define cell_editor18: [user, team#member] or cell_viewer18
+    define cell_editor180: [user, team#member] or cell_viewer180
+    define cell_editor181: cell_editor180 or editor from parent
+    define cell_editor182: [user] or (cell_editor181 and cell_viewer182)
+    define cell_editor183: [user, team#member] or cell_viewer183
+    define cell_editor184: cell_editor183 or editor from parent
+    define cell_editor185: [user] or (cell_editor184 and cell_viewer185)
+    define cell_editor186: [user, team#member] or cell_viewer186
+    define cell_editor187: cell_editor186 or editor from parent
+    define cell_editor188: [user] or (cell_editor187 and cell_viewer188)
+    define cell_editor189: [user, team#member] or cell_viewer189
+    define cell_editor19: cell_editor18 or editor from parent
+    define cell_editor190: cell_editor189 or editor from parent
+    define cell_editor191: [user] or (cell_editor190 and cell_viewer191)
+    define cell_editor192: [user, team#member] or cell_viewer192
+    define cell_editor193: cell_editor192 or editor from parent
+    define cell_editor194: [user] or (cell_editor193 and cell_viewer194)
+    define cell_editor195: [user, team#member] or cell_viewer195
+    define cell_editor196: cell_editor195 or editor from parent
+    define cell_editor197: [user] or (cell_editor196 and cell_viewer197)
+    define cell_editor198: [user, team#member] or cell_viewer198
+    define cell_editor199: cell_editor198 or editor from parent
+    define cell_editor2: [user] or (cell_editor1 and cell_viewer2)
+    define cell_editor20: [user] or (cell_editor19 and cell_viewer20)
+    define cell_editor200: [user] or (cell_editor199 and cell_viewer200)
+    define cell_editor201: [user, team#member] or cell_viewer201
+    define cell_editor202: cell_editor201 or editor from parent
+    define cell_editor203: [user] or (cell_editor202 and cell_viewer203)
+    define cell_editor204: [user, team#member] or cell_viewer204
+    define cell_editor205: cell_editor204 or editor from parent
+    define cell_editor206: [user] or (cell_editor205 and cell_viewer206)
+    define cell_editor207: [user, team#member] or cell_viewer207
+    define cell_editor208: cell_editor207 or editor from parent
+    define cell_editor209: [user] or (cell_editor208 and cell_viewer209)
+    define cell_editor21: [user, team#member] or cell_viewer21
+    define cell_editor210: [user, team#member] or cell_viewer210
+    define cell_editor211: cell_editor210 or editor from parent
+    define cell_editor212: [user] or (cell_editor211 and cell_viewer212)
+    define cell_editor213: [user, team#member] or cell_viewer213
+    define cell_editor214: cell_editor213 or editor from parent
+    define cell_editor215: [user] or (cell_editor214 and cell_viewer215)
+    define cell_editor216: [user, team#member] or cell_viewer216
+    define cell_editor217: cell_editor216 or editor from parent
+    define cell_editor218: [user] or (cell_editor217 and cell_viewer218)
+    define cell_editor219: [user, team#member] or cell_viewer219
+    define cell_editor22: cell_editor21 or editor from parent
+    define cell_editor220: cell_editor219 or editor from parent
+    define cell_editor221: [user] or (cell_editor220 and cell_viewer221)
+    define cell_editor222: [user, team#member] or cell_viewer222
+    define cell_editor223: cell_editor222 or editor from parent
+    define cell_editor224: [user] or (cell_editor223 and cell_viewer224)
+    define cell_editor225: [user, team#member] or cell_viewer225
+    define cell_editor226: cell_editor225 or editor from parent
+    define cell_editor227: [user] or (cell_editor226 and cell_viewer227)
+    define cell_editor228: [user, team#member] or cell_viewer228
+    define cell_editor229: cell_editor228 or editor from parent
+    define cell_editor23: [user] or (cell_editor22 and cell_viewer23)
+    define cell_editor230: [user] or (cell_editor229 and cell_viewer230)
+    define cell_editor231: [user, team#member] or cell_viewer231
+    define cell_editor232: cell_editor231 or editor from parent
+    define cell_editor233: [user] or (cell_editor232 and cell_viewer233)
+    define cell_editor234: [user, team#member] or cell_viewer234
+    define cell_editor235: cell_editor234 or editor from parent
+    define cell_editor236: [user] or (cell_editor235 and cell_viewer236)
+    define cell_editor237: [user, team#member] or cell_viewer237
+    define cell_editor238: cell_editor237 or editor from parent
+    define cell_editor239: [user] or (cell_editor238 and cell_viewer239)
+    define cell_editor24: [user, team#member] or cell_viewer24
+    define cell_editor240: [user, team#member] or cell_viewer240
+    define cell_editor241: cell_editor240 or editor from parent
+    define cell_editor242: [user] or (cell_editor241 and cell_viewer242)
+    define cell_editor243: [user, team#member] or cell_viewer243
+    define cell_editor244: cell_editor243 or editor from parent
+    define cell_editor245: [user] or (cell_editor244 and cell_viewer245)
+    define cell_editor246: [user, team#member] or cell_viewer246
+    define cell_editor247: cell_editor246 or editor from parent
+    define cell_editor248: [user] or (cell_editor247 and cell_viewer248)
+    define cell_editor249: [user, team#member] or cell_viewer249
+    define cell_editor25: cell_editor24 or editor from parent
+    define cell_editor26: [user] or (cell_editor25 and cell_viewer26)
+    define cell_editor27: [user, team#member] or cell_viewer27
+    define cell_editor28: cell_editor27 or editor from parent
+    define cell_editor29: [user] or (cell_editor28 and cell_viewer29)
+    define cell_editor3: [user, team#member] or cell_viewer3
+    define cell_editor30: [user, team#member] or cell_viewer30
+    define cell_editor31: cell_editor30 or editor from parent
+    define cell_editor32: [user] or (cell_editor31 and cell_viewer32)
+    define cell_editor33: [user, team#member] or cell_viewer33
+    define cell_editor34: cell_editor33 or editor from parent
+    define cell_editor35: [user] or (cell_editor34 and cell_viewer35)
+    define cell_editor36: [user, team#member] or cell_viewer36
+    define cell_editor37: cell_editor36 or editor from parent
+    define cell_editor38: [user] or (cell_editor37 and cell_viewer38)
+    define cell_editor39: [user, team#member] or cell_viewer39
+    define cell_editor4: cell_editor3 or editor from parent
+    define cell_editor40: cell_editor39 or editor from parent
+    define cell_editor41: [user] or (cell_editor40 and cell_viewer41)
+    define cell_editor42: [user, team#member] or cell_viewer42
+    define cell_editor43: cell_editor42 or editor from parent
+    define cell_editor44: [user] or (cell_editor43 and cell_viewer44)
+    define cell_editor45: [user, team#member] or cell_viewer45
+    define cell_editor46: cell_editor45 or editor from parent
+    define cell_editor47: [user] or (cell_editor46 and cell_viewer47)
+    define cell_editor48: [user, team#member] or cell_viewer48
+    define cell_editor49: cell_editor48 or editor from parent
+    define cell_editor5: [user] or (cell_editor4 and cell_viewer5)
+    define cell_editor50: [user] or (cell_editor49 and cell_viewer50)
+    define cell_editor51: [user, team#member] or cell_viewer51
+    define cell_editor52: cell_editor51 or editor from parent
+    define cell_editor53: [user] or (cell_editor52 and cell_viewer53)
+    define cell_editor54: [user, team#member] or cell_viewer54
+    define cell_editor55: cell_editor54 or editor from parent
+    define cell_editor56: [user] or (cell_editor55 and cell_viewer56)
+    define cell_editor57: [user, team#member] or cell_viewer57
+    define cell_editor58: cell_editor57 or editor from parent
+    define cell_editor59: [user] or (cell_editor58 and cell_viewer59)
+    define cell_editor6: [user, team#member] or cell_viewer6
+    define cell_editor60: [user, team#member] or cell_viewer60
+    define cell_editor61: cell_editor60 or editor from parent
+    define cell_editor62: [user] or (cell_editor61 and cell_viewer62)
+    define cell_editor63: [user, team#member] or cell_viewer63
+    define cell_editor64: cell_editor63 or editor from parent
+    define cell_editor65: [user] or (cell_editor64 and cell_viewer65)
+    define cell_editor66: [user, team#member] or cell_viewer66
+    define cell_editor67: cell_editor66 or editor from parent
+    define cell_editor68: [user] or (cell_editor67 and cell_viewer68)
+    define cell_editor69: [user, team#member] or cell_viewer69
+    define cell_editor7: cell_editor6 or editor from parent
+    define cell_editor70: cell_editor69 or editor from parent
+    define cell_editor71: [user] or (cell_editor70 and cell_viewer71)
+    define cell_editor72: [user, team#member] or cell_viewer72
+    define cell_editor73: cell_editor72 or editor from parent
+    define cell_editor74: [user] or (cell_editor73 and cell_viewer74)
+    define cell_editor75: [user, team#member] or cell_viewer75
+    define cell_editor76: cell_editor75 or editor from parent
+    define cell_editor77: [user] or (cell_editor76 and cell_viewer77)
+    define cell_editor78: [user, team#member] or cell_viewer78
+    define cell_editor79: cell_editor78 or editor from parent
+    define cell_editor8: [user] or (cell_editor7 and cell_viewer8)
+    define cell_editor80: [user] or (cell_editor79 and cell_viewer80)
+    define cell_editor81: [user, team#member] or cell_viewer81
+    define cell_editor82: cell_editor81 or editor from parent
+    define cell_editor83: [user] or (cell_editor82 and cell_viewer83)
+    define cell_editor84: [user, team#member] or cell_viewer84
+    define cell_editor85: cell_editor84 or editor from parent
+    define cell_editor86: [user] or (cell_editor85 and cell_viewer86)
+    define cell_editor87: [user, team#member] or cell_viewer87
+    define cell_editor88: cell_editor87 or editor from parent
+    define cell_editor89: [user] or (cell_editor88 and cell_viewer89)
+    define cell_editor9: [user, team#member] or cell_viewer9
+    define cell_editor90: [user, team#member] or cell_viewer90
+    define cell_editor91: cell_editor90 or editor from parent
+    define cell_editor92: [user] or (cell_editor91 and cell_viewer92)
+    define cell_editor93: [user, team#member] or cell_viewer93
+    define cell_editor94: cell_editor93 or editor from parent
+    define cell_editor95: [user] or (cell_editor94 and cell_viewer95)
+    define cell_editor96: [user, team#member] or cell_viewer96
+    define cell_editor97: cell_editor96 or editor from parent
+    define cell_editor98: [user] or (cell_editor97 and cell_viewer98)
+    define cell_editor99: [user, team#member] or cell_viewer99
+    define cell_viewer0: [user, user:*, group#member, document#field0] or owner or field0 from parent
+    define cell_viewer1: [user] or owner
+    define cell_viewer10: [user, user:*, group#member, document#field30] or owner or field10 from parent
+    define cell_viewer100: [user, user:*, group#member, document#field50] or owner or field100 from parent
+    define cell_viewer101: [user] or owner
+    define cell_viewer102: cell_viewer101 or field122 from parent
+    define cell_viewer103: [user with non_expired_grant] and owner
+    define cell_viewer104: owner but not cell_viewer103
+    define cell_viewer105: [user, user:*, group#member, document#field65] or owner or field105 from parent
+    define cell_viewer106: [user] or owner
+    define cell_viewer107: cell_viewer106 or field177 from parent
+    define cell_viewer108: [user with non_expired_grant] and owner
+    define cell_viewer109: owner but not cell_viewer108
+    define cell_viewer11: [user] or owner
+    define cell_viewer110: [user, user:*, group#member, document#field80] or owner or field110 from parent
+    define cell_viewer111: [user] or owner
+    define cell_viewer112: cell_viewer111 or field232 from parent
+    define cell_viewer113: [user with non_expired_grant] and owner
+    define cell_viewer114: owner but not cell_viewer113
+    define cell_viewer115: [user, user:*, group#member, document#field95] or owner or field115 from parent
+    define cell_viewer116: [user] or owner
+    define cell_viewer117: cell_viewer116 or field37 from parent
+    define cell_viewer118: [user with non_expired_grant] and owner
+    define cell_viewer119: owner but not cell_viewer118
+    define cell_viewer12: cell_viewer11 or field132 from parent
+    define cell_viewer120: [user, user:*, group#member, document#field110] or owner or field120 from parent
+    define cell_viewer121: [user] or owner
+    define cell_viewer122: cell_viewer121 or field92 from parent
+    define cell_viewer123: [user with non_expired_grant] and owner
+    define cell_viewer124: owner but not cell_viewer123
+    define cell_viewer125: [user, user:*, group#member, document#field125] or owner or field125 from parent
+    define cell_viewer126: [user] or owner
+    define cell_viewer127: cell_viewer126 or field147 from parent
+    define cell_viewer128: [user with non_expired_grant] and owner
+    define cell_viewer129: owner but not cell_viewer128
+    define cell_viewer13: [user with non_expired_grant] and owner
+    define cell_viewer130: [user, user:*, group#member, document#field140] or owner or field130 from parent
+    define cell_viewer131: [user] or owner
+    define cell_viewer132: cell_viewer131 or field202 from parent
+    define cell_viewer133: [user with non_expired_grant] and owner
+    define cell_viewer134: owner but not cell_viewer133
+    define cell_viewer135: [user, user:*, group#member, document#field155] or owner or field135 from parent
+    define cell_viewer136: [user] or owner
+    define cell_viewer137: cell_viewer136 or field7 from parent
+    define cell_viewer138: [user with non_expired_grant] and owner
+    define cell_viewer139: owner but not cell_viewer138
+    define cell_viewer14: owner but not cell_viewer13
+    define cell_viewer140: [user, user:*, group#member, document#field170] or owner or field140 from parent
+    define cell_viewer141: [user] or owner
+    define cell_viewer142: cell_viewer141 or field62 from parent
+    define cell_viewer143: [user with non_expired_grant] and owner
+    define cell_viewer144: owner but not cell_viewer143
+    define cell_viewer145: [user, user:*, group#member, document#field185] or owner or field145 from parent
+    define cell_viewer146: [user] or owner
+    define cell_viewer147: cell_viewer146 or field117 from parent
+    define cell_viewer148: [user with non_expired_grant] and owner
+    define cell_viewer149: owner but not cell_viewer148
+    define cell_viewer15: [user, user:*, group#member, document#field45] or owner or field15 from parent
+    define cell_viewer150: [user, user:*, group#member, document#field200] or owner or field150 from parent
+    define cell_viewer151: [user] or owner
+    define cell_viewer152: cell_viewer151 or field172 from parent
+    define cell_viewer153: [user with non_expired_grant] and owner
+    define cell_viewer154: owner but not cell_viewer153
+    define cell_viewer155: [user, user:*, group#member, document#field215] or owner or field155 from parent
+    define cell_viewer156: [user] or owner
+    define cell_viewer157: cell_viewer156 or field227 from parent
+    define cell_viewer158: [user with non_expired_grant] and owner
+    define cell_viewer159: owner but not cell_viewer158
+    define cell_viewer16: [user] or owner
+    define cell_viewer160: [user, user:*, group#member, document#field230] or owner or field160 from parent
+    define cell_viewer161: [user] or owner
+    define cell_viewer162: cell_viewer161 or field32 from parent
+    define cell_viewer163: [user with non_expired_grant] and owner
+    define cell_viewer164: owner but not cell_viewer163
+    define cell_viewer165: [user, user:*, group#member, document#field245] or owner or field165 from parent
+    define cell_viewer166: [user] or owner
+    define cell_viewer167: cell_viewer166 or field87 from parent
+    define cell_viewer168: [user with non_expired_grant] and owner
+    define cell_viewer169: owner but not cell_viewer168
+    define cell_viewer17: cell_viewer16 or field187 from parent
+    define cell_viewer170: [user, user:*, group#member, document#field10] or owner or field170 from parent
+    define cell_viewer171: [user] or owner
+    define cell_viewer172: cell_viewer171 or field142 from parent
+    define cell_viewer173: [user with non_expired_grant] and owner
+    define cell_viewer174: owner but not cell_viewer173
+    define cell_viewer175: [user, user:*, group#member, document#field25] or owner or field175 from parent
+    define cell_viewer176: [user] or owner
+    define cell_viewer177: cell_viewer176 or field197 from parent
+    define cell_viewer178: [user with non_expired_grant] and owner
+    define cell_viewer179: owner but not cell_viewer178
+    define cell_viewer18: [user with non_expired_grant] and owner
+    define cell_viewer180: [user, user:*, group#member, document#field40] or owner or field180 from parent
+    define cell_viewer181: [user] or owner
+    define cell_viewer182: cell_viewer181 or field2 from parent
+    define cell_viewer183: [user with non_expired_grant] and owner
+    define cell_viewer184: owner but not cell_viewer183
+    define cell_viewer185: [user, user:*, group#member, document#field55] or owner or field185 from parent
+    define cell_viewer186: [user] or owner
+    define cell_viewer187: cell_viewer186 or field57 from parent
+    define cell_viewer188: [user with non_expired_grant] and owner
+    define cell_viewer189: owner but not cell_viewer188
+    define cell_viewer19: owner but not cell_viewer18
+    define cell_viewer190: [user, user:*, group#member, document#field70] or owner or field190 from parent
+    define cell_viewer191: [user] or owner
+    define cell_viewer192: cell_viewer191 or field112 from parent
+    define cell_viewer193: [user with non_expired_grant] and owner
+    define cell_viewer194: owner but not cell_viewer193
+    define cell_viewer195: [user, user:*, group#member, document#field85] or owner or field195 from parent
+    define cell_viewer196: [user] or owner
+    define cell_viewer197: cell_viewer196 or field167 from parent
+    define cell_viewer198: [user with non_expired_grant] and owner
+    define cell_viewer199: owner but not cell_viewer198
+    define cell_viewer2: cell_viewer1 or field22 from parent
+    define cell_viewer20: [user, user:*, group#member, document#field60] or owner or field20 from parent
+    define cell_viewer200: [user, user:*, group#member, document#field100] or owner or field200 from parent
+    define cell_viewer201: [user] or owner
+    define cell_viewer202: cell_viewer201 or field222 from parent
+    define cell_viewer203: [user with non_expired_grant] and owner
+    define cell_viewer204: owner but not cell_viewer203
+    define cell_viewer205: [user, user:*, group#member, document#field115] or owner or field205 from parent
+    define cell_viewer206: [user] or owner
+    define cell_viewer207: cell_viewer206 or field27 from parent
+    define cell_viewer208: [user with non_expired_grant] and owner
+    define cell_viewer209: owner but not cell_viewer208
+    define cell_viewer21: [user] or owner
+    define cell_viewer210: [user, user:*, group#member, document#field130] or owner or field210 from parent
+    define cell_viewer211: [user] or owner
+    define cell_viewer212: cell_viewer211 or field82 from parent
+    define cell_viewer213: [user with non_expired_grant] and owner
+    define cell_viewer214: owner but not cell_viewer213
+    define cell_viewer215: [user, user:*, group#member, document#field145] or owner or field215 from parent
+    define cell_viewer216: [user] or owner
+    define cell_viewer217: cell_viewer216 or field137 from parent
+    define cell_viewer218: [user with non_expired_grant] and owner
+    define cell_viewer219: owner but not cell_viewer218
+    define cell_viewer22: cell_viewer21 or field242 from parent
+    define cell_viewer220: [user, user:*, group#member, document#field160] or owner or field220 from parent
+    define cell_viewer221: [user] or owner
+    define cell_viewer222: cell_viewer221 or field192 from parent
+    define cell_viewer223: [user with non_expired_grant] and owner
+    define cell_viewer224: owner but not cell_viewer223
+    define cell_viewer225: [user, user:*, group#member, document#field175] or owner or field225 from parent
+    define cell_viewer226: [user] or owner
+    define cell_viewer227: cell_viewer226 or field247 from parent
+    define cell_viewer228: [user with non_expired_grant] and owner
+    define cell_viewer229: owner but not cell_viewer228
+    define cell_viewer23: [user with non_expired_grant] and owner
+    define cell_viewer230: [user, user:*, group#member, document#field190] or owner or field230 from parent
+    define cell_viewer231: [user] or owner
+    define cell_viewer232: cell_viewer231 or field52 from parent
+    define cell_viewer233: [user with non_expired_grant] and owner
+    define cell_viewer234: owner but not cell_viewer233
+    define cell_viewer235: [user, user:*, group#member, document#field205] or owner or field235 from parent
+    define cell_viewer236: [user] or owner
+    define cell_viewer237: cell_viewer236 or field107 from parent
+    define cell_viewer238: [user with non_expired_grant] and owner
+    define cell_viewer239: owner but not cell_viewer238
+    define cell_viewer24: owner but not cell_viewer23
+    define cell_viewer240: [user, user:*, group#member, document#field220] or owner or field240 from parent
+    define cell_viewer241: [user] or owner
+    define cell_viewer242: cell_viewer241 or field162 from parent
+    define cell_viewer243: [user with non_expired_grant] and owner
+    define cell_viewer244: owner but not cell_viewer243
+    define cell_viewer245: [user, user:*, group#member, document#field235] or owner or field245 from parent
+    define cell_viewer246: [user] or owner
+    define cell_viewer247: cell_viewer246 or field217 from parent
+    define cell_viewer248: [user with non_expired_grant] and owner
+    define cell_viewer249: owner but not cell_viewer248
+    define cell_viewer25: [user, user:*, group#member, document#field75] or owner or field25 from parent
+    define cell_viewer26: [user] or owner
+    define cell_viewer27: cell_viewer26 or field47 from parent
+    define cell_viewer28: [user with non_expired_grant] and owner
+    define cell_viewer29: owner but not cell_viewer28
+    define cell_viewer3: [user with non_expired_grant] and owner
+    define cell_viewer30: [user, user:*, group#member, document#field90] or owner or field30 from parent
+    define cell_viewer31: [user] or owner
+    define cell_viewer32: cell_viewer31 or field102 from parent
+    define cell_viewer33: [user with non_expired_grant] and owner
+    define cell_viewer34: owner but not cell_viewer33
+    define cell_viewer35: [user, user:*, group#member, document#field105] or owner or field35 from parent
+    define cell_viewer36: [user] or owner
+    define cell_viewer37: cell_viewer36 or field157 from parent
+    define cell_viewer38: [user with non_expired_grant] and owner
+    define cell_viewer39: owner but not cell_viewer38
+    define cell_viewer4: owner but not cell_viewer3
+    define cell_viewer40: [user, user:*, group#member, document#field120] or owner or field40 from parent
+    define cell_viewer41: [user] or owner
+    define cell_viewer42: cell_viewer41 or field212 from parent
+    define cell_viewer43: [user with non_expired_grant] and owner
+    define cell_viewer44: owner but not cell_viewer43
+    define cell_viewer45: [user, user:*, group#member, document#field135] or owner or field45 from parent
+    define cell_viewer46: [user] or owner
+    define cell_viewer47: cell_viewer46 or field17 from parent
+    define cell_viewer48: [user with non_expired_grant] and owner
+    define cell_viewer49: owner but not cell_viewer48
+    define cell_viewer5: [user, user:*, group#member, document#field15] or owner or field5 from parent
+    define cell_viewer50: [user, user:*, group#member, document#field150] or owner or field50 from parent
+    define cell_viewer51: [user] or owner
+    define cell_viewer52: cell_viewer51 or field72 from parent
+    define cell_viewer53: [user with non_expired_grant] and owner
+    define cell_viewer54: owner but not cell_viewer53
+    define cell_viewer55: [user, user:*, group#member, document#field165] or owner or field55 from parent
+    define cell_viewer56: [user] or owner
+    define cell_viewer57: cell_viewer56 or field127 from parent
+    define cell_viewer58: [user with non_expired_grant] and owner
+    define cell_viewer59: owner but not cell_viewer58
+    define cell_viewer6: [user] or owner
+    define cell_viewer60: [user, user:*, group#member, document#field180] or owner or field60 from parent
+    define cell_viewer61: [user] or owner
+    define cell_viewer62: cell_viewer61 or field182 from parent
+    define cell_viewer63: [user with non_expired_grant] and owner
+    define cell_viewer64: owner but not cell_viewer63
+    define cell_viewer65: [user, user:*, group#member, document#field195] or owner or field65 from parent
+    define cell_viewer66: [user] or owner
+    define cell_viewer67: cell_viewer66 or field237 from parent
+    define cell_viewer68: [user with non_expired_grant] and owner
+    define cell_viewer69: owner but not cell_viewer68
+    define cell_viewer7: cell_viewer6 or field77 from parent
+    define cell_viewer70: [user, user:*, group#member, document#field210] or owner or field70 from parent
+    define cell_viewer71: [user] or owner
+    define cell_viewer72: cell_viewer71 or field42 from parent
+    define cell_viewer73: [user with non_expired_grant] and owner
+    define cell_viewer74: owner but not cell_viewer73
+    define cell_viewer75: [user, user:*, group#member, document#field225] or owner or field75 from parent
+    define cell_viewer76: [user] or owner
+    define cell_viewer77: cell_viewer76 or field97 from parent
+    define cell_viewer78: [user with non_expired_grant] and owner
+    define cell_viewer79: owner but not cell_viewer78
+    define cell_viewer8: [user with non_expired_grant] and owner
+    define cell_viewer80: [user, user:*, group#member, document#field240] or owner or field80 from parent
+    define cell_viewer81: [user] or owner
+    define cell_viewer82: cell_viewer81 or field152 from parent
+    define cell_viewer83: [user with non_expired_grant] and owner
+    define cell_viewer84: owner but not cell_viewer83
+    define cell_viewer85: [user, user:*, group#member, document#field5] or owner or field85 from parent
+    define cell_viewer86: [user] or owner
+    define cell_viewer87: cell_viewer86 or field207 from parent
+    define cell_viewer88: [user with non_expired_grant] and owner
+    define cell_viewer89: owner but not cell_viewer88
+    define cell_viewer9: owner but not cell_viewer8
+    define cell_viewer90: [user, user:*, group#member, document#field20] or owner or field90 from parent
+    define cell_viewer91: [user] or owner
+    define cell_viewer92: cell_viewer91 or field12 from parent
+    define cell_viewer93: [user with non_expired_grant] and owner
+    define cell_viewer94: owner but not cell_viewer93
+    define cell_viewer95: [user, user:*, group#member, document#field35] or owner or field95 from parent
+    define cell_viewer96: [user] or owner
+    define cell_viewer97: cell_viewer96 or field67 from parent
+    define cell_viewer98: [user with non_expired_grant] and owner
+    define cell_viewer99: owner but not cell_viewer98
+    define owner: [user] or owner from parent
+    define parent: [document]
+
+type level0
+  relations
+    define parent: [document]
+    define r0: [user] or can_view from parent
+    define viewer: [user] or viewer from parent
+
+type level1
+  relations
+    define parent: [level0]
+    define r1: [user] or r0 from parent
+    define viewer: [user] or viewer from parent
+
+type level2
+  relations
+    define parent: [level1]
+    define r2: [user] or r1 from parent
+    define viewer: [user] or viewer from parent
+
+type level3
+  relations
+    define parent: [level2]
+    define r3: [user] or r2 from parent
+    define viewer: [user] or viewer from parent
+
+type level4
+  relations
+    define parent: [level3]
+    define r4: [user] or r3 from parent
+    define viewer: [user] or viewer from parent
+
+type level5
+  relations
+    define parent: [level4]
+    define r5: [user] or r4 from parent
+    define viewer: [user] or viewer from parent
+
+type level6
+  relations
+    define parent: [level5]
+    define r6: [user] or r5 from parent
+    define viewer: [user] or viewer from parent
+
+type level7
+  relations
+    define parent: [level6]
+    define r7: [user] or r6 from parent
+    define viewer: [user] or viewer from parent
+
+type level8
+  relations
+    define parent: [level7]
+    define r8: [user] or r7 from parent
+    define viewer: [user] or viewer from parent
+
+type level9
+  relations
+    define parent: [level8]
+    define r9: [user] or r8 from parent
+    define viewer: [user] or viewer from parent
+
+type level10
+  relations
+    define parent: [level9]
+    define r10: [user] or r9 from parent
+    define viewer: [user] or viewer from parent
+
+type level11
+  relations
+    define parent: [level10]
+    define r11: [user] or r10 from parent
+    define viewer: [user] or viewer from parent
+
+condition non_expired_grant(current_time: timestamp, grant_duration: duration, grant_time: timestamp) {
+  current_time < grant_time + grant_duration
+}
