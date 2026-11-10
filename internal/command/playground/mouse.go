@@ -235,6 +235,9 @@ func (m Model) handleClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			} else {
 				m.graphSel = typ
 				m.graphVP.SetContent(m.renderGraph())
+				// The clicked card is on screen: stop any scroll still
+				// heading for the card selected before.
+				m.snapGraphTo(m.graphVP.YOffset())
 			}
 			return m, nil
 		}

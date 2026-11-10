@@ -217,14 +217,16 @@ func (m *Model) toggleGraphCard() {
 		return
 	}
 	old, _ := m.cardBounds(m.graphSel)
-	rel := old.Y - m.graphVP.YOffset()
+	// The screen row counts the pinned legend, which can change height when
+	// the expand hint appears or disappears.
+	row := m.graphHeaderHeight() + old.Y - m.graphVP.YOffset()
 	if m.graphExpanded == nil {
 		m.graphExpanded = map[string]bool{}
 	}
 	m.graphExpanded[m.graphSel] = !m.graphExpanded[m.graphSel]
 	m.graphVP.SetContent(m.renderGraph())
 	if b, ok := m.cardBounds(m.graphSel); ok {
-		m.snapGraphTo(max(0, b.Y-rel))
+		m.snapGraphTo(max(0, m.graphHeaderHeight()+b.Y-row))
 	}
 	if m.graphExpanded[m.graphSel] {
 		m.status = "expanded " + m.graphSel

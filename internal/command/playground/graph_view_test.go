@@ -610,3 +610,91 @@ func TestGraphLayoutUsesPinnedLegendHeight(t *testing.T) {
 		}
 	}
 }
+
+// TestGraphToggleCardKeepsTitleRowWhenLegendChanges: collapsing a card when
+// all are expanded brings back the expand hint, which can wrap the pinned
+// legend onto another line; the selected title must stay on its screen row.
+func TestGraphToggleCardKeepsTitleRowWhenLegendChanges(t *testing.T) {
+	screenRow := func(mm Model) int {
+		b, _ := mm.cardBounds(mm.graphSel)
+		return mm.graphHeaderHeight() + b.Y - mm.graphVP.YOffset()
+	}
+	// Find a pane width where the returning hint wraps the legend.
+	for width := 60; width <= 240; width++ {
+		m := loadedFocused(largeGraph())
+		m, _ = m.Update(tea.WindowSizeMsg{Width: width, Height: 14})
+		m, _ = m.Update(key("E"))
+		for range 6 {
+			m, _ = m.Update(key("tab"))
+		}
+		mm := m.(Model)
+		// Keep the card away from the scroll limits so its row can be kept.
+		b, _ := mm.cardBounds(mm.graphSel)
+		if b.Y < 2 || mm.graphMaxOffset()-b.Y < 2 {
+			continue
+		}
+		mm.snapGraphTo(b.Y - 1)
+		before, legend := screenRow(mm), mm.graphHeaderHeight()
+		got, _ := mm.Update(key("enter"))
+		mm = got.(Model)
+		if mm.graphHeaderHeight() == legend {
+			continue
+		}
+		if after := screenRow(mm); after != before {
+			t.Fatalf("width %d: title moved from screen row %d to %d", width, before, after)
+		}
+		return
+	}
+	t.Fatal("no width changes the legend height; fixture no longer exercises the case")
+}
+
+// TestGraphClickVisibleCardCancelsScroll: clicking a card on screen while a
+// tab scroll is still running must stop the scroll toward the card left.
+func TestGraphClickVisibleCardCancelsScroll(t *testing.T) {
+	m := loadedFocused(stressGraph(t))
+	for i := 0; i < 40 && !m.(Model).graphAnimating; i++ {
+		m, _ = m.Update(key("tab"))
+	}
+	mm := m.(Model)
+	if !mm.graphAnimating {
+		t.Skip("no tab scrolled the viewport")
+	}
+	bx, by := mm.sh.MainBodyOrigin()
+	top := mm.graphVP.YOffset()
+	for _, b := range mm.graphBounds {
+		title := b.Y + 1
+		if b.Type == mm.graphSel || title < top || title >= top+mm.graphVP.Height() || b.X < mm.graphVP.XOffset() || b.X+1 >= mm.graphVP.XOffset()+mm.graphVP.Width() {
+			continue
+		}
+		m, _ = m.Update(tea.MouseClickMsg{X: bx + b.X + 1 - mm.graphVP.XOffset(), Y: by + mm.graphHeaderHeight() + title - top, Button: tea.MouseLeft})
+		mm = m.(Model)
+		if mm.graphSel != b.Type {
+			t.Fatalf("click should select %s, selected %s", b.Type, mm.graphSel)
+		}
+		if mm.graphAnimating || mm.graphTarget != float64(mm.graphVP.YOffset()) {
+			t.Fatalf("still scrolling: animating=%v target=%v offset=%d", mm.graphAnimating, mm.graphTarget, mm.graphVP.YOffset())
+		}
+		return
+	}
+	t.Skip("no other card visible")
+}
+
+// TestGraphWeightedRoundTripRevealsSelectedCard: back from the weighted view,
+// the diagram must open on its selected card, as it does on load.
+func TestGraphWeightedRoundTripRevealsSelectedCard(t *testing.T) {
+	m := loadedFocused(stressGraph(t))
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 60, Height: 14})
+	m, _ = m.Update(key("v"))
+	m, _ = m.Update(key("v"))
+	mm := m.(Model)
+	b, ok := mm.cardBounds(mm.graphSel)
+	if !ok {
+		t.Fatal("selected card has no bounds")
+	}
+	if b.Y < mm.graphVP.Height() {
+		t.Fatalf("fixture no longer puts the first card (%s, y=%d) below the fold", b.Type, b.Y)
+	}
+	if title := b.Y + 1; title < mm.graphVP.YOffset() || title >= mm.graphVP.YOffset()+mm.graphVP.Height() {
+		t.Fatalf("title row %d of %s outside viewport [%d,%d)", title, b.Type, mm.graphVP.YOffset(), mm.graphVP.YOffset()+mm.graphVP.Height())
+	}
+}

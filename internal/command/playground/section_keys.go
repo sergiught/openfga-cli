@@ -218,6 +218,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			m.initGraphState()
 			m.graphVP.SetContent(m.renderGraph())
 			m.resetGraphScroll()
+			m.revealSelectedGraphCard()
 			if m.graphView == 1 {
 				m.status = "weighted graph — v for diagram"
 			} else {
