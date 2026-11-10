@@ -555,3 +555,58 @@ func TestGraphLegendStaysOnScreen(t *testing.T) {
 		}
 	}
 }
+
+// TestGraphExpandAllKeepsSelectedCardInColumns: E widens the columns left of
+// the selected card, so it must pan to keep that card on screen.
+func TestGraphExpandAllKeepsSelectedCardInColumns(t *testing.T) {
+	m := loadedFocused(largeGraph())
+	m, _ = m.Update(key("shift+tab")) // last card, rightmost column
+	m, _ = m.Update(key("E"))
+	mm := m.(Model)
+	b, ok := mm.cardBounds(mm.graphSel)
+	if !ok {
+		t.Fatal("selected card has no bounds")
+	}
+	if x := mm.graphVP.XOffset(); b.X < x || b.X >= x+mm.graphVP.Width() {
+		t.Fatalf("card %s at x=%d outside viewport columns [%d,%d)", b.Type, b.X, x, x+mm.graphVP.Width())
+	}
+}
+
+// TestGraphTabBackToVisibleCardCancelsScroll: tab to an offscreen card starts
+// a scroll; shift+tab back to the still-visible card must not keep scrolling
+// toward the card it left.
+func TestGraphTabBackToVisibleCardCancelsScroll(t *testing.T) {
+	m := loadedFocused(stressGraph(t))
+	for i := 0; i < 40 && !m.(Model).graphAnimating; i++ {
+		m, _ = m.Update(key("tab"))
+	}
+	if !m.(Model).graphAnimating {
+		t.Skip("no tab scrolled the viewport")
+	}
+	m, _ = m.Update(key("shift+tab"))
+	mm := m.(Model)
+	if mm.graphAnimating || mm.graphTarget != float64(mm.graphVP.YOffset()) {
+		t.Fatalf("still scrolling: animating=%v target=%v offset=%d", mm.graphAnimating, mm.graphTarget, mm.graphVP.YOffset())
+	}
+}
+
+// TestGraphLayoutUsesPinnedLegendHeight: when the legend wraps onto more
+// lines, the layout must use the viewport height left below it, so no
+// wrapped card is taller than the viewport.
+func TestGraphLayoutUsesPinnedLegendHeight(t *testing.T) {
+	m := loadedFocused(stressGraph(t))
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 240, Height: 30})
+	m, _ = m.Update(key("E"))
+	mm := m.(Model)
+	wide := mm.graphHeaderHeight()
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 60, Height: 30})
+	mm = m.(Model)
+	if mm.graphHeaderHeight() <= wide {
+		t.Fatalf("legend should wrap onto more lines: %d at 240 cols, %d at 60", wide, mm.graphHeaderHeight())
+	}
+	for _, b := range mm.graphBounds {
+		if b.H > mm.graphVP.Height() {
+			t.Fatalf("card %s is %d lines, viewport %d", b.Type, b.H, mm.graphVP.Height())
+		}
+	}
+}

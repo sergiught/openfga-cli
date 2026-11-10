@@ -42,9 +42,19 @@ func (m *Model) renderGraph() string {
 		m.graphBounds = nil
 		return m.pinGraphHeader(m.graph.RenderWeightedDiagram())
 	}
+	h := m.graphBodyHeight()
 	out, bounds := m.graph.RenderDiagramCached(m.graphCache, m.graphOpts())
 	m.graphBounds = bounds
-	return m.pinGraphHeader(out)
+	body := m.pinGraphHeader(out)
+	if m.graphBodyHeight() != h {
+		// The legend wrapped onto a different number of lines than the
+		// layout assumed (first render, resize, focus hint toggled): lay out
+		// again for the height actually left. The legend doesn't depend on
+		// the height, so once is enough.
+		out, m.graphBounds = m.graph.RenderDiagramCached(m.graphCache, m.graphOpts())
+		body = m.pinGraphHeader(out)
+	}
+	return body
 }
 
 // pinGraphHeader splits the legend (everything before the first blank line)
@@ -241,6 +251,9 @@ func (m *Model) toggleGraphAll() {
 	}
 	m.graphVP.SetContent(m.renderGraph())
 	if b, ok := m.cardBounds(m.graphSel); ok {
+		// Expanding or collapsing every card moves the columns, so the
+		// selected card can land outside the visible columns too.
+		m.revealGraphColumns(b)
 		m.snapGraphTo(b.Y)
 	}
 }

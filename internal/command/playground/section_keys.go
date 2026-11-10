@@ -234,6 +234,8 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			}
 			b := m.selectGraphCard(delta)
 			if title := b.Y + 1; title >= m.graphVP.YOffset() && title < m.graphVP.YOffset()+m.graphVP.Height() {
+				// Stop any scroll still heading for the card just left.
+				m.snapGraphTo(m.graphVP.YOffset())
 				return m, nil
 			}
 			return m.scrollGraphTo(float64(b.Y))
