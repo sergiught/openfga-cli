@@ -2234,3 +2234,24 @@ func TestProfilesTabEditStoreAndModel(t *testing.T) {
 		t.Fatalf("edit did not persist store/model: store=%q model=%q", p.StoreID, p.ModelID)
 	}
 }
+
+// TestSelectingStoreOpensModelPane: picking a store lands in the Model
+// section with the diagram pane focused, so its keys work straight away.
+func TestSelectingStoreOpensModelPane(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(key("2"))     // Stores
+	m, _ = m.Update(key("enter")) // panel focus
+	m, _ = m.Update(key("down"))  // highlight store-2
+	m, _ = m.Update(key("enter")) // select it
+
+	mod := m.(Model)
+	if mod.storeID != "store-2" {
+		t.Fatalf("storeID = %q, want store-2", mod.storeID)
+	}
+	if mod.section != secModel {
+		t.Fatalf("section = %v, want secModel", mod.section)
+	}
+	if mod.focus != shell.FocusPanel {
+		t.Fatal("model pane should be focused after selecting a store")
+	}
+}

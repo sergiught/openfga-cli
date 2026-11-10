@@ -323,6 +323,15 @@ type Model struct {
 	graphSel      string
 	graphExpanded map[string]bool
 	graphBounds   []fga.CardBounds
+	// graphHeader is the active view's legend, split off the render and
+	// pinned above the graph viewport so scrolling never hides it.
+	graphHeader string
+	// graphCache keeps the routed diagram so moving the selection redraws
+	// without re-routing edges. A pointer, so Model copies share it.
+	graphCache *fga.DiagramCache
+	// graphFocusEdges draws only the selected card's edges; large models
+	// start with it on, `a` toggles it.
+	graphFocusEdges bool
 
 	// graph viewport spring scrolling: graphPos is the animated (fractional)
 	// scroll offset that eases toward graphTarget via graphSpring.
@@ -507,6 +516,7 @@ func newModel(ctx context.Context, cli *cli.CLI, cl *openfga.Client, storeID, mo
 		profile:        profile,
 		apiURL:         apiURL,
 		graphSpring:    graphSpring,
+		graphCache:     &fga.DiagramCache{},
 		loading:        true,
 		pendingLoads:   initialPendingLoads(storeID),
 		// Generations start at 1, not 0: 0 is reserved as the "untagged"
@@ -947,7 +957,7 @@ func (m *Model) resize() {
 	} else {
 		// Resize: just update dimensions to preserve scroll offset.
 		m.graphVP.SetWidth(w)
-		m.graphVP.SetHeight(h)
+		m.graphVP.SetHeight(m.graphBodyHeight())
 		if len(m.graph.Types) > 0 {
 			m.graphVP.SetContent(m.renderGraph())
 		}

@@ -1,12 +1,15 @@
 package playground
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/openfga/language/pkg/go/transformer"
 	"github.com/sergiught/go-openfga/openfga"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/ui/shell"
@@ -262,7 +265,9 @@ func TestGraphClickSelectsThenExpands(t *testing.T) {
 	mm := m.(Model)
 	bx, by := mm.sh.MainBodyOrigin()
 	target := mm.graphBounds[1] // not the initially selected card
-	click := tea.MouseClickMsg{X: bx + target.X + 1, Y: by + target.Y + 1, Button: tea.MouseLeft}
+	// The bottom border row: a hit-test that ignored the pinned legend's height
+	// would land below the card.
+	click := tea.MouseClickMsg{X: bx + target.X + 1, Y: by + mm.graphHeaderHeight() + target.Y + target.H - 1, Button: tea.MouseLeft}
 	m, _ = m.Update(click)
 	mm = m.(Model)
 	if mm.graphSel != target.Type || mm.focus != shell.FocusPanel {
@@ -290,7 +295,7 @@ func TestGraphClickOnEmptyCanvasKeepsSelection(t *testing.T) {
 	if bx+right+1 >= bx+w {
 		t.Skip("canvas not narrower than the pane")
 	}
-	m, _ = m.Update(tea.MouseClickMsg{X: bx + right + 1, Y: by + mm.graphBounds[0].Y + 1, Button: tea.MouseLeft})
+	m, _ = m.Update(tea.MouseClickMsg{X: bx + right + 1, Y: by + mm.graphHeaderHeight() + mm.graphBounds[0].Y + 1, Button: tea.MouseLeft})
 	mm = m.(Model)
 	if mm.graphSel != sel || len(mm.graphExpanded) != 2 {
 		t.Fatalf("empty-canvas click changed state: sel=%q expanded=%v", mm.graphSel, mm.graphExpanded)
@@ -304,7 +309,7 @@ func TestGraphClickBelowCardIsIgnored(t *testing.T) {
 	bx, by := mm.sh.MainBodyOrigin()
 	// The row just below a card belongs to no card bound.
 	b0 := mm.graphBounds[0]
-	m, _ = m.Update(tea.MouseClickMsg{X: bx + b0.X + 1, Y: by + b0.Y + b0.H, Button: tea.MouseLeft})
+	m, _ = m.Update(tea.MouseClickMsg{X: bx + b0.X + 1, Y: by + mm.graphHeaderHeight() + b0.Y + b0.H, Button: tea.MouseLeft})
 	mm = m.(Model)
 	if mm.graphSel != sel || len(mm.graphExpanded) != 0 {
 		t.Fatalf("click past card changed state: sel=%q expanded=%v", mm.graphSel, mm.graphExpanded)
@@ -388,8 +393,7 @@ func TestGraphTabDoesNotScrollWhenCardVisible(t *testing.T) {
 	if mm.graphVP.YOffset() != 0 || mm.graphTarget != 0 {
 		t.Fatalf("tab to a visible card scrolled: y=%d target=%v", mm.graphVP.YOffset(), mm.graphTarget)
 	}
-	// The 81-column viewport clips the hint after "tab/enter".
-	if !strings.Contains(ansi.Strip(mm.graphVP.View()), "tab/enter") {
+	if !strings.Contains(ansi.Strip(mm.viewString()), "tab/enter") {
 		t.Error("header hint scrolled out of view")
 	}
 }
@@ -427,5 +431,127 @@ func TestGraphLeafTypesAreNotExpandable(t *testing.T) {
 	cur, _ = cur.Update(key("E"))
 	if n := len(cur.(Model).graphExpanded); n != 0 {
 		t.Fatalf("E should collapse all, %d still expanded", n)
+	}
+}
+
+// stressGraph parses the fga package's stress fixture: 22 types whose first
+// card sits well below the top of the canvas.
+func stressGraph(t *testing.T) fga.Graph {
+	t.Helper()
+	dsl, err := os.ReadFile("../../fga/testdata/stress_model.fga")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := transformer.TransformDSLToJSON(string(dsl))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var model openfga.AuthorizationModel
+	if err := json.Unmarshal([]byte(raw), &model); err != nil {
+		t.Fatal(err)
+	}
+	return fga.ParseModel(&model)
+}
+
+// TestGraphLoadRevealsSelectedCard: a large model opens with its first card
+// selected, so the viewport must start where that card is, not on the empty
+// canvas above it.
+func TestGraphLoadRevealsSelectedCard(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 60, Height: 14})
+	m, _ = m.Update(modelLoadedMsg{modelID: "stress", graph: stressGraph(t)})
+	mm := m.(Model)
+	b, ok := mm.cardBounds(mm.graphSel)
+	if !ok {
+		t.Fatal("no selected card")
+	}
+	if b.Y < mm.graphVP.Height() {
+		t.Fatalf("fixture no longer puts the first card (%s, y=%d) below the fold", b.Type, b.Y)
+	}
+	if title := b.Y + 1; title < mm.graphVP.YOffset() || title >= mm.graphVP.YOffset()+mm.graphVP.Height() {
+		t.Fatalf("title row %d of %s outside viewport [%d,%d)", title, b.Type, mm.graphVP.YOffset(), mm.graphVP.YOffset()+mm.graphVP.Height())
+	}
+	if b.X < mm.graphVP.XOffset() || b.X >= mm.graphVP.XOffset()+mm.graphVP.Width() {
+		t.Fatalf("card %s at x=%d outside viewport columns from %d", b.Type, b.X, mm.graphVP.XOffset())
+	}
+}
+
+// TestGraphLargeModelFocusesSelectedCardsLines: a large model opens drawing
+// only the selected card's lines; `a` brings every line back and again.
+func TestGraphLargeModelFocusesSelectedCardsLines(t *testing.T) {
+	m := loadedFocused(largeGraph())
+	arrows := func(m tea.Model) int {
+		mm := m.(Model)
+		out, _ := mm.graph.RenderDiagramLayout(mm.graphOpts())
+		return strings.Count(ansi.Strip(out), "▸")
+	}
+	if !m.(Model).graphFocusEdges {
+		t.Fatal("large model should open showing only the selected card's lines")
+	}
+	focused := arrows(m)
+
+	m, _ = m.Update(key("a"))
+	if m.(Model).graphFocusEdges {
+		t.Fatal("a should show every line")
+	}
+	if all := arrows(m); all <= focused {
+		t.Fatalf("all-lines render has %d arrowheads, focused %d", all, focused)
+	}
+	if !strings.Contains(ansi.Strip(m.(Model).viewString()), "a all lines") {
+		t.Error("footer should advertise the a key")
+	}
+
+	m, _ = m.Update(key("a"))
+	if !m.(Model).graphFocusEdges {
+		t.Fatal("a again should go back to the selected card's lines")
+	}
+}
+
+func TestGraphSmallModelDrawsAllLines(t *testing.T) {
+	m := loadedFocused(sampleGraph())
+	if m.(Model).graphFocusEdges {
+		t.Fatal("small models should draw every line")
+	}
+	m, _ = m.Update(key("a")) // nothing selected: no-op
+	if m.(Model).graphFocusEdges {
+		t.Fatal("a with no selection should do nothing")
+	}
+}
+
+// TestGraphHorizontalWheelPans: a touchpad's sideways swipe arrives as wheel
+// left/right and pans the diagram instead of scrolling it down.
+func TestGraphHorizontalWheelPans(t *testing.T) {
+	m := loadedFocused(stressGraph(t)).(Model)
+	m.graphVP.SetXOffset(graphColStep)
+	y := m.graphTarget
+
+	got, _ := m.handleWheel(tea.MouseWheelMsg{Button: tea.MouseWheelRight})
+	mm := got.(Model)
+	if mm.graphVP.XOffset() != 2*graphColStep {
+		t.Fatalf("wheel right: x offset %d, want %d", mm.graphVP.XOffset(), 2*graphColStep)
+	}
+	got, _ = mm.handleWheel(tea.MouseWheelMsg{Button: tea.MouseWheelLeft})
+	mm = got.(Model)
+	if mm.graphVP.XOffset() != graphColStep {
+		t.Fatalf("wheel left: x offset %d, want %d", mm.graphVP.XOffset(), graphColStep)
+	}
+	if mm.graphTarget != y {
+		t.Fatalf("horizontal wheel scrolled vertically: target %v, want %v", mm.graphTarget, y)
+	}
+}
+
+// TestGraphLegendStaysOnScreen: the colour legend is pinned above the
+// diagram, so it is still there after scrolling all the way down.
+func TestGraphLegendStaysOnScreen(t *testing.T) {
+	m := loadedFocused(stressGraph(t)).(Model)
+	m.graphVP.SetYOffset(m.graphMaxOffset())
+	if m.graphVP.YOffset() == 0 {
+		t.Fatal("fixture should be taller than the viewport")
+	}
+	view := ansi.Strip(m.viewString())
+	for _, want := range []string{"inherited (tuple-to-userset)", "costly"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("legend %q scrolled out of view", want)
+		}
 	}
 }

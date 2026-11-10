@@ -2,9 +2,11 @@ package playground
 
 import (
 	"math"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sergiught/openfga-cli/internal/fga"
 )
@@ -29,7 +31,7 @@ func graphTick() tea.Cmd {
 
 // graphOpts is the diagram state handed to the renderer.
 func (m *Model) graphOpts() fga.DiagramOptions {
-	return fga.DiagramOptions{Expanded: m.graphExpanded, Selected: m.graphSel, ViewportHeight: m.graphVP.Height()}
+	return fga.DiagramOptions{Expanded: m.graphExpanded, Selected: m.graphSel, ViewportHeight: m.graphBodyHeight(), FocusEdges: m.graphFocusEdges}
 }
 
 // renderGraph renders the model pane in the active view: the node-link
@@ -38,11 +40,48 @@ func (m *Model) graphOpts() fga.DiagramOptions {
 func (m *Model) renderGraph() string {
 	if m.graphView == 1 {
 		m.graphBounds = nil
-		return m.graph.RenderWeightedDiagram()
+		return m.pinGraphHeader(m.graph.RenderWeightedDiagram())
 	}
-	out, bounds := m.graph.RenderDiagramLayout(m.graphOpts())
+	out, bounds := m.graph.RenderDiagramCached(m.graphCache, m.graphOpts())
 	m.graphBounds = bounds
-	return out
+	return m.pinGraphHeader(out)
+}
+
+// pinGraphHeader splits the legend (everything before the first blank line)
+// off a rendered graph and returns the rest for the viewport. The legend is
+// wrapped to the pane and drawn above the viewport, which shrinks to make
+// room; card bounds shift up so they stay relative to the viewport content.
+func (m *Model) pinGraphHeader(out string) string {
+	header, body, ok := strings.Cut(out, "\n\n")
+	if !ok {
+		m.graphHeader = ""
+		m.graphVP.SetHeight(m.graphBodyHeight())
+		return out
+	}
+	removed := strings.Count(header, "\n") + 2
+	for i := range m.graphBounds {
+		m.graphBounds[i].Y -= removed
+	}
+	w, _ := m.contentSize()
+	m.graphHeader = ansi.Wrap(header, w, "")
+	m.graphVP.SetHeight(m.graphBodyHeight())
+	return body
+}
+
+// graphHeaderHeight is the lines the pinned legend takes, its blank
+// separator line included.
+func (m *Model) graphHeaderHeight() int {
+	if m.graphHeader == "" {
+		return 0
+	}
+	return strings.Count(m.graphHeader, "\n") + 2
+}
+
+// graphBodyHeight is the pane height left for the graph viewport below the
+// pinned legend.
+func (m *Model) graphBodyHeight() int {
+	_, h := m.contentSize()
+	return max(1, h-m.graphHeaderHeight())
 }
 
 // graphIsSmall reports whether a model is small enough to open fully expanded.
@@ -58,7 +97,7 @@ func graphIsSmall(g fga.Graph) bool {
 // models open expanded with no selection, large ones compact with the first
 // card selected, and the weighted view carries no diagram state.
 func (m *Model) initGraphState() {
-	m.graphSel, m.graphExpanded, m.graphBounds = "", nil, nil
+	m.graphSel, m.graphExpanded, m.graphBounds, m.graphFocusEdges = "", nil, nil, false
 	if m.graphView == 1 || len(m.graph.Types) == 0 {
 		return
 	}
@@ -67,9 +106,22 @@ func (m *Model) initGraphState() {
 		return
 	}
 	m.graphExpanded = map[string]bool{}
+	m.graphFocusEdges = true
 	m.renderGraph()
 	if len(m.graphBounds) > 0 {
 		m.graphSel = m.graphBounds[0].Type
+	}
+}
+
+// toggleGraphFocusEdges switches between drawing every edge and only the
+// selected card's, keeping the view where it is.
+func (m *Model) toggleGraphFocusEdges() {
+	m.graphFocusEdges = !m.graphFocusEdges
+	m.graphVP.SetContent(m.renderGraph())
+	if m.graphFocusEdges {
+		m.status = "showing " + m.graphSel + "'s lines — a for all"
+	} else {
+		m.status = "showing all lines — a for " + m.graphSel + "'s only"
 	}
 }
 
@@ -109,12 +161,32 @@ func (m *Model) selectGraphCard(delta int) fga.CardBounds {
 	m.graphSel = m.graphBounds[idx].Type
 	m.graphVP.SetContent(m.renderGraph())
 	b, _ := m.cardBounds(m.graphSel)
+	m.revealGraphColumns(b)
+	return b
+}
+
+// revealGraphColumns pans the viewport horizontally just enough to show b,
+// keeping its left edge (and so its title) in view when b is wider than it.
+func (m *Model) revealGraphColumns(b fga.CardBounds) {
 	if x := m.graphVP.XOffset(); b.X < x {
 		m.graphVP.SetXOffset(max(0, b.X-2))
 	} else if w := m.graphVP.Width(); b.X+b.W > x+w {
 		m.graphVP.SetXOffset(max(0, min(b.X+b.W-w+2, b.X-2)))
 	}
-	return b
+}
+
+// revealSelectedGraphCard moves the viewport, without animation, to the
+// selected card when its title is off screen. A large model opens on its
+// first card, which can sit far below or right of the canvas origin.
+func (m *Model) revealSelectedGraphCard() {
+	b, ok := m.cardBounds(m.graphSel)
+	if !ok {
+		return
+	}
+	m.revealGraphColumns(b)
+	if title := b.Y + 1; title < m.graphVP.YOffset() || title >= m.graphVP.YOffset()+m.graphVP.Height() {
+		m.snapGraphTo(b.Y)
+	}
 }
 
 // hasRelations reports whether typ has relations to expand; leaf types
