@@ -136,12 +136,13 @@ func (g Graph) routeDiagram(opts DiagramOptions) *routedDiagram {
 	boxes := g.buildBoxes(opts)
 	// Layout always sees every edge, so cards keep their place as the
 	// focused selection moves.
-	layoutBoxes(boxes, g.Edges)
+	edges := g.diagramEdges()
+	layoutBoxes(boxes, edges)
 
-	shown := g.Edges
+	shown := edges
 	if focus := focusOf(opts); focus != "" {
 		shown = nil
-		for _, e := range g.Edges {
+		for _, e := range edges {
 			if e.From == focus || e.To == focus {
 				shown = append(shown, e)
 			}
@@ -790,6 +791,57 @@ func targetPortRow(b *nodeBox, e DiagramEdge) int {
 		return y
 	}
 	return b.rowY[""]
+}
+
+// diagramEdges is g.Edges with each direct edge that routableEdges would drop
+// (its relation is the tupleset of a ttu edge to the same type) moved to
+// another relation of From that assigns the same type directly. ParseModel
+// keeps one direct edge per target, from the first relation that assigns it,
+// so a tupleset sorting first would otherwise hide every other relation's
+// direct assignment of that type. g.Edges, the CLI's JSON, stays aggregated.
+func (g Graph) diagramEdges() []DiagramEdge {
+	type key struct{ from, to, via string }
+	ttu := map[key]bool{}
+	for _, e := range g.Edges {
+		if e.Kind == "ttu" {
+			ttu[key{e.From, e.To, e.Via}] = true
+		}
+	}
+	out := slices.Clone(g.Edges)
+	for i, e := range out {
+		if e.Kind != "direct" || !ttu[key{e.From, e.To, e.Via}] {
+			continue
+		}
+		if via, ok := g.directAssigner(e, func(rel string) bool { return ttu[key{e.From, e.To, rel}] }); ok {
+			out[i].Via = via
+		}
+	}
+	return out
+}
+
+// directAssigner finds a relation of e.From, other than one skip rejects,
+// that directly assigns e.To (as e.ToRelation's userset when set).
+func (g Graph) directAssigner(e DiagramEdge, skip func(rel string) bool) (string, bool) {
+	for _, t := range g.Types {
+		if t.Name != e.From {
+			continue
+		}
+		for _, r := range t.Relations {
+			if skip(r.Name) {
+				continue
+			}
+			for _, re := range r.Edges {
+				toRel := ""
+				if i := strings.Index(re.Label, "#"); i >= 0 {
+					toRel = re.Label[i+1:]
+				}
+				if re.Kind == "direct" && typePart(re.Label) == e.To && toRel == e.ToRelation {
+					return r.Name, true
+				}
+			}
+		}
+	}
+	return "", false
 }
 
 // routableEdges drops edges to types absent from the layout and direct edges

@@ -2,6 +2,7 @@ package fga
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -720,5 +721,31 @@ func TestEdgesIntoCardShareOneTrunk(t *testing.T) {
 		if arrows == 0 {
 			t.Fatalf("%s: no arrowheads found", name)
 		}
+	}
+}
+
+// TestDiagramKeepsDirectEdgeOfNonTuplesetRelation: ParseModel folds direct
+// edges to one type into one, and the diagram drops a direct edge over a
+// tupleset; reader's own [folder] assignment must survive both.
+func TestDiagramKeepsDirectEdgeOfNonTuplesetRelation(t *testing.T) {
+	g := ParseModel(dslModel(t, `model
+  schema 1.1
+type user
+type folder
+  relations
+    define viewer: [user]
+type doc
+  relations
+    define can_view: viewer from parent
+    define parent: [folder]
+    define reader: [folder]
+`))
+	want := DiagramEdge{From: "doc", To: "folder", Kind: "direct", Via: "reader"}
+	if !slices.Contains(g.diagramEdges(), want) {
+		t.Fatalf("diagram edges %v lack %v", g.diagramEdges(), want)
+	}
+	// The CLI's JSON edges keep their one-per-target aggregation.
+	if cli := (DiagramEdge{From: "doc", To: "folder", Kind: "direct", Via: "parent"}); !slices.Contains(g.Edges, cli) {
+		t.Fatalf("graph edges %v changed, want %v", g.Edges, cli)
 	}
 }

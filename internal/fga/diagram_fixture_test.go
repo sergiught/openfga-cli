@@ -38,8 +38,14 @@ func fixtureModel(t testing.TB, name string) *openfga.AuthorizationModel {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return dslModel(t, string(dsl))
+}
 
-	raw, err := transformer.TransformDSLToJSON(string(dsl))
+// dslModel parses an inline DSL model.
+func dslModel(t testing.TB, dsl string) *openfga.AuthorizationModel {
+	t.Helper()
+
+	raw, err := transformer.TransformDSLToJSON(dsl)
 	if err != nil {
 		t.Fatal(err)
 	}
