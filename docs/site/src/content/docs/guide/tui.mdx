@@ -168,8 +168,8 @@ The `?` overlay renders this same list, filtered to the global keys plus whateve
 | `c` | Tests | Toggle the coverage report |
 | `v` | Tests | Toggle the explanation panel |
 | `esc` | Tests | Back to the sidebar |
-| `ctrl+s` | Model → Edit DSL | Apply the model |
-| `esc` | Model → Edit DSL | Cancel (confirms first if the buffer has unsaved edits) |
+| `ctrl+s` | Model → Edit DSL | Apply the model, from any mode (`:w` does the same in normal mode) |
+| `esc` | Model → Edit DSL | Insert or visual → normal mode; in normal mode, close (confirms first if the buffer has unsaved edits). The editor uses vim keys — see [Editing the model](#editing-the-model) |
 | `esc` | Add/edit forms (tuple, tuple filter, assertion, profile, store) | Cancel and close the form |
 | click card | Model | Select the type card; click again to expand or collapse it |
 | `wheel` | Model, Tuple Queries → resolution tree, Tests, list sections | Scroll the graph, resolution tree, tree/coverage/detail pane, or move the list selection |
@@ -192,6 +192,28 @@ user field takes any `type:id` reference, including a userset (`team:eng#member`
 or a wildcard (`user:*`). Submitting all three fields blank clears the filter and
 re-reads the store, and switching store or profile clears it for you — the types
 and ids it names belong to the store it was written for.
+
+## Editing the model
+
+`e` on the Model tab opens the model's DSL in an editor with vim keys. It opens
+in insert mode, so you can type straight away; `esc` drops to normal mode,
+where vim's commands work. `ctrl+s` applies the model from any mode, and the
+status line under the buffer shows the mode, the command being typed, and the
+cursor's line and column. Diagnostics refresh a moment after you stop typing,
+and the editor stays responsive on models thousands of lines long.
+
+| Group | Keys |
+|---|---|
+| Insert | `i` `a` `I` `A` `o` `O` (new lines keep the indent, and indent one level under `model`, `type …` and `relations`), `s` `S` |
+| Move | `h` `j` `k` `l`, `w` `b` `e` `W` `B` `E`, `0` `^` `$`, `gg` `G` `{n}G`, `f` `F` `t` `T` `;` `,`, `%`, `{` `}`, `H` `M` `L`, `ctrl+d` `ctrl+u` `ctrl+f` `ctrl+b` — all take a count |
+| Edit | `d` `c` `y` `>` `<` with any motion or text object (`iw` `aw` `i(` `a[` `i{` `i"` …), doubled for whole lines (`dd` `3yy` `>>`), `D` `C` `Y` `x` `X` `r` `J` `~`, `p` `P` |
+| Undo | `u` undo, `ctrl+r` redo, `.` repeat the last change |
+| Visual | `v` `V`, then a motion or text object, then `d` `c` `y` `>` `<` `J` `~` `p` `r` |
+| Search | `/pattern` `?pattern`, `n` `N`, `*` `#` for the word under the cursor |
+| Commands | `:w` apply, `:q` close (confirms unsaved edits), `:q!` discard, `:{n}` go to line, `:%s/old/new/g` substitute (also on a range or a visual selection) |
+
+Indentation is two spaces, the DSL's own step: `tab` in insert mode inserts
+two spaces and `>>` `<<` shift by two.
 
 ## Benchmark and optimize the model
 

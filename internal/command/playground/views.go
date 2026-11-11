@@ -14,6 +14,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/style"
 	"github.com/sergiught/openfga-cli/internal/ui/icons"
 	shell "github.com/sergiught/openfga-cli/internal/ui/shell"
+	"github.com/sergiught/openfga-cli/internal/ui/vimedit"
 )
 
 // View implements tea.Model in v2, owning terminal background and alt-screen
@@ -154,7 +155,18 @@ func (m Model) helpBody() string {
 	}
 	var optGroup string
 	if m.section == secModel {
-		optGroup = "\n\n" + style.Faint.Render("MODEL · OPTIMIZE") + "\n" + render([][2]string{{"space", "accept a rewrite"}, {"a", "accept / clear all"}, {"w", "write new model"}, {"B", "benchmark selection"}, {"esc", "back to graph"}})
+		optGroup = "\n\n" + style.Faint.Render("MODEL · OPTIMIZE") + "\n" + render([][2]string{{"space", "accept a rewrite"}, {"a", "accept / clear all"}, {"w", "write new model"}, {"B", "benchmark selection"}, {"esc", "back to graph"}}) +
+			"\n\n" + style.Faint.Render("MODEL · EDIT DSL (vim keys)") + "\n" + render([][2]string{
+			{"ctrl+s / :w", "apply the model"},
+			{"esc", "insert → normal mode; in normal mode, close"},
+			{"i a o I A O", "insert"},
+			{"v V", "visual / visual line"},
+			{"hjkl w b e 0 $ gg G %", "move (with counts)"},
+			{"d c y > < + motion", "delete, change, yank, indent"},
+			{"dd yy p u ctrl+r .", "line ops, put, undo, redo, repeat"},
+			{"/ ? n N * #", "search"},
+			{":%s/a/b/g  :q  :q!", "substitute, close, discard"},
+		})
 	}
 	return style.Faint.Render("GLOBAL") + "\n" + render(global) +
 		"\n\n" + style.Faint.Render(strings.ToUpper(sectionNames[m.section])) + "\n" + render(section) + optGroup +
@@ -640,11 +652,11 @@ func (m Model) editorBody() string {
 }
 
 // editorFooterLines builds the footer: a wrapped error (a live diagnostic, or
-// the apply-time editorErr) followed by the help hint, or just the help hint
-// when there is no error. Wrapping to w keeps each line within the content
-// width so the shell's per-line truncation never clips it.
+// the apply-time editorErr) followed by the editor's status line. Wrapping to
+// w keeps each line within the content width so the shell's per-line
+// truncation never clips it.
 func (m Model) editorFooterLines(w int) []string {
-	help := style.Faint.Render("ctrl+s apply · esc cancel")
+	status := m.editorStatusLine(w)
 	var errMsg string
 	switch {
 	case len(m.editorDiags) > 0:
@@ -656,10 +668,46 @@ func (m Model) editorFooterLines(w int) []string {
 	case m.editorErr != "":
 		errMsg = "error: " + m.editorErr
 	default:
-		return []string{help}
+		return []string{status}
 	}
 	wrapped := style.Failure.Width(w).Render(errMsg)
-	return append(strings.Split(wrapped, "\n"), help)
+	return append(strings.Split(wrapped, "\n"), status)
+}
+
+// editorStatusLine is the vim-style line under the buffer: a mode chip, then
+// the ex/search line being typed, the editor's last message, or the keys of a
+// pending command, with the cursor position on the right.
+func (m Model) editorStatusLine(w int) string {
+	mode := m.editor.Mode()
+	bg := style.Primary
+	switch mode {
+	case vimedit.Insert:
+		bg = style.Green
+	case vimedit.Visual, vimedit.VisualLine:
+		bg = style.Magenta
+	case vimedit.Command:
+		bg = style.Amber
+	}
+	left := style.Chip(mode.String(), style.OnAccent, bg) + " "
+	cur := m.editor.Cursor()
+	right := style.Faint.Render(fmt.Sprintf("%d:%d", cur.Row+1, cur.Col+1))
+	switch {
+	case mode == vimedit.Command:
+		// A command line too long to fit keeps its end, where the typing is.
+		cmd := style.SanitizeTerminal(m.editor.CommandLine())
+		room := max(1, w-lipgloss.Width(left)-lipgloss.Width(right)-2) // cursor + gap
+		if cw := ansi.StringWidth(cmd); cw > room {
+			cmd = "…" + ansi.TruncateLeft(cmd, cw-room+1, "")
+		}
+		left += cmd + lipgloss.NewStyle().Reverse(true).Render(" ")
+	case m.editor.Status() != "":
+		left += style.SanitizeTerminal(m.editor.Status())
+	default:
+		left += style.Faint.Render(style.SanitizeTerminal(m.editor.Pending()))
+	}
+	left = ansi.Truncate(left, max(0, w-lipgloss.Width(right)-1), "…")
+	gap := max(1, w-lipgloss.Width(left)-lipgloss.Width(right))
+	return left + strings.Repeat(" ", gap) + right
 }
 
 // cappedFooter returns the footer lines capped so the editor keeps at least a
@@ -989,7 +1037,15 @@ func (m Model) statusKeys() []string {
 	case m.formKind != formNone:
 		return []string{"ctrl+s save", "esc cancel"}
 	case m.section == secModel && m.editorOpen:
-		return []string{"ctrl+s apply", "esc cancel"}
+		switch m.editor.Mode() {
+		case vimedit.Insert:
+			return []string{"ctrl+s apply", "esc normal mode"}
+		case vimedit.Command:
+			return []string{"↵ run", "esc cancel"}
+		case vimedit.Visual, vimedit.VisualLine:
+			return []string{"d delete", "y yank", "c change", "esc normal mode"}
+		}
+		return []string{"ctrl+s apply", "i insert", "u undo", ": command", "esc close"}
 	case m.section == secTestResults && m.wb.newPromptOpen:
 		return []string{"↵ create", "esc cancel"}
 	case m.section == secTestResults && m.wb.running:

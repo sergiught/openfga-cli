@@ -190,7 +190,7 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			}
 			m.refreshEditorDiagnostics()
 			m.editorTop = 0
-			return m, m.editor.Focus()
+			return m, nil
 		case "m":
 			if m.storeID == "" {
 				m.status = "select a store first"
