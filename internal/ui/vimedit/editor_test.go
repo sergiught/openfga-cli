@@ -1047,3 +1047,15 @@ func TestSearchDelimiterEndsPattern(t *testing.T) {
 	feed(e, "/f\\/o<enter>")
 	cursorIs(t, e, 0, 3)
 }
+
+// TestOperatorSearchPasteRepeats: a pattern pasted after d/ is part of what
+// "." replays, not just the keys typed around it.
+func TestOperatorSearchPasteRepeats(t *testing.T) {
+	e := ed("a foo b foo c")
+	feed(e, "d/")
+	e.InsertText("fo")
+	feed(e, "o<enter>.")
+	if got := e.Value(); got != "foo c" {
+		t.Fatalf("got %q, want %q", got, "foo c")
+	}
+}

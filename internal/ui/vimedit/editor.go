@@ -298,7 +298,9 @@ func (e *Editor) InsertText(s string) {
 	}
 	switch e.mode {
 	case Command:
-		e.cmdText = append(e.cmdText, []rune(strings.ReplaceAll(s, "\n", ""))...)
+		// Through commandKey, so a search pattern pasted after an operator is
+		// recorded for "." along with the typed keys.
+		e.commandKey(Key{Name: pasteKey, Text: strings.ReplaceAll(s, "\n", "")})
 	case Insert:
 		e.clamp()
 		e.insertKey(Key{Name: pasteKey, Text: s})
