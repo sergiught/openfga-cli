@@ -209,7 +209,7 @@ func (m Model) handleClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if idx := m.sh.NavHit(msg.X, msg.Y); idx >= 0 {
 		// The DSL editor owns the keyboard while it's open (handleKey routes on
 		// editorOpen), so jumping sections out from under it would draw one
-		// section while every keystroke still went to the hidden textarea.
+		// section while every keystroke still went to the hidden editor.
 		// Consume the click rather than clearing the flag: unsaved edits are
 		// only released through the discard confirm.
 		if m.editorOpen {

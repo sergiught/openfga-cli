@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/spinner"
-	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
@@ -29,14 +28,10 @@ import (
 	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
 	shell "github.com/sergiught/openfga-cli/internal/ui/shell"
 	"github.com/sergiught/openfga-cli/internal/ui/toast"
+	"github.com/sergiught/openfga-cli/internal/ui/vimedit"
 )
 
 const modelTemplate = "model\n  schema 1.1\n\ntype user\n\ntype document\n  relations\n    define owner: [user]\n    define viewer: [user] or owner\n"
-
-// editorNoWrapWidth is the textarea's internal width. It is set far wider than
-// any DSL line so the widget never soft-wraps, keeping logical line == visual
-// row for our custom editor render.
-const editorNoWrapWidth = 10000
 
 // ephemeralProfileName labels the synthetic profile a seeded `--playground` run
 // is shown under, so the user can tell at a glance they're looking at throwaway
@@ -401,11 +396,13 @@ type Model struct {
 
 	// DSL model editor
 	editorOpen    bool
-	editor        textarea.Model
-	editorTop     int // first visible logical line, managed by reflowEditorScroll
+	editor        vimedit.Editor
+	editorCells   *editorCellCache // highlighted lines, recomputed once per buffer revision
+	editorTop     int              // first visible logical line, managed by reflowEditorScroll
 	editorErr     string
 	editorDiags   []dsl.Diagnostic
 	lastEditorDSL string // last DSL value diagnostics were computed for
+	editorDiagRev uint64 // editor revision diagnostics were last refreshed at
 	modelDSL      string // DSL of the currently-loaded model, for edit pre-fill
 	opt           optimizer
 }
@@ -487,11 +484,6 @@ func newModel(ctx context.Context, cli *cli.CLI, cl *openfga.Client, storeID, mo
 		entering, entranceFrac = false, 0
 	}
 
-	ta := textarea.New()
-	ta.ShowLineNumbers = false // we draw our own gutter
-	ta.MaxWidth = editorNoWrapWidth
-	ta.SetWidth(editorNoWrapWidth)
-
 	profile := cli.Config.Active
 	apiURL := config.DefaultAPIURL
 	if r, err := cli.Resolve(); err == nil {
@@ -544,7 +536,8 @@ func newModel(ctx context.Context, cli *cli.CLI, cl *openfga.Client, storeID, mo
 		assertionsList: uilist.New(),
 		paletteList:    uilist.New(),
 		historyList:    uilist.New(),
-		editor:         ta,
+		editor:         vimedit.New(),
+		editorCells:    &editorCellCache{},
 		toasts:         toast.New(),
 	}
 	// Advertise the "/" filter on every section list and hint at what each one
@@ -962,8 +955,6 @@ func (m *Model) resize() {
 			m.graphVP.SetContent(m.renderGraph())
 		}
 	}
-	m.editor.SetWidth(editorNoWrapWidth) // fixed no-wrap width; display width handled by render
-	m.editor.SetHeight(h - 2)
 	// A resize can shrink the editor height enough to push the cursor's line
 	// outside the visible window; reflow now so it doesn't sit off-screen
 	// until the next keypress.
