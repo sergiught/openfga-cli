@@ -940,3 +940,43 @@ func TestSubstituteWithoutPatternSaysSo(t *testing.T) {
 		t.Fatalf("status %q", e.Status())
 	}
 }
+
+// TestCopilotReviewRegressions pins behaviors checked against vim 9.
+func TestCopilotReviewRegressions(t *testing.T) {
+	runCases(t, []tc{
+		{"count before daw", "foo bar baz", "2daw", "baz"},
+		{"count inside daw", "foo bar baz", "d2aw", "baz"},
+		{"count on diw takes the blank run", "foo bar", "2diw", "bar"},
+		{"daw count past the line fails", "foo bar", "3daw", "foo bar"},
+		{"visual count on aw", "foo bar baz", "v2awd", "baz"},
+		{"count picks the enclosing pair", "a (b (c) d) e", "fcd2i(", "a () e"},
+		{"iw from linewise visual is charwise", "foo bar", "Viwd", " bar"},
+		{"brace interior selects whole lines", "x {\n  a\n  b\n}", "jvi{d", "x {\n}"},
+		{"empty pair leaves the selection", "()", "vi(d", ")"},
+		{"empty quotes select both, as vim", "\"\"", "vi\"d", ""},
+		{"interior ending at column 0 keeps the close", "(a\n)", "lvi(d", "(\n)"},
+		{"dot count sticks", "a b c d e f g", "dw2..", "f g"},
+		{"s// reuses the substitute pattern", "foo foo", ":s/foo/bar/<enter>:s//baz/<enter>", "bar baz"},
+	})
+}
+
+// TestSearchPastEndOfLineAdvances: /$ matches past the last rune, where the
+// cursor can't sit; n must still move on to the next line.
+func TestSearchPastEndOfLineAdvances(t *testing.T) {
+	e := ed("abc\ndef")
+	feed(e, "/$<enter>n")
+	if c := e.Cursor(); c != (Pos{1, 2}) {
+		t.Fatalf("cursor %v, want {1 2}", c)
+	}
+}
+
+// TestDotRepeatsTheOpeningInsert: the editor opens in Insert mode, and what
+// is typed there is a change "." repeats.
+func TestDotRepeatsTheOpeningInsert(t *testing.T) {
+	e := New()
+	e.SetValue("x")
+	feed(&e, "ab<esc>.")
+	if got := e.Value(); got != "aabbx" {
+		t.Fatalf("got %q, want %q", got, "aabbx")
+	}
+}

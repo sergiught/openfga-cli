@@ -248,9 +248,11 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case editorDiagMsg:
-		// Only the latest revision parses: a tick for a buffer that has since
-		// changed again is superseded by the tick that change scheduled.
-		if !m.editorOpen || msg.rev != m.editor.Revision() {
+		// Only the latest revision parses, once: a tick for a buffer that has
+		// since changed again is superseded by the tick that change scheduled,
+		// and every key pressed while a revision waits schedules another tick
+		// for it, which must not start a second parse.
+		if !m.editorOpen || msg.rev != m.editor.Revision() || msg.rev == m.editorDiagRev {
 			return m, nil
 		}
 		m.editorDiagRev = msg.rev

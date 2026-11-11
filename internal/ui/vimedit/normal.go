@@ -251,13 +251,17 @@ func (e *Editor) opOnMotion(m mres, key string) {
 }
 
 func (e *Editor) runObject(inner bool, ch rune) {
-	r, ok := e.textObject(inner, ch)
+	cnt, _ := e.count()
+	r, ok := e.textObject(inner, ch, cnt)
 	if !ok {
 		e.cancel()
 		return
 	}
 	if e.inVisual() {
-		e.selectObject(r)
+		// vim leaves the selection alone when a bracket object is empty.
+		if r.a != r.b || r.lines || ch == '"' || ch == '\'' || ch == 'w' || ch == 'W' {
+			e.selectObject(r)
+		}
 		e.cancel()
 		return
 	}
@@ -269,15 +273,24 @@ func (e *Editor) runObject(inner bool, ch rune) {
 	e.endCmd()
 }
 
+// selectObject makes the visual selection r, switching to the object's
+// charwise or linewise mode.
 func (e *Editor) selectObject(r objRange) {
 	if r.lines {
+		e.mode = VisualLine
 		e.vstart = Pos{r.a.Row, 0}
 		e.row, e.col = r.b.Row, max(len(e.lines[r.b.Row])-1, 0)
 		return
 	}
+	e.mode = Visual
 	end := r.b
-	if end.Col > 0 {
+	switch {
+	case end.Col > 0:
 		end.Col--
+	case end.Row > r.a.Row:
+		// The object ends with the previous line's break; select up to its
+		// last rune, never the rune at column 0 that closes it.
+		end = Pos{end.Row - 1, max(len(e.lines[end.Row-1])-1, 0)}
 	}
 	e.vstart, e.row, e.col = r.a, end.Row, end.Col
 }
@@ -464,7 +477,9 @@ func (e *Editor) repeatDot(cnt int, has bool) {
 		return
 	}
 	if has {
+		// vim: the new count sticks for the next bare ".".
 		d.count = cnt
+		e.dot.count = cnt
 	}
 	e.replaying = true
 	defer func() { e.replaying = false }()

@@ -127,12 +127,21 @@ func TestEditorDiagnosticsAreDebounced(t *testing.T) {
 	if len(m.(Model).editorDiags) != 0 {
 		t.Fatal("a tick for an older revision must not refresh")
 	}
+	// A cursor key before the tick fires schedules a second tick for the same
+	// revision.
+	m, again := m.Update(key("right"))
+	if again == nil {
+		t.Fatal("precondition: a cursor key should schedule another tick")
+	}
 	m, parse := m.Update(cmd())
 	if parse == nil {
 		t.Fatal("a tick for the current revision should start a parse")
 	}
 	if len(m.(Model).editorDiags) != 0 {
 		t.Fatal("the parse runs off the event loop, not in the tick")
+	}
+	if _, dup := m.Update(again()); dup != nil {
+		t.Fatal("a second tick for a revision already parsing started another parse")
 	}
 	result := parse()
 	m, _ = m.Update(result)

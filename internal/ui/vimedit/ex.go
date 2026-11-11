@@ -224,6 +224,8 @@ func (e *Editor) substitute(args string, r1, r2 int) {
 		e.status = "No previous regular expression"
 		return
 	}
+	// vim: the pattern becomes the last search, for n and a later :s//.
+	e.search = pat
 	re := compilePattern(pat, strings.Contains(flags, "i"))
 	n := 1
 	if strings.Contains(flags, "g") {
@@ -374,7 +376,10 @@ func (e *Editor) findMatch(re *regexp.Regexp, from Pos, back bool) (Pos, bool, b
 		wrapped := (!back && from.Row+i >= n) || (back && from.Row-i < 0)
 		switch {
 		case i == 0 && !back:
-			if j := slices.IndexFunc(cols, func(c int) bool { return c > from.Col }); j >= 0 {
+			// A match past the last rune (such as /$) is drawn on the last
+			// rune; one at the cursor's own column isn't after it.
+			last := max(len(e.lines[r])-1, 0)
+			if j := slices.IndexFunc(cols, func(c int) bool { return min(c, last) > from.Col }); j >= 0 {
 				return Pos{r, cols[j]}, false, true
 			}
 		case i == 0:

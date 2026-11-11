@@ -7,24 +7,26 @@ type objRange struct {
 	lines bool
 }
 
-// textObject resolves a text object like "iw" or "a(" at the cursor.
-func (e *Editor) textObject(inner bool, obj rune) (objRange, bool) {
+// textObject resolves a text object like "iw" or "a(" at the cursor. cnt
+// extends a word object over that many words, and picks the cnt-th enclosing
+// pair of a bracket object.
+func (e *Editor) textObject(inner bool, obj rune, cnt int) (objRange, bool) {
 	switch obj {
 	case 'w', 'W':
-		return e.objWord(inner, obj == 'W')
+		return e.objWord(inner, obj == 'W', cnt)
 	case '(', ')', 'b':
-		return e.objPair(inner, '(', ')')
+		return e.objPair(inner, '(', ')', cnt)
 	case '[', ']':
-		return e.objPair(inner, '[', ']')
+		return e.objPair(inner, '[', ']', cnt)
 	case '{', '}', 'B':
-		return e.objPair(inner, '{', '}')
+		return e.objPair(inner, '{', '}', cnt)
 	case '"', '\'':
 		return e.objQuote(inner, obj)
 	}
 	return objRange{}, false
 }
 
-func (e *Editor) objWord(inner, big bool) (objRange, bool) {
+func (e *Editor) objWord(inner, big bool, cnt int) (objRange, bool) {
 	l := e.lines[e.row]
 	if len(l) == 0 {
 		return objRange{a: Pos{e.row, 0}, b: Pos{e.row, 0}}, true
@@ -61,42 +63,61 @@ func (e *Editor) objWord(inner, big bool) (objRange, bool) {
 			}
 		}
 	}
+	// Each further count takes the next word (iw: the next word or blank run
+	// in turn; aw: the next word and the blanks after it), on this line.
+	for range cnt - 1 {
+		if end >= len(l) {
+			return objRange{}, false
+		}
+		cl := cls(l[end], big)
+		for end < len(l) && cls(l[end], big) == cl {
+			end++
+		}
+		if !inner && cl != 0 {
+			for end < len(l) && cls(l[end], big) == 0 {
+				end++
+			}
+		}
+	}
 	return objRange{a: Pos{e.row, s}, b: Pos{e.row, end}}, true
 }
 
-func (e *Editor) objPair(inner bool, open, closeCh rune) (objRange, bool) {
-	l := e.lines[e.row]
-	var op Pos
-	found := false
-	if e.col < len(l) && l[e.col] == open {
-		op, found = Pos{e.row, e.col}, true
-	} else {
-		depth := 0
-		r, c := e.row, e.col-1
-	scan:
-		for {
-			ln := e.lines[r]
-			if c >= len(ln) {
-				c = len(ln) - 1
-			}
-			for ; c >= 0; c-- {
-				switch ln[c] {
-				case closeCh:
-					depth++
-				case open:
-					if depth == 0 {
-						op, found = Pos{r, c}, true
-						break scan
-					}
-					depth--
-				}
-			}
-			r--
-			if r < 0 {
-				break
-			}
-			c = len(e.lines[r]) - 1
+// openBefore finds the unmatched open bracket before from on or above its row.
+func (e *Editor) openBefore(from Pos, open, closeCh rune) (Pos, bool) {
+	depth := 0
+	r, c := from.Row, from.Col-1
+	for {
+		ln := e.lines[r]
+		if c >= len(ln) {
+			c = len(ln) - 1
 		}
+		for ; c >= 0; c-- {
+			switch ln[c] {
+			case closeCh:
+				depth++
+			case open:
+				if depth == 0 {
+					return Pos{r, c}, true
+				}
+				depth--
+			}
+		}
+		r--
+		if r < 0 {
+			return Pos{}, false
+		}
+		c = len(e.lines[r]) - 1
+	}
+}
+
+func (e *Editor) objPair(inner bool, open, closeCh rune, cnt int) (objRange, bool) {
+	l := e.lines[e.row]
+	op, found := Pos{e.row, e.col}, e.col < len(l) && l[e.col] == open
+	if !found {
+		op, found = e.openBefore(e.cursorPos(), open, closeCh)
+	}
+	for i := 1; found && i < cnt; i++ {
+		op, found = e.openBefore(op, open, closeCh)
 	}
 	if !found {
 		return objRange{}, false

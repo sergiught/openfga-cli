@@ -149,7 +149,16 @@ type Editor struct {
 
 // New returns an empty editor in Insert mode.
 func New() Editor {
-	return Editor{lines: [][]rune{{}}, vpHeight: 20}
+	e := Editor{lines: [][]rune{{}}, vpHeight: 20}
+	e.startInsertDot()
+	return e
+}
+
+// startInsertDot records the Insert session the editor opens in as if it
+// began with "i", so "." after the first esc repeats what was typed.
+func (e *Editor) startInsertDot() {
+	e.dot = dotRec{keys: []Key{{Name: "i", Text: "i"}}}
+	e.recIns = true
 }
 
 // SetValue replaces the buffer, resets the cursor, history and mode (Insert).
@@ -164,7 +173,7 @@ func (e *Editor) SetValue(s string) {
 	e.snapped = false
 	e.mode = Insert
 	e.clearPending()
-	e.recIns = false
+	e.startInsertDot()
 	e.status = ""
 	e.rev++
 }
