@@ -1016,3 +1016,34 @@ func TestStarSearchFindsUnicodeWords(t *testing.T) {
 	feed(e, "$#")
 	cursorIs(t, e, 0, 0)
 }
+
+// TestCopilotReviewRound3: each case checked against vim 9.
+func TestCopilotReviewRound3(t *testing.T) {
+	runCases(t, []tc{
+		{"d/ deletes up to the match", "abc foo", "d/foo<enter>", "foo"},
+		{"d/ repeats with dot", "abc foo bar foo x", "d/foo<enter>.", "foo x"},
+		{"d? deletes back to the match", "x abc foo", "$d?abc<enter>", "x o"},
+		{"d2/ takes the second match", "a foo b foo c foo", "d2/foo<enter>", "foo c foo"},
+		{"esc cancels the operator", "abc foo", "d/foo<esc>x", "bc foo"},
+		{"c/ changes up to the match", "abc foo", "c/foo<enter>Z<esc>", "Zfoo"},
+		{"d/ without a match does nothing", "abc foo\nfoo", "d/zzz<enter>", "abc foo\nfoo"},
+		{"d// reuses the last search", "ab foo cd foo", "/foo<enter>0d//<enter>", "foo cd foo"},
+		{"y/ yanks up to the match", "abc foo", "y/foo<enter>P", "abc abc foo"},
+		{"d2aw from blanks", "foo bar baz", "3ld2aw", "foo"},
+		{"d2aw from blanks keeps the next blank", "foo bar baz qux", "3ld2aw", "foo qux"},
+		{"v2aw from blanks", "foo bar baz", "3lv2awd", "foo"},
+		{"count before visual-shift dot is ignored", "a", "V>2.", "    a"},
+		{"empty insert replaces dot", "abc", "xi<esc>.", "bc"},
+	})
+}
+
+// TestSearchDelimiterEndsPattern: a trailing delimiter is not part of the
+// pattern, and an escaped one is.
+func TestSearchDelimiterEndsPattern(t *testing.T) {
+	e := ed("ab foo cd foo")
+	feed(e, "/foo/<enter>")
+	cursorIs(t, e, 0, 3)
+	e = ed("ab f/o cd")
+	feed(e, "/f\\/o<enter>")
+	cursorIs(t, e, 0, 3)
+}

@@ -16,12 +16,18 @@ func (e *Editor) enterCommand(prompt rune, prefill string) {
 }
 
 func (e *Editor) commandKey(k Key) Action {
+	opSearch := e.op != "" && e.cmdPrompt != ':'
+	if opSearch {
+		e.cmdKeys = append(e.cmdKeys, k) // so "." replays the pattern too
+	}
 	switch k.Name {
 	case "esc":
 		e.mode = Normal
+		e.cancel()
 	case "backspace":
 		if len(e.cmdText) == 0 {
 			e.mode = Normal
+			e.cancel()
 			return None
 		}
 		e.cmdText = e.cmdText[:len(e.cmdText)-1]
@@ -33,6 +39,14 @@ func (e *Editor) commandKey(k Key) Action {
 		e.mode = Normal
 		if prompt == ':' {
 			return e.execEx(text)
+		}
+		// vim: an unescaped delimiter ends the pattern ("//" reuses the last
+		// one); a search offset after it is not supported and is dropped.
+		text = splitDelim(text, prompt, 2)[0]
+		if opSearch {
+			e.setSearch(text, prompt == '?')
+			e.runMotion("n", 0)
+			return None
 		}
 		e.runSearchCommand(text, prompt == '?')
 	default:
@@ -271,13 +285,18 @@ func (e *Editor) substitute(args string, r1, r2 int) {
 // ---- search ----
 
 func (e *Editor) runSearchCommand(pat string, back bool) {
+	e.setSearch(pat, back)
+	e.searchStatusJump(1, false)
+}
+
+// setSearch makes pat, or the last pattern when empty, the search for n.
+func (e *Editor) setSearch(pat string, back bool) {
 	if pat == "" {
 		pat = e.search
 	} else {
 		e.searchWord = false
 	}
 	e.search, e.searchBack = pat, back
-	e.searchStatusJump(1, false)
 }
 
 // searchStatusJump moves to the next match (reversed flips the direction).

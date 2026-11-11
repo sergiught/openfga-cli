@@ -33,6 +33,7 @@ func (e *Editor) objWord(inner, big bool, cnt int) (objRange, bool) {
 	}
 	c := min(e.col, len(l)-1)
 	cl := cls(l[c], big)
+	onBlank := cl == 0
 	s, t := c, c
 	for s > 0 && cls(l[s-1], big) == cl {
 		s--
@@ -64,8 +65,14 @@ func (e *Editor) objWord(inner, big bool, cnt int) (objRange, bool) {
 		}
 	}
 	// Each further count takes the next word (iw: the next word or blank run
-	// in turn; aw: the next word and the blanks after it), on this line.
+	// in turn; aw: the next word and the blanks after it, or, started on
+	// blanks, the blanks and the word after them), on this line.
 	for range cnt - 1 {
+		if !inner && onBlank {
+			for end < len(l) && cls(l[end], big) == 0 {
+				end++
+			}
+		}
 		if end >= len(l) {
 			return objRange{}, false
 		}
@@ -73,7 +80,7 @@ func (e *Editor) objWord(inner, big bool, cnt int) (objRange, bool) {
 		for end < len(l) && cls(l[end], big) == cl {
 			end++
 		}
-		if !inner && cl != 0 {
+		if !inner && cl != 0 && !onBlank {
 			for end < len(l) && cls(l[end], big) == 0 {
 				end++
 			}

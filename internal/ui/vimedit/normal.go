@@ -174,6 +174,11 @@ func (e *Editor) dispatch(key string) Action {
 		e.runMotion(key, 0)
 		return None
 	}
+	if e.op != "" && (key == "/" || key == "?") && !visual {
+		// d/foo<enter>: the search is the operator's motion.
+		e.enterCommand(rune(key[0]), "")
+		return None
+	}
 	if e.op != "" {
 		e.cancel()
 		return None
@@ -500,7 +505,7 @@ func (e *Editor) repeatDot(cnt int, has bool) {
 		}
 	}
 	for _, k := range d.keys {
-		e.normalKey(k)
+		e.handle(k) // a search motion's pattern is typed in Command mode
 	}
 	if e.mode == Insert {
 		for _, k := range d.ins {
