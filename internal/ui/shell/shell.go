@@ -290,7 +290,7 @@ func (s *Shell) View() string {
 	// Safety net: never emit more than height rows or wider than width. Any
 	// residual overflow would scroll the terminal and corrupt the layout.
 	base := clampFrame(
-		lipgloss.JoinVertical(lipgloss.Left, s.composeTop(body), s.renderStatus()),
+		s.composeTop(body)+"\n"+s.renderStatus(),
 		s.width, s.height,
 	)
 
@@ -330,6 +330,11 @@ func (s *Shell) View() string {
 			lipgloss.NewLayer(rest).X(0).Y(0).Z(0),
 			lipgloss.NewLayer(s.renderSidebar(body)).X(-off).Y(0).Z(1),
 		)
+	} else if s.toast == "" {
+		// Nothing layered on top: the base frame is the frame. Drawing it
+		// through a canvas re-parses every cell of the screen, the single
+		// largest cost of a redraw on a big terminal.
+		return base
 	} else {
 		layers = append(layers, lipgloss.NewLayer(base).X(0).Y(0).Z(0))
 	}
@@ -356,7 +361,31 @@ func (s *Shell) composeTop(body int) string {
 	if s.Collapsed() {
 		return main
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, s.renderSidebar(body), main)
+	return joinColumns(s.renderSidebar(body), s.sidebarOccupied(), main)
+}
+
+// joinColumns puts left, a block every line of which is exactly leftW columns
+// wide, beside right, line by line, without measuring either; a missing left
+// line is blank.
+func joinColumns(left string, leftW int, right string) string {
+	ls, rs := strings.Split(left, "\n"), strings.Split(right, "\n")
+	blank := strings.Repeat(" ", leftW)
+	var b strings.Builder
+	b.Grow(len(left) + len(right) + len(rs))
+	for i := range max(len(ls), len(rs)) {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		if i < len(ls) {
+			b.WriteString(ls[i])
+		} else {
+			b.WriteString(blank)
+		}
+		if i < len(rs) {
+			b.WriteString(rs[i])
+		}
+	}
+	return b.String()
 }
 
 // renderDialog draws the modal box: a rounded, primary-bordered panel with the
@@ -515,10 +544,7 @@ func (s *Shell) renderSidebar(height int) string {
 	// Content stays fg-only: no Background() here. The sidebar is a flat
 	// column on the shared base background — structure comes from the hatch
 	// bands and typography, not a painted panel fill.
-	return lipgloss.NewStyle().
-		Width(w).Height(height).
-		Padding(0, 1).
-		Render(content)
+	return padBlock(content, w, height)
 }
 
 // brandLine sets the tagline (left) and version (right) in the frame's focus
@@ -588,10 +614,40 @@ func (s *Shell) renderMain(height int) string {
 	if s.Collapsed() {
 		content = s.navStrip(innerW) + "\n" + content
 	}
-	return lipgloss.NewStyle().
-		Width(mainTotal).Height(height).
-		Padding(0, 1).
-		Render(content)
+	return padBlock(content, mainTotal, height)
+}
+
+// padBlock lays content out as a block w columns wide and at least h lines
+// tall: each line gets a column of padding on both sides, lines over the
+// interior width are truncated, and blank lines fill to h. It replaces a
+// lipgloss style with Width, Height and Padding(0, 1), which measured, wrapped
+// and aligned every line several times over and dominated a redraw of a large
+// terminal; padBlock measures each line once, and its lines are exactly w
+// columns, so blocks can be joined side by side without measuring again.
+func padBlock(content string, w, h int) string {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\t", "    ")
+	inner := max(0, w-2)
+	lines := strings.Split(content, "\n")
+	var b strings.Builder
+	b.Grow(len(content) + max(len(lines), h)*(w+1))
+	for i := range max(len(lines), h) {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		ln := ""
+		if i < len(lines) {
+			ln = lines[i]
+		}
+		lw := ansi.StringWidth(ln)
+		if lw > inner {
+			ln, lw = ansi.Truncate(ln, inner, ""), inner
+		}
+		b.WriteByte(' ')
+		b.WriteString(ln)
+		b.WriteString(strings.Repeat(" ", max(0, w-1-lw)))
+	}
+	return b.String()
 }
 
 // navStrip renders a one-line horizontal tab strip for the collapsed layout:

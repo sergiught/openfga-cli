@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
 
@@ -13,21 +12,16 @@ import (
 	"github.com/sergiught/openfga-cli/internal/dsl"
 	uilist "github.com/sergiught/openfga-cli/internal/ui/list"
 	"github.com/sergiught/openfga-cli/internal/ui/shell"
+	"github.com/sergiught/openfga-cli/internal/ui/vimedit"
 )
 
-// newPaneModel builds a Model whose editor matches production no-wrap config,
-// with a shell sized so contentSize() is deterministic.
+// newPaneModel builds a Model holding an editor on value, with a shell sized so contentSize() is deterministic.
 func newPaneModel(value string, totalW int) Model {
 	sh := shell.New()
 	sh.SetSize(totalW, 30)
-	ta := textarea.New()
-	ta.ShowLineNumbers = false
-	ta.MaxWidth = editorNoWrapWidth
-	ta.SetWidth(editorNoWrapWidth)
-	ta.SetHeight(10)
-	ta.Focus()
-	ta.SetValue(value)
-	return Model{sh: sh, editor: ta}
+	ed := vimedit.New()
+	ed.SetValue(value)
+	return Model{sh: sh, editor: ed}
 }
 
 func TestEditorBodyShowsFooterOnError(t *testing.T) {
@@ -54,14 +48,11 @@ func TestEditorBodyFooterShowsMoreCountForMultipleErrors(t *testing.T) {
 }
 
 func TestEditorPaneHighlightsAndDrawsCursor(t *testing.T) {
-	// No trailing newline: after SetValue the cursor rests on line 0 at end-of-line.
 	m := newPaneModel("type user", 80)
-	// Move to col 2 on line 0: Home, then Right twice.
-	m.editor, _ = m.editor.Update(tea.KeyPressMsg{Code: tea.KeyHome})
-	m.editor, _ = m.editor.Update(tea.KeyPressMsg{Code: tea.KeyRight})
-	m.editor, _ = m.editor.Update(tea.KeyPressMsg{Code: tea.KeyRight})
-	if m.editor.Line() != 0 {
-		t.Fatalf("precondition: expected cursor on line 0, got %d", m.editor.Line())
+	m.editor.HandleKey(vimedit.Key{Name: "right"})
+	m.editor.HandleKey(vimedit.Key{Name: "right"})
+	if c := m.editor.Cursor(); c != (vimedit.Pos{Row: 0, Col: 2}) {
+		t.Fatalf("precondition: expected cursor at 0:2, got %+v", c)
 	}
 	out := m.editorPane(80, 10)
 	if !strings.Contains(out, "\x1b[7m") {
@@ -86,14 +77,6 @@ func TestEditorPaneErrorMarkerNoRowShift(t *testing.T) {
 	}
 	if !strings.Contains(out, "▸") {
 		t.Fatalf("expected red gutter marker on the error line, got:\n%s", out)
-	}
-}
-
-func TestEditorPaneBlurHidesCursor(t *testing.T) {
-	m := newPaneModel("type user\n", 80)
-	m.editor.Blur()
-	if strings.Contains(m.editorPane(80, 10), "\x1b[7m") {
-		t.Fatal("expected no cursor block when editor is blurred")
 	}
 }
 
@@ -122,14 +105,14 @@ func TestResizeReflowsEditorScrollAfterShrink(t *testing.T) {
 	nm, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
 	m = nm.(Model)
 
-	// Move the cursor to the last line directly on the textarea, bypassing
+	// Move the cursor to the last line directly on the editor, bypassing
 	// the model's own key-driven reflow (handleKey calls reflowEditorScroll
 	// after every editor keystroke) so editorTop is left stale relative to
 	// the cursor once we shrink below.
 	for i := 0; i < 40; i++ {
-		m.editor, _ = m.editor.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+		m.editor.HandleKey(vimedit.Key{Name: "down"})
 	}
-	last := m.editor.Line()
+	last := m.editor.Cursor().Row
 	if last == 0 {
 		t.Fatal("precondition: expected cursor to have moved off line 0")
 	}

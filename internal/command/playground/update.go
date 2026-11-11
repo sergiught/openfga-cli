@@ -17,6 +17,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/ui/list"
 	shell "github.com/sergiught/openfga-cli/internal/ui/shell"
 	"github.com/sergiught/openfga-cli/internal/ui/toast"
+	"github.com/sergiught/openfga-cli/internal/ui/vimedit"
 )
 
 // reducedMotion reports whether ambient animation (the gradient drift) should be
@@ -246,6 +247,35 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleOptBench(msg)
 		return m, nil
 
+	case editorDiagMsg:
+		// Only the latest revision parses, once: a tick for a buffer that has
+		// since changed again is superseded by the tick that change scheduled,
+		// and every key pressed while a revision waits schedules another tick
+		// for it, which must not start a second parse.
+		if !m.editorOpen || msg.rev != m.editor.Revision() || msg.rev == m.editorDiagRev {
+			return m, nil
+		}
+		m.editorDiagRev = msg.rev
+		v := m.editor.Value()
+		if v == m.lastEditorDSL {
+			return m, nil
+		}
+		// Parse off the event loop: on a large model it takes long enough
+		// that a key pressed meanwhile would visibly wait for it.
+		return m, func() tea.Msg {
+			return editorDiagsMsg{rev: msg.rev, dsl: v, diags: editorDiagnostics(v)}
+		}
+
+	case editorDiagsMsg:
+		// Results for a buffer that has changed since are dropped; that
+		// change scheduled its own parse.
+		if m.editorOpen && msg.rev == m.editor.Revision() {
+			m.lastEditorDSL, m.editorDiags = msg.dsl, msg.diags
+			// An error line appearing or going changes the rows left for
+			// the buffer.
+			m.reflowEditorScroll()
+		}
+		return m, nil
 	case modelAppliedMsg:
 		m.endLoad()
 		if m.staleMutation(msg.origin, m.modelApplyGen) {
@@ -276,7 +306,6 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.connLost = false
 		if msg.optimized == 0 {
 			m.editorOpen = false
-			m.editor.Blur()
 		}
 		m.status = "model applied"
 		if msg.optimized > 0 {
@@ -738,12 +767,10 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Field cursors blink via their own (non-key) messages. An active form
 		// must see every message, not just key presses, or the focused input's
 		// cursor never blinks.
-		if m.editorOpen {
-			var cmd tea.Cmd
-			m.editor, cmd = m.editor.Update(msg)
-			m.refreshEditorDiagnostics()
-			m.reflowEditorScroll()
-			return m, cmd
+		// A dialog over the editor captures input, pastes included.
+		if paste, ok := msg.(tea.PasteMsg); ok && m.editorOpen && !m.helpOpen && m.formErr == "" && m.confirm == nil {
+			m.editor.InsertText(paste.Content)
+			return m, m.afterEditorChange()
 		}
 		if m.formKind != formNone {
 			return m.advanceTakeoverForm(msg)
@@ -993,52 +1020,24 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	// Editor open: route all keys to it (except esc/ctrl+s which we handle).
+	// Editor open: every key goes to the vim engine, except ctrl+s, which
+	// applies from any mode. Its Apply/Close actions map onto the same apply
+	// and discard-confirm paths.
 	if m.editorOpen {
-		switch msg.String() {
-		case "esc":
-			// Guard against discarding unsaved DSL edits on a stray Esc: confirm
-			// first when the buffer differs from what was loaded.
-			baseline := m.modelDSL
-			if baseline == "" {
-				baseline = modelTemplate
-			}
-			if m.editor.Value() != baseline {
-				m.confirm = &confirmAction{
-					action:  "Discard model edits",
-					subject: "unsaved changes to the model DSL",
-					run: func(m *Model) tea.Cmd {
-						m.editorOpen = false
-						m.editorErr = ""
-						m.editor.Blur()
-						return nil
-					},
-				}
-				return m, nil
-			}
-			m.editorOpen = false
-			m.editorErr = ""
-			m.editor.Blur()
-			return m, nil
-		case "ctrl+s":
-			if m.modelApplying {
-				m.status = "model apply already in progress"
-				return m, nil
-			}
-			m.editorErr = ""
-			m.beginLoad()
-			m.modelApplying = true
-			m.modelApplyGen++
-			m.mutationStatus = "applying model…"
-			m.status = m.mutationStatus
-			return m, applyModelCmd(m.ctx, m.client,
-				m.mutationOrigin(m.storeID, m.modelID, m.modelApplyGen), m.editor.Value())
+		if msg.String() == "ctrl+s" {
+			return m.applyEditor()
 		}
-		var cmd tea.Cmd
-		m.editor, cmd = m.editor.Update(msg)
-		m.refreshEditorDiagnostics()
-		m.reflowEditorScroll()
-		return m, cmd
+		m.editor.SetViewportHeight(m.editorViewportRows())
+		m.editor.SetTop(m.editorTop)
+		switch m.editor.HandleKey(vimedit.Key{Name: msg.String(), Text: msg.Text}) {
+		case vimedit.Apply:
+			return m.applyEditor()
+		case vimedit.Close:
+			return m.closeEditor(false)
+		case vimedit.ForceClose:
+			return m.closeEditor(true)
+		}
+		return m, m.afterEditorChange()
 	}
 
 	// Workbench "new test file" filename prompt captures all keys until
@@ -1322,32 +1321,104 @@ func plural(n int, noun string) string {
 }
 
 // refreshEditorDiagnostics re-parses the editor buffer for diagnostics, but
-// only when the buffer actually changed since the last parse (cursor-blink
-// and other no-op updates should not trigger a re-parse).
+// only when the buffer actually changed since the last parse (an undo back to
+// the parsed text needs no re-parse).
 // It first checks for syntax errors; if there are none, it runs the semantic
 // check for undefined types. Syntax errors take precedence.
 func (m *Model) refreshEditorDiagnostics() {
+	m.editorDiagRev = m.editor.Revision()
 	v := m.editor.Value()
 	if v == m.lastEditorDSL {
 		return
 	}
 	m.lastEditorDSL = v
-	m.editorDiags = dsl.Diagnostics(v)
-	// Only run semantic checks if syntax is valid (token stream is reliable)
-	if len(m.editorDiags) == 0 {
-		m.editorDiags = dsl.UndefinedTypeDiagnostics(v)
+	m.editorDiags = editorDiagnostics(v)
+}
+
+// editorDiagnostics checks v for syntax errors and, when there are none,
+// undefined types: semantic checks need a reliable token stream.
+func editorDiagnostics(v string) []dsl.Diagnostic {
+	if d := dsl.Diagnostics(v); len(d) > 0 {
+		return d
 	}
+	return dsl.UndefinedTypeDiagnostics(v)
+}
+
+// editorDiagDelay is how long the buffer must sit unchanged before it is
+// re-parsed for diagnostics, so typing on a large model doesn't parse it on
+// every keystroke.
+const editorDiagDelay = 150 * time.Millisecond
+
+// editorDiagMsg asks for a diagnostics refresh of buffer revision rev.
+type editorDiagMsg struct{ rev uint64 }
+
+// editorDiagsMsg carries the diagnostics of buffer revision rev, whose text
+// is dsl.
+type editorDiagsMsg struct {
+	rev   uint64
+	dsl   string
+	diags []dsl.Diagnostic
+}
+
+// afterEditorChange keeps the cursor on screen and, when the buffer changed
+// since diagnostics last ran, schedules a debounced re-parse for this revision.
+func (m *Model) afterEditorChange() tea.Cmd {
+	m.reflowEditorScroll()
+	rev := m.editor.Revision()
+	if rev == m.editorDiagRev {
+		return nil
+	}
+	return tea.Tick(editorDiagDelay, func(time.Time) tea.Msg { return editorDiagMsg{rev: rev} })
+}
+
+// applyEditor sends the buffer to the server as a new model version.
+func (m Model) applyEditor() (tea.Model, tea.Cmd) {
+	if m.modelApplying {
+		m.status = "model apply already in progress"
+		return m, nil
+	}
+	m.editorErr = ""
+	m.beginLoad()
+	m.modelApplying = true
+	m.modelApplyGen++
+	m.mutationStatus = "applying model…"
+	m.status = m.mutationStatus
+	return m, applyModelCmd(m.ctx, m.client,
+		m.mutationOrigin(m.storeID, m.modelID, m.modelApplyGen), m.editor.Value())
+}
+
+// closeEditor closes the editor. Unless force is set it confirms first when
+// the buffer differs from what was loaded, so a stray key never discards edits.
+func (m Model) closeEditor(force bool) (tea.Model, tea.Cmd) {
+	baseline := m.modelDSL
+	if baseline == "" {
+		baseline = modelTemplate
+	}
+	if !force && m.editor.Value() != baseline {
+		m.confirm = &confirmAction{
+			action:  "Discard model edits",
+			subject: "unsaved changes to the model DSL",
+			run: func(m *Model) tea.Cmd {
+				m.editorOpen = false
+				m.editorErr = ""
+				return nil
+			},
+		}
+		return m, nil
+	}
+	m.editorOpen = false
+	m.editorErr = ""
+	return m, nil
 }
 
 // reflowEditorScroll adjusts editorTop so the cursor's logical line stays
-// within the visible window. We manage vertical scroll ourselves because the
-// textarea's ScrollYOffset is not reliable under our no-wrap config.
+// within the visible window.
 func (m *Model) reflowEditorScroll() {
 	h := m.editorViewportRows()
 	if h < 1 {
 		h = 1
 	}
-	row := m.editor.Line()
+	row := m.editor.Cursor().Row
 	switch {
 	case row < m.editorTop:
 		m.editorTop = row
