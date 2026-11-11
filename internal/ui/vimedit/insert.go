@@ -27,7 +27,7 @@ func (e *Editor) insertKey(k Key) Action {
 	switch k.Name {
 	case "esc":
 		e.mode = Normal
-		e.recIns = false
+		e.recIns, e.insMoved = false, false
 		if e.col > 0 {
 			e.col--
 		}
@@ -143,6 +143,7 @@ func (e *Editor) insertDeleteToStart() {
 func (e *Editor) insertMove(name string) {
 	e.snapped = false
 	e.recIns = false
+	e.insMoved = true
 	l := e.lines[e.row]
 	switch name {
 	case "left":

@@ -328,7 +328,12 @@ func (e *Editor) motion(key string, ch rune, cnt int, has, hasOp bool) (mres, bo
 			p = e.wordFwd(p, key == "W")
 		}
 		if hasOp && p.Row > e.row && p.Col <= e.indentLen(p.Row) {
-			p = Pos{p.Row - 1, len(e.lines[p.Row-1])}
+			if p.Row-1 == e.row && len(l) == 0 && e.op != "c" {
+				// vim: dw on an empty line deletes its line break.
+				p = Pos{e.row + 1, 0}
+			} else {
+				p = Pos{p.Row - 1, len(e.lines[p.Row-1])}
+			}
 		}
 		return mres{p: p}, true
 	case "b", "B":

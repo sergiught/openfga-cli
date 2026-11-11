@@ -74,7 +74,9 @@ func (e *Editor) normalKey(k Key) Action {
 	e.pend += key
 
 	if e.wait == "\"" {
+		// Keep the register name in the command, so "." replays it whole.
 		e.wait = ""
+		e.cmdKeys = append(e.cmdKeys, k)
 		return None
 	}
 	if e.wait != "" {
@@ -470,6 +472,15 @@ func (e *Editor) startOp(op, motionKey string) {
 	e.runMotion(motionKey, 0)
 }
 
+// digitKeys is n typed as count keys.
+func digitKeys(n int) []Key {
+	var ks []Key
+	for _, c := range strconv.Itoa(n) {
+		ks = append(ks, Key{Name: string(c), Text: string(c)})
+	}
+	return ks
+}
+
 func (e *Editor) repeatDot(cnt int, has bool) {
 	d := e.dot
 	e.cancel()
@@ -484,8 +495,8 @@ func (e *Editor) repeatDot(cnt int, has bool) {
 	e.replaying = true
 	defer func() { e.replaying = false }()
 	if d.count > 0 {
-		for _, c := range strconv.Itoa(d.count) {
-			e.normalKey(Key{Name: string(c), Text: string(c)})
+		for _, k := range digitKeys(d.count) {
+			e.normalKey(k)
 		}
 	}
 	for _, k := range d.keys {
@@ -724,7 +735,7 @@ func (e *Editor) visualOp(op string, cnt int) {
 		e.applyOp(op, a, b, lw)
 	}
 	if op != "y" {
-		e.setVisualDot(op, sel)
+		e.setVisualDot(op, sel, cnt)
 	}
 	e.cancel()
 }
@@ -732,12 +743,24 @@ func (e *Editor) visualOp(op string, cnt int) {
 // setVisualDot makes `.` after a visual operator repeat it from the cursor
 // over as many lines, or as many characters of one line, as vim does. Other
 // selections clear it, so `.` never replays an older, unrelated change.
-func (e *Editor) setVisualDot(op string, sel Selection) {
+func (e *Editor) setVisualDot(op string, sel Selection, cnt int) {
 	if e.replaying {
 		return
 	}
 	opKey := Key{Name: op, Text: op}
 	switch {
+	case op == ">" || op == "<":
+		// A shift keeps its count, which is the shift amount, not a size:
+		// replay it as the same linewise selection, shifted as often.
+		keys := []Key{{Name: "V", Text: "V"}}
+		if n := sel.End.Row - sel.Start.Row; n > 0 {
+			keys = append(keys, digitKeys(n)...)
+			keys = append(keys, Key{Name: "j", Text: "j"})
+		}
+		if cnt > 1 {
+			keys = append(keys, digitKeys(cnt)...)
+		}
+		e.dot = dotRec{keys: append(keys, opKey)}
 	case sel.Linewise:
 		e.dot = dotRec{count: sel.End.Row - sel.Start.Row + 1, keys: []Key{opKey, opKey}}
 	case sel.Start.Row == sel.End.Row:

@@ -219,6 +219,8 @@ func (e *Editor) substitute(args string, r1, r2 int) {
 	}
 	if pat == "" {
 		pat = e.search
+	} else {
+		e.searchWord = false
 	}
 	if pat == "" {
 		e.status = "No previous regular expression"
@@ -234,7 +236,14 @@ func (e *Editor) substitute(args string, r1, r2 int) {
 	total, lines, lastRow := 0, 0, -1
 	for r := r1; r <= r2; r++ {
 		s := string(e.lines[r])
-		ms := re.FindAllStringSubmatchIndex(s, n)
+		lim := n
+		if e.searchWord {
+			lim = -1 // the first whole-word match may follow partial ones
+		}
+		ms := e.wordMatches(s, re.FindAllStringSubmatchIndex(s, lim))
+		if n > 0 && len(ms) > n {
+			ms = ms[:n]
+		}
 		if len(ms) == 0 {
 			continue
 		}
@@ -264,6 +273,8 @@ func (e *Editor) substitute(args string, r1, r2 int) {
 func (e *Editor) runSearchCommand(pat string, back bool) {
 	if pat == "" {
 		pat = e.search
+	} else {
+		e.searchWord = false
 	}
 	e.search, e.searchBack = pat, back
 	e.searchStatusJump(1, false)
@@ -283,7 +294,9 @@ func (e *Editor) searchMotion(key string, cnt int) (mres, bool) {
 		if w == "" {
 			return mres{}, false
 		}
-		e.search = `\b` + regexp.QuoteMeta(w) + `\b`
+		// Whole words are matched by isWordRune, not RE2's ASCII-only \b, so a
+		// word like "café" is found too.
+		e.search, e.searchWord = regexp.QuoteMeta(w), true
 		e.searchBack = key == "#"
 		// From the word's start, so the word under the cursor is skipped.
 		return e.doSearchFrom(Pos{e.row, start}, cnt, false)
@@ -314,11 +327,28 @@ func (e *Editor) wordUnderCursor() (string, int) {
 	return string(l[s : t+1]), s
 }
 
+// wordMatches drops the matches of a whole-word search (searchWord) that
+// have a word rune right before or after them.
+func (e *Editor) wordMatches(s string, ms [][]int) [][]int {
+	if !e.searchWord {
+		return ms
+	}
+	kept := ms[:0]
+	for _, m := range ms {
+		before, _ := utf8.DecodeLastRuneInString(s[:m[0]])
+		after, _ := utf8.DecodeRuneInString(s[m[1]:])
+		if (m[0] == 0 || !isWordRune(before)) && (m[1] == len(s) || !isWordRune(after)) {
+			kept = append(kept, m)
+		}
+	}
+	return kept
+}
+
 // matchCols lists the rune columns where re matches in row r.
 func (e *Editor) matchCols(re *regexp.Regexp, r int) []int {
 	s := string(e.lines[r])
-	idx := re.FindAllStringIndex(s, -1)
-	if idx == nil {
+	idx := e.wordMatches(s, re.FindAllStringIndex(s, -1))
+	if len(idx) == 0 {
 		return nil
 	}
 	cols := make([]int, len(idx))

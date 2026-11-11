@@ -980,3 +980,39 @@ func TestDotRepeatsTheOpeningInsert(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, "aabbx")
 	}
 }
+
+// TestCopilotReviewRound2: each case checked against vim 9.
+func TestCopilotReviewRound2(t *testing.T) {
+	runCases(t, []tc{
+		{"* matches unicode whole words", "café café x", "*:s//Z/g<enter>", "Z Z x"},
+		{"* skips a match inside a word", "cafés café", "w*:s//Z/g<enter>", "cafés Z"},
+		{"insert after a cursor move repeats", "xy", "iab<left>cd<esc>.", "accddbxy"},
+		{"dw on an empty line deletes its break", "\ntype user", "dw", "type user"},
+		{"cw on an empty line keeps its break", "\ntype user", "cwX<esc>", "X\ntype user"},
+		{"dw on an empty line before another", "\n\nfoo", "dw", "\nfoo"},
+		{"dw on an empty line keeps the indent", "\n  foo bar", "dw", "  foo bar"},
+		{"d2w from an empty line", "\nfoo bar", "d2w", "bar"},
+		{"dot keeps the register prefix", "abc", "\"ax.", "c"},
+		{"dot keeps a counted register command", "abcd", "\"a2x.", ""},
+		{"dot repeats a counted visual shift", "a", "V2>.", "        a"},
+		{"dot shifts as many lines again", "a\nb\nc", "Vj>j.", "  a\n    b\n  c"},
+		{"dot repeats both count and size", "a\nb", "Vj2>j.", "    a\n        b"},
+	})
+
+	// A paste in Normal mode repeats as the same append, like vim's "p".
+	e := ed("abc")
+	feed(e, "l")
+	e.InsertText("XY")
+	feed(e, ".")
+	if got := e.Value(); got != "abXYXYc" {
+		t.Fatalf("dot after a paste: got %q, want %q", got, "abXYXYc")
+	}
+}
+
+// TestStarSearchFindsUnicodeWords: # on a word with non-ASCII runes finds the
+// previous whole-word match, skipping "xcafé", where RE2's \b finds none.
+func TestStarSearchFindsUnicodeWords(t *testing.T) {
+	e := ed("café xcafé café")
+	feed(e, "$#")
+	cursorIs(t, e, 0, 0)
+}

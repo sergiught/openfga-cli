@@ -135,6 +135,7 @@ type Editor struct {
 	lastFindCh   rune
 	search       string
 	searchBack   bool
+	searchWord   bool // search matches whole words only (from * and #)
 
 	vstart    Pos
 	visRows   [2]int
@@ -143,6 +144,7 @@ type Editor struct {
 	cmdText   []rune
 	dot       dotRec
 	recIns    bool
+	insMoved  bool // the cursor moved in Insert mode since the last edit
 	replaying bool
 	didChange bool
 }
@@ -310,6 +312,8 @@ func (e *Editor) InsertText(s string) {
 		e.row, e.col = end.Row, max(end.Col-1, 0)
 		e.want = e.col
 		e.snapped = false
+		// "." repeats the paste, as an append of the same text.
+		e.dot = dotRec{keys: []Key{{Name: "a", Text: "a"}}, ins: []Key{{Name: pasteKey, Text: s}}}
 	}
 	e.clamp()
 }
@@ -505,6 +509,12 @@ func (e *Editor) rowsText(r1, r2 int) string {
 }
 
 func (e *Editor) recordIns(k Key) {
+	if e.insMoved && !e.replaying {
+		// The first edit after an Insert-mode cursor move starts a new
+		// repeatable insert there, as in vim.
+		e.dot = dotRec{keys: []Key{{Name: "i", Text: "i"}}}
+		e.recIns, e.insMoved = true, false
+	}
 	if e.recIns && !e.replaying {
 		e.dot.ins = append(e.dot.ins, k)
 	}
