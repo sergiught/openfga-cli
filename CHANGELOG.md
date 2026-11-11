@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.271.0](https://github.com/sergiught/openfga-cli/compare/v0.270.0...v0.271.0) (2026-11-11)
+
+
+### Features
+
+* **playground:** compact model diagram with per-type expansion and relation-row edges ([#225](https://github.com/sergiught/openfga-cli/issues/225)) ([d296de4](https://github.com/sergiught/openfga-cli/commit/d296de449e2f1f2c53aa53380743ad6b0174e975))
+* **playground:** vim-style model editor that stays fast on large models ([#233](https://github.com/sergiught/openfga-cli/issues/233)) ([4b42a22](https://github.com/sergiught/openfga-cli/commit/4b42a22243f9f63f648af6ccf3547a52292b6290))
+
+
+### Bug fixes
+
+* **deps:** require go 1.27.4 to clear govulncheck ([#234](https://github.com/sergiught/openfga-cli/issues/234)) ([c2b80d9](https://github.com/sergiught/openfga-cli/commit/c2b80d96c70e0dff858ad251d8f44565c4adfcfd))
+
 ## [0.270.0](https://github.com/sergiught/openfga-cli/compare/v0.269.0...v0.270.0) (2026-11-06)
 
 
