@@ -37,12 +37,15 @@ type TypeNode struct {
 // a relation that can be satisfied by users (or usersets) of type To. Kind is
 // "direct" or "ttu" (tuple-to-userset / inherited). Via names the relation the
 // dependency flows through (the relation on From for direct edges, the tupleset
-// relation for ttu edges).
+// relation for ttu edges). ToRelation is the relation on To when a direct edge
+// comes from a userset assignment (type#relation); it is empty for plain type
+// assignments and for every ttu edge.
 type DiagramEdge struct {
-	From string `json:"from"`
-	To   string `json:"to"`
-	Kind string `json:"kind"`
-	Via  string `json:"via"`
+	From       string `json:"from"`
+	To         string `json:"to"`
+	Kind       string `json:"kind"`
+	Via        string `json:"via"`
+	ToRelation string `json:"to_relation,omitempty"`
 }
 
 // Graph is the parsed, render-ready view of an authorization model.
@@ -118,7 +121,11 @@ func ParseModel(m *openfga.AuthorizationModel) Graph {
 			for _, dt := range direct[name] {
 				rel.Edges = append(rel.Edges, RelationEdge{Kind: "direct", Label: dt})
 				// Inter-type dependency: this type points at the target type.
-				addEdge(&g, &seen, DiagramEdge{From: td.Type, To: typePart(dt), Kind: "direct", Via: name})
+				toRel := ""
+				if i := strings.Index(dt, "#"); i >= 0 {
+					toRel = dt[i+1:]
+				}
+				addEdge(&g, &seen, DiagramEdge{From: td.Type, To: typePart(dt), Kind: "direct", Via: name, ToRelation: toRel})
 			}
 			// Computed/TTU edges from the rewrite rule.
 			for _, e := range rewriteEdges(td.Relations[name]) {
@@ -160,7 +167,10 @@ func addEdge(g *Graph, seen *map[string]bool, e DiagramEdge) {
 	if e.To == "" || e.To == e.From {
 		return
 	}
-	key := e.From + "\x00" + e.To + "\x00" + e.Kind
+	key := e.From + "\x00" + e.To + "\x00" + e.Kind + "\x00" + e.ToRelation
+	if e.Kind == "ttu" {
+		key += "\x00" + e.Via
+	}
 	if (*seen)[key] {
 		return
 	}

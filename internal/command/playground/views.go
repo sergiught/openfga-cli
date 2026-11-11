@@ -108,9 +108,9 @@ func (m Model) helpBody() string {
 	case secProfiles:
 		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"↵", "switch to profile"}, {"a", "add"}, {"e", "edit"}, {"d", "delete"}}
 	case secStores:
-		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"↵", "select store"}, {"a", "add"}, {"d", "delete"}, {"r", "reload"}}
+		section = [][2]string{{"↑↓", "move"}, {"/", "filter"}, {"↵", "open store"}, {"a", "add"}, {"d", "delete"}, {"r", "reload"}}
 	case secModel:
-		section = [][2]string{{"↑↓ k/j", "scroll"}, {"←→ h/l", "pan"}, {"pgup/pgdn b/f/space", "page"}, {"g/G home/end", "top/bottom"}, {"v", "weighted graph"}, {"B", "benchmark the model"}, {"o", "review optimizations"}, {"e", "edit DSL"}, {"m", "switch model"}, {"r", "reload"}}
+		section = [][2]string{{"↑↓ k/j", "scroll"}, {"←→ h/l", "pan"}, {"pgup/pgdn b/f/space", "page"}, {"g/G home/end", "top/bottom"}, {"v", "weighted graph"}, {"tab/shift+tab", "select type"}, {"↵", "expand/collapse"}, {"E", "expand/collapse all"}, {"a", "selected/all lines"}, {"B", "benchmark the model"}, {"o", "review optimizations"}, {"e", "edit DSL"}, {"m", "switch model"}, {"r", "reload"}}
 	case secTuples:
 		section = [][2]string{
 			{"↑↓", "move"},
@@ -384,6 +384,9 @@ func (m Model) sectionBody() string {
 			body = m.optimizerBody(w, h)
 		} else {
 			body = m.graphVP.View()
+			if m.graphHeader != "" {
+				body = m.graphHeader + "\n\n" + body
+			}
 		}
 	case secTuples:
 		switch {
@@ -1021,7 +1024,14 @@ func (m Model) statusKeys() []string {
 		if m.opt.view == optBench {
 			return []string{"o optimize", "B re-run", "↑↓ move", "esc back to graph"}
 		}
-		return []string{"↑↓/hjkl pan", m.graphViewHint(), "B benchmark · o optimize", "e edit DSL", "m switch", "r reload", "esc"}
+		hints := []string{"↑↓/hjkl pan", m.graphViewHint()}
+		if m.graphView == 0 && len(m.graph.Types) > 0 {
+			hints = append(hints, "tab select", "↵ expand")
+			if m.graphSel != "" {
+				hints = append(hints, "a all lines")
+			}
+		}
+		return append(hints, "B benchmark · o optimize", "e edit DSL", "m switch", "r reload", "esc")
 	case secTuples:
 		if m.width < 120 {
 			// The count on the other side of the footer is worth more than the

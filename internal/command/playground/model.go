@@ -317,6 +317,21 @@ type Model struct {
 	// graphView selects the model pane renderer: 0 = node-link diagram,
 	// 1 = weighted graph. Toggled with `v`.
 	graphView int
+	// graphSel is the selected diagram card's type ("" when nothing is
+	// selected, e.g. small models); graphExpanded lists the cards showing their
+	// relation detail; graphBounds are the cards of the last diagram render.
+	graphSel      string
+	graphExpanded map[string]bool
+	graphBounds   []fga.CardBounds
+	// graphHeader is the active view's legend, split off the render and
+	// pinned above the graph viewport so scrolling never hides it.
+	graphHeader string
+	// graphCache keeps the routed diagram so moving the selection redraws
+	// without re-routing edges. A pointer, so Model copies share it.
+	graphCache *fga.DiagramCache
+	// graphFocusEdges draws only the selected card's edges; large models
+	// start with it on, `a` toggles it.
+	graphFocusEdges bool
 
 	// graph viewport spring scrolling: graphPos is the animated (fractional)
 	// scroll offset that eases toward graphTarget via graphSpring.
@@ -501,6 +516,7 @@ func newModel(ctx context.Context, cli *cli.CLI, cl *openfga.Client, storeID, mo
 		profile:        profile,
 		apiURL:         apiURL,
 		graphSpring:    graphSpring,
+		graphCache:     &fga.DiagramCache{},
 		loading:        true,
 		pendingLoads:   initialPendingLoads(storeID),
 		// Generations start at 1, not 0: 0 is reserved as the "untagged"
@@ -935,12 +951,16 @@ func (m *Model) resize() {
 		// First time: create the viewport and populate it.
 		m.graphVP = viewport.New(viewport.WithWidth(w), viewport.WithHeight(h))
 		if len(m.graph.Types) > 0 {
+			m.initGraphState()
 			m.graphVP.SetContent(m.renderGraph())
 		}
 	} else {
 		// Resize: just update dimensions to preserve scroll offset.
 		m.graphVP.SetWidth(w)
-		m.graphVP.SetHeight(h)
+		m.graphVP.SetHeight(m.graphBodyHeight())
+		if len(m.graph.Types) > 0 {
+			m.graphVP.SetContent(m.renderGraph())
+		}
 	}
 	m.editor.SetWidth(editorNoWrapWidth) // fixed no-wrap width; display width handled by render
 	m.editor.SetHeight(h - 2)

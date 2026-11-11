@@ -9,8 +9,9 @@ import (
 // This file holds the mouse-input handlers (wheel scroll and click hit-testing),
 // split out of update.go's message dispatch to keep that file focused.
 func (m Model) handleWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
+	horizontal := msg.Button == tea.MouseWheelLeft || msg.Button == tea.MouseWheelRight
 	// The write dialog owns the wheel: scroll its diff, never the view behind.
-	if m.opt.dialog && !m.helpOpen && m.formErr == "" && m.confirm == nil {
+	if !horizontal && m.opt.dialog && !m.helpOpen && m.formErr == "" && m.confirm == nil {
 		if msg.Button == tea.MouseWheelUp {
 			m.scrollDialog(-1)
 		} else {
@@ -20,6 +21,17 @@ func (m Model) handleWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	}
 	// Don't scroll under a modal/overlay or while editing text.
 	if m.helpOpen || m.formErr != "" || m.confirm != nil || m.opt.dialog || m.paletteOpen || m.editorOpen || m.wb.newPromptOpen || m.editing || m.formKind != formNone {
+		return m, nil
+	}
+	// A sideways touchpad swipe pans the diagram. Everywhere else it is
+	// ignored rather than falling through below as a downward scroll.
+	if horizontal {
+		if m.section == secModel && m.opt.view == optNone && !m.modelPicking && !m.historyPicking {
+			if msg.Button == tea.MouseWheelLeft {
+				return m.panGraph(-graphColStep)
+			}
+			return m.panGraph(graphColStep)
+		}
 		return m, nil
 	}
 	up := msg.Button == tea.MouseWheelUp
@@ -213,6 +225,23 @@ func (m Model) handleClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	// Click a model diagram card to select it; clicking the selected card
+	// toggles its expansion.
+	if m.section == secModel && m.graphView == 0 && m.opt.view == optNone && !m.modelPicking && !m.editorOpen {
+		if typ, ok := m.graphCardAt(msg.X, msg.Y); ok {
+			m.focus = shell.FocusPanel
+			if typ == m.graphSel {
+				m.toggleGraphCard()
+			} else {
+				m.graphSel = typ
+				m.graphVP.SetContent(m.renderGraph())
+				// The clicked card is on screen: stop any scroll still
+				// heading for the card selected before.
+				m.snapGraphTo(m.graphVP.YOffset())
+			}
+			return m, nil
+		}
+	}
 	// Click a list row to select it.
 	if lst, off := m.sectionList(); lst != nil {
 		bx, by := m.sh.MainBodyOrigin()
@@ -248,4 +277,25 @@ func (m Model) handleClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		m.focus = shell.FocusPanel
 	}
 	return m, nil
+}
+
+// graphCardAt hit-tests screen (x, y) against the diagram cards, translating
+// through the pane origin and the viewport scroll offsets.
+func (m *Model) graphCardAt(x, y int) (string, bool) {
+	bx, by := m.sh.MainBodyOrigin()
+	if w, h := m.contentSize(); x < bx || x >= bx+w || y < by || y >= by+h {
+		return "", false
+	}
+	top := by + m.graphHeaderHeight() // below the pinned legend
+	if y < top {
+		return "", false
+	}
+	dx := x - bx + m.graphVP.XOffset()
+	dy := y - top + m.graphVP.YOffset()
+	for _, b := range m.graphBounds {
+		if b.X <= dx && dx < b.X+b.W && b.Y <= dy && dy < b.Y+b.H {
+			return b.Type, true
+		}
+	}
+	return "", false
 }

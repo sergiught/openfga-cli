@@ -1,0 +1,607 @@
+model
+  schema 1.1
+
+type user
+
+type group
+  relations
+    define member: [user, group#member]
+
+type res0
+  relations
+    define owner: [user, group#member]
+    define rel0: [user, group#member] or owner
+    define rel1: [user, group#member] or owner
+    define rel2: [user, group#member] or owner
+    define rel3: [user, group#member] or owner
+    define rel4: [user, group#member] or owner
+    define rel5: [user, group#member] or owner
+    define rel6: [user, group#member] or owner
+    define rel7: [user, group#member] or owner
+    define rel8: [user, group#member] or owner
+    define rel9: [user, group#member] or owner
+    define rel10: [user, group#member] or owner
+    define rel11: [user, group#member] or owner
+    define rel12: [user, group#member] or owner
+    define rel13: [user, group#member] or owner
+    define rel14: [user, group#member] or owner
+    define rel15: [user, group#member] or owner
+    define rel16: [user, group#member] or owner
+    define rel17: [user, group#member] or owner
+    define rel18: [user, group#member] or owner
+    define rel19: [user, group#member] or owner
+    define rel20: [user, group#member] or owner
+    define rel21: [user, group#member] or owner
+    define rel22: [user, group#member] or owner
+    define rel23: [user, group#member] or owner
+    define rel24: [user, group#member] or owner
+
+type res1
+  relations
+    define owner: [user, group#member]
+    define parent: [res0]
+    define rel0: [user] or owner or rel0 from parent
+    define rel1: [user, group#member] or owner
+    define rel2: [user, group#member] or owner
+    define rel3: [user] or owner or rel3 from parent
+    define rel4: [user, group#member] or owner
+    define rel5: [user, group#member] or owner
+    define rel6: [user] or owner or rel6 from parent
+    define rel7: [user, group#member] or owner
+    define rel8: [user, group#member] or owner
+    define rel9: [user] or owner or rel9 from parent
+    define rel10: [user, group#member] or owner
+    define rel11: [user, group#member] or owner
+    define rel12: [user] or owner or rel12 from parent
+    define rel13: [user, group#member] or owner
+    define rel14: [user, group#member] or owner
+    define rel15: [user] or owner or rel15 from parent
+    define rel16: [user, group#member] or owner
+    define rel17: [user, group#member] or owner
+    define rel18: [user] or owner or rel18 from parent
+    define rel19: [user, group#member] or owner
+    define rel20: [user, group#member] or owner
+    define rel21: [user] or owner or rel21 from parent
+    define rel22: [user, group#member] or owner
+    define rel23: [user, group#member] or owner
+    define rel24: [user] or owner or rel24 from parent
+
+type res2
+  relations
+    define owner: [user, group#member]
+    define parent: [res1]
+    define rel0: [user] or owner or rel0 from parent
+    define rel1: [user, group#member] or owner
+    define rel2: [user, group#member] or owner
+    define rel3: [user] or owner or rel3 from parent
+    define rel4: [user, group#member] or owner
+    define rel5: [user, group#member] or owner
+    define rel6: [user] or owner or rel6 from parent
+    define rel7: [user, group#member] or owner
+    define rel8: [user, group#member] or owner
+    define rel9: [user] or owner or rel9 from parent
+    define rel10: [user, group#member] or owner
+    define rel11: [user, group#member] or owner
+    define rel12: [user] or owner or rel12 from parent
+    define rel13: [user, group#member] or owner
+    define rel14: [user, group#member] or owner
+    define rel15: [user] or owner or rel15 from parent
+    define rel16: [user, group#member] or owner
+    define rel17: [user, group#member] or owner
+    define rel18: [user] or owner or rel18 from parent
+    define rel19: [user, group#member] or owner
+    define rel20: [user, group#member] or owner
+    define rel21: [user] or owner or rel21 from parent
+    define rel22: [user, group#member] or owner
+    define rel23: [user, group#member] or owner
+    define rel24: [user] or owner or rel24 from parent
+
+type res3
+  relations
+    define owner: [user, group#member]
+    define parent: [res2]
+    define rel0: [user] or owner or rel0 from parent
+    define rel1: [user, group#member] or owner
+    define rel2: [user, group#member] or owner
+    define rel3: [user] or owner or rel3 from parent
+    define rel4: [user, group#member] or owner
+    define rel5: [user, group#member] or owner
+    define rel6: [user] or owner or rel6 from parent
+    define rel7: [user, group#member] or owner
+    define rel8: [user, group#member] or owner
+    define rel9: [user] or owner or rel9 from parent
+    define rel10: [user, group#member] or owner
+    define rel11: [user, group#member] or owner
+    define rel12: [user] or owner or rel12 from parent
+    define rel13: [user, group#member] or owner
+    define rel14: [user, group#member] or owner
+    define rel15: [user] or owner or rel15 from parent
+    define rel16: [user, group#member] or owner
+    define rel17: [user, group#member] or owner
+    define rel18: [user] or owner or rel18 from parent
+    define rel19: [user, group#member] or owner
+    define rel20: [user, group#member] or owner
+    define rel21: [user] or owner or rel21 from parent
+    define rel22: [user, group#member] or owner
+    define rel23: [user, group#member] or owner
+    define rel24: [user] or owner or rel24 from parent
+
+type res4
+  relations
+    define owner: [user, group#member]
+    define parent: [res3]
+    define rel0: [user] or owner or rel0 from parent
+    define rel1: [user, group#member] or owner
+    define rel2: [user, group#member] or owner
+    define rel3: [user] or owner or rel3 from parent
+    define rel4: [user, group#member] or owner
+    define rel5: [user, group#member] or owner
+    define rel6: [user] or owner or rel6 from parent
+    define rel7: [user, group#member] or owner
+    define rel8: [user, group#member] or owner
+    define rel9: [user] or owner or rel9 from parent
+    define rel10: [user, group#member] or owner
+    define rel11: [user, group#member] or owner
+    define rel12: [user] or owner or rel12 from parent
+    define rel13: [user, group#member] or owner
+    define rel14: [user, group#member] or owner
+    define rel15: [user] or owner or rel15 from parent
+    define rel16: [user, group#member] or owner
+    define rel17: [user, group#member] or owner
+    define rel18: [user] or owner or rel18 from parent
+    define rel19: [user, group#member] or owner
+    define rel20: [user, group#member] or owner
+    define rel21: [user] or owner or rel21 from parent
+    define rel22: [user, group#member] or owner
+    define rel23: [user, group#member] or owner
+    define rel24: [user] or owner or rel24 from parent
+
+type res5
+  relations
+    define owner: [user, group#member]
+    define parent: [res4]
+    define rel0: [user] or owner or rel0 from parent
+    define rel1: [user, group#member] or owner
+    define rel2: [user, group#member] or owner
+    define rel3: [user] or owner or rel3 from parent
+    define rel4: [user, group#member] or owner
+    define rel5: [user, group#member] or owner
+    define rel6: [user] or owner or rel6 from parent
+    define rel7: [user, group#member] or owner
+    define rel8: [user, group#member] or owner
+    define rel9: [user] or owner or rel9 from parent
+    define rel10: [user, group#member] or owner
+    define rel11: [user, group#member] or owner
+    define rel12: [user] or owner or rel12 from parent
+    define rel13: [user, group#member] or owner
+    define rel14: [user, group#member] or owner
+    define rel15: [user] or owner or rel15 from parent
+    define rel16: [user, group#member] or owner
+    define rel17: [user, group#member] or owner
+    define rel18: [user] or owner or rel18 from parent
+    define rel19: [user, group#member] or owner
+    define rel20: [user, group#member] or owner
+    define rel21: [user] or owner or rel21 from parent
+    define rel22: [user, group#member] or owner
+    define rel23: [user, group#member] or owner
+    define rel24: [user] or owner or rel24 from parent
+
+type res6
+  relations
+    define owner: [user, group#member]
+    define parent: [res5]
+    define rel0: [user] or owner or rel0 from parent
+    define rel1: [user, group#member] or owner
+    define rel2: [user, group#member] or owner
+    define rel3: [user] or owner or rel3 from parent
+    define rel4: [user, group#member] or owner
+    define rel5: [user, group#member] or owner
+    define rel6: [user] or owner or rel6 from parent
+    define rel7: [user, group#member] or owner
+    define rel8: [user, group#member] or owner
+    define rel9: [user] or owner or rel9 from parent
+    define rel10: [user, group#member] or owner
+    define rel11: [user, group#member] or owner
+    define rel12: [user] or owner or rel12 from parent
+    define rel13: [user, group#member] or owner
+    define rel14: [user, group#member] or owner
+    define rel15: [user] or owner or rel15 from parent
+    define rel16: [user, group#member] or owner
+    define rel17: [user, group#member] or owner
+    define rel18: [user] or owner or rel18 from parent
+    define rel19: [user, group#member] or owner
+    define rel20: [user, group#member] or owner
+    define rel21: [user] or owner or rel21 from parent
+    define rel22: [user, group#member] or owner
+    define rel23: [user, group#member] or owner
+    define rel24: [user] or owner or rel24 from parent
+
+type res7
+  relations
+    define owner: [user, group#member]
+    define parent: [res6]
+    define rel0: [user] or owner or rel0 from parent
+    define rel1: [user, group#member] or owner
+    define rel2: [user, group#member] or owner
+    define rel3: [user] or owner or rel3 from parent
+    define rel4: [user, group#member] or owner
+    define rel5: [user, group#member] or owner
+    define rel6: [user] or owner or rel6 from parent
+    define rel7: [user, group#member] or owner
+    define rel8: [user, group#member] or owner
+    define rel9: [user] or owner or rel9 from parent
+    define rel10: [user, group#member] or owner
+    define rel11: [user, group#member] or owner
+    define rel12: [user] or owner or rel12 from parent
+    define rel13: [user, group#member] or owner
+    define rel14: [user, group#member] or owner
+    define rel15: [user] or owner or rel15 from parent
+    define rel16: [user, group#member] or owner
+    define rel17: [user, group#member] or owner
+    define rel18: [user] or owner or rel18 from parent
+    define rel19: [user, group#member] or owner
+    define rel20: [user, group#member] or owner
+    define rel21: [user] or owner or rel21 from parent
+    define rel22: [user, group#member] or owner
+    define rel23: [user, group#member] or owner
+    define rel24: [user] or owner or rel24 from parent
+
+type res8
+  relations
+    define owner: [user, group#member]
+    define parent: [res7]
+    define rel0: [user] or owner or rel0 from parent
+    define rel1: [user, group#member] or owner
+    define rel2: [user, group#member] or owner
+    define rel3: [user] or owner or rel3 from parent
+    define rel4: [user, group#member] or owner
+    define rel5: [user, group#member] or owner
+    define rel6: [user] or owner or rel6 from parent
+    define rel7: [user, group#member] or owner
+    define rel8: [user, group#member] or owner
+    define rel9: [user] or owner or rel9 from parent
+    define rel10: [user, group#member] or owner
+    define rel11: [user, group#member] or owner
+    define rel12: [user] or owner or rel12 from parent
+    define rel13: [user, group#member] or owner
+    define rel14: [user, group#member] or owner
+    define rel15: [user] or owner or rel15 from parent
+    define rel16: [user, group#member] or owner
+    define rel17: [user, group#member] or owner
+    define rel18: [user] or owner or rel18 from parent
+    define rel19: [user, group#member] or owner
+    define rel20: [user, group#member] or owner
+    define rel21: [user] or owner or rel21 from parent
+    define rel22: [user, group#member] or owner
+    define rel23: [user, group#member] or owner
+    define rel24: [user] or owner or rel24 from parent
+
+type res9
+  relations
+    define owner: [user, group#member]
+    define parent: [res8]
+    define rel0: [user] or owner or rel0 from parent
+    define rel1: [user, group#member] or owner
+    define rel2: [user, group#member] or owner
+    define rel3: [user] or owner or rel3 from parent
+    define rel4: [user, group#member] or owner
+    define rel5: [user, group#member] or owner
+    define rel6: [user] or owner or rel6 from parent
+    define rel7: [user, group#member] or owner
+    define rel8: [user, group#member] or owner
+    define rel9: [user] or owner or rel9 from parent
+    define rel10: [user, group#member] or owner
+    define rel11: [user, group#member] or owner
+    define rel12: [user] or owner or rel12 from parent
+    define rel13: [user, group#member] or owner
+    define rel14: [user, group#member] or owner
+    define rel15: [user] or owner or rel15 from parent
+    define rel16: [user, group#member] or owner
+    define rel17: [user, group#member] or owner
+    define rel18: [user] or owner or rel18 from parent
+    define rel19: [user, group#member] or owner
+    define rel20: [user, group#member] or owner
+    define rel21: [user] or owner or rel21 from parent
+    define rel22: [user, group#member] or owner
+    define rel23: [user, group#member] or owner
+    define rel24: [user] or owner or rel24 from parent
+
+type res10
+  relations
+    define owner: [user, group#member]
+    define parent: [res9]
+    define rel0: [user] or owner or rel0 from parent
+    define rel1: [user, group#member] or owner
+    define rel2: [user, group#member] or owner
+    define rel3: [user] or owner or rel3 from parent
+    define rel4: [user, group#member] or owner
+    define rel5: [user, group#member] or owner
+    define rel6: [user] or owner or rel6 from parent
+    define rel7: [user, group#member] or owner
+    define rel8: [user, group#member] or owner
+    define rel9: [user] or owner or rel9 from parent
+    define rel10: [user, group#member] or owner
+    define rel11: [user, group#member] or owner
+    define rel12: [user] or owner or rel12 from parent
+    define rel13: [user, group#member] or owner
+    define rel14: [user, group#member] or owner
+    define rel15: [user] or owner or rel15 from parent
+    define rel16: [user, group#member] or owner
+    define rel17: [user, group#member] or owner
+    define rel18: [user] or owner or rel18 from parent
+    define rel19: [user, group#member] or owner
+    define rel20: [user, group#member] or owner
+    define rel21: [user] or owner or rel21 from parent
+    define rel22: [user, group#member] or owner
+    define rel23: [user, group#member] or owner
+    define rel24: [user] or owner or rel24 from parent
+
+type res11
+  relations
+    define owner: [user, group#member]
+    define parent: [res10]
+    define rel0: [user] or owner or rel0 from parent
+    define rel1: [user, group#member] or owner
+    define rel2: [user, group#member] or owner
+    define rel3: [user] or owner or rel3 from parent
+    define rel4: [user, group#member] or owner
+    define rel5: [user, group#member] or owner
+    define rel6: [user] or owner or rel6 from parent
+    define rel7: [user, group#member] or owner
+    define rel8: [user, group#member] or owner
+    define rel9: [user] or owner or rel9 from parent
+    define rel10: [user, group#member] or owner
+    define rel11: [user, group#member] or owner
+    define rel12: [user] or owner or rel12 from parent
+    define rel13: [user, group#member] or owner
+    define rel14: [user, group#member] or owner
+    define rel15: [user] or owner or rel15 from parent
+    define rel16: [user, group#member] or owner
+    define rel17: [user, group#member] or owner
+    define rel18: [user] or owner or rel18 from parent
+    define rel19: [user, group#member] or owner
+    define rel20: [user, group#member] or owner
+    define rel21: [user] or owner or rel21 from parent
+    define rel22: [user, group#member] or owner
+    define rel23: [user, group#member] or owner
+    define rel24: [user] or owner or rel24 from parent
+
+type res12
+  relations
+    define owner: [user, group#member]
+    define parent: [res11]
+    define rel0: [user] or owner or rel0 from parent
+    define rel1: [user, group#member] or owner
+    define rel2: [user, group#member] or owner
+    define rel3: [user] or owner or rel3 from parent
+    define rel4: [user, group#member] or owner
+    define rel5: [user, group#member] or owner
+    define rel6: [user] or owner or rel6 from parent
+    define rel7: [user, group#member] or owner
+    define rel8: [user, group#member] or owner
+    define rel9: [user] or owner or rel9 from parent
+    define rel10: [user, group#member] or owner
+    define rel11: [user, group#member] or owner
+    define rel12: [user] or owner or rel12 from parent
+    define rel13: [user, group#member] or owner
+    define rel14: [user, group#member] or owner
+    define rel15: [user] or owner or rel15 from parent
+    define rel16: [user, group#member] or owner
+    define rel17: [user, group#member] or owner
+    define rel18: [user] or owner or rel18 from parent
+    define rel19: [user, group#member] or owner
+    define rel20: [user, group#member] or owner
+    define rel21: [user] or owner or rel21 from parent
+    define rel22: [user, group#member] or owner
+    define rel23: [user, group#member] or owner
+    define rel24: [user] or owner or rel24 from parent
+
+type res13
+  relations
+    define owner: [user, group#member]
+    define parent: [res12]
+    define rel0: [user] or owner or rel0 from parent
+    define rel1: [user, group#member] or owner
+    define rel2: [user, group#member] or owner
+    define rel3: [user] or owner or rel3 from parent
+    define rel4: [user, group#member] or owner
+    define rel5: [user, group#member] or owner
+    define rel6: [user] or owner or rel6 from parent
+    define rel7: [user, group#member] or owner
+    define rel8: [user, group#member] or owner
+    define rel9: [user] or owner or rel9 from parent
+    define rel10: [user, group#member] or owner
+    define rel11: [user, group#member] or owner
+    define rel12: [user] or owner or rel12 from parent
+    define rel13: [user, group#member] or owner
+    define rel14: [user, group#member] or owner
+    define rel15: [user] or owner or rel15 from parent
+    define rel16: [user, group#member] or owner
+    define rel17: [user, group#member] or owner
+    define rel18: [user] or owner or rel18 from parent
+    define rel19: [user, group#member] or owner
+    define rel20: [user, group#member] or owner
+    define rel21: [user] or owner or rel21 from parent
+    define rel22: [user, group#member] or owner
+    define rel23: [user, group#member] or owner
+    define rel24: [user] or owner or rel24 from parent
+
+type res14
+  relations
+    define owner: [user, group#member]
+    define parent: [res13]
+    define rel0: [user] or owner or rel0 from parent
+    define rel1: [user, group#member] or owner
+    define rel2: [user, group#member] or owner
+    define rel3: [user] or owner or rel3 from parent
+    define rel4: [user, group#member] or owner
+    define rel5: [user, group#member] or owner
+    define rel6: [user] or owner or rel6 from parent
+    define rel7: [user, group#member] or owner
+    define rel8: [user, group#member] or owner
+    define rel9: [user] or owner or rel9 from parent
+    define rel10: [user, group#member] or owner
+    define rel11: [user, group#member] or owner
+    define rel12: [user] or owner or rel12 from parent
+    define rel13: [user, group#member] or owner
+    define rel14: [user, group#member] or owner
+    define rel15: [user] or owner or rel15 from parent
+    define rel16: [user, group#member] or owner
+    define rel17: [user, group#member] or owner
+    define rel18: [user] or owner or rel18 from parent
+    define rel19: [user, group#member] or owner
+    define rel20: [user, group#member] or owner
+    define rel21: [user] or owner or rel21 from parent
+    define rel22: [user, group#member] or owner
+    define rel23: [user, group#member] or owner
+    define rel24: [user] or owner or rel24 from parent
+
+type res15
+  relations
+    define owner: [user, group#member]
+    define parent: [res14]
+    define rel0: [user] or owner or rel0 from parent
+    define rel1: [user, group#member] or owner
+    define rel2: [user, group#member] or owner
+    define rel3: [user] or owner or rel3 from parent
+    define rel4: [user, group#member] or owner
+    define rel5: [user, group#member] or owner
+    define rel6: [user] or owner or rel6 from parent
+    define rel7: [user, group#member] or owner
+    define rel8: [user, group#member] or owner
+    define rel9: [user] or owner or rel9 from parent
+    define rel10: [user, group#member] or owner
+    define rel11: [user, group#member] or owner
+    define rel12: [user] or owner or rel12 from parent
+    define rel13: [user, group#member] or owner
+    define rel14: [user, group#member] or owner
+    define rel15: [user] or owner or rel15 from parent
+    define rel16: [user, group#member] or owner
+    define rel17: [user, group#member] or owner
+    define rel18: [user] or owner or rel18 from parent
+    define rel19: [user, group#member] or owner
+    define rel20: [user, group#member] or owner
+    define rel21: [user] or owner or rel21 from parent
+    define rel22: [user, group#member] or owner
+    define rel23: [user, group#member] or owner
+    define rel24: [user] or owner or rel24 from parent
+
+type res16
+  relations
+    define owner: [user, group#member]
+    define parent: [res15]
+    define rel0: [user] or owner or rel0 from parent
+    define rel1: [user, group#member] or owner
+    define rel2: [user, group#member] or owner
+    define rel3: [user] or owner or rel3 from parent
+    define rel4: [user, group#member] or owner
+    define rel5: [user, group#member] or owner
+    define rel6: [user] or owner or rel6 from parent
+    define rel7: [user, group#member] or owner
+    define rel8: [user, group#member] or owner
+    define rel9: [user] or owner or rel9 from parent
+    define rel10: [user, group#member] or owner
+    define rel11: [user, group#member] or owner
+    define rel12: [user] or owner or rel12 from parent
+    define rel13: [user, group#member] or owner
+    define rel14: [user, group#member] or owner
+    define rel15: [user] or owner or rel15 from parent
+    define rel16: [user, group#member] or owner
+    define rel17: [user, group#member] or owner
+    define rel18: [user] or owner or rel18 from parent
+    define rel19: [user, group#member] or owner
+    define rel20: [user, group#member] or owner
+    define rel21: [user] or owner or rel21 from parent
+    define rel22: [user, group#member] or owner
+    define rel23: [user, group#member] or owner
+    define rel24: [user] or owner or rel24 from parent
+
+type res17
+  relations
+    define owner: [user, group#member]
+    define parent: [res16]
+    define rel0: [user] or owner or rel0 from parent
+    define rel1: [user, group#member] or owner
+    define rel2: [user, group#member] or owner
+    define rel3: [user] or owner or rel3 from parent
+    define rel4: [user, group#member] or owner
+    define rel5: [user, group#member] or owner
+    define rel6: [user] or owner or rel6 from parent
+    define rel7: [user, group#member] or owner
+    define rel8: [user, group#member] or owner
+    define rel9: [user] or owner or rel9 from parent
+    define rel10: [user, group#member] or owner
+    define rel11: [user, group#member] or owner
+    define rel12: [user] or owner or rel12 from parent
+    define rel13: [user, group#member] or owner
+    define rel14: [user, group#member] or owner
+    define rel15: [user] or owner or rel15 from parent
+    define rel16: [user, group#member] or owner
+    define rel17: [user, group#member] or owner
+    define rel18: [user] or owner or rel18 from parent
+    define rel19: [user, group#member] or owner
+    define rel20: [user, group#member] or owner
+    define rel21: [user] or owner or rel21 from parent
+    define rel22: [user, group#member] or owner
+    define rel23: [user, group#member] or owner
+    define rel24: [user] or owner or rel24 from parent
+
+type res18
+  relations
+    define owner: [user, group#member]
+    define parent: [res17]
+    define rel0: [user] or owner or rel0 from parent
+    define rel1: [user, group#member] or owner
+    define rel2: [user, group#member] or owner
+    define rel3: [user] or owner or rel3 from parent
+    define rel4: [user, group#member] or owner
+    define rel5: [user, group#member] or owner
+    define rel6: [user] or owner or rel6 from parent
+    define rel7: [user, group#member] or owner
+    define rel8: [user, group#member] or owner
+    define rel9: [user] or owner or rel9 from parent
+    define rel10: [user, group#member] or owner
+    define rel11: [user, group#member] or owner
+    define rel12: [user] or owner or rel12 from parent
+    define rel13: [user, group#member] or owner
+    define rel14: [user, group#member] or owner
+    define rel15: [user] or owner or rel15 from parent
+    define rel16: [user, group#member] or owner
+    define rel17: [user, group#member] or owner
+    define rel18: [user] or owner or rel18 from parent
+    define rel19: [user, group#member] or owner
+    define rel20: [user, group#member] or owner
+    define rel21: [user] or owner or rel21 from parent
+    define rel22: [user, group#member] or owner
+    define rel23: [user, group#member] or owner
+    define rel24: [user] or owner or rel24 from parent
+
+type res19
+  relations
+    define owner: [user, group#member]
+    define parent: [res18]
+    define rel0: [user] or owner or rel0 from parent
+    define rel1: [user, group#member] or owner
+    define rel2: [user, group#member] or owner
+    define rel3: [user] or owner or rel3 from parent
+    define rel4: [user, group#member] or owner
+    define rel5: [user, group#member] or owner
+    define rel6: [user] or owner or rel6 from parent
+    define rel7: [user, group#member] or owner
+    define rel8: [user, group#member] or owner
+    define rel9: [user] or owner or rel9 from parent
+    define rel10: [user, group#member] or owner
+    define rel11: [user, group#member] or owner
+    define rel12: [user] or owner or rel12 from parent
+    define rel13: [user, group#member] or owner
+    define rel14: [user, group#member] or owner
+    define rel15: [user] or owner or rel15 from parent
+    define rel16: [user, group#member] or owner
+    define rel17: [user, group#member] or owner
+    define rel18: [user] or owner or rel18 from parent
+    define rel19: [user, group#member] or owner
+    define rel20: [user, group#member] or owner
+    define rel21: [user] or owner or rel21 from parent
+    define rel22: [user, group#member] or owner
+    define rel23: [user, group#member] or owner
+    define rel24: [user] or owner or rel24 from parent

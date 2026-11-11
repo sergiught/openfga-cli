@@ -12,6 +12,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/fga"
 	"github.com/sergiught/openfga-cli/internal/modeltest"
+	"github.com/sergiught/openfga-cli/internal/ui/shell"
 	"github.com/sergiught/openfga-cli/internal/ui/toast"
 )
 
@@ -123,7 +124,12 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 				// reqCtx among other state), and Go leaves the plain read of m
 				// unordered against that call — see TUI-F8.
 				cmd := m.selectStore(m.stores[it.Index])
-				return m, cmd
+				// Land in the store's model diagram, focused, since that is
+				// where exploring a freshly picked store starts.
+				nm, navCmd := m.gotoSection(secModel)
+				mm := nm.(Model)
+				mm.focus = shell.FocusPanel
+				return mm, tea.Batch(cmd, navCmd)
 			}
 		case "a", "n":
 			return m.enterForm(formCreateStore)
@@ -209,13 +215,48 @@ func (m Model) handleSectionKey(key string, msg tea.KeyPressMsg) (tea.Model, tea
 			}
 			m.stopOptimizer()
 			m.graphView = 1 - m.graphView
+			m.initGraphState()
 			m.graphVP.SetContent(m.renderGraph())
 			m.resetGraphScroll()
+			m.revealSelectedGraphCard()
 			if m.graphView == 1 {
 				m.status = "weighted graph — v for diagram"
 			} else {
 				m.status = "model diagram — v for weighted graph"
 			}
+			return m, nil
+		case "tab", "shift+tab":
+			if m.graphView != 0 || m.opt.view != optNone || len(m.graphBounds) == 0 {
+				return m, nil
+			}
+			delta := 1
+			if key == "shift+tab" {
+				delta = -1
+			}
+			b := m.selectGraphCard(delta)
+			if title := b.Y + 1; title >= m.graphVP.YOffset() && title < m.graphVP.YOffset()+m.graphVP.Height() {
+				// Stop any scroll still heading for the card just left.
+				m.snapGraphTo(m.graphVP.YOffset())
+				return m, nil
+			}
+			return m.scrollGraphTo(float64(b.Y))
+		case "enter":
+			if m.graphView != 0 || m.opt.view != optNone || m.graphSel == "" {
+				return m, nil
+			}
+			m.toggleGraphCard()
+			return m, nil
+		case "a":
+			if m.graphView != 0 || m.opt.view != optNone || m.graphSel == "" {
+				return m, nil
+			}
+			m.toggleGraphFocusEdges()
+			return m, nil
+		case "E":
+			if m.graphView != 0 || m.opt.view != optNone || len(m.graph.Types) == 0 {
+				return m, nil
+			}
+			m.toggleGraphAll()
 			return m, nil
 		case "up", "k", "shift+up":
 			return m.scrollGraph(-graphLineStep)

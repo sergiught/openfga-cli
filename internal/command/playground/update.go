@@ -212,7 +212,7 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd := m.toastErr("model", msg.err)
 			if !m.connLost {
 				m.graph = fga.Graph{}
-				m.graphVP.SetContent(style.Faint.Render("no model: " + errStr(msg.err)))
+				m.graphVP.SetContent(m.pinGraphHeader(style.Faint.Render("no model: " + errStr(msg.err))))
 			}
 			return m, cmd
 		}
@@ -229,8 +229,10 @@ func (m Model) dispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.modelIsLatest = msg.latest || (len(m.models) > 0 && msg.modelID == m.models[0].ID)
 		m.graph = msg.graph
 		m.modelDSL = msg.dsl
+		m.initGraphState()
 		m.graphVP.SetContent(m.renderGraph())
 		m.resetGraphScroll()
+		m.revealSelectedGraphCard()
 		// A failed persist must never be reported as a clean success — see
 		// persistStore's doc comment for why this can't just be overwritten a
 		// moment later.

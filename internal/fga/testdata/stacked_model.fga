@@ -1,0 +1,61 @@
+model
+  schema 1.1
+
+type user
+
+type organization
+  relations
+    define admin: [user]
+    define member: [user]
+
+type sheet
+  relations
+    define owner: [user]
+    define editor: [user]
+    define viewer: [user]
+    define cell_a: [user]
+    define cell_b: [user]
+    define cell_c: [user]
+    define cell_d: [user]
+    define cell_e: [user]
+    define cell_f: [user]
+    define cell_g: [user]
+    define cell_h: [user]
+    define cell_i: [user]
+    define cell_j: [user]
+    define cell_k: [user]
+    define cell_l: [user]
+
+type folder
+  relations
+    define organization: [organization]
+    define owner: [user] or admin from organization
+    define viewer: [user] or member from organization
+    define sheet: [sheet]
+    define sheet_owner: owner from sheet
+    define sheet_editor: editor from sheet
+    define sheet_viewer: viewer from sheet
+
+type document
+  relations
+    define organization: [organization]
+    define owner: [user] or admin from organization
+    define editor: [user] or member from organization
+    define a: [sheet]
+    define b: [sheet]
+    define c: [sheet]
+    define d: [sheet]
+    define e: [sheet]
+    define f: [sheet]
+    define cell_a: cell_a from a
+    define cell_b: cell_b from b
+    define cell_c: cell_c from c
+    define cell_d: cell_d from d
+    define cell_e: cell_e from e
+    define cell_f: cell_f from f
+    define cell_g: cell_g from a
+    define cell_h: cell_h from b
+    define cell_i: cell_i from c
+    define cell_j: cell_j from d
+    define cell_k: cell_k from e
+    define cell_l: cell_l from f
