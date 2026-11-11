@@ -42,9 +42,13 @@ func TestModelEditorOpensAndCloses(t *testing.T) {
 	if strings.TrimSpace(m.(Model).viewString()) == "" {
 		t.Fatal("editor view empty")
 	}
+	m, _ = m.Update(key("esc")) // insert → normal mode
+	if !m.(Model).editorOpen {
+		t.Fatal("esc in insert mode should only leave insert mode")
+	}
 	m, _ = m.Update(key("esc"))
 	if m.(Model).editorOpen {
-		t.Error("esc should close the editor")
+		t.Error("esc in normal mode should close the unchanged editor")
 	}
 }
 
@@ -57,7 +61,8 @@ func TestModelEditorPreFillsWithModelDSL(t *testing.T) {
 	mod.modelDSL = "model\n  schema 1.1\ntype user\n"
 	m = mod
 	m, _ = m.Update(key("e")) // open editor
-	val := m.(Model).editor.Value()
+	mm := m.(Model)
+	val := mm.editor.Value()
 	if !strings.Contains(val, "schema 1.1") {
 		t.Errorf("editor should be pre-filled with model DSL, got: %q", val)
 	}
@@ -72,7 +77,8 @@ func TestModelEditorFallsBackToTemplate(t *testing.T) {
 	mod.modelDSL = ""
 	m = mod
 	m, _ = m.Update(key("e")) // open editor
-	val := m.(Model).editor.Value()
+	mm := m.(Model)
+	val := mm.editor.Value()
 	if !strings.Contains(val, "schema 1.1") {
 		t.Errorf("editor template should contain schema 1.1, got: %q", val)
 	}
