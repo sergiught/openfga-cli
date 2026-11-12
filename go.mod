@@ -17,7 +17,7 @@ require (
 	github.com/charmbracelet/x/term v0.2.2
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
-	github.com/google/cel-go v0.31.0
+	github.com/google/cel-go v0.32.0
 	github.com/google/licensecheck v0.3.1
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.33.0
@@ -30,7 +30,7 @@ require (
 	github.com/openfga/language/pkg/go v0.3.2
 	github.com/openfga/mapper v0.1.1
 	github.com/openfga/openfga v1.22.1
-	github.com/pressly/goose/v3 v3.30.0
+	github.com/pressly/goose/v3 v3.30.1
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/sergiught/go-openfga v0.111.0
 	github.com/spf13/cobra v1.10.2
