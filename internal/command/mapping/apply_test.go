@@ -95,8 +95,10 @@ type fakeStore struct {
 	// the fake provider's entries.
 	log *[]string
 	// onWrite, when non-nil, is called with the number of writes so far as
-	// each /write arrives.
-	onWrite func(n int)
+	// each /write arrives. Returning true holds the request unanswered until
+	// the client gives up (or a few seconds pass), so a test can cancel
+	// mid-request without racing the response.
+	onWrite func(n int) bool
 }
 
 func newFakeStore(t *testing.T, stored ...map[string]any) *fakeStore {
@@ -127,8 +129,12 @@ func newFakeStore(t *testing.T, stored ...map[string]any) *fakeStore {
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/write"):
 			b, _ := io.ReadAll(r.Body)
 			fs.writes = append(fs.writes, string(b))
-			if fs.onWrite != nil {
-				fs.onWrite(len(fs.writes))
+			if fs.onWrite != nil && fs.onWrite(len(fs.writes)) {
+				select {
+				case <-r.Context().Done():
+				case <-time.After(5 * time.Second):
+				}
+				return
 			}
 			if fs.failWrite != "" || (fs.failFrom > 0 && len(fs.writes) >= fs.failFrom) {
 				body := fs.failWrite

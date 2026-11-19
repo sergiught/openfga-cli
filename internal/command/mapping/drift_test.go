@@ -486,10 +486,11 @@ func TestDriftCanceledDuringWrite(t *testing.T) {
 	fs := newFakeStore(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	fs.onWrite = func(n int) {
+	fs.onWrite = func(n int) bool {
 		if n == 2 {
 			cancel()
 		}
+		return n == 2
 	}
 	users := make([]string, 250)
 	for i := range users {
