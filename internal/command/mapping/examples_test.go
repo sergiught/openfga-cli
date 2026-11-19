@@ -46,7 +46,7 @@ func TestExampleMappingValidatesAgainstItsModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err=%v out=%s", err, out)
 	}
-	if !strings.Contains(out, "4 rules, 4 tests; checked against ../../../examples/mappings/model.fga (4 types)") {
+	if !strings.Contains(out, "4 rules, 6 tests; checked against ../../../examples/mappings/model.fga (4 types)") {
 		t.Fatalf("the guide quotes a different summary: %s", out)
 	}
 }
@@ -58,7 +58,7 @@ func TestExampleMappingTestsPass(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err=%v out=%s", err, out)
 	}
-	if !strings.Contains(out, "4 passed, 0 failed") {
+	if !strings.Contains(out, "6 passed, 0 failed") {
 		t.Fatalf("want every test to pass: %s", out)
 	}
 }
