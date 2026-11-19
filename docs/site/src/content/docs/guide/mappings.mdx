@@ -303,7 +303,10 @@ names. They read three settings:
 A flag wins over its variable. No flag takes the secret itself, so it never
 lands in your shell history. `--auth0-tenant` sets the tenant name the
 snapshot events carry, in `a0tenant` and `data.context.tenant.id`; it defaults
-to the first label of the domain. Output shows the domain. Both
+to the first label of the domain. With a custom domain such as
+`login.example.com` that label is `login`, which is not the tenant: set
+`--auth0-tenant`, or every tuple built from `a0tenant` shows as missing and the
+real ones as stale. Output shows the domain. Both
 commands also use the active profile's store, so a profile and a store must be
 selected, `--dry-run` included.
 
@@ -343,8 +346,14 @@ user member organization          4
 ```
 
 The header says when the read started and finished and which tenant it came
-from, then how many events each type produced. `--dry-run` stops here. Without
-it, `backfill` warns how old the snapshot is, asks, and writes:
+from, then how many events each type produced. `--dry-run` stops here and says so
+on stderr:
+
+```
+● dry run: nothing written
+```
+
+Without it, `backfill` warns how old the snapshot is, asks, and writes:
 
 ```
 ● Snapshot is 2s old; changes since then are not reflected.
@@ -352,7 +361,8 @@ Write 12 tuples to store mappings-demo (01K1X2Y3Z4A5B6C7D8E9F0G1H2)? [y/N]: y
 ● sent 12 writes to store mappings-demo (Auth0 state as of 15:00:23 UTC)
 ```
 
-`--force` skips the question. The tuples come out in batches of at most 100
+`--force` skips the question and the age line, which only ever sits directly above
+a question. The tuples come out in batches of at most 100
 changes per request. At most 50 tuple lines are printed; `-o json` lists them all.
 
 #### Drift
@@ -419,6 +429,12 @@ user member organization          1
 - user:auth0|bob member organization:org_acme
 ```
 
+and on stderr:
+
+```
+● dry run: nothing written
+```
+
 Without `--dry-run` it then asks before writing the missing and changed tuples (a
 changed tuple is deleted and written again, because a write cannot replace a
 condition):
@@ -434,9 +450,14 @@ Write 2 tuples to store mappings-demo (01K1X2Y3Z4A5B6C7D8E9F0G1H2)? [y/N]: y
 ● 3 stale tuples left alone; run again with --prune to delete them
 ```
 
+When a changed tuple was replaced, the success line says so: `sent 37 writes to
+store mappings-demo, replacing 3 changed tuples (Auth0 state as of 15:02:42 UTC)`.
+With one stale tuple the last line ends `delete it`.
+
 Stale tuples are never deleted unless you pass `--prune`. With it, `drift` first
 asks the write question, if there is anything to write. It then prints the stale
-shapes again, repeats the age line and asks to delete them. Run with `--prune`
+shapes again, repeats the age line and asks to delete them. With `--force` neither
+question is asked, so no age line is printed. Run with `--prune`
 after the writes above, the store holds 14 tuples, so only the stale ones are
 left to report and the write question is skipped:
 
@@ -480,13 +501,16 @@ The flags:
 
 | Flag | Effect |
 | --- | --- |
-| `--dry-run`, `-n` | stop after the report; nothing is asked or written |
+| `--dry-run`, `-n` | stop after the report and say `dry run: nothing written`; nothing is asked or written |
 | `--force`, `-f` | skip the questions; with `--prune` that deletes the stale tuples |
 | `--prune` | also delete stale tuples, after a second question |
 
-Without a terminal, or under `-o json` or `-o yaml`, `drift` only reports unless
-you pass `--force`; it prints `report only: pass --force to write`. The exit code
-says what is left:
+Without a terminal, with `--no-input` (which agent mode sets), or under `-o json`
+or `-o yaml`, `drift` only reports unless you pass `--force`; it prints `report
+only: pass --force to write`. `backfill` has no report-only mode: without a
+terminal or under `--no-input` it refuses to write unless you pass `--force`
+(exit `1`, asking for confirmation), and `--dry-run` previews. The exit code says
+what is left:
 
 | Code | Meaning |
 | --- | --- |
@@ -503,7 +527,8 @@ Under `-o json` both print one document. `backfill` has `store`, `provider`,
 count per type), `dry_run`, `tuples` (what it would write) and `sent` (the
 `writes` and `deletes` that reached the store). `drift` has the same fields
 without `tuples`, plus `store_read_at`, `missing`, `changed`, `stale`,
-`not_checked` (each with its `rule`, `reason` and `shapes`) and `pruned`.
+`not_checked` (each with its `rule`, `reason` and `shapes`) and `pruned`, the
+number of stale deletes sent, also when a prune failed part-way.
 Under `-o json` or `-o yaml`, `backfill` needs `--dry-run` or `--force`. The
 schemas are published at `schemas/output/mappings-drift.v1.json` and
 `mappings-backfill.v1.json`.
@@ -514,7 +539,9 @@ schemas are published at `schemas/output/mappings-drift.v1.json` and
 rules write that the provider does not back. Only run it when the mapping is
 the only writer of those shapes, and when the store holds a single tenant. A
 second tenant's tuples, or tuples another system writes in the same shape, look
-stale and are deleted.
+stale and are deleted. Another writer of the same shape includes a rule in the
+same mapping that is not a snapshot rule and writes tuples the snapshot rules
+cannot reproduce.
 
 - An event rule and a separate snapshot rule that write the same shape
   differently disagree on every run, so `drift` reports the difference forever.
@@ -537,14 +564,18 @@ stale and are deleted.
 - Auth0 lists at most 1,000 users through this API. A mapping that names
   `snapshot.user` on a larger tenant fails with `Auth0 lists at most 1,000 users
   through this API and this tenant has N; tenants this large are not supported
-  yet`; nothing is truncated.
+  yet`; nothing is truncated. If users are deleted while the list is being read,
+  the read fails with `Auth0 users were deleted while the list was being read, so
+  a user may have been skipped; run the command again`; run it again.
 - Auth0 rate-limits the Management API, at about 2 requests a second on the Free
   plan. A read makes one token request, then pages of 100, and only for
   the types the mapping names. Any organization type costs one request per 100
   organizations to list them. For each organization, `snapshot.organization.member`
   or `snapshot.organization.member.role` costs one request per 100 members (roles
   come in the same request), and `snapshot.organization.connection` costs one
-  per 100 enabled connections. `snapshot.user` is one request per 100 users.
+  per 100 enabled connections, plus one more, empty, page per organization to see
+  that the list has ended. `snapshot.user` is one request per 100 users and
+  stops at the total Auth0 reports, with no empty page after the last.
   `snapshot.connection` is one request per 100 connections plus at least one per
   connection to list its clients. A tenant of 40 organizations with up to 100
   members each is about 42 requests when the mapping names only member types. A rate-limited
