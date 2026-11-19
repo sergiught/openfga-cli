@@ -63,6 +63,10 @@ func Unknown(doc *mapping.Document, types []Type) []string {
 			if !strings.HasPrefix(lit, "snapshot.") || slices.Contains(out, lit) {
 				continue
 			}
+			// A prefix such as "snapshot." (for startsWith) names no type.
+			if strings.HasSuffix(lit, ".") && slices.ContainsFunc(types, func(t Type) bool { return strings.HasPrefix(t.Name, lit) }) {
+				continue
+			}
 			if !slices.ContainsFunc(types, func(t Type) bool { return t.Name == lit }) {
 				out = append(out, lit)
 			}

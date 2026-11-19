@@ -386,7 +386,13 @@ func (r *read) orgMembers(org map[string]any) error {
 
 	page, err := r.m.Organizations.Members.List(r.ctx, id, params)
 
-	return walk(r, page, err, "organization members", typeOrgMember,
+	// Asking for roles needs the role scope on this same read.
+	scopesOf := typeOrgMember
+	if r.want[typeOrgMemberRole] {
+		scopesOf = typeOrgMemberRole
+	}
+
+	return walk(r, page, err, "organization members", scopesOf,
 		func(items []*management.OrganizationMember, at time.Time) error {
 			for _, m := range items {
 				user, err := toMap(m)

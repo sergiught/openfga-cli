@@ -616,6 +616,72 @@ func TestSnapshotForbiddenNamesScope(t *testing.T) {
 	contains(t, clierr.NewEnvelope(err).Error.Hint, "read:organization_members")
 }
 
+func TestSnapshotForbiddenRolesNamesRoleScope(t *testing.T) {
+	t.Parallel()
+
+	p, _ := newProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/members") {
+			w.WriteHeader(http.StatusForbidden)
+			writeJSON(w, `{"message":"Insufficient scope"}`)
+
+			return
+		}
+
+		writeJSON(w, orgsBody)
+	})
+
+	_, err := p.Snapshot(context.Background(),
+		[]string{"snapshot.organization.member", "snapshot.organization.member.role"}, nil)
+	isErr(t, err)
+	equal(t, clierr.KindForbidden, clierr.Classify(err))
+	contains(t, clierr.NewEnvelope(err).Error.Hint, "read:organization_member_roles")
+}
+
+func TestSnapshotSeveralTypesCountsInDeclaredOrder(t *testing.T) {
+	t.Parallel()
+
+	routes := map[string]string{
+		"/connections": `{"connections":[]}`,
+		"/users":       `{"start":0,"limit":100,"total":2,"users":[{"user_id":"auth0|1"},{"user_id":"auth0|2"}]}`,
+	}
+	for k, v := range memberRoutes {
+		routes[k] = v
+	}
+
+	p, _ := newProvider(t, fixtures(routes))
+
+	// Requested out of order: counts follow the provider's order, and a type
+	// with no events is still counted.
+	res, err := p.Snapshot(context.Background(), []string{
+		"snapshot.organization.member", "snapshot.user", "snapshot.connection",
+	}, nil)
+	noErr(t, err)
+	equal(t, []snapshot.Count{
+		{Type: "snapshot.connection", N: 0},
+		{Type: "snapshot.user", N: 2},
+		{Type: "snapshot.organization.member", N: 3},
+	}, res.Counts)
+	if len(res.Events) != 5 {
+		t.Fatalf("len(res.Events) = %d, want 5", len(res.Events))
+	}
+	equal(t, "snapshot.user", res.Events[0]["type"])
+	equal(t, "snapshot.organization.member", res.Events[2]["type"])
+}
+
+func TestSnapshotMembersWithoutOrganizations(t *testing.T) {
+	t.Parallel()
+
+	p, _ := newProvider(t, fixtures(memberRoutes))
+
+	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization.member.role"}, nil)
+	noErr(t, err)
+	equal(t, []snapshot.Count{{Type: "snapshot.organization.member.role", N: 2}}, res.Counts)
+
+	for _, ev := range res.Events {
+		equal(t, "snapshot.organization.member.role", ev["type"])
+	}
+}
+
 func TestSnapshotUnauthorized(t *testing.T) {
 	t.Parallel()
 
@@ -807,7 +873,7 @@ func TestLiveSnapshot(t *testing.T) {
 
 		if ev["type"] == typeConnection {
 			if _, ok := obj["enabled_clients"]; !ok {
-				t.Errorf("connection event %v has no enabled_clients", obj)
+				t.Errorf("connection event %v has no enabled_clients", ev["subject"])
 			}
 		}
 	}

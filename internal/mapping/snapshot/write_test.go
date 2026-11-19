@@ -75,3 +75,17 @@ func TestWriteCanceled(t *testing.T) {
 		t.Errorf("requests = %v, want none", w.reqs)
 	}
 }
+
+func TestWriteStopsInDeletePhase(t *testing.T) {
+	w := &recWriter{failOn: 2}
+	sent, err := Write(context.Background(), w, tuples(250), tuples(10), nil)
+	if err == nil {
+		t.Fatal("Write() error = nil, want error")
+	}
+	if want := (Sent{Deletes: 100}); sent != want {
+		t.Errorf("sent = %+v, want %+v", sent, want)
+	}
+	if want := [][2]int{{0, 100}, {0, 100}}; !reflect.DeepEqual(w.reqs, want) {
+		t.Errorf("requests = %v, want %v", w.reqs, want)
+	}
+}

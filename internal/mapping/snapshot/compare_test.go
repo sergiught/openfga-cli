@@ -1,6 +1,7 @@
 package snapshot
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 
@@ -54,11 +55,39 @@ func TestCompareEmptyDesired(t *testing.T) {
 	}
 }
 
+func changed(d, s language.Tuple) int {
+	return len(Compare([]language.Tuple{d}, []language.Tuple{s}, nil).Changed)
+}
+
+func TestCompareContextNumberTypes(t *testing.T) {
+	// A rendered template gives an int, a JSON read of the store a float64.
+	d := withCond(tup("user:a", "member", "org:1"), "c", map[string]any{"n": 1})
+	s := withCond(tup("user:a", "member", "org:1"), "c", map[string]any{"n": float64(1)})
+	if got := changed(d, s); got != 0 {
+		t.Errorf("Changed = %d, want 0", got)
+	}
+}
+
 func TestCompareContextOrder(t *testing.T) {
-	d := withCond(tup("user:a", "member", "org:1"), "c", map[string]any{"a": 1, "b": 2})
-	s := withCond(tup("user:a", "member", "org:1"), "c", map[string]any{"b": 2, "a": 1})
-	if !Compare([]language.Tuple{d}, []language.Tuple{s}, nil).Empty() {
-		t.Error("Empty() = false, want true")
+	var a, b map[string]any
+	if err := json.Unmarshal([]byte(`{"a":1,"b":{"x":[1,2],"y":"z"},"c":true}`), &a); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(`{"c":true,"b":{"y":"z","x":[1,2]},"a":1}`), &b); err != nil {
+		t.Fatal(err)
+	}
+	d := withCond(tup("user:a", "member", "org:1"), "c", a)
+	s := withCond(tup("user:a", "member", "org:1"), "c", b)
+	if got := changed(d, s); got != 0 {
+		t.Errorf("Changed = %d, want 0", got)
+	}
+}
+
+func TestCompareContextDifferent(t *testing.T) {
+	d := withCond(tup("user:a", "member", "org:1"), "c", map[string]any{"n": 1})
+	s := withCond(tup("user:a", "member", "org:1"), "c", map[string]any{"n": 2})
+	if got := changed(d, s); got != 1 {
+		t.Errorf("Changed = %d, want 1", got)
 	}
 }
 

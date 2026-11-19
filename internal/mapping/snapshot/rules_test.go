@@ -46,6 +46,35 @@ func TestUnknownSnapshotTypes(t *testing.T) {
 	}
 }
 
+func TestUnknownIgnoresPrefixLiteral(t *testing.T) {
+	doc := whenDoc(`input.type.startsWith("snapshot.") || input.type.startsWith("snapshot.organization.")`)
+	if got := Unknown(doc, testTypes); len(got) != 0 {
+		t.Errorf("Unknown() = %q, want none", got)
+	}
+	if IsSnapshotRule(doc.Rules[0], testTypes) {
+		t.Error("IsSnapshotRule() = true, want false")
+	}
+
+	typo := whenDoc(`input.type.startsWith("snapshot.") || input.type == "snapshot.organisation."`)
+	if got, want := Unknown(typo, testTypes), []string{"snapshot.organisation."}; !slices.Equal(got, want) {
+		t.Errorf("Unknown(typo) = %q, want %q", got, want)
+	}
+}
+
+func TestRuleShapesMixedDeleteAndWrite(t *testing.T) {
+	r := mapping.Rule{Tuples: []mapping.Tuple{
+		{User: "user:{{ a }}", Relation: "member", Object: "organization:{{ b }}", Action: "delete"},
+		{User: "user:{{ a }}", Relation: "owner", Object: "organization:{{ b }}"},
+	}}
+	shapes, unshaped := mapping.RuleShapes(r)
+	if want := []mapping.Shape{{UserType: "user", Relation: "owner", ObjectType: "organization"}}; !reflect.DeepEqual(shapes, want) {
+		t.Errorf("shapes = %+v, want %+v", shapes, want)
+	}
+	if unshaped != 0 {
+		t.Errorf("unshaped = %d, want 0", unshaped)
+	}
+}
+
 func TestSuggestions(t *testing.T) {
 	doc := whenDoc(`input.type == "organization.member.added"`)
 	wantSuggestions := []Suggestion{{
@@ -64,12 +93,13 @@ func TestSuggestions(t *testing.T) {
 
 func TestCoverage(t *testing.T) {
 	member := mapping.Tuple{User: "user:{{ input.data.user_id }}", Relation: "member", Object: "organization:{{ input.data.org }}"}
+	owner := mapping.Tuple{User: "user:{{ input.data.user_id }}", Relation: "owner", Object: "organization:{{ input.data.org }}"}
 	identity := mapping.Tuple{User: "user:{{ input.data.user_id }}", Relation: "identity", Object: "connection:{{ input.data.conn }}"}
 	templated := mapping.Tuple{User: "user:{{ input.data.user_id }}", Relation: "{{ input.data.role }}", Object: "organization:{{ input.data.org }}"}
 
 	doc := &mapping.Document{Rules: []mapping.Rule{
 		{Name: "members", When: `input.type == "snapshot.organization.member"`, Tuples: []mapping.Tuple{member}},
-		{Name: "gone", When: `input.type == "user.deleted"`, Action: "delete", Tuples: []mapping.Tuple{member}},
+		{Name: "gone", When: `input.type == "user.deleted"`, Action: "delete", Tuples: []mapping.Tuple{owner}},
 		{Name: "identities", When: `input.type == "user.updated"`, Tuples: []mapping.Tuple{identity}},
 		{Name: "roles", When: `input.type == "snapshot.organization.member.role"`, Tuples: []mapping.Tuple{templated}},
 	}}
