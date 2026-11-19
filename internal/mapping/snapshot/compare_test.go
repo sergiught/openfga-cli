@@ -1,10 +1,10 @@
 package snapshot
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/openfga/mapper/language"
-	"github.com/stretchr/testify/require"
 
 	"github.com/sergiught/openfga-cli/internal/mapping"
 )
@@ -29,27 +29,43 @@ func TestCompare(t *testing.T) {
 	owned := []mapping.Shape{mapping.ShapeOf(a)}
 
 	got := Compare([]language.Tuple{a, b, cx}, []language.Tuple{b, cy, d, e}, owned)
-	require.Equal(t, []language.Tuple{a}, got.Missing)
-	require.Equal(t, []language.Tuple{cx}, got.Changed)
-	require.Equal(t, []language.Tuple{d}, got.Stale)
-	require.False(t, got.Empty())
+	if want := []language.Tuple{a}; !reflect.DeepEqual(got.Missing, want) {
+		t.Errorf("Missing = %+v, want %+v", got.Missing, want)
+	}
+	if want := []language.Tuple{cx}; !reflect.DeepEqual(got.Changed, want) {
+		t.Errorf("Changed = %+v, want %+v", got.Changed, want)
+	}
+	if want := []language.Tuple{d}; !reflect.DeepEqual(got.Stale, want) {
+		t.Errorf("Stale = %+v, want %+v", got.Stale, want)
+	}
+	if got.Empty() {
+		t.Error("Empty() = true, want false")
+	}
 }
 
 func TestCompareEmptyDesired(t *testing.T) {
 	s := []language.Tuple{tup("user:a", "member", "org:1"), tup("user:b", "member", "org:1")}
 	got := Compare(nil, s, []mapping.Shape{mapping.ShapeOf(s[0])})
-	require.Equal(t, s, got.Stale)
-	require.False(t, got.Empty())
+	if !reflect.DeepEqual(got.Stale, s) {
+		t.Errorf("Stale = %+v, want %+v", got.Stale, s)
+	}
+	if got.Empty() {
+		t.Error("Empty() = true, want false")
+	}
 }
 
 func TestCompareContextOrder(t *testing.T) {
 	d := withCond(tup("user:a", "member", "org:1"), "c", map[string]any{"a": 1, "b": 2})
 	s := withCond(tup("user:a", "member", "org:1"), "c", map[string]any{"b": 2, "a": 1})
-	require.True(t, Compare([]language.Tuple{d}, []language.Tuple{s}, nil).Empty())
+	if !Compare([]language.Tuple{d}, []language.Tuple{s}, nil).Empty() {
+		t.Error("Empty() = false, want true")
+	}
 }
 
 func TestByShape(t *testing.T) {
 	ts := []language.Tuple{tup("user:a", "member", "org:1"), tup("user:b", "member", "org:2"), tup("user:a", "viewer", "doc:1")}
 	got := ByShape(ts)
-	require.Equal(t, []ShapeCount{{mapping.ShapeOf(ts[0]), 2}, {mapping.ShapeOf(ts[2]), 1}}, got)
+	if want := []ShapeCount{{mapping.ShapeOf(ts[0]), 2}, {mapping.ShapeOf(ts[2]), 1}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("ByShape() = %+v, want %+v", got, want)
+	}
 }

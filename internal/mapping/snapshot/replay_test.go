@@ -2,10 +2,11 @@ package snapshot
 
 import (
 	"context"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/openfga/mapper/language"
-	"github.com/stretchr/testify/require"
 
 	"github.com/sergiught/openfga-cli/internal/mapping"
 )
@@ -52,31 +53,50 @@ func roleEvent(role string) map[string]any {
 
 func TestDesiredFoldsWritesAndFilters(t *testing.T) {
 	m, _, err := mapping.CompileSource([]byte(replayMapping))
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	got, err := Desired(context.Background(), m, []map[string]any{memberEvent(), roleEvent("A"), roleEvent("B")}, nil)
-	require.NoError(t, err)
-	require.Equal(t, []language.Tuple{
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []language.Tuple{
 		{User: "user:u1", Relation: "assignee", Object: "role:B"},
 		{User: "user:u1", Relation: "member", Object: "organization:org_1"},
 		{User: "user:u1", Relation: "viewer", Object: "organization:org_1"},
-	}, got)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Desired() = %+v, want %+v", got, want)
+	}
 }
 
 func TestDesiredDedupes(t *testing.T) {
 	m, _, err := mapping.CompileSource([]byte(replayMapping))
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	got, err := Desired(context.Background(), m, []map[string]any{memberEvent(), memberEvent()}, nil)
-	require.NoError(t, err)
-	require.Len(t, got, 2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Errorf("len(Desired()) = %d, want 2", len(got))
+	}
 }
 
 func TestDesiredErrorNamesEntity(t *testing.T) {
 	m, _, err := mapping.CompileSource([]byte(replayMapping))
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	ev := memberEvent()
 	ev["subject"] = "organization org_1 member auth0|x"
 	delete(ev, "user")
 	_, err = Desired(context.Background(), m, []map[string]any{ev}, nil)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "snapshot.organization.member (organization org_1 member auth0|x): ")
+	if err == nil {
+		t.Fatal("Desired() error = nil, want error")
+	}
+	if want := "snapshot.organization.member (organization org_1 member auth0|x): "; !strings.Contains(err.Error(), want) {
+		t.Errorf("error %q does not contain %q", err, want)
+	}
 }

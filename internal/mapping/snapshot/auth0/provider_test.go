@@ -2,19 +2,19 @@ package auth0
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/auth0/go-auth0/v2/management/option"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/mapping/snapshot"
@@ -67,9 +67,71 @@ func newProvider(t *testing.T, h http.HandlerFunc, opts ...option.RequestOption)
 
 	opts = append([]option.RequestOption{option.WithInsecure()}, opts...)
 	p, err := New(context.Background(), Config{Domain: srv.Listener.Addr().String(), Tenant: "acme"}, opts...)
-	require.NoError(t, err)
+	noErr(t, err)
 
 	return p, rec
+}
+
+func noErr(t *testing.T, err error) {
+	t.Helper()
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func isErr(t *testing.T, err error) {
+	t.Helper()
+
+	if err == nil {
+		t.Fatal("error = nil, want an error")
+	}
+}
+
+func equal(t *testing.T, want, got any) {
+	t.Helper()
+
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+}
+
+func isEmpty(v any) bool {
+	if v == nil {
+		return true
+	}
+
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Slice, reflect.Map, reflect.String:
+		return rv.Len() == 0
+	default:
+		return rv.IsZero()
+	}
+}
+
+func notEmpty(t *testing.T, v any, msg ...any) {
+	t.Helper()
+
+	if isEmpty(v) {
+		t.Errorf("got empty %v, want non-empty", msg)
+	}
+}
+
+func requireNotEmpty(t *testing.T, v any) {
+	t.Helper()
+
+	if isEmpty(v) {
+		t.Fatalf("got %+v, want non-empty", v)
+	}
+}
+
+func contains(t *testing.T, s, sub string) {
+	t.Helper()
+
+	if !strings.Contains(s, sub) {
+		t.Errorf("%q does not contain %q", s, sub)
+	}
 }
 
 func writeJSON(w http.ResponseWriter, body string) {
@@ -115,12 +177,12 @@ func TestTypes(t *testing.T) {
 	for _, typ := range Types() {
 		names = append(names, typ.Name)
 
-		assert.NotEmpty(t, typ.Mirrors, typ.Name)
-		assert.NotEmpty(t, typ.Description, typ.Name)
-		assert.NotEmpty(t, typ.Scopes, typ.Name)
+		notEmpty(t, typ.Mirrors, typ.Name)
+		notEmpty(t, typ.Description, typ.Name)
+		notEmpty(t, typ.Scopes, typ.Name)
 	}
 
-	assert.Equal(t, []string{
+	equal(t, []string{
 		"snapshot.connection", "snapshot.user", "snapshot.organization",
 		"snapshot.organization.connection", "snapshot.organization.member",
 		"snapshot.organization.member.role",
@@ -148,17 +210,19 @@ func TestSnapshotMembersAndRoles(t *testing.T) {
 	res, err := p.Snapshot(context.Background(),
 		[]string{"snapshot.organization.member", "snapshot.organization.member.role"},
 		func(msg string) { progress = append(progress, msg) })
-	require.NoError(t, err)
+	noErr(t, err)
 
-	assert.Equal(t, []snapshot.Count{
+	equal(t, []snapshot.Count{
 		{Type: "snapshot.organization.member", N: 3},
 		{Type: "snapshot.organization.member.role", N: 2},
 	}, res.Counts)
-	require.Len(t, res.Events, 5)
-	assert.NotEmpty(t, progress)
+	if len(res.Events) != 5 {
+		t.Fatalf("len(res.Events) = %d, want 5", len(res.Events))
+	}
+	notEmpty(t, progress)
 
 	ev := res.Events[0]
-	assert.Equal(t, map[string]any{
+	equal(t, map[string]any{
 		"specversion": "1.0",
 		"type":        "snapshot.organization.member",
 		"source":      "urn:auth0:" + res.Source,
@@ -177,27 +241,27 @@ func TestSnapshotMembersAndRoles(t *testing.T) {
 		},
 	}, ev)
 
-	assert.Equal(t, "organization org_1 member auth0|u2", res.Events[1]["subject"])
-	assert.Equal(t, "organization org_1 member auth0|u3", res.Events[2]["subject"])
-	assert.Equal(t, "snap_000003", res.Events[2]["id"])
+	equal(t, "organization org_1 member auth0|u2", res.Events[1]["subject"])
+	equal(t, "organization org_1 member auth0|u3", res.Events[2]["subject"])
+	equal(t, "snap_000003", res.Events[2]["id"])
 
 	role := res.Events[3]
-	assert.Equal(t, "snapshot.organization.member.role", role["type"])
-	assert.Equal(t, "snap_000004", role["id"])
-	assert.Equal(t, "organization org_1 member auth0|u1 role rol_1", role["subject"])
-	assert.Equal(t, map[string]any{
+	equal(t, "snapshot.organization.member.role", role["type"])
+	equal(t, "snap_000004", role["id"])
+	equal(t, "organization org_1 member auth0|u1 role rol_1", role["subject"])
+	equal(t, map[string]any{
 		"organization": map[string]any{"id": "org_1", "name": "acme-one"},
 		"user":         map[string]any{"user_id": "auth0|u1"},
 		"role":         map[string]any{"id": "rol_1", "name": "admin"},
 	}, role["data"].(map[string]any)["object"])
-	assert.Equal(t, "organization org_1 member auth0|u1 role rol_2", res.Events[4]["subject"])
+	equal(t, "organization org_1 member auth0|u1 role rol_2", res.Events[4]["subject"])
 
 	for _, q := range rec.find("/organizations/org_1/members") {
-		assert.Equal(t, "user_id,email,name,picture,roles", q.Get("fields"))
-		assert.Equal(t, "true", q.Get("include_fields"))
+		equal(t, "user_id,email,name,picture,roles", q.Get("fields"))
+		equal(t, "true", q.Get("include_fields"))
 	}
 
-	assert.NotEmpty(t, rec.find("/organizations"))
+	notEmpty(t, rec.find("/organizations"))
 }
 
 func TestSnapshotMembersOnlyOmitsFields(t *testing.T) {
@@ -206,14 +270,18 @@ func TestSnapshotMembersOnlyOmitsFields(t *testing.T) {
 	p, rec := newProvider(t, fixtures(memberRoutes))
 
 	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization.member"}, nil)
-	require.NoError(t, err)
-	assert.Len(t, res.Events, 3)
+	noErr(t, err)
+	if len(res.Events) != 3 {
+		t.Errorf("len(res.Events) = %d, want 3", len(res.Events))
+	}
 
 	reqs := rec.find("/organizations/org_1/members")
-	require.NotEmpty(t, reqs)
+	requireNotEmpty(t, reqs)
 
 	for _, q := range reqs {
-		assert.False(t, q.Has("fields"))
+		if q.Has("fields") {
+			t.Errorf("request %v sets fields, want none", q)
+		}
 	}
 }
 
@@ -225,12 +293,14 @@ func TestSnapshotKeepsUnknownFields(t *testing.T) {
 	}))
 
 	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization"}, nil)
-	require.NoError(t, err)
-	require.Len(t, res.Events, 1)
+	noErr(t, err)
+	if len(res.Events) != 1 {
+		t.Fatalf("len(res.Events) = %d, want 1", len(res.Events))
+	}
 
 	obj := res.Events[0]["data"].(map[string]any)["object"].(map[string]any)
-	assert.Equal(t, map[string]any{"a": float64(1)}, obj["x_new_field"])
-	assert.Equal(t, "organization org_1", res.Events[0]["subject"])
+	equal(t, map[string]any{"a": float64(1)}, obj["x_new_field"])
+	equal(t, "organization org_1", res.Events[0]["subject"])
 }
 
 func TestSnapshotConnections(t *testing.T) {
@@ -243,16 +313,18 @@ func TestSnapshotConnections(t *testing.T) {
 	}))
 
 	res, err := p.Snapshot(context.Background(), []string{"snapshot.connection"}, nil)
-	require.NoError(t, err)
-	require.Len(t, res.Events, 2)
+	noErr(t, err)
+	if len(res.Events) != 2 {
+		t.Fatalf("len(res.Events) = %d, want 2", len(res.Events))
+	}
 
 	first := res.Events[0]["data"].(map[string]any)["object"].(map[string]any)
-	assert.Equal(t, "con_1", first["id"])
-	assert.Equal(t, []any{"c1", "c2"}, first["enabled_clients"])
-	assert.Equal(t, "connection con_1", res.Events[0]["subject"])
+	equal(t, "con_1", first["id"])
+	equal(t, []any{"c1", "c2"}, first["enabled_clients"])
+	equal(t, "connection con_1", res.Events[0]["subject"])
 
 	second := res.Events[1]["data"].(map[string]any)["object"].(map[string]any)
-	assert.Equal(t, []any{}, second["enabled_clients"])
+	equal(t, []any{}, second["enabled_clients"])
 }
 
 func TestSnapshotOrganizationConnections(t *testing.T) {
@@ -278,11 +350,13 @@ func TestSnapshotOrganizationConnections(t *testing.T) {
 	})
 
 	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization.connection"}, nil)
-	require.NoError(t, err)
-	require.Len(t, res.Events, 1)
+	noErr(t, err)
+	if len(res.Events) != 1 {
+		t.Fatalf("len(res.Events) = %d, want 1", len(res.Events))
+	}
 
-	assert.Equal(t, "organization org_1 connection con_1", res.Events[0]["subject"])
-	assert.Equal(t, map[string]any{
+	equal(t, "organization org_1 connection con_1", res.Events[0]["subject"])
+	equal(t, map[string]any{
 		"organization":               map[string]any{"id": "org_1", "name": "acme-one"},
 		"connection":                 map[string]any{"id": "con_1", "name": "db", "strategy": "auth0"},
 		"is_enabled":                 true,
@@ -292,8 +366,8 @@ func TestSnapshotOrganizationConnections(t *testing.T) {
 	}, res.Events[0]["data"].(map[string]any)["object"])
 
 	reqs := rec.find("/organizations/org_1/enabled_connections")
-	require.NotEmpty(t, reqs)
-	assert.Equal(t, "true", reqs[0].Get("include_totals"))
+	requireNotEmpty(t, reqs)
+	equal(t, "true", reqs[0].Get("include_totals"))
 }
 
 func usersHandler(total int) http.HandlerFunc {
@@ -318,18 +392,22 @@ func TestSnapshotUsersCap(t *testing.T) {
 	p, _ := newProvider(t, usersHandler(1001))
 
 	res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
-	require.Error(t, err)
-	assert.Nil(t, res)
-	assert.Contains(t, err.Error(), "at most 1,000 users")
-	assert.Contains(t, err.Error(), "1001")
+	isErr(t, err)
+	if res != nil {
+		t.Errorf("result = %+v, want nil", res)
+	}
+	contains(t, err.Error(), "at most 1,000 users")
+	contains(t, err.Error(), "1001")
 
 	p, _ = newProvider(t, usersHandler(150))
 
 	res, err = p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
-	require.NoError(t, err)
-	assert.Len(t, res.Events, 150)
-	assert.Equal(t, "user auth0|149", res.Events[149]["subject"])
-	assert.Equal(t, []snapshot.Count{{Type: "snapshot.user", N: 150}}, res.Counts)
+	noErr(t, err)
+	if len(res.Events) != 150 {
+		t.Errorf("len(res.Events) = %d, want 150", len(res.Events))
+	}
+	equal(t, "user auth0|149", res.Events[149]["subject"])
+	equal(t, []snapshot.Count{{Type: "snapshot.user", N: 150}}, res.Counts)
 }
 
 func TestSnapshotRetriesRateLimit(t *testing.T) {
@@ -356,8 +434,10 @@ func TestSnapshotRetriesRateLimit(t *testing.T) {
 	})
 
 	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization"}, nil)
-	require.NoError(t, err)
-	assert.Len(t, res.Events, 2)
+	noErr(t, err)
+	if len(res.Events) != 2 {
+		t.Errorf("len(res.Events) = %d, want 2", len(res.Events))
+	}
 }
 
 func TestSnapshotRateLimitExhausted(t *testing.T) {
@@ -370,9 +450,11 @@ func TestSnapshotRateLimitExhausted(t *testing.T) {
 	}, option.WithMaxAttempts(1))
 
 	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization"}, nil)
-	require.Error(t, err)
-	assert.Nil(t, res)
-	assert.Equal(t, clierr.KindRateLimited, clierr.Classify(err))
+	isErr(t, err)
+	if res != nil {
+		t.Errorf("result = %+v, want nil", res)
+	}
+	equal(t, clierr.KindRateLimited, clierr.Classify(err))
 }
 
 func TestSnapshotForbiddenNamesScope(t *testing.T) {
@@ -390,11 +472,13 @@ func TestSnapshotForbiddenNamesScope(t *testing.T) {
 	})
 
 	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization.member"}, nil)
-	require.Error(t, err)
-	assert.Nil(t, res)
-	assert.Equal(t, clierr.KindForbidden, clierr.Classify(err))
-	assert.Contains(t, err.Error(), "Insufficient scope")
-	assert.Contains(t, clierr.NewEnvelope(err).Error.Hint, "read:organization_members")
+	isErr(t, err)
+	if res != nil {
+		t.Errorf("result = %+v, want nil", res)
+	}
+	equal(t, clierr.KindForbidden, clierr.Classify(err))
+	contains(t, err.Error(), "Insufficient scope")
+	contains(t, clierr.NewEnvelope(err).Error.Hint, "read:organization_members")
 }
 
 func TestSnapshotUnauthorized(t *testing.T) {
@@ -406,9 +490,9 @@ func TestSnapshotUnauthorized(t *testing.T) {
 	})
 
 	_, err := p.Snapshot(context.Background(), []string{"snapshot.organization"}, nil)
-	require.Error(t, err)
-	assert.Equal(t, clierr.KindUnauthenticated, clierr.Classify(err))
-	assert.Contains(t, err.Error(), "Auth0 rejected the credentials: bad token")
+	isErr(t, err)
+	equal(t, clierr.KindUnauthenticated, clierr.Classify(err))
+	contains(t, err.Error(), "Auth0 rejected the credentials: bad token")
 }
 
 func TestSnapshotFailsWhole(t *testing.T) {
@@ -426,8 +510,10 @@ func TestSnapshotFailsWhole(t *testing.T) {
 	}, option.WithMaxAttempts(1))
 
 	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization.member"}, nil)
-	require.Error(t, err)
-	assert.Nil(t, res)
+	isErr(t, err)
+	if res != nil {
+		t.Errorf("result = %+v, want nil", res)
+	}
 }
 
 func TestSnapshotCanceled(t *testing.T) {
@@ -460,9 +546,13 @@ func TestSnapshotCanceled(t *testing.T) {
 	})
 
 	res, err := p.Snapshot(ctx, []string{"snapshot.organization.member"}, nil)
-	require.Error(t, err)
-	assert.Nil(t, res)
-	assert.ErrorIs(t, err, context.Canceled)
+	isErr(t, err)
+	if res != nil {
+		t.Errorf("result = %+v, want nil", res)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error = %v, want context.Canceled", err)
+	}
 }
 
 func TestSnapshotUnknownTypeFails(t *testing.T) {
@@ -471,23 +561,27 @@ func TestSnapshotUnknownTypeFails(t *testing.T) {
 	p, rec := newProvider(t, fixtures(nil))
 
 	res, err := p.Snapshot(context.Background(), []string{"snapshot.group"}, nil)
-	require.Error(t, err)
-	assert.Nil(t, res)
-	assert.Contains(t, err.Error(), "snapshot.group")
-	assert.Zero(t, rec.count())
+	isErr(t, err)
+	if res != nil {
+		t.Errorf("result = %+v, want nil", res)
+	}
+	contains(t, err.Error(), "snapshot.group")
+	if n := rec.count(); n != 0 {
+		t.Errorf("requests = %d, want 0", n)
+	}
 }
 
 func TestNewNormalisesDomain(t *testing.T) {
 	t.Parallel()
 
 	p, err := New(context.Background(), Config{Domain: "https://acme.us.auth0.com/", ClientID: "id", ClientSecret: "s"})
-	require.NoError(t, err)
+	noErr(t, err)
 
-	assert.Equal(t, "auth0", p.Name())
-	assert.Equal(t, "Auth0", p.Label())
-	assert.Equal(t, Types(), p.Types())
-	assert.Equal(t, "acme.us.auth0.com", p.source)
-	assert.Equal(t, "acme", p.tenant)
+	equal(t, "auth0", p.Name())
+	equal(t, "Auth0", p.Label())
+	equal(t, Types(), p.Types())
+	equal(t, "acme.us.auth0.com", p.source)
+	equal(t, "acme", p.tenant)
 }
 
 func TestErrorsCarryNoSecret(t *testing.T) {
@@ -504,12 +598,14 @@ func TestErrorsCarryNoSecret(t *testing.T) {
 	p, err := New(context.Background(), Config{
 		Domain: srv.Listener.Addr().String(), ClientID: "id", ClientSecret: secret,
 	}, option.WithInsecure())
-	require.NoError(t, err)
+	noErr(t, err)
 
 	_, err = p.Snapshot(context.Background(), []string{"snapshot.organization"}, nil)
-	require.Error(t, err)
-	assert.NotContains(t, err.Error(), secret)
-	assert.Equal(t, clierr.KindUnauthenticated, clierr.Classify(err))
+	isErr(t, err)
+	if strings.Contains(err.Error(), secret) {
+		t.Error("error contains the client secret")
+	}
+	equal(t, clierr.KindUnauthenticated, clierr.Classify(err))
 }
 
 func TestSnapshotNetworkFailure(t *testing.T) {
@@ -520,12 +616,12 @@ func TestSnapshotNetworkFailure(t *testing.T) {
 	srv.Close()
 
 	p, err := New(context.Background(), Config{Domain: addr, Tenant: "acme"}, option.WithInsecure(), option.WithMaxAttempts(1))
-	require.NoError(t, err)
+	noErr(t, err)
 
 	_, err = p.Snapshot(context.Background(), []string{"snapshot.organization"}, nil)
-	require.Error(t, err)
-	assert.Equal(t, clierr.KindNetwork, clierr.Classify(err))
-	assert.Equal(t, clierr.CodeNetwork, clierr.Code(err))
+	isErr(t, err)
+	equal(t, clierr.KindNetwork, clierr.Classify(err))
+	equal(t, clierr.CodeNetwork, clierr.Code(err))
 }
 
 func TestLiveSnapshot(t *testing.T) {
@@ -537,7 +633,7 @@ func TestLiveSnapshot(t *testing.T) {
 	ctx := context.Background()
 
 	p, err := New(ctx, Config{Domain: domain, ClientID: id, ClientSecret: secret})
-	require.NoError(t, err)
+	noErr(t, err)
 
 	var names []string
 	for _, typ := range Types() {
@@ -545,7 +641,7 @@ func TestLiveSnapshot(t *testing.T) {
 	}
 
 	res, err := p.Snapshot(ctx, names, nil)
-	require.NoError(t, err)
+	noErr(t, err)
 
 	counts := map[string]int{}
 
@@ -554,20 +650,30 @@ func TestLiveSnapshot(t *testing.T) {
 		t.Logf("%s: %d", c.Type, c.N)
 	}
 
-	assert.GreaterOrEqual(t, counts[typeOrganization], 2)
-	assert.GreaterOrEqual(t, counts[typeOrgMember], 4)
-	assert.GreaterOrEqual(t, counts[typeOrgMemberRole], 4)
+	if counts[typeOrganization] < 2 {
+		t.Errorf("counts[%s] = %d, want >= 2", typeOrganization, counts[typeOrganization])
+	}
+	if counts[typeOrgMember] < 4 {
+		t.Errorf("counts[%s] = %d, want >= 4", typeOrgMember, counts[typeOrgMember])
+	}
+	if counts[typeOrgMemberRole] < 4 {
+		t.Errorf("counts[%s] = %d, want >= 4", typeOrgMemberRole, counts[typeOrgMemberRole])
+	}
 
 	for _, ev := range res.Events {
-		assert.NotEmpty(t, ev["type"])
-		assert.NotEmpty(t, ev["subject"])
+		notEmpty(t, ev["type"])
+		notEmpty(t, ev["subject"])
 
 		data, _ := ev["data"].(map[string]any)
 		obj, ok := data["object"].(map[string]any)
-		require.True(t, ok, "event %v has no data.object", ev["type"])
+		if !ok {
+			t.Fatalf("event %v has no data.object", ev["type"])
+		}
 
 		if ev["type"] == typeConnection {
-			assert.Contains(t, obj, "enabled_clients")
+			if _, ok := obj["enabled_clients"]; !ok {
+				t.Errorf("connection event %v has no enabled_clients", obj)
+			}
 		}
 	}
 }

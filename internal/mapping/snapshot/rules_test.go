@@ -1,9 +1,9 @@
 package snapshot
 
 import (
+	"reflect"
+	"slices"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 
 	"github.com/sergiught/openfga-cli/internal/mapping"
 )
@@ -26,27 +26,40 @@ func TestRequested(t *testing.T) {
 		`input.type == "a" || input.type == "snapshot.organization.member"`,
 		`input.type in ['x', 'snapshot.organization.member.role']`,
 	)
-	require.Equal(t, []string{"snapshot.organization.member", "snapshot.organization.member.role"}, Requested(doc, testTypes))
+	if got, want := Requested(doc, testTypes), []string{"snapshot.organization.member", "snapshot.organization.member.role"}; !slices.Equal(got, want) {
+		t.Errorf("Requested() = %q, want %q", got, want)
+	}
 
 	onlyRole := whenDoc("input.type == `snapshot.organization.member.role`")
-	require.Equal(t, []string{"snapshot.organization.member.role"}, Requested(onlyRole, testTypes))
+	if got, want := Requested(onlyRole, testTypes), []string{"snapshot.organization.member.role"}; !slices.Equal(got, want) {
+		t.Errorf("Requested(onlyRole) = %q, want %q", got, want)
+	}
 }
 
 func TestUnknownSnapshotTypes(t *testing.T) {
 	doc := whenDoc(`input.type == "snapshot.organisation.member"`)
-	require.Equal(t, []string{"snapshot.organisation.member"}, Unknown(doc, testTypes))
-	require.Empty(t, Requested(doc, testTypes))
+	if got, want := Unknown(doc, testTypes), []string{"snapshot.organisation.member"}; !slices.Equal(got, want) {
+		t.Errorf("Unknown() = %q, want %q", got, want)
+	}
+	if got := Requested(doc, testTypes); len(got) != 0 {
+		t.Errorf("Requested() = %q, want none", got)
+	}
 }
 
 func TestSuggestions(t *testing.T) {
 	doc := whenDoc(`input.type == "organization.member.added"`)
-	require.Equal(t, []Suggestion{{
+	wantSuggestions := []Suggestion{{
 		Rule:   `input.type == "organization.member.added"`,
 		Clause: `|| input.type == "snapshot.organization.member"`,
-	}}, Suggestions(doc, testTypes))
+	}}
+	if got := Suggestions(doc, testTypes); !reflect.DeepEqual(got, wantSuggestions) {
+		t.Errorf("Suggestions() = %+v, want %+v", got, wantSuggestions)
+	}
 
 	done := whenDoc(`input.type == "organization.member.added" || input.type == "snapshot.organization.member"`)
-	require.Empty(t, Suggestions(done, testTypes))
+	if got := Suggestions(done, testTypes); len(got) != 0 {
+		t.Errorf("Suggestions(done) = %+v, want none", got)
+	}
 }
 
 func TestCoverage(t *testing.T) {
@@ -62,8 +75,10 @@ func TestCoverage(t *testing.T) {
 	}}
 
 	owned, notChecked := Coverage(doc, testTypes)
-	require.Equal(t, []mapping.Shape{{UserType: "user", Relation: "member", ObjectType: "organization"}}, owned)
-	require.Equal(t, []NotChecked{
+	if want := []mapping.Shape{{UserType: "user", Relation: "member", ObjectType: "organization"}}; !reflect.DeepEqual(owned, want) {
+		t.Errorf("owned = %+v, want %+v", owned, want)
+	}
+	wantNotChecked := []NotChecked{
 		{
 			Rule:   "identities",
 			Reason: "no snapshot rule writes user identity connection",
@@ -73,5 +88,8 @@ func TestCoverage(t *testing.T) {
 			Rule:   "roles",
 			Reason: "the type or relation is templated, so stale tuples cannot be told apart",
 		},
-	}, notChecked)
+	}
+	if !reflect.DeepEqual(notChecked, wantNotChecked) {
+		t.Errorf("notChecked = %+v, want %+v", notChecked, wantNotChecked)
+	}
 }
