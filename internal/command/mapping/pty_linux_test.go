@@ -2,7 +2,6 @@ package mapping
 
 import (
 	"errors"
-	"github.com/sergiught/openfga-cli/internal/prompt"
 	"os"
 	"strconv"
 	"strings"
@@ -12,6 +11,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/sergiught/openfga-cli/internal/configtest"
+	"github.com/sergiught/openfga-cli/internal/prompt"
 )
 
 // openPTY returns a pseudo-terminal pair, so a command's confirmation prompt

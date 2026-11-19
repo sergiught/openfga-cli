@@ -30,7 +30,7 @@ func TestDriftFixMissing(t *testing.T) {
 	if fs.writeCount() != 1 || !strings.Contains(fs.writes[0], "user:u2") || strings.Contains(fs.writes[0], "gone") {
 		t.Fatalf("writes = %v", fs.writes)
 	}
-	for _, want := range []string{"Write 1 tuple to store acme (", "1 stale tuple left alone; run again with --prune to delete them"} {
+	for _, want := range []string{"Write 1 tuple to store acme (", "1 stale tuple left alone; run again with --prune to delete it"} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("stderr missing %q:\n%s", want, stderr)
 		}
@@ -128,5 +128,24 @@ func TestDriftAgeLine(t *testing.T) {
 	}
 	if q := strings.Index(stderr, "Delete 1 stale"); strings.LastIndex(stderr, age) > q {
 		t.Errorf("age line must precede the delete question:\n%s", stderr)
+	}
+}
+
+func TestDriftNoInputOnTerminalReportsOnly(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, member("gone"))
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1")})
+	master, tty := openPTY(t)
+	if _, err := master.WriteString("y\n"); err != nil {
+		t.Fatal(err)
+	}
+	c := fs.cli()
+	c.NoInput = true
+	_, stderr, err := runDrift(t, c, tty, driftArgs(t, driftMapping)...)
+	if clierr.Code(err) != clierr.CodeTestFailed || !clierr.IsSilent(err) {
+		t.Fatalf("code = %d err = %v", clierr.Code(err), err)
+	}
+	if !strings.Contains(stderr, "report only: pass --force to write") || strings.Contains(stderr, "[y/N]") || fs.writeCount() != 0 {
+		t.Errorf("writes = %d\n%s", fs.writeCount(), stderr)
 	}
 }

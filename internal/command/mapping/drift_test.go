@@ -1,14 +1,19 @@
 package mapping
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
@@ -191,8 +196,124 @@ func TestDriftForceWithoutPruneLeavesStale(t *testing.T) {
 	if fs.writeCount() != 1 || strings.Contains(fs.writes[0], `"deletes"`) {
 		t.Fatalf("writes = %v", fs.writes)
 	}
-	if !strings.Contains(stderr, "1 stale tuple left alone; run again with --prune to delete them") {
+	if !strings.Contains(stderr, "1 stale tuple left alone; run again with --prune to delete it") {
 		t.Errorf("stderr:\n%s", stderr)
+	}
+}
+
+func TestDriftForceWithoutPruneLeavesSeveralStale(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, member("gone1"), member("gone2"))
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1")})
+	_, stderr, _ := runDrift(t, fs.cli(), nil, driftArgs(t, driftMapping, "--force")...)
+	if !strings.Contains(stderr, "2 stale tuples left alone; run again with --prune to delete them") {
+		t.Errorf("stderr:\n%s", stderr)
+	}
+}
+
+func TestDriftNoDriftSingular(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, member("u1"))
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1")})
+	_, stderr, err := runDrift(t, fs.cli(), nil, driftArgs(t, driftMapping)...)
+	if err != nil || !strings.Contains(stderr, "no drift: 1 tuple matches Fake") {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+}
+
+func TestDriftDryRunSaysNothingWritten(t *testing.T) {
+	const note = "dry run: nothing written"
+	configtest.Isolate(t)
+	fs := newFakeStore(t, member("gone"))
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1")})
+	_, stderr, _ := runDrift(t, fs.cli(), nil, driftArgs(t, driftMapping, "--dry-run")...)
+	if !strings.Contains(stderr, note) || strings.Contains(stderr, "Snapshot is") {
+		t.Errorf("stderr:\n%s", stderr)
+	}
+	c := fs.cli()
+	c.JSON = true
+	_, stderr, _ = runDrift(t, c, nil, driftArgs(t, driftMapping, "--dry-run")...)
+	if strings.Contains(stderr, note) {
+		t.Errorf("machine mode said it:\n%s", stderr)
+	}
+}
+
+func TestDriftForceHasNoAgeLine(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, member("gone"))
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1")})
+	_, stderr, _ := runDrift(t, fs.cli(), nil, driftArgs(t, driftMapping, "--force", "--prune")...)
+	if strings.Contains(stderr, "Snapshot is") {
+		t.Errorf("stderr:\n%s", stderr)
+	}
+}
+
+func TestDriftSuccessCountsChangedTuples(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, member("u1"))
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1")})
+	_, stderr, err := runDrift(t, fs.cli(), nil, driftArgs(t, driftConditionMapping, "--force")...)
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	if !strings.Contains(stderr, "sent 1 write to store acme, replacing 1 changed tuple (Fake state as of 14:05:40 UTC)") {
+		t.Errorf("stderr:\n%s", stderr)
+	}
+}
+
+func TestDriftStoreLineUsesDatesAcrossMidnight(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, member("u1"))
+	res := memberResult("u1")
+	res.StartedAt = time.Date(2026, 11, 19, 23, 59, 50, 0, time.UTC)
+	res.FinishedAt = time.Date(2026, 11, 20, 0, 0, 10, 0, time.UTC)
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: res})
+	old := now
+	now = func() time.Time { return time.Date(2026, 11, 19, 23, 59, 40, 0, time.UTC) }
+	t.Cleanup(func() { now = old })
+	stdout, _, err := runDrift(t, fs.cli(), nil, driftArgs(t, driftMapping)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"store read  2026-11-19 23:59:40 UTC", "2026-11-19 23:59:50 → 2026-11-20 00:00:10 UTC"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("stdout missing %q:\n%s", want, stdout)
+		}
+	}
+}
+
+func TestSnapshotAge(t *testing.T) {
+	res := &snapshot.Result{StartedAt: snapStart}
+	for _, tc := range []struct {
+		after time.Duration
+		want  string
+	}{
+		{30 * time.Second, "Snapshot is 30s old; changes since then are not reflected."},
+		{6 * time.Minute, "Snapshot is 6m old; changes since then are not reflected."},
+	} {
+		pinNow(t, tc.after)
+		if got := snapshotAge(res); got != tc.want {
+			t.Errorf("after %v: %q, want %q", tc.after, got, tc.want)
+		}
+	}
+}
+
+func TestDriftProviderProblemCostsNoStoreRead(t *testing.T) {
+	configtest.Isolate(t)
+	var log []string
+	fs := newFakeStore(t)
+	fs.log = &log
+	providers["fake"] = providerEntry{
+		Label: "Fake",
+		Types: fakeTypes,
+		New:   func(*cobra.Command) (snapshot.Provider, error) { return nil, errors.New("missing domain") },
+	}
+	t.Cleanup(func() { delete(providers, "fake") })
+	if _, _, err := runDrift(t, fs.cli(), nil, driftArgs(t, driftMapping)...); err == nil || !strings.Contains(err.Error(), "missing domain") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(log) != 0 {
+		t.Fatalf("read store: %v", log)
 	}
 }
 
@@ -312,5 +433,89 @@ func TestDriftCapsLongLists(t *testing.T) {
 	}
 	if n := strings.Count(stdout, "+ user:"); n != 50 || !strings.Contains(stdout, "… 30 more; -o json lists them all") {
 		t.Errorf("tuple lines = %d\n%s", n, stdout)
+	}
+}
+
+func TestDriftWithoutTerminalReportsOnly(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		noInput bool
+	}{{"no terminal", false}, {"no-input", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			configtest.Isolate(t)
+			fs := newFakeStore(t, member("gone"))
+			useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1")})
+			c := fs.cli()
+			c.NoInput = tc.noInput
+			_, stderr, err := runDrift(t, c, strings.NewReader(""), driftArgs(t, driftMapping)...)
+			if clierr.Code(err) != clierr.CodeTestFailed || !clierr.IsSilent(err) {
+				t.Fatalf("code = %d err = %v", clierr.Code(err), err)
+			}
+			if !strings.Contains(stderr, "report only: pass --force to write") || fs.writeCount() != 0 {
+				t.Errorf("writes = %d\n%s", fs.writeCount(), stderr)
+			}
+		})
+	}
+}
+
+func TestDriftPartialPruneCountsDeletesSent(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t)
+	for i := range 250 {
+		fs.tuples = append(fs.tuples, member(fmt.Sprintf("gone%03d", i)))
+	}
+	fs.failFrom = 2
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult()})
+	c := fs.cli()
+	c.JSON = true
+	stdout, _, err := runDrift(t, c, nil, driftArgs(t, driftMapping, "--prune", "--force")...)
+	if msg := clierr.NewEnvelope(err).Error.Message; !strings.Contains(msg, "sent 100 of 250 changes before the failure; run the command again to send the rest") {
+		t.Errorf("message = %q", msg)
+	}
+	var got driftResult
+	if jerr := json.Unmarshal([]byte(stdout), &got); jerr != nil {
+		t.Fatalf("stdout is not one JSON document: %v\n%s", jerr, stdout)
+	}
+	if got.Sent.Deletes != 100 || got.Pruned != 100 {
+		t.Fatalf("sent = %+v pruned = %d, want 100 of each", got.Sent, got.Pruned)
+	}
+}
+
+func TestDriftCanceledDuringWrite(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	fs.onWrite = func(n int) {
+		if n == 2 {
+			cancel()
+		}
+	}
+	users := make([]string, 250)
+	for i := range users {
+		users[i] = fmt.Sprintf("u%03d", i)
+	}
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult(users...)})
+	root := New(fs.cli()).Command()
+	var out, errb bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&errb)
+	root.SetArgs(append([]string{"drift"}, driftArgs(t, driftMapping, "--force")...))
+	root.SilenceUsage, root.SilenceErrors = true, true
+	err := root.ExecuteContext(ctx)
+	if clierr.Code(err) != clierr.CodeCanceled {
+		t.Fatalf("code = %d err = %v", clierr.Code(err), err)
+	}
+	if !strings.Contains(err.Error(), "sent 100 of 250 changes before the failure") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestFailureReportPrintsTheErrorOnce(t *testing.T) {
+	err := &url.Error{Op: "Post", URL: "http://store.example/write", Err: &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}}
+	var buf bytes.Buffer
+	_ = reportSnapshotFailure(context.Background(), &buf, false, "sent 0 of 1 write before the failure", snapshot.Sent{}, applyHints(err), err)
+	if n := strings.Count(buf.String(), "connection refused"); n != 1 {
+		t.Errorf("error printed %d times:\n%s", n, buf.String())
 	}
 }

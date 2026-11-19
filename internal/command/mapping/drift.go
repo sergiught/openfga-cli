@@ -55,7 +55,7 @@ func (c *Command) newDriftCmd() *cobra.Command {
 			"A rule takes part when its `when` also names a snapshot type, such as `input.type == \"snapshot.organization.member\"`.\n\n" +
 			"It then asks before writing the missing and changed tuples (a changed tuple is deleted and written again), " +
 			"and with --prune asks again before deleting the stale ones. --force skips the questions, --dry-run stops after the report. " +
-			"Without a terminal, or under -o json/yaml, it only reports unless --force is given. " +
+			"Without a terminal, under --no-input or -o json/yaml, it only reports unless --force is given. " +
 			"The provider is read once, so the result reflects it as of that moment. Auth0 needs a machine-to-machine application and reads at most 1,000 users.\n\n" +
 			"Exit codes: 0 no drift, or all of it fixed · 1 error · 2 usage · 3 drift remains · 4 network · 130 interrupted.",
 		Example: `# See what differs between the store and Auth0
@@ -140,7 +140,11 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider string, prune, dry
 	}
 
 	if diff.Empty() {
-		output.Successf(errw, "no drift: %s match %s", mapping.Plural(len(run.Desired), "tuple"), output.SanitizeField(label))
+		verb := "match"
+		if len(run.Desired) == 1 {
+			verb = "matches"
+		}
+		output.Successf(errw, "no drift: %s %s %s", mapping.Plural(len(run.Desired), "tuple"), verb, output.SanitizeField(label))
 		return finish(nil)
 	}
 	missing, changed, stale := len(diff.Missing), len(diff.Changed), len(diff.Stale)
@@ -156,15 +160,21 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider string, prune, dry
 		return clierr.Silent(clierr.CodeTestFailed, fmt.Sprintf("drift remains: %d missing, %d changed, %d stale", m, ch, s))
 	}
 	if dryRun {
+		if !machine {
+			output.Notef(errw, "dry run: nothing written")
+		}
 		return finish(remains())
 	}
-	if !force && (machine || !stdinIsTerminal(cmd)) {
+	// --no-input never asks, like a missing terminal: report only.
+	if !force && (machine || c.cli.NoInput || !stdinIsTerminal(cmd)) {
 		output.Notef(errw, "report only: pass --force to write")
 		return finish(remains())
 	}
 
 	// send runs one Write and folds what it sent into the document.
-	send := func(deletes, writes []language.Tuple) (snapshot.Sent, error) {
+	// pruning marks the stale deletes, which res.Pruned counts even when the
+	// request fails part-way.
+	send := func(deletes, writes []language.Tuple, pruning bool) (snapshot.Sent, error) {
 		total := len(deletes) + len(writes)
 		sent, err := snapshot.Write(ctx, storeClient{cl}, deletes, writes, func(done, total int) {
 			if total > backfillRequestSize { // more than one request
@@ -173,26 +183,35 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider string, prune, dry
 		})
 		res.Sent.Writes += sent.Writes
 		res.Sent.Deletes += sent.Deletes
+		if pruning {
+			res.Pruned = sent.Deletes
+		}
 		if err != nil {
-			text := fmt.Sprintf("sent %d of %d changes before the failure; run the command again to send the rest", sent.Writes+sent.Deletes, total)
+			text := fmt.Sprintf("sent %d of %s before the failure; run the command again to send the rest", sent.Writes+sent.Deletes, mapping.Plural(total, "change"))
 			return sent, finish(reportSnapshotFailure(ctx, errw, machine, text, sent, applyHints(err), err))
 		}
 		return sent, nil
 	}
 
 	if !writesDone {
-		output.Notef(errw, "%s", snapshotAge(run.Result))
+		if !force {
+			output.Notef(errw, "%s", snapshotAge(run.Result))
+		}
 		switch err := prompt.Confirm(cmd, backfillQuestion(missing+changed, storeNm, storeID), force); {
 		case err == nil:
 			// A changed tuple is deleted first: a write cannot replace a condition.
-			sent, err := send(diff.Changed, slices.Concat(diff.Missing, diff.Changed))
+			sent, err := send(diff.Changed, slices.Concat(diff.Missing, diff.Changed), false)
 			if err != nil {
 				return err
 			}
 			writesDone = true
 			_, finishedAt := snapshotTimes(run.Result)
-			output.Successf(errw, "sent %s to store %s (%s state as of %s UTC)", mapping.Plural(sent.Writes, "write"),
-				output.SanitizeField(storeLbl), output.SanitizeField(label), finishedAt)
+			replaced := ""
+			if changed > 0 {
+				replaced = ", replacing " + mapping.Plural(changed, "changed tuple")
+			}
+			output.Successf(errw, "sent %s to store %s%s (%s state as of %s UTC)", mapping.Plural(sent.Writes, "write"),
+				output.SanitizeField(storeLbl), replaced, output.SanitizeField(label), finishedAt)
 		case !errors.Is(err, prompt.ErrAborted):
 			return finish(err)
 		}
@@ -201,7 +220,11 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider string, prune, dry
 	switch {
 	case stale == 0:
 	case !prune:
-		output.Notef(errw, "%s left alone; run again with --prune to delete them", mapping.Plural(stale, "stale tuple"))
+		it := "them"
+		if stale == 1 {
+			it = "it"
+		}
+		output.Notef(errw, "%s left alone; run again with --prune to delete %s", mapping.Plural(stale, "stale tuple"), it)
 	default:
 		if !force {
 			if err := renderShapes(errw, diff.Stale); err != nil {
@@ -212,11 +235,11 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider string, prune, dry
 		question := fmt.Sprintf("Delete %s from store %s?", mapping.Plural(stale, "stale tuple"), storeTarget(storeNm, storeID))
 		switch err := prompt.Confirm(cmd, question, force); {
 		case err == nil:
-			sent, err := send(diff.Stale, nil)
+			sent, err := send(diff.Stale, nil, true)
 			if err != nil {
 				return err
 			}
-			pruned, res.Pruned = true, sent.Deletes
+			pruned = true
 			output.Successf(errw, "deleted %s from store %s", mapping.Plural(sent.Deletes, "stale tuple"), output.SanitizeField(storeLbl))
 		case !errors.Is(err, prompt.ErrAborted):
 			return finish(err)

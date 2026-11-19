@@ -108,6 +108,9 @@ func TestBackfillDryRun(t *testing.T) {
 	if fs.writeCount() != 0 {
 		t.Fatalf("dry run sent %d writes", fs.writeCount())
 	}
+	if !strings.Contains(stderr, "dry run: nothing written") || strings.Contains(stderr, "Snapshot is") {
+		t.Errorf("stderr:\n%s", stderr)
+	}
 }
 
 func TestBackfillForceWrites(t *testing.T) {
@@ -127,8 +130,21 @@ func TestBackfillForceWrites(t *testing.T) {
 			t.Errorf("write missing %s:\n%s", want, fs.writes[0])
 		}
 	}
-	if !strings.Contains(stderr, "sent 4 writes to store acme (Fake state as of 14:05:40 UTC)") {
+	if !strings.Contains(stderr, "sent 4 writes to store acme (Fake state as of 14:05:40 UTC)") || strings.Contains(stderr, "Snapshot is") {
 		t.Errorf("stderr:\n%s", stderr)
+	}
+}
+
+func TestBackfillNoInputNeedsForce(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t)
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: fakeResult()})
+	mp := writeFile(t, t.TempDir(), "m.yaml", memberSnapshotMapping)
+	c := fs.cli()
+	c.NoInput = true
+	_, stderr, err := runBackfill(t, c, strings.NewReader(""), mp, "--provider", "fake")
+	if clierr.NewEnvelope(err).Error.Code != clierr.KindConfirmationRequired || fs.writeCount() != 0 || strings.Contains(stderr, "Snapshot is") {
+		t.Fatalf("err = %v writes = %d\n%s", err, fs.writeCount(), stderr)
 	}
 }
 

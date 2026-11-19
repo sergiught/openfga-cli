@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -116,9 +117,18 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider string, dryRun,
 		return nil
 	}
 	if dryRun {
-		return emitBackfill(out, c.cli, res)
+		if err := emitBackfill(out, c.cli, res); err != nil {
+			return err
+		}
+		if !machine {
+			output.Notef(errw, "dry run: nothing written")
+		}
+		return nil
 	}
-	output.Notef(errw, "%s", snapshotAge(run.Result))
+	// The age belongs above a question, so only a run that will ask prints it.
+	if !force && !c.cli.NoInput && stdinIsTerminal(cmd) {
+		output.Notef(errw, "%s", snapshotAge(run.Result))
+	}
 	if err := prompt.Confirm(cmd, backfillQuestion(len(run.Desired), storeNm, storeID), force); err != nil {
 		return err
 	}
@@ -218,7 +228,7 @@ func emitBackfill(w io.Writer, c *cli.CLI, res backfillResult) error {
 // exit with. Cancellation hands its report to main; any other failure is
 // printed here, once.
 func reportBackfillFailure(ctx context.Context, w io.Writer, machine bool, sent snapshot.Sent, total int, err error) error {
-	text := fmt.Sprintf("sent %d of %d writes before the failure; run the command again to send the rest", sent.Writes, total)
+	text := fmt.Sprintf("sent %d of %s before the failure; run the command again to send the rest", sent.Writes, mapping.Plural(total, "write"))
 	return reportSnapshotFailure(ctx, w, machine, text, sent, backfillHints(err), err)
 }
 
@@ -228,7 +238,12 @@ func reportSnapshotFailure(ctx context.Context, w io.Writer, machine bool, text 
 	if ctx.Err() != nil || errors.Is(err, context.Canceled) {
 		return clierr.WithPartialResult(canceledReport{text})
 	}
-	hints := append([]string{err.Error()}, extra...)
+	// A hint may already carry the error (Friendly keeps it as the cause).
+	var hints []string
+	if !slices.ContainsFunc(extra, func(h string) bool { return strings.Contains(h, err.Error()) }) {
+		hints = append(hints, err.Error())
+	}
+	hints = append(hints, extra...)
 	// Under machine output the error envelope main writes is the only thing on
 	// stderr; it carries the summary and hints above.
 	if !machine {

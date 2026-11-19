@@ -17,7 +17,7 @@ import (
 // header, each kind of drift with its tuples, and what was not checked.
 func renderDrift(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt time.Time, stored int, diff snapshot.Diff, notChecked []snapshot.NotChecked) error {
 	label := output.SanitizeField(run.Provider.Label())
-	_, _ = fmt.Fprintf(w, "store read  %s UTC  %s  %s\n", storeReadAt.UTC().Format(clockLayout), mapping.Plural(stored, "tuple"), output.SanitizeField(storeLabel))
+	_, _ = fmt.Fprintf(w, "store read  %s UTC  %s  %s\n", storeReadAt.UTC().Format(snapshotLayout(run.Result)), mapping.Plural(stored, "tuple"), output.SanitizeField(storeLabel))
 	snapshotHeader(w, run.Provider.Label(), run.Result)
 
 	// A stale tuple is shown as the delete it would become.

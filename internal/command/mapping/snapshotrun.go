@@ -87,14 +87,16 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, beforeR
 		return nil, noSnapshotRules(problemsOut, machine, path, f, types, typeNames)
 	}
 
+	// Building the provider does no network I/O, so a missing credential fails
+	// before beforeRead spends a store read.
+	p, err := entry.New(cmd)
+	if err != nil {
+		return nil, err
+	}
 	if beforeRead != nil {
 		if err := beforeRead(); err != nil {
 			return nil, err
 		}
-	}
-	p, err := entry.New(cmd)
-	if err != nil {
-		return nil, err
 	}
 	res, err := p.Snapshot(ctx, requested, func(msg string) { output.Progressf(errw, "%s", msg) })
 	if err != nil {
@@ -149,12 +151,17 @@ const (
 // snapshotTimes formats when the read started and finished, in UTC and without
 // the zone name.
 func snapshotTimes(r *snapshot.Result) (start, finish string) {
-	s, f := r.StartedAt.UTC(), r.FinishedAt.UTC()
-	layout := clockLayout
-	if s.Format(time.DateOnly) != f.Format(time.DateOnly) {
-		layout = dateClockLayout
+	layout := snapshotLayout(r)
+	return r.StartedAt.UTC().Format(layout), r.FinishedAt.UTC().Format(layout)
+}
+
+// snapshotLayout is the layout every time in a report uses: dated when the
+// provider read crossed midnight UTC, a clock time otherwise.
+func snapshotLayout(r *snapshot.Result) string {
+	if r.StartedAt.UTC().Format(time.DateOnly) != r.FinishedAt.UTC().Format(time.DateOnly) {
+		return dateClockLayout
 	}
-	return s.Format(layout), f.Format(layout)
+	return clockLayout
 }
 
 // snapshotHeader prints which provider was read, when, from where, and how
