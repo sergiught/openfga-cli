@@ -61,6 +61,7 @@ func (c *Command) RegisterSubCommands() {
 		cmdmeta.Set(c.newValidateCmd(), cmdmeta.Meta{}),
 		cmdmeta.Set(c.newTestCmd(), cmdmeta.Meta{}),
 		cmdmeta.Set(c.newApplyCmd(), cmdmeta.Meta{RequiresStore: true, Mutates: true}),
+		cmdmeta.Set(c.newBackfillCmd(), cmdmeta.Meta{RequiresStore: true, Mutates: true}),
 	)
 }
 

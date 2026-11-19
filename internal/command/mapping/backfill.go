@@ -1,0 +1,241 @@
+package mapping
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"strconv"
+	"strings"
+
+	"github.com/openfga/mapper/language"
+	"github.com/sergiught/go-openfga/openfga"
+	"github.com/spf13/cobra"
+
+	"github.com/sergiught/openfga-cli/internal/cli"
+	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/config"
+	"github.com/sergiught/openfga-cli/internal/mapping"
+	"github.com/sergiught/openfga-cli/internal/mapping/snapshot"
+	"github.com/sergiught/openfga-cli/internal/output"
+	"github.com/sergiught/openfga-cli/internal/prompt"
+)
+
+// backfillResult is the document `mappings backfill` prints under -o json/yaml.
+type backfillResult struct {
+	snapshotMeta
+	Tuples []tupleOut `json:"tuples"`
+	Sent   sentOut    `json:"sent"`
+}
+
+// sentOut is how many changes reached the store.
+type sentOut struct {
+	Writes  int `json:"writes"`
+	Deletes int `json:"deletes"`
+}
+
+func (c *Command) newBackfillCmd() *cobra.Command {
+	var (
+		provider      string
+		dryRun, force bool
+	)
+	cmd := &cobra.Command{
+		Use:   "backfill [file] --provider <name>",
+		Short: "Write the tuples an identity provider's current state maps to",
+		Long: "Read an identity provider's current state, replay it through a mapping file, and write the resulting tuples to the active profile's store. With no file argument it uses ./mapping.yaml.\n\n" +
+			"The read comes back as snapshot events, one per user, organization, membership and so on, which the mapping's rules handle like live events. " +
+			"A rule takes part when its `when` also names a snapshot type, such as `input.type == \"snapshot.organization.member\"`; " +
+			"a mapping with none has nothing to backfill, and the error suggests the clause for each rule. " +
+			"Only the types the mapping names are read.\n\n" +
+			"backfill only adds: it never deletes tuples from the store, and writing a tuple that already exists is ignored. " +
+			"It shows the tuples and asks before writing (--force skips the question, --dry-run stops after showing them). " +
+			"The provider is read once, so the tuples reflect it as of that moment. Changes made while the command runs, or after it, are not included. " +
+			"Use `ofga mappings drift` to compare the store with the provider and to remove tuples the provider no longer backs.\n\n" +
+			"Run again after a failure: tuples that already landed are ignored. Auth0 needs a machine-to-machine application and reads at most 1,000 users.\n\n" +
+			"Exit codes: 0 ok · 1 error · 2 usage · 4 network · 130 interrupted.",
+		Example: `# See what a backfill from Auth0 would write
+ofga mappings backfill auth0.yaml --provider auth0 --dry-run
+
+# Write it without the prompt, in a script
+ofga mappings backfill auth0.yaml --provider auth0 --auth0-client-secret-file ./secret --force`,
+		Args:          cobra.MaximumNArgs(1),
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return c.runBackfill(cmd, targetPath(args), provider, dryRun, force)
+		},
+	}
+	addProviderFlags(cmd, &provider)
+	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "show the tuples without writing anything")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "write without asking")
+	return cmd
+}
+
+func (c *Command) runBackfill(cmd *cobra.Command, path, provider string, dryRun, force bool) error {
+	machine := c.cli.JSON || c.cli.YAML
+	if machine && !dryRun && !force {
+		// Machine output covers -o json/yaml/jsonl and agent mode, which has no -o.
+		return clierr.WithCode(clierr.CodeUsage, clierr.WithHint("pass --dry-run to preview or --force to write",
+			errors.New("non-interactive runs never prompt; pass --dry-run to preview or --force to write")))
+	}
+	ctx, out, errw := cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr()
+
+	var (
+		cl                *openfga.Client
+		storeID           string
+		storeNm, storeLbl string
+	)
+	// The store is resolved before the provider is read, so a missing profile
+	// or an unreachable server does not cost a long read first.
+	run, err := c.runSnapshot(cmd, path, provider, func() error {
+		var r config.Resolved
+		var err error
+		if cl, r, err = c.cli.ClientWithStore(); err != nil {
+			return err
+		}
+		storeID = r.StoreID
+		storeNm, storeLbl, err = storeName(ctx, cl, storeID)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+
+	res := backfillResult{snapshotMeta: newSnapshotMeta(storeID, run, dryRun), Tuples: tuplesOut(run.Desired)}
+	if !machine {
+		snapshotHeader(out, run.Provider.Label(), run.Result)
+		if err := renderTuples(out, run.Desired); err != nil {
+			return err
+		}
+	}
+	if len(run.Desired) == 0 {
+		if err := emitBackfill(out, c.cli, res); err != nil {
+			return err
+		}
+		output.Successf(errw, "nothing to write")
+		return nil
+	}
+	if dryRun {
+		return emitBackfill(out, c.cli, res)
+	}
+	output.Notef(errw, "%s", snapshotAge(run.Result))
+	if err := prompt.Confirm(cmd, backfillQuestion(len(run.Desired), storeNm, storeID), force); err != nil {
+		return err
+	}
+
+	sent, err := snapshot.Write(ctx, storeClient{cl}, nil, run.Desired, func(done, total int) {
+		if total > backfillRequestSize { // more than one request
+			output.Progressf(errw, "sent %d/%d writes", done, total)
+		}
+	})
+	res.Sent = sentOut{Writes: sent.Writes, Deletes: sent.Deletes}
+	if err != nil {
+		if eerr := emitBackfill(out, c.cli, res); eerr != nil {
+			return eerr
+		}
+		return reportBackfillFailure(ctx, errw, machine, sent, len(run.Desired), err)
+	}
+	if err := emitBackfill(out, c.cli, res); err != nil {
+		return err
+	}
+	_, finish := snapshotTimes(run.Result)
+	// "sent", not "wrote": the server ignores writes that already exist.
+	output.Successf(errw, "sent %s to store %s (%s state as of %s UTC)", mapping.Plural(sent.Writes, "write"),
+		output.SanitizeField(storeLbl), output.SanitizeField(run.Provider.Label()), finish)
+	return nil
+}
+
+// backfillRequestSize is how many changes one write request carries.
+const backfillRequestSize = 100
+
+// backfillQuestion is the confirmation prompt.
+func backfillQuestion(n int, name, id string) string {
+	target := output.SanitizeField(id)
+	if name != "" {
+		target = fmt.Sprintf("%s (%s)", output.SanitizeField(name), target)
+	}
+	return fmt.Sprintf("Write %s to store %s?", mapping.Plural(n, "tuple"), target)
+}
+
+// renderTuples prints how many tuples there are, how many of each shape, and
+// the tuples themselves, at most maxPlanLines of them.
+func renderTuples(w io.Writer, ts []language.Tuple) error {
+	if _, err := fmt.Fprintln(w, mapping.Plural(len(ts), "tuple")); err != nil || len(ts) == 0 {
+		return err
+	}
+	var rows [][]string
+	for _, sc := range snapshot.ByShape(ts) {
+		rows = append(rows, []string{output.SanitizeField(sc.Shape.String()), strconv.Itoa(sc.N)})
+	}
+	if err := output.Table(w, []string{"SHAPE", "TUPLES"}, rows); err != nil {
+		return err
+	}
+	field := output.SanitizeField
+	if output.Plain {
+		field = output.PlainField
+	}
+	for _, t := range ts[:min(len(ts), maxPlanLines)] {
+		if _, err := fmt.Fprintln(w, mapping.ChangeLine(t, field)); err != nil {
+			return err
+		}
+	}
+	if more := len(ts) - maxPlanLines; more > 0 {
+		_, err := fmt.Fprintf(w, "… %d more; -o json lists them all\n", more)
+		return err
+	}
+	return nil
+}
+
+// emitBackfill prints the machine payload for -o json/yaml, or key/values in
+// plain mode. Human mode has already printed everything.
+func emitBackfill(w io.Writer, c *cli.CLI, res backfillResult) error {
+	switch {
+	case c.JSON || c.YAML:
+		return output.Emit(w, c.YAML, res)
+	case output.Plain:
+		return output.KeyValues(w, [][2]string{
+			{"store", res.Store},
+			{"provider", res.Provider},
+			{"dry_run", strconv.FormatBool(res.DryRun)},
+			{"tuples", strconv.Itoa(len(res.Tuples))},
+			{"writes", strconv.Itoa(res.Sent.Writes)},
+		})
+	}
+	return nil
+}
+
+// reportBackfillFailure says how far the write got and returns the error to
+// exit with. Cancellation hands its report to main; any other failure is
+// printed here, once.
+func reportBackfillFailure(ctx context.Context, w io.Writer, machine bool, sent snapshot.Sent, total int, err error) error {
+	text := fmt.Sprintf("sent %d of %d writes before the failure; run the command again to send the rest", sent.Writes, total)
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+		return clierr.WithPartialResult(canceledReport{text})
+	}
+	hints := append([]string{err.Error()}, backfillHints(err)...)
+	// Under machine output the error envelope main writes is the only thing on
+	// stderr; it carries the summary and hints above.
+	if !machine {
+		output.Errorf(w, "%s", text)
+		for _, h := range hints {
+			output.Hintf(w, "%s", h)
+		}
+	}
+	// A lost server stays network even after some writes landed: it is a
+	// retry, where a rejection partway through is not.
+	kind := clierr.Classify(err)
+	if sent.Writes > 0 && kind != clierr.KindNetwork {
+		kind = clierr.KindPartialFailure
+	}
+	return clierr.WithHint(strings.Join(hints, "; "), clierr.WithKind(kind, clierr.SilentCause(clierr.Code(err), text, err)))
+}
+
+// backfillHints explains a failed write beyond its message. backfill only
+// adds, so a condition conflict points at drift, which replaces the tuple.
+func backfillHints(err error) []string {
+	hints := applyHints(err)
+	if conditionConflict(err) {
+		hints = append(hints, "ofga mappings drift replaces tuples whose condition changed")
+	}
+	return hints
+}

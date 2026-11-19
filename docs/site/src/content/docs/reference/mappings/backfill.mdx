@@ -1,0 +1,80 @@
+---
+title: "ofga mappings backfill"
+description: "Write the tuples an identity provider's current state maps to"
+sidebar:
+  order: 101
+---
+
+Read an identity provider's current state, replay it through a mapping file, and write the resulting tuples to the active profile's store. With no file argument it uses ./mapping.yaml.
+
+The read comes back as snapshot events, one per user, organization, membership and so on, which the mapping's rules handle like live events. A rule takes part when its `when` also names a snapshot type, such as `input.type == "snapshot.organization.member"`; a mapping with none has nothing to backfill, and the error suggests the clause for each rule. Only the types the mapping names are read.
+
+backfill only adds: it never deletes tuples from the store, and writing a tuple that already exists is ignored. It shows the tuples and asks before writing (--force skips the question, --dry-run stops after showing them). The provider is read once, so the tuples reflect it as of that moment. Changes made while the command runs, or after it, are not included. Use `ofga mappings drift` to compare the store with the provider and to remove tuples the provider no longer backs.
+
+Run again after a failure: tuples that already landed are ignored. Auth0 needs a machine-to-machine application and reads at most 1,000 users.
+
+Exit codes: 0 ok · 1 error · 2 usage · 4 network · 130 interrupted.
+
+## Usage
+
+```sh
+ofga mappings backfill [file] --provider <name> [flags]
+```
+
+## Examples
+
+```sh
+# See what a backfill from Auth0 would write
+ofga mappings backfill auth0.yaml --provider auth0 --dry-run
+
+# Write it without the prompt, in a script
+ofga mappings backfill auth0.yaml --provider auth0 --auth0-client-secret-file ./secret --force
+```
+
+## Flags
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--auth0-client-id` | Auth0 machine-to-machine client ID (else $AUTH0_CLIENT_ID) |   |
+| `--auth0-client-secret-file` | file holding the client secret (else $AUTH0_CLIENT_SECRET) |   |
+| `--auth0-domain` | Auth0 tenant domain (else $AUTH0_DOMAIN) |   |
+| `--auth0-tenant` | tenant name for display (default: the first label of the domain) |   |
+| `-n, --dry-run` | show the tuples without writing anything | `false` |
+| `-f, --force` | write without asking | `false` |
+| `--provider` | identity provider to read (auth0) |   |
+
+<details>
+<summary>Global flags</summary>
+
+```
+      --agent[=true|false]               agent mode: compact JSON, no prompts, no color, no success chatter (also OPENFGA_AGENT_MODE=1)
+      --api-url string                   OpenFGA API URL (overrides profile/env)
+      --auth-client-secret-file string   read the process-scoped OAuth client secret from a file
+      --auth-private-key-file string     read the process-scoped private-key JWT signing key from a file
+      --auth-token-file string           read the process-scoped API token from a file
+      --config string                    path to the config file (overrides OPENFGA_CONFIG)
+  -d, --debug[=true|false]               enable debug logging
+      --header stringArray               extra request header as 'Name: value' (repeatable; adds to the profile's headers)
+      --jq string                        filter machine-readable output through this jq expression (implies -o json)
+      --json[=true|false]                output machine-readable JSON (alias for --output json)
+      --model-id string                  authorization model ID (overrides profile/env)
+      --no-color[=true|false]            disable colored output
+      --no-input[=true|false]            never prompt or launch the interactive TUI
+  -o, --output string                    output format: json, jsonl, yaml, plain or table (takes precedence over --json/--yaml/--plain)
+      --plain[=true|false]               output unstyled, tab-separated rows (alias for --output plain)
+  -p, --profile string                   configuration profile to use
+  -q, --quiet[=true|false]               suppress incidental output
+      --store-id string                  store ID (overrides profile/env)
+      --theme string                     color theme (aurora, catppuccin, charm, dracula, gruvbox, nord, tokyonight, mono)
+      --timeout duration                 per-request timeout (0 disables) (default 30s)
+  -v, --verbose[=true|false]             alias for --debug
+      --yaml[=true|false]                output machine-readable YAML (alias for --output yaml)
+```
+
+</details>
+
+## Related
+
+- [ofga mappings apply](../apply/)
+- [ofga mappings test](../test/)
+- [ofga mappings validate](../validate/)

@@ -23,7 +23,7 @@ func TestGroupHasItsSubcommands(t *testing.T) {
 	for _, sub := range cmd.Commands() {
 		names = append(names, sub.Name())
 	}
-	if strings.Join(names, ",") != "apply,test,validate" {
+	if strings.Join(names, ",") != "apply,backfill,test,validate" {
 		t.Fatalf("subcommands = %v", names)
 	}
 }
