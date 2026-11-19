@@ -288,6 +288,10 @@ handles, so the same tuples come out:
 | `snapshot.organization.member` | `organization.member.added` | each member of an organization | `read:organizations`, `read:organization_members` |
 | `snapshot.organization.member.role` | `organization.member.role.assigned` | each role a member holds in an organization | `read:organizations`, `read:organization_members`, `read:organization_member_roles` |
 
+The example mapping names two of them. `examples/mappings-full/` in the
+repository has a mapping with one rule for each of the six, its model, and the
+commands to try it against your own tenant.
+
 #### Credentials
 
 Both commands need `--provider auth0` and a machine-to-machine application

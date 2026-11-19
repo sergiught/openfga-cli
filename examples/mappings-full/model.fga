@@ -1,0 +1,35 @@
+model
+  schema 1.1
+
+type user
+
+type client
+
+type tenant
+  relations
+    define member: [user]
+
+type plan
+  relations
+    define assignee: [user]
+
+type connection
+  relations
+    define tenant: [tenant]
+    define enabled_client: [client]
+
+# One object per member per organization, keyed org_...|user_...
+type membership
+  relations
+    define holder: [user]
+
+# One object per role per organization, keyed org_...|rol_...
+type role
+  relations
+    define assignee: [membership#holder]
+
+type organization
+  relations
+    define tenant: [tenant]
+    define connection: [connection]
+    define member: [user]
