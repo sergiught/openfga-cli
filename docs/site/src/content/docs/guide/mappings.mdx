@@ -12,18 +12,22 @@ A mapping file is a set of YAML rules, in
 language, that turn events from an identity provider into OpenFGA tuples. An
 event arrives, every rule whose `when` matches it runs, and the tuples those
 rules produce are written to or deleted from the store. Use one when a store has
-to follow what happens in Auth0, or in any other source of events.
+to follow what happens in Auth0, or in any other source of events. The same rules
+can also read Auth0's current state, to fill a store or to find where it has
+drifted from Auth0.
 
 `ofga mappings` opens a workspace where you edit the rules against sample events
 and see the tuples they produce as you type. `validate`, `test` and `apply` do
-the same jobs from a script.
+the same jobs from a script, and `backfill` and `drift` check a store against
+the provider.
 
 <CommandDemo slug="mappings" />
 
 *The workspace on the example mapping: a rule's live tuples, Check, Tests, and a plan of four sample events.*
 
 The examples below use the files in `examples/mappings/` in this repository:
-`auth0.yaml` (four rules for Auth0 organization events), `model.fga` (the model
+`auth0.yaml` (four rules for Auth0 organization events, two of which also answer
+snapshot events), `model.fga` (the model
 those tuples are written against) and `events.jsonl` (five events: two members
 join, one is given a role, the role is removed, one member leaves). Run the CLI
 commands from the repository root.
@@ -91,7 +95,7 @@ ofga mappings validate examples/mappings/auth0.yaml --model-file examples/mappin
 ```
 
 ```
-● examples/mappings/auth0.yaml: 4 rules, 4 tests; checked against examples/mappings/model.fga (4 types)
+● examples/mappings/auth0.yaml: 4 rules, 6 tests; checked against examples/mappings/model.fga (4 types)
 ```
 
 Or against the model of the active profile's store (the model
@@ -108,8 +112,9 @@ file is valid and `1` when it is not.
 
 A test is one event and exactly the tuples the mapping must produce for it. A
 missing or extra tuple fails it. When you save, each rule's sample event is
-saved as a test of the tuples it produced, so `auth0.yaml` carries four tests
-without anyone writing them.
+saved as a test of the tuples it produced, so the four rules of `auth0.yaml`
+came with four tests without anyone writing them. It has six: two more cover
+the snapshot events.
 
 The **Tests** pane (`3`) runs them against the mapping as it is now. `r` runs
 them again, `e` opens the rule behind a test, and `a` adds a test of your own
@@ -126,7 +131,9 @@ ofga mappings test examples/mappings/auth0.yaml
 ✓ organization.member.deleted (<1ms)
 ✓ organization.member.role.assigned (<1ms)
 ✓ organization.member.role.deleted (<1ms)
-● 4 passed, 0 failed
+✓ snapshot.organization.member (<1ms)
+✓ snapshot.organization.member.role (<1ms)
+● 6 passed, 0 failed
 ```
 
 `--run` runs only the tests whose name contains the text:
@@ -138,7 +145,8 @@ ofga mappings test examples/mappings/auth0.yaml --run role
 ```
 ✓ organization.member.role.assigned (<1ms)
 ✓ organization.member.role.deleted (<1ms)
-● 2 passed, 0 failed, 2 filtered
+✓ snapshot.organization.member.role (<1ms)
+● 3 passed, 0 failed, 3 filtered
 ```
 
 ### Apply events
@@ -220,12 +228,294 @@ instead of starting over.
 
 With no file argument, `validate`, `test` and `apply` use `./mapping.yaml`.
 
+### Checking for drift and backfilling
+
+Events get lost: a webhook is down, a stream is replayed from the wrong place,
+someone edits the store by hand. The identity provider's current state is the
+reference, so `ofga mappings backfill` writes the tuples that state maps to, and
+`ofga mappings drift` compares them with the store and fixes the difference.
+Both only read the provider.
+
+They read the provider's current state as **snapshot events**: one event per
+user, organization, membership and so on, in the same envelope as a live event
+and with the type `snapshot.<thing>`. The mapping's rules handle them like live
+events. A rule takes part when its `when` names a snapshot type, so the
+example's two "added" and "assigned" rules answer both:
+
+```yaml
+- name: organization.member.added
+  when: input.type == "organization.member.added" || input.type == "snapshot.organization.member"
+```
+
+Only the types the mapping names are read. This is one
+`snapshot.organization.member` event; the user object carries more of Auth0's
+fields, such as `name` and `picture`, than shown here:
+
+```yaml
+specversion: "1.0"
+type: snapshot.organization.member
+source: urn:auth0:example.us.auth0.com
+id: snap_000001
+time: "2026-11-19T15:00:23Z"
+a0tenant: example
+subject: organization org_acme member auth0|anne
+data:
+  object:
+    organization:
+      id: org_acme
+      name: acme
+    user:
+      user_id: auth0|anne
+      email: anne@example.com
+  context:
+    tenant:
+      id: example
+```
+
+`ofga mappings backfill` and `ofga mappings drift` on a mapping with no snapshot
+rules stop with an error that names each rule which could opt in and the clause
+to add.
+
+Auth0 has six snapshot types. Each mirrors the live event a rule already
+handles, so the same tuples come out:
+
+| Type | Mirrors | One event is | Scopes it needs |
+| --- | --- | --- | --- |
+| `snapshot.connection` | `connection.created` | each connection, with the clients it is enabled for | `read:connections` |
+| `snapshot.user` | `user.created` | each user | `read:users` |
+| `snapshot.organization` | `organization.created` | each organization | `read:organizations` |
+| `snapshot.organization.connection` | `organization.connection.added` | each connection enabled on an organization | `read:organizations`, `read:organization_connections` |
+| `snapshot.organization.member` | `organization.member.added` | each member of an organization | `read:organizations`, `read:organization_members` |
+| `snapshot.organization.member.role` | `organization.member.role.assigned` | each role a member holds in an organization | `read:organizations`, `read:organization_members`, `read:organization_member_roles` |
+
+#### Credentials
+
+Both commands need `--provider auth0` and a machine-to-machine application
+authorized for the Auth0 Management API with the scopes of the types the mapping
+names. They read three settings:
+
+| Setting | Flag | Environment variable |
+| --- | --- | --- |
+| Tenant domain | `--auth0-domain` | `AUTH0_DOMAIN` |
+| Application client ID | `--auth0-client-id` | `AUTH0_CLIENT_ID` |
+| Application client secret | `--auth0-client-secret-file` (a file holding it) | `AUTH0_CLIENT_SECRET` |
+
+A flag wins over its variable. No flag takes the secret itself, so it never
+lands in your shell history. `--auth0-tenant` sets the tenant name shown and
+placed in `a0tenant`; it defaults to the first label of the domain. Both
+commands also use the active profile's store, so a profile and a store must be
+selected, `--dry-run` included.
+
+#### Backfill
+
+`backfill` reads the provider, replays it through the mapping and writes the
+tuples. It only adds: it never deletes, and writing a tuple that already exists
+is ignored, so it is safe to run again after a failure. With the example mapping
+and a store that has the example model:
+
+```bash
+export AUTH0_DOMAIN=example.us.auth0.com AUTH0_CLIENT_ID=... AUTH0_CLIENT_SECRET=...
+ofga mappings backfill examples/mappings/auth0.yaml --provider auth0 --dry-run
+```
+
+```
+Auth0 read  15:00:23 → 15:00:23 UTC  example.us.auth0.com
+  snapshot.organization.member       4
+  snapshot.organization.member.role  4
+12 tuples
+SHAPE                             TUPLES
+membership#holder assignee role   4
+user holder membership            4
+user member organization          4
++ membership:org_acme|auth0|anne#holder assignee role:org_acme|rol_admin
++ membership:org_acme|auth0|bob#holder assignee role:org_acme|rol_viewer
++ membership:org_globex|auth0|anne#holder assignee role:org_globex|rol_viewer
++ membership:org_globex|auth0|carol#holder assignee role:org_globex|rol_admin
++ user:auth0|anne holder membership:org_acme|auth0|anne
++ user:auth0|anne holder membership:org_globex|auth0|anne
++ user:auth0|bob holder membership:org_acme|auth0|bob
++ user:auth0|carol holder membership:org_globex|auth0|carol
++ user:auth0|anne member organization:org_acme
++ user:auth0|anne member organization:org_globex
++ user:auth0|bob member organization:org_acme
++ user:auth0|carol member organization:org_globex
+```
+
+The header says when the read started and finished and which tenant it came
+from, then how many events each type produced. `--dry-run` stops here. Without
+it, `backfill` warns how old the snapshot is, asks, and writes:
+
+```
+● Snapshot is 2s old; changes since then are not reflected.
+Write 12 tuples to store mappings-demo (01K1X2Y3Z4A5B6C7D8E9F0G1H2)? [y/N]: y
+● sent 12 writes to store mappings-demo (Auth0 state as of 15:00:26 UTC)
+```
+
+`--force` skips the question. The tuples come out in batches of at most 100
+changes per request. At most 50 tuple lines are printed; `-o json` lists them all.
+
+#### Drift
+
+`drift` reads the store, then the provider, replays it, and compares:
+
+- **missing**: the provider backs the tuple and the store lacks it.
+- **changed**: the store has the tuple under another condition or context.
+- **stale**: the store has the tuple and the provider no longer backs it.
+
+Stale tuples are only looked for in shapes a snapshot rule writes: a shape is a
+tuple's user type, relation and object type, such as `user member organization`.
+A rule that writes anything else, or a snapshot rule whose type or relation is
+a template, is listed under `not checked` and never changes the exit code.
+
+```bash
+ofga mappings drift examples/mappings/auth0.yaml --provider auth0 --dry-run
+```
+
+With the store from the backfill, nothing differs:
+
+```
+store read  15:00:27 UTC  12 tuples  mappings-demo
+Auth0 read  15:00:27 → 15:00:28 UTC  example.us.auth0.com
+  snapshot.organization.member       4
+  snapshot.organization.member.role  4
+● no drift: 12 tuples match Auth0
+```
+
+Say Carol's membership event was lost, and a member Auth0 has since deleted was
+never removed from the store. The same command now reports both, and exits `3`:
+
+```
+store read  15:02:41 UTC  12 tuples  mappings-demo
+Auth0 read  15:02:41 → 15:02:42 UTC  example.us.auth0.com
+  snapshot.organization.member       4
+  snapshot.organization.member.role  4
+
+missing  in Auth0, not in the store
+1 tuple
+SHAPE                      TUPLES
+user member organization   1
++ user:auth0|carol member organization:org_globex
+
+stale    in the store, not in Auth0
+1 tuple
+SHAPE                      TUPLES
+user member organization   1
+- user:auth0|dave member organization:org_acme
+```
+
+Without `--dry-run` it then asks before writing the missing and changed tuples (a
+changed tuple is deleted and written again, because a write cannot replace a
+condition):
+
+```bash
+ofga mappings drift examples/mappings/auth0.yaml --provider auth0
+```
+
+```
+● Snapshot is 1s old; changes since then are not reflected.
+Write 1 tuple to store mappings-demo (01K1X2Y3Z4A5B6C7D8E9F0G1H2)? [y/N]: y
+● sent 1 write to store mappings-demo (Auth0 state as of 15:02:42 UTC)
+● 1 stale tuple left alone; run again with --prune to delete them
+```
+
+Stale tuples are never deleted unless you pass `--prune`. With it, `drift` asks
+a second question, after the writes (and also when you declined them):
+
+```bash
+ofga mappings drift examples/mappings/auth0.yaml --provider auth0 --prune
+```
+
+After the report, which is the stale part of the one above and is not repeated here:
+
+```
+1 tuple
+SHAPE                      TUPLES
+user member organization   1
+● Snapshot is 1s old; changes since then are not reflected.
+Delete 1 stale tuple from store mappings-demo (01K1X2Y3Z4A5B6C7D8E9F0G1H2)? [y/N]: y
+● deleted 1 stale tuple from store mappings-demo
+```
+
+The flags:
+
+| Flag | Effect |
+| --- | --- |
+| `--dry-run`, `-n` | stop after the report; nothing is asked or written |
+| `--force`, `-f` | skip the questions; with `--prune` that deletes the stale tuples |
+| `--prune` | also delete stale tuples, after a second question |
+
+Without a terminal, or under `-o json` or `-o yaml`, `drift` only reports unless
+you pass `--force`; it prints `report only: pass --force to write`. The exit code
+says what is left:
+
+| Code | Meaning |
+| --- | --- |
+| `0` | no drift, or everything found was fixed |
+| `3` | drift remains: a dry run, a declined question, or stale tuples left alone |
+| `1` | error |
+| `2` | usage error, such as a missing `--provider` or credential |
+| `4` | a network error, reaching the store or the provider |
+| `130` | canceled |
+
+`backfill` exits `0` on success and with the same `1`, `2`, `4` and `130`.
+Under `-o json` both print one document. `backfill` has `store`, `provider`,
+`source`, `snapshot_started_at`, `snapshot_finished_at`, `counts` (an event
+count per type), `dry_run`, `tuples` (what it would write) and `sent` (the
+`writes` and `deletes` that reached the store). `drift` has the same fields
+without `tuples`, plus `store_read_at`, `missing`, `changed`, `stale`,
+`not_checked` (each with its `rule`, `reason` and `shapes`) and `pruned`.
+Under `-o json` or `-o yaml`, `backfill` needs `--dry-run` or `--force`. The
+schemas are published at `schemas/output/mappings-drift.v1.json` and
+`mappings-backfill.v1.json`.
+
+#### Things to know before you run it
+
+**Warning:** `drift --prune` deletes every tuple in the shapes your snapshot
+rules write that the provider does not back. Only run it when the mapping is
+the only writer of those shapes, and when the store holds a single tenant. A
+second tenant's tuples, or tuples another system writes in the same shape, look
+stale and are deleted.
+
+- An event rule and a separate snapshot rule that write the same shape
+  differently disagree on every run, so `drift` reports the difference forever.
+  Name the live and the snapshot type in one rule's `when`, as `auth0.yaml` does.
+- A snapshot is a moment in time. The `Snapshot is Ns old` line says how old it
+  is when you are asked to write. After a long pause at a question, answer no
+  and run the command again, especially before `--prune`.
+- Auth0's user list can lag by a few seconds. A user created a moment ago, whose
+  event already reached the store, can look stale.
+- Snapshot types are found by the quoted text in `when`, so write them as
+  string literals. A quoted string that starts with `snapshot.` and is not a
+  type is an error, and the error lists the types the provider has.
+- `tuple_filters` in a snapshot rule act on the replay, not on the store. The
+  replay starts from an empty store, so a filter sees only tuples written by
+  earlier snapshot events.
+- Snapshot events have no `previous_object` and no `a0stream`. A rule that reads
+  either cannot serve snapshots; leave its snapshot type out of its `when`.
+- `snapshot.organization.member.role` covers only roles assigned to the member
+  directly.
+- Auth0 lists at most 1,000 users through this API. A mapping that names
+  `snapshot.user` on a larger tenant fails with `Auth0 lists at most 1,000 users
+  through this API and this tenant has N; tenants this large are not supported
+  yet`; nothing is truncated.
+- Auth0 rate-limits the Management API, at about 2 requests a second on the Free
+  plan. A read makes one token request, then pages of 100: one request per 100
+  organizations to list them, and, per organization, one request per 100 members
+  (roles come in the same request) and one per 100 enabled connections. Users
+  and connections are one request per 100 each, and a connection adds one more
+  to list its clients. A tenant of 40 organizations with up to 100 members each
+  is about 42 requests when the mapping names member types. A rate-limited
+  request is retried, up to 5 attempts, before the command fails with "Auth0 is
+  rate limiting reads of ...; try again shortly".
+- Groups are not covered yet; there is no snapshot type for them.
+
 ### In CI
 
 ```bash
 ofga mappings validate examples/mappings/auth0.yaml --model-file examples/mappings/model.fga
 ofga mappings test examples/mappings/auth0.yaml --report junit --report-file mapping-tests.xml
 ofga mappings test examples/mappings/auth0.yaml --report github   # GitHub Actions ::error annotations
+ofga mappings drift examples/mappings/auth0.yaml --provider auth0 --dry-run
 ```
 
 `validate` exits `1` when the file is invalid or the model lacks a type or
@@ -233,7 +523,9 @@ relation it names. `test` exits `3` when a test fails. `--report` writes a
 report in the given format: `junit` (XML for test dashboards), `json`, or
 `github` (an `::error` annotation per failing test, pointing at its line in
 the mapping file). With `--report-file` it goes to that path; without it, it is
-printed.
+printed. `drift --dry-run` changes nothing and exits `3` when the store has
+drifted, so a scheduled job can fail on it; it needs the profile's store and the
+`AUTH0_*` variables.
 
 ### Workspace keys
 

@@ -21,6 +21,11 @@ produces no tuple, which is true of that payload and false of the recipe.
 on the value of `is_enabled`, not on a change, so its two halves are equal and
 it still previews.
 
+The samples are live events. `ofga mappings backfill` and `ofga mappings drift` replay
+the tenant's current state through a mapping as `snapshot.*` events instead, which
+the package `internal/mapping/snapshot/auth0` produces; see the guide
+[Checking for drift and backfilling](https://sergiught.github.io/openfga-cli/guide/mappings/#checking-for-drift-and-backfilling).
+
 ## The model
 
 `model.fga` is one authorization model covering every event here, embedded and

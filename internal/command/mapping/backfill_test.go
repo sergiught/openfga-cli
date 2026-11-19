@@ -400,3 +400,28 @@ func TestAuth0FlagsBeatEnvironment(t *testing.T) {
 		t.Fatalf("cfg = %+v", cfg)
 	}
 }
+
+// TestHintAnchorExistsInGuide pins the link the "no snapshot rules" error
+// prints to a heading in the guide, slugged the way the docs site does.
+func TestHintAnchorExistsInGuide(t *testing.T) {
+	_, fragment, ok := strings.Cut(guideURL, "#")
+	if !ok {
+		t.Fatalf("guideURL %q has no fragment", guideURL)
+	}
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "docs", "site", "src", "content", "docs", "guide", "mappings.mdx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var slugs []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if heading, found := strings.CutPrefix(line, "### "); found {
+			slugs = append(slugs, strings.ReplaceAll(strings.ToLower(strings.TrimSpace(heading)), " ", "-"))
+		}
+	}
+	for _, s := range slugs {
+		if s == fragment {
+			return
+		}
+	}
+	t.Fatalf("no ### heading in the guide slugs to %q; headings slug to %v", fragment, slugs)
+}
