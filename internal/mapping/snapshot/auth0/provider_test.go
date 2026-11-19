@@ -370,19 +370,43 @@ func TestSnapshotOrganizationConnections(t *testing.T) {
 	equal(t, "true", reqs[0].Get("include_totals"))
 }
 
+// usersPage serves page of a users list the way Auth0 does: ids picks the
+// users on the page, pages that start at or past 1,000 are refused and pages
+// past the total are empty.
+func usersPage(w http.ResponseWriter, r *http.Request, total int, ids func(page int) []int) {
+	page := 0
+	_, _ = fmt.Sscan(r.URL.Query().Get("page"), &page)
+
+	if page*pageSize >= maxUsers {
+		w.WriteHeader(http.StatusBadRequest)
+		writeJSON(w, `{"message":"You can only page through the first 1000 records."}`)
+
+		return
+	}
+
+	var users []string
+
+	if page*pageSize < total {
+		for _, i := range ids(page) {
+			users = append(users, fmt.Sprintf(`{"user_id":"auth0|%04d"}`, i))
+		}
+	}
+
+	writeJSON(w, fmt.Sprintf(`{"start":%d,"limit":%d,"total":%d,"users":[%s]}`,
+		page*pageSize, pageSize, total, strings.Join(users, ",")))
+}
+
 func usersHandler(total int) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		page := 0
-		_, _ = fmt.Sscan(r.URL.Query().Get("page"), &page)
+		usersPage(w, r, total, func(page int) []int {
+			var ids []int
 
-		var users []string
+			for i := page * pageSize; i < total && i < (page+1)*pageSize; i++ {
+				ids = append(ids, i)
+			}
 
-		for i := page * pageSize; i < total && i < (page+1)*pageSize; i++ {
-			users = append(users, fmt.Sprintf(`{"user_id":"auth0|%d"}`, i))
-		}
-
-		writeJSON(w, fmt.Sprintf(`{"start":%d,"limit":%d,"total":%d,"users":[%s]}`,
-			page*pageSize, pageSize, total, strings.Join(users, ",")))
+			return ids
+		})
 	}
 }
 
@@ -406,8 +430,119 @@ func TestSnapshotUsersCap(t *testing.T) {
 	if len(res.Events) != 150 {
 		t.Errorf("len(res.Events) = %d, want 150", len(res.Events))
 	}
-	equal(t, "user auth0|149", res.Events[149]["subject"])
+	equal(t, "user auth0|0149", res.Events[149]["subject"])
 	equal(t, []snapshot.Count{{Type: "snapshot.user", N: 150}}, res.Counts)
+}
+
+func TestSnapshotUsersStopAtTotal(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct{ total, requests int }{{1000, 10}, {901, 10}, {900, 9}, {5, 1}} {
+		p, rec := newProvider(t, usersHandler(tc.total))
+
+		res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+		noErr(t, err)
+		if len(res.Events) != tc.total {
+			t.Errorf("total %d: len(res.Events) = %d", tc.total, len(res.Events))
+		}
+
+		reqs := rec.find("/users")
+		if len(reqs) != tc.requests {
+			t.Errorf("total %d: %d list requests, want %d", tc.total, len(reqs), tc.requests)
+		}
+
+		for _, q := range reqs {
+			equal(t, "user_id:1", q.Get("sort"))
+		}
+	}
+}
+
+func TestSnapshotUsersDeletedDuringRead(t *testing.T) {
+	t.Parallel()
+
+	p, _ := newProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		total := 250
+		if r.URL.Query().Get("page") != "0" {
+			total = 249
+		}
+
+		usersPage(w, r, total, func(page int) []int {
+			var ids []int
+
+			for i := page * pageSize; i < total && i < (page+1)*pageSize; i++ {
+				ids = append(ids, i)
+			}
+
+			return ids
+		})
+	})
+
+	res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	isErr(t, err)
+	if res != nil {
+		t.Errorf("result = %+v, want nil", res)
+	}
+	equal(t, "Auth0 users were deleted while the list was being read, so a user may have been skipped; "+
+		"run the command again", err.Error())
+}
+
+func TestSnapshotUsersGrowingTotalIsRead(t *testing.T) {
+	t.Parallel()
+
+	p, _ := newProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		total := 200
+		if r.URL.Query().Get("page") != "0" {
+			total = 230
+		}
+
+		usersPage(w, r, total, func(page int) []int {
+			var ids []int
+
+			for i := page * pageSize; i < total && i < (page+1)*pageSize; i++ {
+				ids = append(ids, i)
+			}
+
+			return ids
+		})
+	})
+
+	res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	noErr(t, err)
+	if len(res.Events) != 230 {
+		t.Errorf("len(res.Events) = %d, want 230", len(res.Events))
+	}
+}
+
+func TestSnapshotUsersRepeatedUserIsOneEvent(t *testing.T) {
+	t.Parallel()
+
+	// A signup before the read of page 1 shifts user 99 onto it as well.
+	p, _ := newProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		usersPage(w, r, 150, func(page int) []int {
+			if page == 0 {
+				return seq(0, 100)
+			}
+
+			return append([]int{99}, seq(100, 150)...)
+		})
+	})
+
+	res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	noErr(t, err)
+	if len(res.Events) != 150 {
+		t.Errorf("len(res.Events) = %d, want 150", len(res.Events))
+	}
+	equal(t, []snapshot.Count{{Type: "snapshot.user", N: 150}}, res.Counts)
+}
+
+func seq(from, to int) []int {
+	var out []int
+
+	for i := from; i < to; i++ {
+		out = append(out, i)
+	}
+
+	return out
 }
 
 func TestSnapshotRetriesRateLimit(t *testing.T) {

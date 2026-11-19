@@ -164,13 +164,25 @@ func (r *read) scopes(typ string) []string {
 	return nil
 }
 
+// errStopWalk, returned by a walkPages callback, ends the walk without error.
+var errStopWalk = errors.New("stop walking pages")
+
 // walk calls each with every page of results, stamped with the time the page
-// arrived, until the pages run out. what and typ describe the read for errors.
+// arrived, until pages run out. what and typ describe the read for errors.
 func walk[C comparable, T, R any](
 	r *read, first *core.Page[C, T, R], err error, what, typ string, each func(items []T, at time.Time) error,
 ) error {
-	page := first
+	return walkPages(r, first, err, what, typ, func(p *core.Page[C, T, R], at time.Time) error {
+		return each(p.Results, at)
+	})
+}
 
+// walkPages is walk for callers that need the whole page, such as its reported
+// total. each may return errStopWalk to stop before the pages run out.
+func walkPages[C comparable, T, R any](
+	r *read, first *core.Page[C, T, R], err error, what, typ string, each func(p *core.Page[C, T, R], at time.Time) error,
+) error {
+	page := first
 	for {
 		if err != nil {
 			return readError(r.ctx, err, what, r.scopes(typ))
@@ -184,7 +196,11 @@ func walk[C comparable, T, R any](
 			return nil
 		}
 
-		if err := each(page.Results, now()); err != nil {
+		if err := each(page, now()); err != nil {
+			if errors.Is(err, errStopWalk) {
+				return nil
+			}
+
 			return err
 		}
 
@@ -233,28 +249,48 @@ func (r *read) connections() error {
 func (r *read) users() error {
 	r.say("reading users")
 
-	perPage, totals := pageSize, true
-	page, err := r.m.Users.List(r.ctx, &management.ListUsersRequestParameters{PerPage: &perPage, IncludeTotals: &totals})
+	// Sorting keeps a deletion during the read from shifting a user across a
+	// page boundary; the total check below catches the deletion itself.
+	perPage, totals, sort := pageSize, true, "user_id:1"
+	page, err := r.m.Users.List(r.ctx, &management.ListUsersRequestParameters{PerPage: &perPage, IncludeTotals: &totals, Sort: &sort})
 
-	first := true
+	seen := map[string]bool{}
+	pages, lastTotal := 0, -1.0
 
-	return walk(r, page, err, "users", typeUser, func(items []*management.UserResponseSchema, at time.Time) error {
-		if first {
-			first = false
-
-			if total := page.Response.GetTotal(); total > maxUsers {
-				return fmt.Errorf("Auth0 lists at most 1,000 users through this API and this tenant has %.0f; "+
-					"tenants this large are not supported yet", total)
-			}
+	return walkPages(r, page, err, "users", typeUser, func(p *core.Page[*int, *management.UserResponseSchema, *management.ListUsersOffsetPaginatedResponseContent], at time.Time) error {
+		total := p.Response.GetTotal()
+		if total > maxUsers {
+			return fmt.Errorf("Auth0 lists at most 1,000 users through this API and this tenant has %.0f; "+
+				"tenants this large are not supported yet", total)
 		}
 
-		for _, u := range items {
+		if total < lastTotal {
+			return errors.New("Auth0 users were deleted while the list was being read, so a user may have been skipped; " +
+				"run the command again")
+		}
+
+		lastTotal = total
+
+		for _, u := range p.Results {
+			if seen[u.GetUserID()] {
+				continue
+			}
+
+			seen[u.GetUserID()] = true
+
 			obj, err := toMap(u)
 			if err != nil {
 				return err
 			}
 
 			r.add(event{typ: typeUser, subject: "user " + u.GetUserID(), object: obj, at: at})
+		}
+
+		// Auth0 refuses pages past 1,000 users and the SDK would otherwise ask
+		// for one more page to find the end.
+		pages++
+		if float64(pages*pageSize) >= total {
+			return errStopWalk
 		}
 
 		return nil
