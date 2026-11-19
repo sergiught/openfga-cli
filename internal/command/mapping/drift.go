@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"slices"
 	"strconv"
 	"time"
 
@@ -53,7 +52,7 @@ func (c *Command) newDriftCmd() *cobra.Command {
 			"and tuples the store holds that the provider no longer backs (stale). Only shapes a snapshot rule writes are checked for stale tuples; " +
 			"rules that write anything else are listed as not checked and never change the exit code. " +
 			"A rule takes part when its `when` also names a snapshot type, such as `input.type == \"snapshot.organization.member\"`.\n\n" +
-			"It then asks before writing the missing and changed tuples (a changed tuple is deleted and written again), " +
+			"It then asks before writing the missing tuples and replacing the changed ones (a changed tuple is deleted and written again, 100 at a time, and put back if the write fails), " +
 			"and with --prune asks again before deleting the stale ones. --force skips the questions, --dry-run stops after the report. " +
 			"Without a terminal, under --no-input or -o json/yaml, it only reports unless --force is given. " +
 			"The provider is read once, so the result reflects it as of that moment. Auth0 needs a machine-to-machine application. A mapping that names snapshot.user fails on a tenant with more than 1,000 users, since Auth0 lists no more through this API; nothing is truncated.\n\n" +
@@ -173,12 +172,13 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider string, prune, dry
 
 	// send runs one Write and folds what it sent into the document.
 	// pruning marks the stale deletes, which res.Pruned counts even when the
-	// request fails part-way.
-	send := func(deletes, writes []language.Tuple, pruning bool) (snapshot.Sent, error) {
+	// request fails part-way. Progress counts from prior out of grand changes
+	// so a run of several steps reads as one.
+	send := func(deletes, writes []language.Tuple, pruning bool, prior, grand int) (snapshot.Sent, error) {
 		total := len(deletes) + len(writes)
-		sent, err := snapshot.Write(ctx, storeClient{cl}, deletes, writes, func(done, total int) {
-			if total > backfillRequestSize { // more than one request
-				output.Progressf(errw, "sent %d/%d changes", done, total)
+		sent, err := snapshot.Write(ctx, storeClient{cl}, deletes, writes, func(done, _ int) {
+			if grand > backfillRequestSize { // more than one request
+				output.Progressf(errw, "sent %d/%d changes", prior+done, grand)
 			}
 		})
 		res.Sent.Writes += sent.Writes
@@ -188,21 +188,65 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider string, prune, dry
 		}
 		if err != nil {
 			text := fmt.Sprintf("sent %d of %s before the failure; run the command again to send the rest", sent.Writes+sent.Deletes, mapping.Plural(total, "change"))
-			return sent, finish(reportSnapshotFailure(ctx, errw, machine, text, sent, applyHints(err), err))
+			return sent, finish(reportSnapshotFailure(ctx, errw, machine, text, snapshot.Sent(res.Sent), applyHints(err), err))
 		}
 		return sent, nil
+	}
+	// replace swaps the changed tuples batch by batch and says what state the
+	// store is left in when a batch fails.
+	replace := func(prior, grand int) error {
+		sent, lost, err := snapshot.Replace(ctx, storeClient{cl}, diff.Was, diff.Changed, func(done, _ int) {
+			if grand > backfillRequestSize {
+				output.Progressf(errw, "sent %d/%d changes", prior+done, grand)
+			}
+		})
+		res.Sent.Writes += sent.Writes
+		res.Sent.Deletes += sent.Deletes
+		if err == nil {
+			return nil
+		}
+		hints := applyHints(err)
+		var text string
+		switch {
+		case len(lost) > 0:
+			text = fmt.Sprintf("%s deleted could not be written again", mapping.Plural(len(lost), "tuple"))
+			hints = append(hints, "run the command again: it reports them as missing and writes the desired version once the cause is fixed")
+		case ctx.Err() != nil:
+			text = fmt.Sprintf("replaced %d of %s before the interruption; run the command again to replace the rest", sent.Writes, mapping.Plural(changed, "changed tuple"))
+		case sent.Writes > 0:
+			text = fmt.Sprintf("replaced %d of %s; the store rejected the next batch and its stored versions were put back", sent.Writes, mapping.Plural(changed, "changed tuple"))
+		default:
+			text = fmt.Sprintf("the store rejected the new version of %s; stored versions were put back, nothing was replaced", mapping.Plural(changed, "changed tuple"))
+		}
+		err = reportSnapshotFailure(ctx, errw, machine, text, snapshot.Sent(res.Sent), hints, err)
+		printLost(errw, lost)
+		return finish(err)
 	}
 
 	if !writesDone {
 		if !force {
 			output.Notef(errw, "%s", snapshotAge(run.Result))
 		}
-		switch err := prompt.Confirm(cmd, backfillQuestion(missing+changed, storeNm, storeID), force); {
+		err := prompt.Confirm(cmd, driftQuestion(missing, changed, storeNm, storeID), force)
+		if ctx.Err() != nil {
+			return finish(ctx.Err())
+		}
+		switch {
 		case err == nil:
-			// A changed tuple is deleted first: a write cannot replace a condition.
-			sent, err := send(diff.Changed, slices.Concat(diff.Missing, diff.Changed), false)
-			if err != nil {
-				return err
+			grand := missing + 2*changed
+			var sent snapshot.Sent
+			if missing > 0 {
+				s, err := send(nil, diff.Missing, false, 0, grand)
+				if err != nil {
+					return err
+				}
+				sent = s
+			}
+			if changed > 0 {
+				if err := replace(missing, grand); err != nil {
+					return err
+				}
+				sent.Writes += changed
 			}
 			writesDone = true
 			_, finishedAt := snapshotTimes(run.Result)
@@ -233,9 +277,13 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider string, prune, dry
 			output.Notef(errw, "%s", snapshotAge(run.Result))
 		}
 		question := fmt.Sprintf("Delete %s from store %s?", mapping.Plural(stale, "stale tuple"), storeTarget(storeNm, storeID))
-		switch err := prompt.Confirm(cmd, question, force); {
+		err := prompt.Confirm(cmd, question, force)
+		if ctx.Err() != nil {
+			return finish(ctx.Err())
+		}
+		switch {
 		case err == nil:
-			sent, err := send(diff.Stale, nil, true)
+			sent, err := send(diff.Stale, nil, true, 0, stale)
 			if err != nil {
 				return err
 			}
@@ -249,6 +297,33 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider string, prune, dry
 		return finish(nil)
 	}
 	return finish(remains())
+}
+
+// driftQuestion is the write prompt; it names the delete a changed tuple costs.
+func driftQuestion(missing, changed int, name, id string) string {
+	switch {
+	case changed == 0:
+		return backfillQuestion(missing, name, id)
+	case missing == 0:
+		return fmt.Sprintf("Replace %s (delete, then write) in store %s?", mapping.Plural(changed, "changed tuple"), storeTarget(name, id))
+	}
+	return fmt.Sprintf("Write %s and replace %s (delete, then write) in store %s?",
+		mapping.Plural(missing, "tuple"), mapping.Plural(changed, "changed tuple"), storeTarget(name, id))
+}
+
+// printLost lists tuples a failed replace left deleted, at most maxPlanLines.
+func printLost(w io.Writer, lost []language.Tuple) {
+	field := output.SanitizeField
+	if output.Plain {
+		field = output.PlainField
+	}
+	for _, t := range lost[:min(len(lost), maxPlanLines)] {
+		t.Action, t.Context = language.ActionDelete, nil
+		_, _ = fmt.Fprintln(w, mapping.ChangeLine(t, field))
+	}
+	if more := len(lost) - maxPlanLines; more > 0 {
+		_, _ = fmt.Fprintf(w, "… %d more\n", more)
+	}
 }
 
 // emitDrift prints the machine payload for -o json/yaml, or key/values in

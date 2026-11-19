@@ -568,3 +568,112 @@ func TestFailureReportPrintsTheErrorOnce(t *testing.T) {
 		t.Errorf("error printed %d times:\n%s", n, buf.String())
 	}
 }
+
+// jsonDrift runs drift under -o json and decodes the one document it prints.
+func jsonDrift(t *testing.T, c *cli.CLI, args ...string) (driftResult, string, error) {
+	t.Helper()
+	c.JSON = true
+	stdout, stderr, err := runDrift(t, c, nil, args...)
+	var got driftResult
+	if jerr := json.Unmarshal([]byte(stdout), &got); jerr != nil {
+		t.Fatalf("stdout is not one JSON document: %v\n%s", jerr, stdout)
+	}
+	return got, stderr, err
+}
+
+func TestDriftRejectedRewriteRestoresStoredVersion(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, member("u1"))
+	fs.failAt = map[int]bool{2: true} // the rewrite
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1")})
+	got, _, err := jsonDrift(t, fs.cli(), driftArgs(t, driftConditionMapping, "--force")...)
+	if err == nil || clierr.Code(err) == 0 {
+		t.Fatalf("err = %v, want a failure", err)
+	}
+	if msg := clierr.NewEnvelope(err).Error.Message; !strings.Contains(msg, "stored versions were put back, nothing was replaced") {
+		t.Errorf("message = %q", msg)
+	}
+	if fs.writeCount() != 3 || !strings.Contains(fs.writes[0], `"deletes"`) || !strings.Contains(fs.writes[2], `"writes"`) ||
+		!strings.Contains(fs.writes[2], "user:u1") || strings.Contains(fs.writes[2], "in_office") {
+		t.Fatalf("writes = %v", fs.writes)
+	}
+	if got.Sent != (sentOut{}) {
+		t.Errorf("sent = %+v, want zero", got.Sent)
+	}
+}
+
+func TestDriftRejectedRewriteSaysSoInHumanMode(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, member("u1"))
+	fs.failAt = map[int]bool{2: true}
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1")})
+	_, stderr, err := runDrift(t, fs.cli(), nil, driftArgs(t, driftConditionMapping, "--force")...)
+	if err == nil || !strings.Contains(stderr, "the store rejected the new version of 1 changed tuple; stored versions were put back, nothing was replaced") {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+}
+
+func TestDriftLostTuplesAreNamed(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, member("u1"))
+	fs.failFrom = 2 // the rewrite and the restore
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1")})
+	c := fs.cli()
+	c.JSON = true
+	stdout, stderr, err := runDrift(t, c, nil, driftArgs(t, driftConditionMapping, "--force")...)
+	if err == nil {
+		t.Fatal("want an error")
+	}
+	if !strings.Contains(stderr, "- user:u1 member organization:o1") {
+		t.Errorf("stderr does not name the lost tuple:\n%s", stderr)
+	}
+	if msg := clierr.NewEnvelope(err).Error.Message; !strings.Contains(msg, "1 tuple deleted could not be written again") {
+		t.Errorf("message = %q", msg)
+	}
+	var got driftResult
+	if jerr := json.Unmarshal([]byte(stdout), &got); jerr != nil {
+		t.Fatalf("stdout is not one JSON document: %v\n%s", jerr, stdout)
+	}
+	if got.Sent.Deletes != 1 || got.Sent.Writes != 0 {
+		t.Errorf("sent = %+v, want 1 delete", got.Sent)
+	}
+}
+
+func TestDriftMissingWriteFailureDeletesNothing(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, member("u1"))
+	fs.failFrom = 1
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1", "u2")})
+	if _, _, err := runDrift(t, fs.cli(), nil, driftArgs(t, driftConditionMapping, "--force")...); err == nil {
+		t.Fatal("want an error")
+	}
+	if fs.writeCount() != 1 || strings.Contains(fs.writes[0], `"deletes"`) {
+		t.Fatalf("writes = %v, want only the failed missing write", fs.writes)
+	}
+}
+
+func TestDriftDryRunWinsOverForce(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, member("gone"))
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1")})
+	_, _, err := runDrift(t, fs.cli(), nil, driftArgs(t, driftMapping, "--dry-run", "--force", "--prune")...)
+	if clierr.Code(err) != clierr.CodeTestFailed || fs.writeCount() != 0 {
+		t.Fatalf("code = %d writes = %d err = %v", clierr.Code(err), fs.writeCount(), err)
+	}
+}
+
+func TestDriftPruneForceJSONReportsEverything(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, member("u1"), member("gone"))
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1", "u2")})
+	got, stderr, err := jsonDrift(t, fs.cli(), driftArgs(t, driftConditionMapping, "--prune", "--force")...)
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	if want := (sentOut{Writes: 2, Deletes: 2}); got.Sent != want || got.Pruned != 1 {
+		t.Errorf("sent = %+v pruned = %d, want %+v and 1", got.Sent, got.Pruned, want)
+	}
+	if len(got.Missing) != 1 || len(got.Changed) != 1 || len(got.Stale) != 1 {
+		t.Errorf("missing/changed/stale = %d/%d/%d, want 1 each", len(got.Missing), len(got.Changed), len(got.Stale))
+	}
+}

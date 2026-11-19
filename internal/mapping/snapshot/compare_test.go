@@ -36,11 +36,30 @@ func TestCompare(t *testing.T) {
 	if want := []language.Tuple{cx}; !reflect.DeepEqual(got.Changed, want) {
 		t.Errorf("Changed = %+v, want %+v", got.Changed, want)
 	}
+	if want := []language.Tuple{cy}; !reflect.DeepEqual(got.Was, want) {
+		t.Errorf("Was = %+v, want %+v", got.Was, want)
+	}
 	if want := []language.Tuple{d}; !reflect.DeepEqual(got.Stale, want) {
 		t.Errorf("Stale = %+v, want %+v", got.Stale, want)
 	}
 	if got.Empty() {
 		t.Error("Empty() = true, want false")
+	}
+}
+
+func TestCompareWasFollowsChangedOrder(t *testing.T) {
+	// Desired is unsorted; Was must line up with the sorted Changed.
+	b, a := tup("user:b", "member", "org:1"), tup("user:a", "member", "org:1")
+	got := Compare(
+		[]language.Tuple{withCond(b, "n", nil), withCond(a, "n", nil)},
+		[]language.Tuple{withCond(a, "o", nil), withCond(b, "o", nil)}, nil)
+	for i, c := range got.Changed {
+		if got.Was[i].User != c.User || got.Was[i].Condition != "o" {
+			t.Errorf("Was[%d] = %+v, does not match Changed[%d] = %+v", i, got.Was[i], i, c)
+		}
+	}
+	if len(got.Was) != 2 {
+		t.Errorf("len(Was) = %d, want 2", len(got.Was))
 	}
 }
 

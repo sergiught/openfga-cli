@@ -1,7 +1,10 @@
 package mapping
 
 import (
+	"bytes"
+	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -62,17 +65,114 @@ func TestDriftDeclineWrite(t *testing.T) {
 func TestDriftChanged(t *testing.T) {
 	configtest.Isolate(t)
 	fs := newFakeStore(t, member("u1"))
-	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1")})
-	stdout, _, err := driftAnswering(t, fs, "y\n", driftArgs(t, driftConditionMapping)...)
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1", "u2")})
+	stdout, stderr, err := driftAnswering(t, fs, "y\n", driftArgs(t, driftConditionMapping)...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(stdout, "condition differs") {
 		t.Errorf("stdout:\n%s", stdout)
 	}
-	if fs.writeCount() != 2 || !strings.Contains(fs.writes[0], `"deletes"`) || strings.Contains(fs.writes[0], `"writes"`) ||
-		!strings.Contains(fs.writes[1], `"writes"`) || !strings.Contains(fs.writes[1], "in_office") || strings.Contains(fs.writes[1], `"deletes"`) {
+	// The missing tuple first, then the changed one: delete, then write.
+	if fs.writeCount() != 3 ||
+		!strings.Contains(fs.writes[0], "user:u2") || strings.Contains(fs.writes[0], `"deletes"`) ||
+		!strings.Contains(fs.writes[1], `"deletes"`) || strings.Contains(fs.writes[1], `"writes"`) ||
+		!strings.Contains(fs.writes[2], `"writes"`) || !strings.Contains(fs.writes[2], "in_office") || strings.Contains(fs.writes[2], `"deletes"`) {
 		t.Fatalf("writes = %v", fs.writes)
+	}
+	if want := "Write 1 tuple and replace 1 changed tuple (delete, then write) in store acme ("; !strings.Contains(stderr, want) {
+		t.Errorf("stderr missing %q:\n%s", want, stderr)
+	}
+}
+
+func TestDriftChangedOnlyQuestion(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, member("u1"), member("u2"))
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1", "u2")})
+	_, stderr, err := driftAnswering(t, fs, "y\n", driftArgs(t, driftConditionMapping)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "Replace 2 changed tuples (delete, then write) in store acme ("; !strings.Contains(stderr, want) {
+		t.Errorf("stderr missing %q:\n%s", want, stderr)
+	}
+	if fs.writeCount() != 2 {
+		t.Errorf("writes = %v", fs.writes)
+	}
+}
+
+// syncBuffer lets a test watch stderr while the command still writes to it.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// Ctrl-C at the write question must end the run, not fall through to the
+// prune question.
+func TestDriftInterruptAtQuestionStops(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, member("gone"))
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1")})
+	master, tty := openPTY(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	root := New(fs.cli()).Command()
+	var out bytes.Buffer
+	errb := &syncBuffer{}
+	root.SetOut(&out)
+	root.SetErr(errb)
+	root.SetIn(tty)
+	root.SetArgs(append([]string{"drift"}, driftArgs(t, driftMapping, "--prune")...))
+	root.SilenceUsage, root.SilenceErrors = true, true
+	go func() {
+		for !strings.Contains(errb.String(), "[y/N]") {
+			time.Sleep(time.Millisecond)
+		}
+		cancel()
+		// The extra answer keeps a regression from hanging on a later question.
+		_, _ = master.WriteString("\nn\n")
+	}()
+	err := root.ExecuteContext(ctx)
+	if clierr.Code(err) != clierr.CodeCanceled {
+		t.Fatalf("code = %d err = %v", clierr.Code(err), err)
+	}
+	if strings.Contains(errb.String(), "Delete 1 stale tuple") || fs.writeCount() != 0 {
+		t.Errorf("went on after the interrupt, writes = %d:\n%s", fs.writeCount(), errb.String())
+	}
+}
+
+func TestDriftPruneDryRunAsksNothing(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, member("gone"))
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1")})
+	_, stderr, err := driftAnswering(t, fs, "y\ny\n", driftArgs(t, driftMapping, "--prune", "--dry-run")...)
+	if clierr.Code(err) != clierr.CodeTestFailed || fs.writeCount() != 0 || strings.Contains(stderr, "[y/N]") {
+		t.Fatalf("code = %d writes = %d err = %v\n%s", clierr.Code(err), fs.writeCount(), err, stderr)
+	}
+}
+
+func TestDriftPruneOnlyAsksTheDeleteQuestion(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, member("u1"), member("gone"))
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1")})
+	_, stderr, err := driftAnswering(t, fs, "y\n", driftArgs(t, driftMapping, "--prune")...)
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	if strings.Count(stderr, "[y/N]") != 1 || !strings.Contains(stderr, "Delete 1 stale tuple from store acme (") || strings.Contains(stderr, "Write ") {
+		t.Errorf("stderr:\n%s", stderr)
 	}
 }
 

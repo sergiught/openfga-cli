@@ -91,6 +91,8 @@ type fakeStore struct {
 	// failFrom, when > 0, makes the failFrom-th /write and every later one
 	// answer 400 with failWrite (or a generic body when that is empty).
 	failFrom int
+	// failAt makes only the listed (1-based) /write numbers answer 400.
+	failAt map[int]bool
 	// log, when non-nil, gets "store read" for each /read, in order with
 	// the fake provider's entries.
 	log *[]string
@@ -136,7 +138,7 @@ func newFakeStore(t *testing.T, stored ...map[string]any) *fakeStore {
 				}
 				return
 			}
-			if fs.failWrite != "" || (fs.failFrom > 0 && len(fs.writes) >= fs.failFrom) {
+			if fs.failWrite != "" || fs.failAt[len(fs.writes)] || (fs.failFrom > 0 && len(fs.writes) >= fs.failFrom) {
 				body := fs.failWrite
 				if body == "" {
 					body = `{"code":"validation_error","message":"write rejected"}`

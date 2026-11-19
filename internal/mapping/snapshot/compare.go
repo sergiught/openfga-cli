@@ -7,8 +7,9 @@ import (
 )
 
 // Diff is how a store differs from the desired tuples. Changed holds the
-// desired version. All three are sorted like Desired.
-type Diff struct{ Missing, Changed, Stale []language.Tuple }
+// desired version and Was the store's version of the same tuple, in the same
+// order. Missing, Changed and Stale are sorted like Desired.
+type Diff struct{ Missing, Changed, Was, Stale []language.Tuple }
 
 // Empty reports whether the store already matches.
 func (d Diff) Empty() bool {
@@ -49,6 +50,9 @@ func Compare(desired, store []language.Tuple, owned []mapping.Shape) Diff {
 	sortTuples(d.Missing)
 	sortTuples(d.Changed)
 	sortTuples(d.Stale)
+	for _, t := range d.Changed {
+		d.Was = append(d.Was, inStore[identity(t)])
+	}
 	return d
 }
 

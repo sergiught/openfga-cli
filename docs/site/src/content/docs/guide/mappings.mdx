@@ -444,9 +444,9 @@ and on stderr:
 ● dry run: nothing written
 ```
 
-Without `--dry-run` it then asks before writing the missing and changed tuples (a
-changed tuple is deleted and written again, because a write cannot replace a
-condition):
+Without `--dry-run` it then asks before writing the missing tuples and replacing
+the changed ones (a changed tuple is deleted and written again, because a write
+cannot replace a condition):
 
 ```bash
 ofga mappings drift examples/mappings/auth0.yaml --provider auth0
@@ -462,6 +462,14 @@ Write 2 tuples to store mappings-demo (01K1X2Y3Z4A5B6C7D8E9F0G1H2)? [y/N]: y
 When a changed tuple was replaced, the success line says so: `sent 37 writes to
 store mappings-demo, replacing 3 changed tuples (Auth0 state as of 15:02:42 UTC)`.
 With one stale tuple the last line ends `delete it`.
+
+Changed tuples are replaced after the missing ones are written, 100 at a time: each
+batch is deleted, then written. When changed tuples are involved the question says so,
+for example `Write 1 tuple and replace 2 changed tuples (delete, then write) in store
+mappings-demo (...)?`, or `Replace 2 changed tuples (delete, then write) in store ...?`
+when none are missing. If the store rejects the new version of a batch, `drift`
+writes the stored versions back and says nothing was replaced. If that fails too, it
+names the tuples that are now deleted; run it again and it reports them as missing.
 
 Stale tuples are never deleted unless you pass `--prune`. With it, `drift` first
 asks the write question, if there is anything to write. It then prints the stale
