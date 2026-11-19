@@ -319,9 +319,14 @@ selected, `--dry-run` included.
 `backfill` reads the provider, replays it through the mapping and writes the
 tuples. It only adds: it never deletes, and writing a tuple that already exists
 is ignored, so it is safe to run again after a failure. With the example mapping
-and a store that has the example model:
+and an empty store that has the example model:
 
 ```bash
+# Only if you followed the apply steps above: Anne's two tuples are in shapes
+# this mapping owns, so drift would report them as stale
+ofga tuples delete user:user_anne member organization:org_acme --force
+ofga tuples delete user:user_anne holder 'membership:org_acme|user_anne' --force
+
 export AUTH0_DOMAIN=example.us.auth0.com AUTH0_CLIENT_ID=... AUTH0_CLIENT_SECRET=...
 ofga mappings backfill examples/mappings/auth0.yaml --provider auth0 --dry-run
 ```
@@ -513,8 +518,9 @@ Without a terminal, with `--no-input` (which agent mode sets), or under `-o json
 or `-o yaml`, `drift` only reports unless you pass `--force`; it prints `report
 only: pass --force to write`. `backfill` has no report-only mode: without a
 terminal or under `--no-input` it refuses to write unless you pass `--force`
-(exit `1`, asking for confirmation), and `--dry-run` previews. The exit code says
-what is left:
+(exit `1`, asking for confirmation), and `--dry-run` previews. Under `-o json`,
+`-o yaml` or agent mode it asks for one of the two flags up front (exit `2`). The
+exit code says what is left:
 
 | Code | Meaning |
 | --- | --- |

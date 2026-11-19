@@ -265,6 +265,17 @@ func TestBackfillProviderRequired(t *testing.T) {
 	}
 }
 
+// A missing --provider is a usage error even when the mapping file is missing
+// too: the flag does not depend on the file.
+func TestBackfillProviderRequiredBeforeTheFileIsRead(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t)
+	_, _, err := runBackfill(t, fs.cli(), nil, filepath.Join(t.TempDir(), "absent.yaml"), "--force")
+	if clierr.Code(err) != clierr.CodeUsage || !strings.Contains(err.Error(), "--provider") {
+		t.Fatalf("code = %d err = %v", clierr.Code(err), err)
+	}
+}
+
 func TestBackfillUnknownProvider(t *testing.T) {
 	configtest.Isolate(t)
 	fs := newFakeStore(t)
@@ -401,6 +412,18 @@ func TestAuth0SecretFileTrimmed(t *testing.T) {
 	}
 	if cfg.ClientSecret != "abc" || cfg.Domain != "t.example" || cfg.ClientID != "id" || cfg.Tenant != "acme" {
 		t.Fatalf("cfg = %+v", cfg)
+	}
+}
+
+func TestAuth0EmptySecretFileIsAUsageError(t *testing.T) {
+	t.Setenv("AUTH0_CLIENT_SECRET", "from-env")
+	secret := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(secret, []byte(" \n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := auth0Config(auth0Cmd(t, "--auth0-domain", "t.example", "--auth0-client-id", "id", "--auth0-client-secret-file", secret))
+	if clierr.Code(err) != clierr.CodeUsage || !strings.Contains(err.Error(), "is empty") {
+		t.Fatalf("code = %d err = %v", clierr.Code(err), err)
 	}
 }
 

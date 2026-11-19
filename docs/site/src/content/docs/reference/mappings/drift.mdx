@@ -9,7 +9,7 @@ Read the active profile's store, read an identity provider's current state, repl
 
 The report lists tuples the provider backs that the store lacks (missing), tuples the store holds under another condition (changed), and tuples the store holds that the provider no longer backs (stale). Only shapes a snapshot rule writes are checked for stale tuples; rules that write anything else are listed as not checked and never change the exit code. A rule takes part when its `when` also names a snapshot type, such as `input.type == "snapshot.organization.member"`.
 
-It then asks before writing the missing and changed tuples (a changed tuple is deleted and written again), and with --prune asks again before deleting the stale ones. --force skips the questions, --dry-run stops after the report. Without a terminal, under --no-input or -o json/yaml, it only reports unless --force is given. The provider is read once, so the result reflects it as of that moment. Auth0 needs a machine-to-machine application and reads at most 1,000 users.
+It then asks before writing the missing and changed tuples (a changed tuple is deleted and written again), and with --prune asks again before deleting the stale ones. --force skips the questions, --dry-run stops after the report. Without a terminal, under --no-input or -o json/yaml, it only reports unless --force is given. The provider is read once, so the result reflects it as of that moment. Auth0 needs a machine-to-machine application. A mapping that names snapshot.user fails on a tenant with more than 1,000 users, since Auth0 lists no more through this API; nothing is truncated.
 
 Exit codes: 0 no drift, or all of it fixed · 1 error · 2 usage · 3 drift remains · 4 network · 130 interrupted.
 

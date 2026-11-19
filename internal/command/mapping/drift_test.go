@@ -282,6 +282,54 @@ func TestDriftStoreLineUsesDatesAcrossMidnight(t *testing.T) {
 	}
 }
 
+// The provider read fits in one day, but the store was read the day before.
+func TestDriftStoreLineIsDatedWhenReadTheDayBefore(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, member("u1"))
+	res := memberResult("u1")
+	res.StartedAt = time.Date(2026, 11, 20, 0, 0, 1, 0, time.UTC)
+	res.FinishedAt = time.Date(2026, 11, 20, 0, 0, 5, 0, time.UTC)
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: res})
+	old := now
+	now = func() time.Time { return time.Date(2026, 11, 19, 23, 59, 58, 0, time.UTC) }
+	t.Cleanup(func() { now = old })
+	stdout, _, err := runDrift(t, fs.cli(), nil, driftArgs(t, driftMapping)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "store read  2026-11-19 23:59:58 UTC"; !strings.Contains(stdout, want) {
+		t.Errorf("stdout missing %q:\n%s", want, stdout)
+	}
+}
+
+// The document's times are UTC whatever the machine's zone.
+func TestDriftJSONTimesAreUTC(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, member("u1"))
+	zone := time.FixedZone("EET", 2*60*60)
+	res := memberResult("u1")
+	res.StartedAt, res.FinishedAt = res.StartedAt.In(zone), res.FinishedAt.In(zone)
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: res})
+	old := now
+	now = func() time.Time { return snapStart.In(zone) }
+	t.Cleanup(func() { now = old })
+	c := fs.cli()
+	c.JSON = true
+	stdout, _, err := runDrift(t, c, nil, driftArgs(t, driftMapping)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatalf("%v:\n%s", err, stdout)
+	}
+	for _, k := range []string{"store_read_at", "snapshot_started_at", "snapshot_finished_at"} {
+		if v, _ := doc[k].(string); !strings.HasSuffix(v, "Z") {
+			t.Errorf("%s = %q, want a UTC time", k, v)
+		}
+	}
+}
+
 func TestSnapshotAge(t *testing.T) {
 	res := &snapshot.Result{StartedAt: snapStart}
 	for _, tc := range []struct {

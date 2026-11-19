@@ -1,7 +1,7 @@
 # Auth0 event samples
 
 `samples/*.json` are example payloads for the 21 Auth0 Events event types, one
-file per type, named after the type. They were derived from the JSON Schemas
+file per type, named after the type, plus six `snapshot.*.json` files (see below). They were derived from the JSON Schemas
 published at <https://auth0.com/docs/events> and trimmed to the fields a mapping
 actually addresses: `data.object`, `data.previous_object` for `*.updated`, and
 the envelope's `a0tenant`, which is where a recipe reads the tenant from.
@@ -21,9 +21,10 @@ produces no tuple, which is true of that payload and false of the recipe.
 on the value of `is_enabled`, not on a change, so its two halves are equal and
 it still previews.
 
-The samples are live events. `ofga mappings backfill` and `ofga mappings drift` replay
-the tenant's current state through a mapping as `snapshot.*` events instead, which
-the package `internal/mapping/snapshot/auth0` produces; see the guide
+The 21 are live events. `ofga mappings backfill` and `ofga mappings drift` replay
+the tenant's current state through a mapping as `snapshot.*` events instead; the six
+`snapshot.*.json` files show one of each, as the package
+`internal/mapping/snapshot/auth0` produces them. See the guide
 [Checking for drift and backfilling](https://sergiught.github.io/openfga-cli/guide/mappings/#checking-for-drift-and-backfilling).
 
 ## The model

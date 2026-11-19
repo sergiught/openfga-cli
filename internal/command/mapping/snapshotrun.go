@@ -44,18 +44,6 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, beforeR
 		problemsOut = errw
 	}
 
-	f, problems, err := loadMappingFile(path)
-	if err != nil {
-		return nil, err
-	}
-	if f == nil {
-		return nil, failToLoad(problemsOut, machine, path, problems)
-	}
-	m, diags, err := mapping.CompileSource(f.Src)
-	if err != nil {
-		return nil, failToLoad(problemsOut, machine, path, mapping.FindingsFrom(diags))
-	}
-
 	if provider == "" {
 		return nil, clierr.WithCode(clierr.CodeUsage, clierr.WithHint(
 			"--provider takes one of: "+strings.Join(providerNames(), ", "),
@@ -66,6 +54,18 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, beforeR
 		return nil, clierr.WithCode(clierr.CodeUsage, clierr.WithHint(
 			"--provider takes one of: "+strings.Join(providerNames(), ", "),
 			fmt.Errorf("unknown provider %q", provider)))
+	}
+
+	f, problems, err := loadMappingFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if f == nil {
+		return nil, failToLoad(problemsOut, machine, path, problems)
+	}
+	m, diags, err := mapping.CompileSource(f.Src)
+	if err != nil {
+		return nil, failToLoad(problemsOut, machine, path, mapping.FindingsFrom(diags))
 	}
 	types := entry.Types()
 	typeNames := make([]string, len(types))
@@ -226,7 +226,7 @@ type snapshotMeta struct {
 func newSnapshotMeta(storeID string, run *snapshotRun, dryRun bool) snapshotMeta {
 	meta := snapshotMeta{
 		Store: storeID, Provider: run.Provider.Name(), Source: run.Result.Source,
-		StartedAt: run.Result.StartedAt, FinishedAt: run.Result.FinishedAt,
+		StartedAt: run.Result.StartedAt.UTC(), FinishedAt: run.Result.FinishedAt.UTC(),
 		Counts: make([]snapshotCount, 0, len(run.Result.Counts)), DryRun: dryRun,
 	}
 	for _, c := range run.Result.Counts {

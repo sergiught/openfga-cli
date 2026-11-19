@@ -92,7 +92,9 @@ func auth0Config(cmd *cobra.Command) (snapauth0.Config, error) {
 		if err != nil {
 			return cfg, clierr.WithCode(clierr.CodeUsage, fmt.Errorf("read --auth0-client-secret-file: %w", err))
 		}
-		cfg.ClientSecret = strings.TrimSpace(string(data))
+		if cfg.ClientSecret = strings.TrimSpace(string(data)); cfg.ClientSecret == "" {
+			return cfg, clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--auth0-client-secret-file %s is empty", file))
+		}
 	} else if cfg.ClientSecret = os.Getenv("AUTH0_CLIENT_SECRET"); cfg.ClientSecret == "" {
 		return cfg, clierr.WithCode(clierr.CodeUsage, errors.New("--auth0-client-secret-file or AUTH0_CLIENT_SECRET is required"))
 	}

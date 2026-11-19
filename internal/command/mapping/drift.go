@@ -56,7 +56,7 @@ func (c *Command) newDriftCmd() *cobra.Command {
 			"It then asks before writing the missing and changed tuples (a changed tuple is deleted and written again), " +
 			"and with --prune asks again before deleting the stale ones. --force skips the questions, --dry-run stops after the report. " +
 			"Without a terminal, under --no-input or -o json/yaml, it only reports unless --force is given. " +
-			"The provider is read once, so the result reflects it as of that moment. Auth0 needs a machine-to-machine application and reads at most 1,000 users.\n\n" +
+			"The provider is read once, so the result reflects it as of that moment. Auth0 needs a machine-to-machine application. A mapping that names snapshot.user fails on a tenant with more than 1,000 users, since Auth0 lists no more through this API; nothing is truncated.\n\n" +
 			"Exit codes: 0 no drift, or all of it fixed · 1 error · 2 usage · 3 drift remains · 4 network · 130 interrupted.",
 		Example: `# See what differs between the store and Auth0
 ofga mappings drift auth0.yaml --provider auth0 --dry-run
@@ -115,7 +115,7 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider string, prune, dry
 	diff := snapshot.Compare(run.Desired, stored, owned)
 	label := run.Provider.Label()
 	res := driftResult{
-		snapshotMeta: newSnapshotMeta(storeID, run, dryRun), StoreReadAt: storeReadAt,
+		snapshotMeta: newSnapshotMeta(storeID, run, dryRun), StoreReadAt: storeReadAt.UTC(),
 		Missing: tuplesOut(diff.Missing), Changed: tuplesOut(diff.Changed), Stale: tuplesOut(diff.Stale),
 		NotChecked: make([]notCheckedOut, 0, len(notChecked)),
 	}

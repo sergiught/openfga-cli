@@ -52,7 +52,7 @@ func (c *Command) newBackfillCmd() *cobra.Command {
 			"It shows the tuples and asks before writing (--force skips the question, --dry-run stops after showing them). " +
 			"The provider is read once, so the tuples reflect it as of that moment. Changes made while the command runs, or after it, are not included. " +
 			"Use `ofga mappings drift` to compare the store with the provider and to remove tuples the provider no longer backs.\n\n" +
-			"Run again after a failure: tuples that already landed are ignored. Auth0 needs a machine-to-machine application and reads at most 1,000 users.\n\n" +
+			"Run again after a failure: tuples that already landed are ignored. Auth0 needs a machine-to-machine application. A mapping that names snapshot.user fails on a tenant with more than 1,000 users, since Auth0 lists no more through this API; nothing is truncated.\n\n" +
 			"Exit codes: 0 ok · 1 error · 2 usage · 4 network · 130 interrupted.",
 		Example: `# See what a backfill from Auth0 would write
 ofga mappings backfill auth0.yaml --provider auth0 --dry-run

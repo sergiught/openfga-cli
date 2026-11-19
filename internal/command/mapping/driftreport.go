@@ -17,7 +17,11 @@ import (
 // header, each kind of drift with its tuples, and what was not checked.
 func renderDrift(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt time.Time, stored int, diff snapshot.Diff, notChecked []snapshot.NotChecked) error {
 	label := output.SanitizeField(run.Provider.Label())
-	_, _ = fmt.Fprintf(w, "store read  %s UTC  %s  %s\n", storeReadAt.UTC().Format(snapshotLayout(run.Result)), mapping.Plural(stored, "tuple"), output.SanitizeField(storeLabel))
+	layout := snapshotLayout(run.Result)
+	if storeReadAt.UTC().Format(time.DateOnly) != run.Result.FinishedAt.UTC().Format(time.DateOnly) {
+		layout = dateClockLayout // the store was read the day before the provider
+	}
+	_, _ = fmt.Fprintf(w, "store read  %s UTC  %s  %s\n", storeReadAt.UTC().Format(layout), mapping.Plural(stored, "tuple"), output.SanitizeField(storeLabel))
 	snapshotHeader(w, run.Provider.Label(), run.Result)
 
 	// A stale tuple is shown as the delete it would become.
