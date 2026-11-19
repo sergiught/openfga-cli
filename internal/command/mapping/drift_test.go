@@ -590,7 +590,7 @@ func TestDriftRejectedRewriteRestoresStoredVersion(t *testing.T) {
 	if err == nil || clierr.Code(err) == 0 {
 		t.Fatalf("err = %v, want a failure", err)
 	}
-	if msg := clierr.NewEnvelope(err).Error.Message; !strings.Contains(msg, "stored versions were put back, nothing was replaced") {
+	if msg := clierr.NewEnvelope(err).Error.Message; !strings.Contains(msg, "stored versions are in place, nothing was replaced") {
 		t.Errorf("message = %q", msg)
 	}
 	if fs.writeCount() != 3 || !strings.Contains(fs.writes[0], `"deletes"`) || !strings.Contains(fs.writes[2], `"writes"`) ||
@@ -608,8 +608,43 @@ func TestDriftRejectedRewriteSaysSoInHumanMode(t *testing.T) {
 	fs.failAt = map[int]bool{2: true}
 	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1")})
 	_, stderr, err := runDrift(t, fs.cli(), nil, driftArgs(t, driftConditionMapping, "--force")...)
-	if err == nil || !strings.Contains(stderr, "the store rejected the new version of 1 changed tuple; stored versions were put back, nothing was replaced") {
+	if err == nil || !strings.Contains(stderr, "could not replace 1 changed tuple; the stored versions are in place, nothing was replaced") {
 		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+}
+
+func TestDriftFailedDeleteIsPutBack(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, member("u1"))
+	fs.failAt = map[int]bool{1: true} // the delete
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1")})
+	got, _, err := jsonDrift(t, fs.cli(), driftArgs(t, driftConditionMapping, "--force")...)
+	if msg := clierr.NewEnvelope(err).Error.Message; !strings.Contains(msg, "could not replace 1 changed tuple; the stored versions are in place") {
+		t.Errorf("message = %q", msg)
+	}
+	// The failed delete may still have been applied, so the stored version is written again.
+	if fs.writeCount() != 2 || !strings.Contains(fs.writes[1], `"writes"`) || strings.Contains(fs.writes[1], "in_office") {
+		t.Fatalf("writes = %v", fs.writes)
+	}
+	if got.Sent != (sentOut{}) {
+		t.Errorf("sent = %+v, want zero", got.Sent)
+	}
+}
+
+func TestDriftUnconfirmedDeleteNamesTheTuples(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, member("u1"))
+	fs.failFrom = 1 // the delete and the restore
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1")})
+	got, stderr, err := jsonDrift(t, fs.cli(), driftArgs(t, driftConditionMapping, "--force")...)
+	if msg := clierr.NewEnvelope(err).Error.Message; !strings.Contains(msg, "deleting 1 tuple failed and so did writing the stored version back; the store may have lost what is listed below") {
+		t.Errorf("message = %q", msg)
+	}
+	if !strings.Contains(stderr, "- user:u1 member organization:o1") {
+		t.Errorf("stderr does not name the tuple:\n%s", stderr)
+	}
+	if got.Sent != (sentOut{}) {
+		t.Errorf("sent = %+v, want zero: the delete was never confirmed", got.Sent)
 	}
 }
 
@@ -627,7 +662,7 @@ func TestDriftLostTuplesAreNamed(t *testing.T) {
 	if !strings.Contains(stderr, "- user:u1 member organization:o1") {
 		t.Errorf("stderr does not name the lost tuple:\n%s", stderr)
 	}
-	if msg := clierr.NewEnvelope(err).Error.Message; !strings.Contains(msg, "1 tuple deleted could not be written again") {
+	if msg := clierr.NewEnvelope(err).Error.Message; !strings.Contains(msg, "deleted 1 tuple and could not write the stored version back") {
 		t.Errorf("message = %q", msg)
 	}
 	var got driftResult

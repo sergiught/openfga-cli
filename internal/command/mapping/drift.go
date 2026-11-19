@@ -52,7 +52,7 @@ func (c *Command) newDriftCmd() *cobra.Command {
 			"and tuples the store holds that the provider no longer backs (stale). Only shapes a snapshot rule writes are checked for stale tuples; " +
 			"rules that write anything else are listed as not checked and never change the exit code. " +
 			"A rule takes part when its `when` also names a snapshot type, such as `input.type == \"snapshot.organization.member\"`.\n\n" +
-			"It then asks before writing the missing tuples and replacing the changed ones (a changed tuple is deleted and written again, 100 at a time, and put back if the write fails), " +
+			"It then asks before writing the missing tuples and replacing the changed ones (a changed tuple is deleted and written again, 100 at a time, and put back if that fails), " +
 			"and with --prune asks again before deleting the stale ones. --force skips the questions, --dry-run stops after the report. " +
 			"Without a terminal, under --no-input or -o json/yaml, it only reports unless --force is given. " +
 			"The provider is read once, so the result reflects it as of that moment. Auth0 needs a machine-to-machine application. A mapping that names snapshot.user fails on a tenant with more than 1,000 users, since Auth0 lists no more through this API; nothing is truncated.\n\n" +
@@ -208,15 +208,18 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider string, prune, dry
 		hints := applyHints(err)
 		var text string
 		switch {
+		case len(lost) > 0 && sent.Deletes > sent.Writes:
+			text = fmt.Sprintf("deleted %s and could not write the stored version back", mapping.Plural(len(lost), "tuple"))
+			hints = append(hints, lostHint)
 		case len(lost) > 0:
-			text = fmt.Sprintf("%s deleted could not be written again", mapping.Plural(len(lost), "tuple"))
-			hints = append(hints, "run the command again: it reports them as missing and writes the desired version once the cause is fixed")
-		case ctx.Err() != nil:
+			text = fmt.Sprintf("deleting %s failed and so did writing the stored version back; the store may have lost what is listed below", mapping.Plural(len(lost), "tuple"))
+			hints = append(hints, lostHint)
+		case ctx.Err() != nil && errors.Is(err, ctx.Err()):
 			text = fmt.Sprintf("replaced %d of %s before the interruption; run the command again to replace the rest", sent.Writes, mapping.Plural(changed, "changed tuple"))
 		case sent.Writes > 0:
-			text = fmt.Sprintf("replaced %d of %s; the store rejected the next batch and its stored versions were put back", sent.Writes, mapping.Plural(changed, "changed tuple"))
+			text = fmt.Sprintf("replaced %d of %s; the next batch failed and its stored versions are in place", sent.Writes, mapping.Plural(changed, "changed tuple"))
 		default:
-			text = fmt.Sprintf("the store rejected the new version of %s; stored versions were put back, nothing was replaced", mapping.Plural(changed, "changed tuple"))
+			text = fmt.Sprintf("could not replace %s; the stored versions are in place, nothing was replaced", mapping.Plural(changed, "changed tuple"))
 		}
 		err = reportSnapshotFailure(ctx, errw, machine, text, snapshot.Sent(res.Sent), hints, err)
 		printLost(errw, lost)
@@ -311,7 +314,11 @@ func driftQuestion(missing, changed int, name, id string) string {
 		mapping.Plural(missing, "tuple"), mapping.Plural(changed, "changed tuple"), storeTarget(name, id))
 }
 
-// printLost lists tuples a failed replace left deleted, at most maxPlanLines.
+// lostHint follows a replace that could not put the stored versions back.
+const lostHint = "run the command again once the cause is fixed: it reports them as missing or changed and writes the desired version"
+
+// printLost lists tuples a failed replace may have left deleted, at most
+// maxPlanLines.
 func printLost(w io.Writer, lost []language.Tuple) {
 	field := output.SanitizeField
 	if output.Plain {

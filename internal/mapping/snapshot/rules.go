@@ -265,7 +265,7 @@ func Coverage(doc *mapping.Document, types []Type) (owned []mapping.Shape, notCh
 			if len(missing) > 0 {
 				notChecked = append(notChecked, NotChecked{
 					Rule:   r.Name,
-					Reason: "a tuple's own when leaves out snapshot events, so " + strings.Join(text, ", ") + " is not compared",
+					Reason: "a tuple's own when leaves out snapshot events; not compared: " + strings.Join(text, ", "),
 					Shapes: missing,
 				})
 			}

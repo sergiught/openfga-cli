@@ -194,7 +194,7 @@ func TestCoverageTupleWhen(t *testing.T) {
 	}
 	wantNC := []NotChecked{{
 		Rule:   "members",
-		Reason: "a tuple's own when leaves out snapshot events, so user owner organization is not compared",
+		Reason: "a tuple's own when leaves out snapshot events; not compared: user owner organization",
 		Shapes: []mapping.Shape{owner},
 	}}
 	if !reflect.DeepEqual(notChecked, wantNC) {

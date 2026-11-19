@@ -467,9 +467,11 @@ Changed tuples are replaced after the missing ones are written, 100 at a time: e
 batch is deleted, then written. When changed tuples are involved the question says so,
 for example `Write 1 tuple and replace 2 changed tuples (delete, then write) in store
 mappings-demo (...)?`, or `Replace 2 changed tuples (delete, then write) in store ...?`
-when none are missing. If the store rejects the new version of a batch, `drift`
-writes the stored versions back and says nothing was replaced. If that fails too, it
-names the tuples that are now deleted; run it again and it reports them as missing.
+when none are missing. Ctrl-C stops a replacement between batches, never inside one.
+If a batch fails, for example because the model rejects the new condition, `drift`
+writes the stored versions back and says how many tuples it had replaced before that.
+If writing them back fails too, it names the tuples the store may have lost; run it
+again and it reports them as missing or changed.
 
 Stale tuples are never deleted unless you pass `--prune`. With it, `drift` first
 asks the write question, if there is anything to write. It then prints the stale
