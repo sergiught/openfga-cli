@@ -33,6 +33,11 @@ func (s storeClient) ReadTuples(ctx context.Context, f language.TupleFilter) ([]
 	return out, nil
 }
 
+// ReadAll reads every tuple in the store.
+func (s storeClient) ReadAll(ctx context.Context) ([]language.Tuple, error) {
+	return s.ReadTuples(ctx, language.TupleFilter{})
+}
+
 func (s storeClient) Write(ctx context.Context, writes, deletes []language.Tuple) error {
 	req := &openfga.WriteRequest{}
 	if len(writes) > 0 {

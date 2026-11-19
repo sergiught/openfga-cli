@@ -70,6 +70,13 @@ func pinNow(t *testing.T, d time.Duration) {
 
 func runBackfill(t *testing.T, c *cli.CLI, stdin io.Reader, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
+	return runSnapshotCmd(t, c, stdin, "backfill", args...)
+}
+
+// runSnapshotCmd runs one of the snapshot commands, keeping stdout and stderr
+// apart.
+func runSnapshotCmd(t *testing.T, c *cli.CLI, stdin io.Reader, name string, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
 	root := New(c).Command()
 	var out, errb bytes.Buffer
 	root.SetOut(&out)
@@ -77,7 +84,7 @@ func runBackfill(t *testing.T, c *cli.CLI, stdin io.Reader, args ...string) (std
 	if stdin != nil {
 		root.SetIn(stdin)
 	}
-	root.SetArgs(append([]string{"backfill"}, args...))
+	root.SetArgs(append([]string{name}, args...))
 	root.SilenceUsage, root.SilenceErrors = true, true
 	err = root.ExecuteContext(context.Background())
 	return out.String(), errb.String(), err

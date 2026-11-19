@@ -88,6 +88,12 @@ type fakeStore struct {
 	writes []string
 	// failWrite makes every /write answer 400 with this body when set.
 	failWrite string
+	// failFrom, when > 0, makes the failFrom-th /write and every later one
+	// answer 400 with failWrite (or a generic body when that is empty).
+	failFrom int
+	// log, when non-nil, gets "store read" for each /read, in order with
+	// the fake provider's entries.
+	log *[]string
 }
 
 func newFakeStore(t *testing.T, stored ...map[string]any) *fakeStore {
@@ -101,6 +107,9 @@ func newFakeStore(t *testing.T, stored ...map[string]any) *fakeStore {
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/stores/"+applyStoreID):
 			_, _ = io.WriteString(w, `{"id":"`+applyStoreID+`","name":"acme"}`)
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/read"):
+			if fs.log != nil {
+				*fs.log = append(*fs.log, "store read")
+			}
 			var req struct {
 				TupleKey map[string]string `json:"tuple_key"`
 			}
@@ -115,9 +124,13 @@ func newFakeStore(t *testing.T, stored ...map[string]any) *fakeStore {
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/write"):
 			b, _ := io.ReadAll(r.Body)
 			fs.writes = append(fs.writes, string(b))
-			if fs.failWrite != "" {
+			if fs.failWrite != "" || (fs.failFrom > 0 && len(fs.writes) >= fs.failFrom) {
+				body := fs.failWrite
+				if body == "" {
+					body = `{"code":"validation_error","message":"write rejected"}`
+				}
 				w.WriteHeader(http.StatusBadRequest)
-				_, _ = io.WriteString(w, fs.failWrite)
+				_, _ = io.WriteString(w, body)
 				return
 			}
 			_, _ = io.WriteString(w, "{}")

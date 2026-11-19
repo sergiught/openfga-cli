@@ -150,16 +150,20 @@ const backfillRequestSize = 100
 
 // backfillQuestion is the confirmation prompt.
 func backfillQuestion(n int, name, id string) string {
+	return fmt.Sprintf("Write %s to store %s?", mapping.Plural(n, "tuple"), storeTarget(name, id))
+}
+
+// storeTarget names the store in a question: "name (id)", or the id alone.
+func storeTarget(name, id string) string {
 	target := output.SanitizeField(id)
 	if name != "" {
 		target = fmt.Sprintf("%s (%s)", output.SanitizeField(name), target)
 	}
-	return fmt.Sprintf("Write %s to store %s?", mapping.Plural(n, "tuple"), target)
+	return target
 }
 
-// renderTuples prints how many tuples there are, how many of each shape, and
-// the tuples themselves, at most maxPlanLines of them.
-func renderTuples(w io.Writer, ts []language.Tuple) error {
+// renderShapes prints how many tuples there are and how many of each shape.
+func renderShapes(w io.Writer, ts []language.Tuple) error {
 	if _, err := fmt.Fprintln(w, mapping.Plural(len(ts), "tuple")); err != nil || len(ts) == 0 {
 		return err
 	}
@@ -167,7 +171,13 @@ func renderTuples(w io.Writer, ts []language.Tuple) error {
 	for _, sc := range snapshot.ByShape(ts) {
 		rows = append(rows, []string{output.SanitizeField(sc.Shape.String()), strconv.Itoa(sc.N)})
 	}
-	if err := output.Table(w, []string{"SHAPE", "TUPLES"}, rows); err != nil {
+	return output.Table(w, []string{"SHAPE", "TUPLES"}, rows)
+}
+
+// renderTuples prints the shape counts and the tuples themselves, at most
+// maxPlanLines of them.
+func renderTuples(w io.Writer, ts []language.Tuple) error {
+	if err := renderShapes(w, ts); err != nil || len(ts) == 0 {
 		return err
 	}
 	field := output.SanitizeField
@@ -209,10 +219,16 @@ func emitBackfill(w io.Writer, c *cli.CLI, res backfillResult) error {
 // printed here, once.
 func reportBackfillFailure(ctx context.Context, w io.Writer, machine bool, sent snapshot.Sent, total int, err error) error {
 	text := fmt.Sprintf("sent %d of %d writes before the failure; run the command again to send the rest", sent.Writes, total)
+	return reportSnapshotFailure(ctx, w, machine, text, sent, backfillHints(err), err)
+}
+
+// reportSnapshotFailure is reportBackfillFailure with its own summary text and
+// hints, for the commands that also delete.
+func reportSnapshotFailure(ctx context.Context, w io.Writer, machine bool, text string, sent snapshot.Sent, extra []string, err error) error {
 	if ctx.Err() != nil || errors.Is(err, context.Canceled) {
 		return clierr.WithPartialResult(canceledReport{text})
 	}
-	hints := append([]string{err.Error()}, backfillHints(err)...)
+	hints := append([]string{err.Error()}, extra...)
 	// Under machine output the error envelope main writes is the only thing on
 	// stderr; it carries the summary and hints above.
 	if !machine {
@@ -224,7 +240,7 @@ func reportBackfillFailure(ctx context.Context, w io.Writer, machine bool, sent 
 	// A lost server stays network even after some writes landed: it is a
 	// retry, where a rejection partway through is not.
 	kind := clierr.Classify(err)
-	if sent.Writes > 0 && kind != clierr.KindNetwork {
+	if sent.Writes+sent.Deletes > 0 && kind != clierr.KindNetwork {
 		kind = clierr.KindPartialFailure
 	}
 	return clierr.WithHint(strings.Join(hints, "; "), clierr.WithKind(kind, clierr.SilentCause(clierr.Code(err), text, err)))

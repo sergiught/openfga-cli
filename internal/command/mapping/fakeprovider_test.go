@@ -16,6 +16,8 @@ type fakeProvider struct {
 	err      error
 	calls    *int
 	gotTypes *[]string
+	// log, when non-nil, gets "provider read" for each Snapshot.
+	log *[]string
 }
 
 func (fakeProvider) Name() string             { return "fake" }
@@ -25,6 +27,9 @@ func (p fakeProvider) Types() []snapshot.Type { return p.types }
 func (p fakeProvider) Snapshot(_ context.Context, types []string, progress func(string)) (*snapshot.Result, error) {
 	if p.calls != nil {
 		*p.calls++
+	}
+	if p.log != nil {
+		*p.log = append(*p.log, "provider read")
 	}
 	if p.gotTypes != nil {
 		*p.gotTypes = types

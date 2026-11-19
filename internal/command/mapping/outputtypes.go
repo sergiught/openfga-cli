@@ -8,6 +8,7 @@ func OutputTypes() map[string]any {
 	return map[string]any{
 		"ofga mappings apply":    applyResult{},
 		"ofga mappings backfill": backfillResult{},
+		"ofga mappings drift":    driftResult{},
 		"ofga mappings test":     modeltest.Results{},
 		"ofga mappings validate": validateResult{},
 	}
