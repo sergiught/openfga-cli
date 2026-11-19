@@ -117,3 +117,12 @@ func TestByShape(t *testing.T) {
 		t.Errorf("ByShape() = %+v, want %+v", got, want)
 	}
 }
+
+func TestCompareWildcardIsItsOwnShape(t *testing.T) {
+	concrete := tup("user:a", "viewer", "doc:1")
+	wildcard := tup("user:*", "viewer", "doc:1")
+	got := Compare([]language.Tuple{concrete}, []language.Tuple{concrete, wildcard}, []mapping.Shape{mapping.ShapeOf(concrete)})
+	if len(got.Stale) != 0 || !got.Empty() {
+		t.Errorf("Stale = %+v, want none: a hand-written wildcard is not in the owned shape", got.Stale)
+	}
+}

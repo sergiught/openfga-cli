@@ -486,6 +486,28 @@ func TestSnapshotUsersDeletedDuringRead(t *testing.T) {
 		"run the command again", err.Error())
 }
 
+func TestSnapshotUsersDeletedEmptiesLastPage(t *testing.T) {
+	t.Parallel()
+
+	// Page 0 reports 101 users; one of its users is then deleted, so the last
+	// user moves onto page 0's offsets and page 1 comes back empty.
+	p, _ := newProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		total := 101
+		if r.URL.Query().Get("page") != "0" {
+			total = 100
+		}
+
+		usersPage(w, r, total, func(page int) []int { return seq(0, 100) })
+	})
+
+	res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	isErr(t, err)
+	if res != nil {
+		t.Errorf("result = %+v, want nil", res)
+	}
+	contains(t, err.Error(), "users were deleted while the list was being read")
+}
+
 func TestSnapshotUsersGrowingTotalIsRead(t *testing.T) {
 	t.Parallel()
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -257,7 +258,10 @@ func (r *read) users() error {
 	seen := map[string]bool{}
 	pages, lastTotal := 0, -1.0
 
-	return walkPages(r, page, err, "users", typeUser, func(p *core.Page[*int, *management.UserResponseSchema, *management.ListUsersOffsetPaginatedResponseContent], at time.Time) error {
+	errDeleted := errors.New("Auth0 users were deleted while the list was being read, so a user may have been skipped; " +
+		"run the command again")
+
+	if err := walkPages(r, page, err, "users", typeUser, func(p *core.Page[*int, *management.UserResponseSchema, *management.ListUsersOffsetPaginatedResponseContent], at time.Time) error {
 		total := p.Response.GetTotal()
 		if total > maxUsers {
 			return fmt.Errorf("Auth0 lists at most 1,000 users through this API and this tenant has %.0f; "+
@@ -265,8 +269,7 @@ func (r *read) users() error {
 		}
 
 		if total < lastTotal {
-			return errors.New("Auth0 users were deleted while the list was being read, so a user may have been skipped; " +
-				"run the command again")
+			return errDeleted
 		}
 
 		lastTotal = total
@@ -294,7 +297,17 @@ func (r *read) users() error {
 		}
 
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+
+	// A deletion that empties the last page ends the walk without the total
+	// check ever seeing it, so compare what was read with what was reported.
+	if float64(len(seen)) < math.Min(lastTotal, maxUsers) {
+		return errDeleted
+	}
+
+	return nil
 }
 
 func (r *read) organizations() error {

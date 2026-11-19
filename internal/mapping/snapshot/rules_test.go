@@ -123,3 +123,104 @@ func TestCoverage(t *testing.T) {
 		t.Errorf("notChecked = %+v, want %+v", notChecked, wantNotChecked)
 	}
 }
+
+func TestOptInReadsTheExpression(t *testing.T) {
+	const snap = "snapshot.organization.member"
+	cases := []struct {
+		name string
+		when string
+		want bool
+	}{
+		{"or clause", `input.type == "organization.member.added" || input.type == "snapshot.organization.member"`, true},
+		{"line comment", "input.type == \"organization.member.added\"\n// || input.type == \"snapshot.organization.member\"\n", false},
+		{"block comment", `input.type == "organization.member.added" /* || input.type == "snapshot.organization.member" */`, false},
+		{"not equal", `input.type != "snapshot.organization.member"`, false},
+		{"negated", `!(input.type == "snapshot.organization.member")`, false},
+		{"in list", `input.type in ["organization.member.added", "snapshot.organization.member"]`, true},
+		{"literal first", `"snapshot.organization.member" == input.type`, true},
+		{"and clause", `input.type == "snapshot.organization.member" && input.data.object.x == "y"`, true},
+		{"escaped quote before", `input.data.object.name == "a\"b" || input.type == "snapshot.organization.member"`, true},
+		{"startsWith", `input.type.startsWith("snapshot.")`, false},
+		{"optional chain", `input?.type == "snapshot.organization.member"`, true},
+		{"does not parse", `input.type == "snapshot.organization.member" ||`, false},
+	}
+	for _, tc := range cases {
+		r := mapping.Rule{Name: "r", When: tc.when}
+		if got := IsSnapshotRule(r, testTypes); got != tc.want {
+			t.Errorf("%s: IsSnapshotRule = %v, want %v", tc.name, got, tc.want)
+		}
+		var wantReq []string
+		if tc.want {
+			wantReq = []string{snap}
+		}
+		doc := &mapping.Document{Rules: []mapping.Rule{r}}
+		if got := Requested(doc, testTypes); !slices.Equal(got, wantReq) {
+			t.Errorf("%s: Requested = %v, want %v", tc.name, got, wantReq)
+		}
+		wantOwned := 0
+		if tc.want {
+			r.Tuples = []mapping.Tuple{{User: "user:{{ x }}", Relation: "member", Object: "organization:{{ y }}"}}
+			wantOwned = 1
+		}
+		doc = &mapping.Document{Rules: []mapping.Rule{r}}
+		if owned, _ := Coverage(doc, testTypes); len(owned) != wantOwned {
+			t.Errorf("%s: owned = %v, want %d shapes", tc.name, owned, wantOwned)
+		}
+	}
+	if got := Unknown(whenDoc(`input.type.startsWith("snapshot.")`), testTypes); len(got) != 0 {
+		t.Errorf("Unknown(startsWith) = %v, want none", got)
+	}
+}
+
+func TestCoverageTupleWhen(t *testing.T) {
+	user := "user:{{ input.data.user_id }}"
+	org := "organization:{{ input.data.org }}"
+	rule := func(when string) mapping.Rule {
+		return mapping.Rule{
+			Name: "members",
+			When: `input.type == "organization.member.added" || input.type == "snapshot.organization.member"`,
+			Tuples: []mapping.Tuple{
+				{User: user, Relation: "member", Object: org},
+				{User: user, Relation: "owner", Object: org, When: when},
+			},
+		}
+	}
+	member := mapping.Shape{UserType: "user", Relation: "member", ObjectType: "organization"}
+	owner := mapping.Shape{UserType: "user", Relation: "owner", ObjectType: "organization"}
+
+	owned, notChecked := Coverage(&mapping.Document{Rules: []mapping.Rule{rule(`input.type == "organization.member.added"`)}}, testTypes)
+	if !reflect.DeepEqual(owned, []mapping.Shape{member}) {
+		t.Errorf("owned = %+v, want only member", owned)
+	}
+	wantNC := []NotChecked{{
+		Rule:   "members",
+		Reason: "a tuple's own when leaves out snapshot events, so user owner organization is not compared",
+		Shapes: []mapping.Shape{owner},
+	}}
+	if !reflect.DeepEqual(notChecked, wantNC) {
+		t.Errorf("notChecked = %+v, want %+v", notChecked, wantNC)
+	}
+
+	for name, when := range map[string]string{
+		"no input.type":   `input.data.object.is_enabled`,
+		"membership test": `"plan" in input.data.object.app_metadata`,
+		"names snapshot":  `input.type == "snapshot.organization.member"`,
+		"empty":           ``,
+	} {
+		owned, notChecked := Coverage(&mapping.Document{Rules: []mapping.Rule{rule(when)}}, testTypes)
+		if !reflect.DeepEqual(owned, []mapping.Shape{member, owner}) || len(notChecked) != 0 {
+			t.Errorf("%s: owned = %+v, notChecked = %+v, want both shapes owned", name, owned, notChecked)
+		}
+	}
+
+	owned, _ = Coverage(&mapping.Document{Rules: []mapping.Rule{rule(`input.data.x ==`)}}, testTypes)
+	if !reflect.DeepEqual(owned, []mapping.Shape{member}) {
+		t.Errorf("unparsable tuple when: owned = %+v, want only member", owned)
+	}
+
+	// A snapshot type the rule itself never matches cannot fire the template.
+	owned, _ = Coverage(&mapping.Document{Rules: []mapping.Rule{rule(`input.type == "snapshot.organization.member.role"`)}}, testTypes)
+	if !reflect.DeepEqual(owned, []mapping.Shape{member}) {
+		t.Errorf("another snapshot type: owned = %+v, want only member", owned)
+	}
+}

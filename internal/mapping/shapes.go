@@ -3,14 +3,15 @@ package mapping
 import "github.com/openfga/mapper/language"
 
 // Shape is what a tuple looks like with its ids removed.
-type Shape struct{ UserType, Relation, ObjectType string } // UserType is "user" or "group#member"
+type Shape struct{ UserType, Relation, ObjectType string } // UserType is "user", "user:*" or "group#member"
 
 // String renders the shape as "user member organization".
 func (s Shape) String() string { return s.UserType + " " + s.Relation + " " + s.ObjectType }
 
-// ShapeOf is the shape of a concrete tuple; "user:*" has UserType "user".
+// ShapeOf is the shape of a concrete tuple. A wildcard user has UserType
+// "user:*", a shape of its own, so it never shares one with concrete users.
 func ShapeOf(t language.Tuple) Shape {
-	userType, _ := literalUserType(t.User)
+	userType, _ := modelUserType(t.User)
 	objectType, _ := literalObjectType(t.Object)
 	return Shape{UserType: userType, Relation: t.Relation, ObjectType: objectType}
 }
@@ -32,7 +33,7 @@ func RuleShapes(r Rule) (shapes []Shape, unshaped int) {
 		if t.Action == "delete" {
 			continue
 		}
-		userType, userOK := literalUserType(t.User)
+		userType, userOK := modelUserType(t.User)
 		objectType, objectOK := literalObjectType(t.Object)
 		if !userOK || !objectOK || !fixed(t.Relation) {
 			unshaped++

@@ -14,7 +14,7 @@ func TestShapeOf(t *testing.T) {
 	}{
 		{language.Tuple{User: "user:anne", Relation: "member", Object: "organization:acme"}, Shape{"user", "member", "organization"}},
 		{language.Tuple{User: "membership:o|u#holder", Relation: "assignee", Object: "role:o|r"}, Shape{"membership#holder", "assignee", "role"}},
-		{language.Tuple{User: "user:*", Relation: "viewer", Object: "doc:1"}, Shape{"user", "viewer", "doc"}},
+		{language.Tuple{User: "user:*", Relation: "viewer", Object: "doc:1"}, Shape{"user:*", "viewer", "doc"}},
 	}
 	for _, tc := range tests {
 		if got := ShapeOf(tc.tuple); got != tc.want {

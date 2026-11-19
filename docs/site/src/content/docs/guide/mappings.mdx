@@ -569,9 +569,14 @@ cannot reproduce.
   and run the command again, especially before `--prune`.
 - Auth0's user list can lag by a few seconds. A user created a moment ago, whose
   event already reached the store, can look stale.
-- Snapshot types are found by the quoted text in `when`, so write them as
-  string literals. A quoted string that starts with `snapshot.` and is not a
-  type is an error, and the error lists the types the provider has.
+- A rule opts in when its `when` compares `input.type` with a snapshot type,
+  using `==` or an `in` list. A commented-out or negated comparison does not
+  count. A quoted string that starts with `snapshot.` and is not a type is an
+  error, and the error lists the types the provider has.
+- A tuple with a `when` of its own that names other event types is not compared.
+  Its shape is left out of the check, and the report says so.
+- A wildcard tuple such as `user:*` has a shape of its own. A wildcard you wrote
+  by hand is never stale unless a rule writes `user:*` itself.
 - `tuple_filters` in a snapshot rule act on the replay, not on the store. The
   replay starts from an empty store, so a filter sees only tuples written by
   earlier snapshot events.
