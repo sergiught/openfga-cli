@@ -301,8 +301,9 @@ names. They read three settings:
 | Application client secret | `--auth0-client-secret-file` (a file holding it) | `AUTH0_CLIENT_SECRET` |
 
 A flag wins over its variable. No flag takes the secret itself, so it never
-lands in your shell history. `--auth0-tenant` sets the tenant name shown and
-placed in `a0tenant`; it defaults to the first label of the domain. Both
+lands in your shell history. `--auth0-tenant` sets the tenant name the
+snapshot events carry, in `a0tenant` and `data.context.tenant.id`; it defaults
+to the first label of the domain. Output shows the domain. Both
 commands also use the active profile's store, so a profile and a store must be
 selected, `--dry-run` included.
 
@@ -348,7 +349,7 @@ it, `backfill` warns how old the snapshot is, asks, and writes:
 ```
 ● Snapshot is 2s old; changes since then are not reflected.
 Write 12 tuples to store mappings-demo (01K1X2Y3Z4A5B6C7D8E9F0G1H2)? [y/N]: y
-● sent 12 writes to store mappings-demo (Auth0 state as of 15:00:26 UTC)
+● sent 12 writes to store mappings-demo (Auth0 state as of 15:00:23 UTC)
 ```
 
 `--force` skips the question. The tuples come out in batches of at most 100
@@ -381,26 +382,41 @@ Auth0 read  15:00:27 → 15:00:28 UTC  example.us.auth0.com
 ● no drift: 12 tuples match Auth0
 ```
 
-Say Carol's membership event was lost, and a member Auth0 has since deleted was
-never removed from the store. The same command now reports both, and exits `3`:
+Say Erin joined `org_acme` but her `organization.member.added` event was lost,
+and Bob was removed from `org_acme` but his `organization.member.deleted` event
+was lost. Bob held the `rol_viewer` role there. The same command now reports
+both, and exits `3`:
+
+| Lost event | Tuples it leaves | Reported as |
+| --- | --- | --- |
+| `organization.member.added` for Erin | `user:auth0\|erin member organization:org_acme`, `user:auth0\|erin holder membership:org_acme\|auth0\|erin` | 2 missing |
+| `organization.member.deleted` for Bob | `user:auth0\|bob member organization:org_acme`, `user:auth0\|bob holder membership:org_acme\|auth0\|bob`, `membership:org_acme\|auth0\|bob#holder assignee role:org_acme\|rol_viewer` | 3 stale |
+
+The store holds 12 tuples. Auth0 now backs 11: 4 members and 3 roles.
 
 ```
 store read  15:02:41 UTC  12 tuples  mappings-demo
 Auth0 read  15:02:41 → 15:02:42 UTC  example.us.auth0.com
   snapshot.organization.member       4
-  snapshot.organization.member.role  4
+  snapshot.organization.member.role  3
 
 missing  in Auth0, not in the store
-1 tuple
+2 tuples
 SHAPE                      TUPLES
+user holder membership     1
 user member organization   1
-+ user:auth0|carol member organization:org_globex
++ user:auth0|erin holder membership:org_acme|auth0|erin
++ user:auth0|erin member organization:org_acme
 
 stale    in the store, not in Auth0
-1 tuple
-SHAPE                      TUPLES
-user member organization   1
-- user:auth0|dave member organization:org_acme
+3 tuples
+SHAPE                             TUPLES
+membership#holder assignee role   1
+user holder membership            1
+user member organization          1
+- membership:org_acme|auth0|bob#holder assignee role:org_acme|rol_viewer
+- user:auth0|bob holder membership:org_acme|auth0|bob
+- user:auth0|bob member organization:org_acme
 ```
 
 Without `--dry-run` it then asks before writing the missing and changed tuples (a
@@ -413,28 +429,52 @@ ofga mappings drift examples/mappings/auth0.yaml --provider auth0
 
 ```
 ● Snapshot is 1s old; changes since then are not reflected.
-Write 1 tuple to store mappings-demo (01K1X2Y3Z4A5B6C7D8E9F0G1H2)? [y/N]: y
-● sent 1 write to store mappings-demo (Auth0 state as of 15:02:42 UTC)
-● 1 stale tuple left alone; run again with --prune to delete them
+Write 2 tuples to store mappings-demo (01K1X2Y3Z4A5B6C7D8E9F0G1H2)? [y/N]: y
+● sent 2 writes to store mappings-demo (Auth0 state as of 15:02:42 UTC)
+● 3 stale tuples left alone; run again with --prune to delete them
 ```
 
-Stale tuples are never deleted unless you pass `--prune`. With it, `drift` asks
-a second question, after the writes (and also when you declined them):
+Stale tuples are never deleted unless you pass `--prune`. With it, `drift` first
+asks the write question, if there is anything to write. It then prints the stale
+shapes again, repeats the age line and asks to delete them. Run with `--prune`
+after the writes above, the store holds 14 tuples, so only the stale ones are
+left to report and the write question is skipped:
 
 ```bash
 ofga mappings drift examples/mappings/auth0.yaml --provider auth0 --prune
 ```
 
-After the report, which is the stale part of the one above and is not repeated here:
+```
+store read  15:03:10 UTC  14 tuples  mappings-demo
+Auth0 read  15:03:10 → 15:03:11 UTC  example.us.auth0.com
+  snapshot.organization.member       4
+  snapshot.organization.member.role  3
+
+stale    in the store, not in Auth0
+3 tuples
+SHAPE                             TUPLES
+membership#holder assignee role   1
+user holder membership            1
+user member organization          1
+- membership:org_acme|auth0|bob#holder assignee role:org_acme|rol_viewer
+- user:auth0|bob holder membership:org_acme|auth0|bob
+- user:auth0|bob member organization:org_acme
+```
+
+and on stderr, after the report:
 
 ```
-1 tuple
-SHAPE                      TUPLES
-user member organization   1
+3 tuples
+SHAPE                             TUPLES
+membership#holder assignee role   1
+user holder membership            1
+user member organization          1
 ● Snapshot is 1s old; changes since then are not reflected.
-Delete 1 stale tuple from store mappings-demo (01K1X2Y3Z4A5B6C7D8E9F0G1H2)? [y/N]: y
-● deleted 1 stale tuple from store mappings-demo
+Delete 3 stale tuples from store mappings-demo (01K1X2Y3Z4A5B6C7D8E9F0G1H2)? [y/N]: y
+● deleted 3 stale tuples from store mappings-demo
 ```
+
+The store is left with 11 tuples, which Auth0 backs.
 
 The flags:
 
@@ -499,12 +539,15 @@ stale and are deleted.
   through this API and this tenant has N; tenants this large are not supported
   yet`; nothing is truncated.
 - Auth0 rate-limits the Management API, at about 2 requests a second on the Free
-  plan. A read makes one token request, then pages of 100: one request per 100
-  organizations to list them, and, per organization, one request per 100 members
-  (roles come in the same request) and one per 100 enabled connections. Users
-  and connections are one request per 100 each, and a connection adds one more
-  to list its clients. A tenant of 40 organizations with up to 100 members each
-  is about 42 requests when the mapping names member types. A rate-limited
+  plan. A read makes one token request, then pages of 100, and only for
+  the types the mapping names. Any organization type costs one request per 100
+  organizations to list them. For each organization, `snapshot.organization.member`
+  or `snapshot.organization.member.role` costs one request per 100 members (roles
+  come in the same request), and `snapshot.organization.connection` costs one
+  per 100 enabled connections. `snapshot.user` is one request per 100 users.
+  `snapshot.connection` is one request per 100 connections plus at least one per
+  connection to list its clients. A tenant of 40 organizations with up to 100
+  members each is about 42 requests when the mapping names only member types. A rate-limited
   request is retried, up to 5 attempts, before the command fails with "Auth0 is
   rate limiting reads of ...; try again shortly".
 - Groups are not covered yet; there is no snapshot type for them.
