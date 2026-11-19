@@ -1,0 +1,29 @@
+{
+  "specversion": "1.0",
+  "type": "snapshot.organization.member.role",
+  "source": "urn:auth0:example.auth0app.com",
+  "id": "snap_000001",
+  "time": "2025-02-01T12:34:56Z",
+  "a0tenant": "my-tenant",
+  "subject": "organization org_1234567890abcdef member auth0|507f1f77bcf86cd799439020 role rol_1234567890abcdef",
+  "data": {
+    "object": {
+      "organization": {
+        "id": "org_1234567890abcdef",
+        "name": "my-organization"
+      },
+      "user": {
+        "user_id": "auth0|507f1f77bcf86cd799439020"
+      },
+      "role": {
+        "id": "rol_1234567890abcdef",
+        "name": "role-name"
+      }
+    },
+    "context": {
+      "tenant": {
+        "id": "my-tenant"
+      }
+    }
+  }
+}

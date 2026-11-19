@@ -11,10 +11,11 @@ import (
 	"github.com/sergiught/openfga-cli/internal/mapping/auth0"
 )
 
-// addSnapshotClauses is the hand edit the example carries on top of the
-// recipes: the two rules that write also answer the snapshot events that
-// `mappings backfill` and `mappings drift` replay, with a test for each.
-func addSnapshotClauses(d *mapping.Document) {
+// addSnapshotTests is the hand edit the example carries on top of the
+// recipes: a test for each snapshot event the two writing rules answer, which
+// `mappings backfill` and `mappings drift` replay. The recipes already name
+// the snapshot types in their `when`.
+func addSnapshotTests(d *mapping.Document) {
 	const org, user, role = "org_acme", "user_anne", "rol_admin"
 	snapshot := func(typ, subject, id string, object map[string]any) map[string]any {
 		return map[string]any{
@@ -28,14 +29,6 @@ func addSnapshotClauses(d *mapping.Document) {
 	}
 	orgRef := map[string]any{"id": org, "name": "acme"}
 	userRef := map[string]any{"user_id": user}
-	for i := range d.Rules {
-		switch d.Rules[i].Name {
-		case "organization.member.added":
-			d.Rules[i].When += ` || input.type == "snapshot.organization.member"`
-		case "organization.member.role.assigned":
-			d.Rules[i].When += ` || input.type == "snapshot.organization.member.role"`
-		}
-	}
 	d.Tests = append(d.Tests,
 		mapping.TestCase{
 			Name: "snapshot.organization.member",
@@ -76,7 +69,7 @@ func TestExampleMappingIsWhatTheRecipesProduce(t *testing.T) {
 	}
 	d := *s.Doc
 	d.Tests = mapping.SavedTests(context.Background(), s.Doc)
-	addSnapshotClauses(&d)
+	addSnapshotTests(&d)
 	got, err := mapping.Marshal(&d)
 	if err != nil {
 		t.Fatal(err)

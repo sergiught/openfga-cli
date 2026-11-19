@@ -1,0 +1,31 @@
+{
+  "specversion": "1.0",
+  "type": "snapshot.organization.connection",
+  "source": "urn:auth0:example.auth0app.com",
+  "id": "snap_000001",
+  "time": "2025-02-01T12:34:56Z",
+  "a0tenant": "my-tenant",
+  "subject": "organization org_1234567890abcdef connection con_kFOHQUeaCSC1Kjqz",
+  "data": {
+    "object": {
+      "organization": {
+        "id": "org_1234567890abcdef",
+        "name": "my-organization"
+      },
+      "connection": {
+        "id": "con_kFOHQUeaCSC1Kjqz",
+        "name": "Username-Password-Authentication",
+        "strategy": "oidc"
+      },
+      "assign_membership_on_login": false,
+      "show_as_button": false,
+      "is_signup_enabled": false,
+      "is_enabled": true
+    },
+    "context": {
+      "tenant": {
+        "id": "my-tenant"
+      }
+    }
+  }
+}
