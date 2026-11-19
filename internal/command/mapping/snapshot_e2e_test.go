@@ -85,7 +85,9 @@ func TestSnapshotEndToEndAuth0(t *testing.T) {
 		t.Helper()
 		for _, tp := range tuples {
 			if tp.Relation == "member" {
+				// The first member tuple: the ghost needs an organization object.
 				gone = openfga.NewTupleKey(tp.User, tp.Relation, tp.Object)
+				break
 			}
 		}
 		if gone.Object == "" {
@@ -151,8 +153,16 @@ func TestSnapshotEndToEndAuth0(t *testing.T) {
 	if len(res.Missing) != 1 || len(res.Stale) != 1 || len(res.Changed) != 0 || res.Sent.Writes+res.Sent.Deletes != 0 {
 		t.Fatalf("drift --dry-run: %+v", res)
 	}
-	if res.Stale[0].User != "user:ofga-e2e-ghost" || res.Missing[0].User != gone.User {
+	sameTuple := func(got tupleOut, user, relation, object string) bool {
+		return got.User == user && got.Relation == relation && got.Object == object
+	}
+	if !sameTuple(res.Stale[0], "user:ofga-e2e-ghost", "member", gone.Object) ||
+		!sameTuple(res.Missing[0], gone.User, gone.Relation, gone.Object) {
 		t.Fatalf("drift --dry-run named the wrong tuples: missing %+v, stale %+v", res.Missing, res.Stale)
+	}
+
+	if res.StoreReadAt.IsZero() || res.StartedAt.IsZero() || res.StoreReadAt.After(res.StartedAt) {
+		t.Fatalf("store read at %v must not be after the snapshot started at %v", res.StoreReadAt, res.StartedAt)
 	}
 
 	// 4. --force fixes the missing tuple, and the stale one keeps the exit code at 3.
@@ -176,17 +186,25 @@ func TestSnapshotEndToEndAuth0(t *testing.T) {
 		t.Fatalf("drift at the end: %+v", res)
 	}
 
-	// The same situation, read as a user would.
-	diverge(bf.Tuples)
-	for _, step := range []struct {
-		name string
-		args []string
-	}{
-		{"backfill", []string{"--dry-run"}},
-		{"drift", []string{"--dry-run"}},
-		{"drift", []string{"--force"}},
-		{"drift", []string{"--prune", "--force"}},
-	} {
-		_, _ = runCmd(false, step.name, step.args...)
+	// The same run, read as a user would: a fresh empty store first.
+	storeID, modelID, err = eng.Setup(ctx, lm.Proto, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
+	cfg.Set("default", config.Profile{APIURL: endpoint, StoreID: storeID, ModelID: modelID})
+	if cl, err = openfga.NewClient(endpoint, openfga.WithStoreID(storeID), openfga.WithAuthorizationModelID(modelID)); err != nil {
+		t.Fatal(err)
+	}
+	human := func(name string, want int, args ...string) {
+		t.Helper()
+		_, err := runCmd(false, name, args...)
+		wantCode("human "+name+" "+strings.Join(args, " "), err, want)
+	}
+	human("backfill", 0, "--dry-run")
+	human("backfill", 0, "--force")
+	human("drift", 0, "--dry-run")
+	diverge(bf.Tuples)
+	human("drift", 3, "--dry-run")
+	human("drift", 3, "--force")
+	human("drift", 0, "--prune", "--force")
 }
