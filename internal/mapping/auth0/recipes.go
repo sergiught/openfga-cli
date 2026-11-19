@@ -1,9 +1,6 @@
 package auth0
 
-import (
-	"github.com/sergiught/openfga-cli/internal/mapping"
-	snapauth0 "github.com/sergiught/openfga-cli/internal/mapping/snapshot/auth0"
-)
+import "github.com/sergiught/openfga-cli/internal/mapping"
 
 // Recipe is what the workspace knows about mapping one event: the rule it
 // pre-loads, the model that rule assumes, and the sentences explaining the
@@ -263,7 +260,7 @@ var lifecycleWarnings = map[string]string{
 
 func recipeFor(typ string) Recipe {
 	r := recipeBody(typ)
-	if snap, ok := snapshotMirrors()[typ]; ok && r.Maps() {
+	if snap, ok := snapshotMirrors[typ]; ok && r.Maps() {
 		r.Rule.When = whenWithSnapshot(typ, snap)
 	}
 	r.Warn = lifecycleWarnings[typ]
@@ -584,12 +581,14 @@ func recipeBody(typ string) Recipe {
 }
 
 // snapshotMirrors maps each creation event a snapshot type mirrors to that
-// type, so its recipe can answer both.
-func snapshotMirrors() map[string]string {
-	out := map[string]string{}
-	for _, t := range snapauth0.Types() {
-		out[t.Mirrors] = t.Name
-	}
-
-	return out
+// type, so its recipe can answer both. It is data here, not read from the
+// provider, so this package stays free of the Auth0 SDK; snapshot_test.go
+// holds it equal to what the provider declares.
+var snapshotMirrors = map[string]string{
+	"connection.created":                "snapshot.connection",
+	"user.created":                      "snapshot.user",
+	"organization.created":              "snapshot.organization",
+	"organization.connection.added":     "snapshot.organization.connection",
+	"organization.member.added":         "snapshot.organization.member",
+	"organization.member.role.assigned": "snapshot.organization.member.role",
 }

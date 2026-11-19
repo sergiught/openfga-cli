@@ -2,6 +2,9 @@ package auth0
 
 import (
 	"context"
+	"go/parser"
+	"go/token"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -113,6 +116,43 @@ func TestSnapshotSamplesAreNotCatalogEvents(t *testing.T) {
 
 		if _, err := loadSample(typ.Name); err != nil {
 			t.Errorf("snapshot sample missing: %v", err)
+		}
+	}
+}
+
+// The table recipes.go keeps must equal what the provider declares, both ways.
+func TestSnapshotMirrorsMatchProviderTypes(t *testing.T) {
+	want := map[string]string{}
+	for _, typ := range snapauth0.Types() {
+		want[typ.Mirrors] = typ.Name
+	}
+
+	if !reflect.DeepEqual(snapshotMirrors, want) {
+		t.Errorf("snapshotMirrors = %v, want %v", snapshotMirrors, want)
+	}
+}
+
+// The recipes are data: they must not import the provider or the Auth0 SDK.
+func TestRecipesPackageDoesNotImportProvider(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+
+		parsed, err := parser.ParseFile(token.NewFileSet(), f, nil, parser.ImportsOnly)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for _, imp := range parsed.Imports {
+			if path := strings.Trim(imp.Path.Value, `"`); strings.Contains(path, "snapshot/auth0") || strings.Contains(path, "go-auth0") {
+				t.Errorf("%s imports %s", f, path)
+			}
 		}
 	}
 }
