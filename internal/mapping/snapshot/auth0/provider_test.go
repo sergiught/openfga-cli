@@ -338,7 +338,7 @@ func TestSnapshotOrganizationConnections(t *testing.T) {
 			"start":0,"limit":100,"total":1}`,
 	})
 
-	// Offset paging ends on an empty page, as Auth0's does.
+	// A page past the first is empty, as Auth0's is.
 	p, rec := newProvider(t, func(w http.ResponseWriter, r *http.Request) {
 		if page := r.URL.Query().Get("page"); page != "" && page != "0" {
 			writeJSON(w, `{"enabled_connections":[],"start":1,"limit":100,"total":1}`)
@@ -368,7 +368,76 @@ func TestSnapshotOrganizationConnections(t *testing.T) {
 	reqs := rec.find("/organizations/org_1/enabled_connections")
 	requireNotEmpty(t, reqs)
 	equal(t, "true", reqs[0].Get("include_totals"))
+	// The short first page is the last: no request for an empty second one.
+	equal(t, 1, len(reqs))
 }
+
+func TestSnapshotOrganizationConnectionsFullPageAsksForTheNext(t *testing.T) {
+	t.Parallel()
+
+	var conns []string
+
+	for i := range pageSize {
+		conns = append(conns, fmt.Sprintf(`{"connection_id":"con_%03d","connection":{"name":"c%03d","strategy":"auth0"}}`, i, i))
+	}
+
+	p, rec := newProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v2/organizations":
+			writeJSON(w, `{"organizations":[{"id":"org_1","name":"acme-one"}]}`)
+		case r.URL.Query().Get("page") == "" || r.URL.Query().Get("page") == "0":
+			writeJSON(w, `{"enabled_connections":[`+strings.Join(conns, ",")+`],"start":0,"limit":100,"total":100}`)
+		default:
+			writeJSON(w, `{"enabled_connections":[],"start":1,"limit":100,"total":100}`)
+		}
+	})
+
+	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization.connection"}, nil)
+	noErr(t, err)
+	equal(t, pageSize, len(res.Events))
+	equal(t, 2, len(rec.find("/organizations/org_1/enabled_connections")))
+}
+
+func TestCountingTransport(t *testing.T) {
+	t.Parallel()
+
+	status := http.StatusOK
+	base := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: status, Body: http.NoBody}, nil
+	})
+	l := &rateLimits{}
+	waits := 0
+	l.begin(func() { waits++ })
+	rt := l.transport(base)
+
+	do := func() {
+		t.Helper()
+
+		req, err := http.NewRequest(http.MethodGet, "http://example.invalid/", nil)
+		noErr(t, err)
+		_, err = rt.RoundTrip(req)
+		noErr(t, err)
+	}
+
+	do()
+	equal(t, 0, l.count())
+	equal(t, 0, waits)
+
+	status = http.StatusTooManyRequests
+	do()
+	do()
+	equal(t, 2, l.count())
+	equal(t, 2, waits)
+
+	l.begin(nil) // a new read starts from zero
+	equal(t, 0, l.count())
+	do()
+	equal(t, 1, l.count())
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 // usersPage serves page of a users list the way Auth0 does: ids picks the
 // users on the page, pages that start at or past 1,000 are refused and pages
@@ -590,11 +659,15 @@ func TestSnapshotRetriesRateLimit(t *testing.T) {
 		writeJSON(w, orgsBody)
 	})
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization"}, nil)
+	var said []string
+
+	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization"}, func(msg string) { said = append(said, msg) })
 	noErr(t, err)
 	if len(res.Events) != 2 {
 		t.Errorf("len(res.Events) = %d, want 2", len(res.Events))
 	}
+	equal(t, 1, res.RateLimited)
+	contains(t, strings.Join(said, "\n"), "waiting on Auth0's rate limit")
 }
 
 func TestSnapshotRateLimitExhausted(t *testing.T) {

@@ -26,6 +26,7 @@ type Result struct {
 	Source                string // what was read, for display: the Auth0 domain
 	Events                []map[string]any
 	Counts                []Count // one per requested type, in the provider's order
+	RateLimited           int     // responses of this read that were HTTP 429
 	StartedAt, FinishedAt time.Time
 }
 

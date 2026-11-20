@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/auth0/go-auth0/v2/management"
@@ -29,6 +31,57 @@ type Config struct {
 type Provider struct {
 	m              *client.Management
 	source, tenant string
+	limits         *rateLimits
+}
+
+// rateLimits counts the HTTP 429 answers of the read in progress. It sees the
+// status code of each response and nothing else.
+type rateLimits struct {
+	mu     sync.Mutex
+	n      int
+	onWait func()
+}
+
+// begin starts counting for a new read; onWait runs on each 429.
+func (l *rateLimits) begin(onWait func()) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.n, l.onWait = 0, onWait
+}
+
+// count is how many 429 answers the read has had.
+func (l *rateLimits) count() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.n
+}
+
+// transport wraps base so each 429 answer is counted.
+func (l *rateLimits) transport(base http.RoundTripper) http.RoundTripper {
+	return countingTransport{base: base, l: l}
+}
+
+type countingTransport struct {
+	base http.RoundTripper
+	l    *rateLimits
+}
+
+func (t countingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.base.RoundTrip(req)
+	if err == nil && resp.StatusCode == http.StatusTooManyRequests {
+		t.l.mu.Lock()
+		t.l.n++
+		onWait := t.l.onWait
+		t.l.mu.Unlock()
+
+		if onWait != nil {
+			onWait()
+		}
+	}
+
+	return resp, err
 }
 
 var _ snapshot.Provider = (*Provider)(nil)
@@ -57,6 +110,11 @@ func New(ctx context.Context, cfg Config, opts ...option.RequestOption) (*Provid
 	}
 
 	all = append(all, option.WithMaxAttempts(5))
+
+	// The SDK's own default is http.DefaultClient, which has no timeout and
+	// uses http.DefaultTransport; this keeps both and only counts the 429s.
+	limits := &rateLimits{}
+	all = append(all, option.WithHTTPClient(&http.Client{Transport: limits.transport(http.DefaultTransport)}))
 	all = append(all, opts...)
 
 	m, err := client.New(host, all...)
@@ -64,7 +122,7 @@ func New(ctx context.Context, cfg Config, opts ...option.RequestOption) (*Provid
 		return nil, err
 	}
 
-	return &Provider{m: m, source: host, tenant: tenant}, nil
+	return &Provider{m: m, source: host, tenant: tenant, limits: limits}, nil
 }
 
 // Name is the --provider value.
@@ -111,6 +169,8 @@ func (p *Provider) Snapshot(ctx context.Context, types []string, progress func(s
 		r.want[t] = true
 	}
 
+	p.limits.begin(func() { r.say("waiting on Auth0's rate limit") })
+
 	res := &snapshot.Result{Source: p.source, StartedAt: now()}
 
 	steps := []struct {
@@ -151,6 +211,7 @@ func (p *Provider) Snapshot(ctx context.Context, types []string, progress func(s
 	}
 
 	res.FinishedAt = now()
+	res.RateLimited = p.limits.count()
 
 	return res, nil
 }
@@ -369,9 +430,9 @@ func (r *read) orgConnections(org map[string]any) error {
 	page, err := r.m.Organizations.EnabledConnections.List(r.ctx, id,
 		&management.ListOrganizationConnectionsRequestParameters{PerPage: &perPage, IncludeTotals: &totals})
 
-	return walk(r, page, err, "organization connections", typeOrgConnection,
-		func(items []*management.OrganizationConnection, at time.Time) error {
-			for _, c := range items {
+	return walkPages(r, page, err, "organization connections", typeOrgConnection,
+		func(p *core.Page[*int, *management.OrganizationConnection, *management.ListOrganizationConnectionsOffsetPaginatedResponseContent], at time.Time) error {
+			for _, c := range p.Results {
 				raw, err := toMap(c)
 				if err != nil {
 					return err
@@ -381,6 +442,11 @@ func (r *read) orgConnections(org map[string]any) error {
 					typ: typeOrgConnection, subject: fmt.Sprintf("organization %s connection %s", id, c.GetConnectionID()),
 					object: orgConnectionObject(org, raw), at: at,
 				})
+			}
+
+			// A short page is the last one; asking for the next would cost a request.
+			if len(p.Results) < pageSize {
+				return errStopWalk
 			}
 
 			return nil

@@ -168,7 +168,11 @@ func snapshotLayout(r *snapshot.Result) string {
 // many events of each type it produced.
 func snapshotHeader(w io.Writer, label string, r *snapshot.Result) {
 	start, finish := snapshotTimes(r)
-	_, _ = fmt.Fprintf(w, "%s read  %s → %s UTC  %s\n", output.SanitizeField(label), start, finish, output.SanitizeField(r.Source))
+	waits := ""
+	if r.RateLimited > 0 {
+		waits = "  " + mapping.Plural(r.RateLimited, "rate-limit wait")
+	}
+	_, _ = fmt.Fprintf(w, "%s read  %s → %s UTC  %s%s\n", output.SanitizeField(label), start, finish, output.SanitizeField(r.Source), waits)
 	width := 0
 	for _, c := range r.Counts {
 		width = max(width, len(c.Type))
