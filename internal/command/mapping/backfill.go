@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/openfga/mapper/language"
 	"github.com/sergiught/go-openfga/openfga"
@@ -25,8 +26,12 @@ import (
 // backfillResult is the document `mappings backfill` prints under -o json/yaml.
 type backfillResult struct {
 	snapshotMeta
-	Tuples []tupleOut `json:"tuples"`
-	Sent   sentOut    `json:"sent"`
+	StoreReadAt time.Time  `json:"store_read_at"`
+	Tuples      []tupleOut `json:"tuples"`
+	Missing     []tupleOut `json:"missing"`
+	Changed     []tupleOut `json:"changed"`
+	Existing    int        `json:"existing"`
+	Sent        sentOut    `json:"sent"`
 }
 
 // sentOut is how many changes reached the store.
@@ -48,8 +53,8 @@ func (c *Command) newBackfillCmd() *cobra.Command {
 			"A rule takes part when its `when` also names a snapshot type, such as `input.type == \"snapshot.organization.member\"`; " +
 			"a mapping with none has nothing to backfill, and the error suggests the clause for each rule. " +
 			"Only the types the mapping names are read.\n\n" +
-			"backfill only adds: it never deletes tuples from the store, and writing a tuple that already exists is ignored. " +
-			"It shows the tuples and asks before writing (--force skips the question, --dry-run stops after showing them). " +
+			"backfill reads the store first and writes only the tuples it lacks. It never deletes, and a tuple that is already there with a different condition is left for drift to replace. " +
+			"It shows the tuples it would write and asks before writing (--force skips the question, --dry-run stops after showing them). " +
 			"The provider is read once, so the tuples reflect it as of that moment. Changes made while the command runs, or after it, are not included. " +
 			"Use `ofga mappings drift` to compare the store with the provider and to remove tuples the provider no longer backs.\n\n" +
 			"Run again after a failure: tuples that already landed are ignored. Auth0 needs a machine-to-machine application. A mapping that names snapshot.user fails on a tenant with more than 1,000 users, since Auth0 lists no more through this API; nothing is truncated.\n\n" +
@@ -85,9 +90,12 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider string, dryRun,
 		cl                *openfga.Client
 		storeID           string
 		storeNm, storeLbl string
+		stored            []language.Tuple
+		storeReadAt       time.Time
 	)
-	// The store is resolved before the provider is read, so a missing profile
-	// or an unreachable server does not cost a long read first.
+	// The store is resolved and read before the provider, so a missing profile
+	// or an unreachable server does not cost a long read first, and the
+	// snapshot is never older than the store it is compared with.
 	run, err := c.runSnapshot(cmd, path, provider, func() error {
 		var r config.Resolved
 		var err error
@@ -95,18 +103,53 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider string, dryRun,
 			return err
 		}
 		storeID = r.StoreID
-		storeNm, storeLbl, err = storeName(ctx, cl, storeID)
-		return err
+		if storeNm, storeLbl, err = storeName(ctx, cl, storeID); err != nil {
+			return err
+		}
+		output.Progressf(errw, "reading the store")
+		if stored, err = (storeClient{cl}).ReadAll(ctx); err != nil {
+			return err
+		}
+		storeReadAt = now()
+		return nil
 	})
 	if err != nil {
 		return err
 	}
 
-	res := backfillResult{snapshotMeta: newSnapshotMeta(storeID, run, dryRun), Tuples: tuplesOut(run.Desired)}
+	// With no owned shapes nothing is stale: backfill never deletes.
+	diff := snapshot.Compare(run.Desired, stored, nil)
+	existing := len(run.Desired) - len(diff.Missing) - len(diff.Changed)
+	label := run.Provider.Label()
+	res := backfillResult{
+		snapshotMeta: newSnapshotMeta(storeID, run, dryRun), StoreReadAt: storeReadAt.UTC(),
+		Tuples: tuplesOut(run.Desired), Missing: tuplesOut(diff.Missing), Changed: tuplesOut(diff.Changed), Existing: existing,
+	}
 	if !machine {
-		snapshotHeader(out, run.Provider.Label(), run.Result)
-		if err := renderTuples(out, run.Desired); err != nil {
-			return err
+		storeReadLine(out, run, storeLbl, storeReadAt, len(stored))
+		snapshotHeader(out, label, run.Result)
+		if len(run.Desired) == 0 {
+			if err := renderTuples(out, run.Desired); err != nil {
+				return err
+			}
+		} else {
+			summary := fmt.Sprintf("%s from %s: %d missing from the store, %d already there",
+				mapping.Plural(len(run.Desired), "tuple"), output.SanitizeField(label), len(diff.Missing), existing)
+			if len(diff.Changed) > 0 {
+				summary += fmt.Sprintf(", %d there with a different condition", len(diff.Changed))
+			}
+			if _, err := fmt.Fprintln(out, summary); err != nil {
+				return err
+			}
+			if err := renderSections(out, []tupleSection{
+				{"missing", "in " + output.SanitizeField(label) + ", not in the store", diff.Missing},
+				{"changed", "condition differs", diff.Changed},
+			}); err != nil {
+				return err
+			}
+		}
+		if len(diff.Changed) > 0 {
+			output.Notef(errw, "%s in the store with a different condition; backfill leaves them, \"ofga mappings drift\" replaces them", mapping.Plural(len(diff.Changed), "tuple"))
 		}
 	}
 	if len(run.Desired) == 0 {
@@ -125,15 +168,24 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider string, dryRun,
 		}
 		return nil
 	}
+	if len(diff.Missing) == 0 {
+		if err := emitBackfill(out, c.cli, res); err != nil {
+			return err
+		}
+		_, finish := snapshotTimes(run.Result)
+		output.Successf(errw, "nothing to write: %s already in store %s (%s state as of %s UTC)", mapping.Plural(existing, "tuple"),
+			output.SanitizeField(storeLbl), output.SanitizeField(label), finish)
+		return nil
+	}
 	// The age belongs above a question, so only a run that will ask prints it.
 	if !force && !c.cli.NoInput && stdinIsTerminal(cmd) {
 		output.Notef(errw, "%s", snapshotAge(run.Result))
 	}
-	if err := prompt.Confirm(cmd, backfillQuestion(len(run.Desired), storeNm, storeID), force); err != nil {
+	if err := prompt.Confirm(cmd, backfillQuestion(len(diff.Missing), storeNm, storeID), force); err != nil {
 		return err
 	}
 
-	sent, err := snapshot.Write(ctx, storeClient{cl}, nil, run.Desired, func(done, total int) {
+	sent, err := snapshot.Write(ctx, storeClient{cl}, nil, diff.Missing, func(done, total int) {
 		if total > backfillRequestSize { // more than one request
 			output.Progressf(errw, "sent %d/%d writes", done, total)
 		}
@@ -143,15 +195,14 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider string, dryRun,
 		if eerr := emitBackfill(out, c.cli, res); eerr != nil {
 			return eerr
 		}
-		return reportBackfillFailure(ctx, errw, machine, sent, len(run.Desired), err)
+		return reportBackfillFailure(ctx, errw, machine, sent, len(diff.Missing), err)
 	}
 	if err := emitBackfill(out, c.cli, res); err != nil {
 		return err
 	}
 	_, finish := snapshotTimes(run.Result)
-	// "sent", not "wrote": the server ignores writes that already exist.
-	output.Successf(errw, "sent %s to store %s (%s state as of %s UTC)", mapping.Plural(sent.Writes, "write"),
-		output.SanitizeField(storeLbl), output.SanitizeField(run.Provider.Label()), finish)
+	output.Successf(errw, "wrote %s to store %s; %d already there (%s state as of %s UTC)", mapping.Plural(sent.Writes, "tuple"),
+		output.SanitizeField(storeLbl), existing, output.SanitizeField(label), finish)
 	return nil
 }
 
@@ -218,6 +269,9 @@ func emitBackfill(w io.Writer, c *cli.CLI, res backfillResult) error {
 			{"provider", res.Provider},
 			{"dry_run", strconv.FormatBool(res.DryRun)},
 			{"tuples", strconv.Itoa(len(res.Tuples))},
+			{"missing", strconv.Itoa(len(res.Missing))},
+			{"changed", strconv.Itoa(len(res.Changed))},
+			{"existing", strconv.Itoa(res.Existing)},
 			{"writes", strconv.Itoa(res.Sent.Writes)},
 		})
 	}

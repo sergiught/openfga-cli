@@ -3,6 +3,15 @@
     "backfillResult": {
       "additionalProperties": false,
       "properties": {
+        "changed": {
+          "items": {
+            "$ref": "#/$defs/tupleOut"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "counts": {
           "items": {
             "$ref": "#/$defs/snapshotCount"
@@ -14,6 +23,18 @@
         },
         "dry_run": {
           "type": "boolean"
+        },
+        "existing": {
+          "type": "integer"
+        },
+        "missing": {
+          "items": {
+            "$ref": "#/$defs/tupleOut"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "provider": {
           "type": "string"
@@ -35,6 +56,10 @@
         "store": {
           "type": "string"
         },
+        "store_read_at": {
+          "format": "date-time",
+          "type": "string"
+        },
         "tuples": {
           "items": {
             "$ref": "#/$defs/tupleOut"
@@ -53,7 +78,11 @@
         "snapshot_finished_at",
         "counts",
         "dry_run",
+        "store_read_at",
         "tuples",
+        "missing",
+        "changed",
+        "existing",
         "sent"
       ],
       "type": "object"

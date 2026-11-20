@@ -130,8 +130,150 @@ func TestBackfillForceWrites(t *testing.T) {
 			t.Errorf("write missing %s:\n%s", want, fs.writes[0])
 		}
 	}
-	if !strings.Contains(stderr, "sent 4 writes to store acme (Fake state as of 14:05:40 UTC)") || strings.Contains(stderr, "Snapshot is") {
+	if !strings.Contains(stderr, "wrote 4 tuples to store acme; 0 already there (Fake state as of 14:05:40 UTC)") || strings.Contains(stderr, "Snapshot is") {
 		t.Errorf("stderr:\n%s", stderr)
+	}
+}
+
+// storedTuple is a tuple of memberSnapshotMapping as the store holds it.
+func storedTuple(user, relation string) map[string]any {
+	return map[string]any{"user": "user:" + user, "relation": relation, "object": "organization:o1"}
+}
+
+func TestBackfillRerunWritesNothing(t *testing.T) {
+	configtest.Isolate(t)
+	pinNow(t, 60*time.Second)
+	fs := newFakeStore(t, storedTuple("u1", "member"), storedTuple("u1", "reader"), storedTuple("u2", "member"), storedTuple("u2", "reader"))
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: fakeResult()})
+	mp := writeFile(t, t.TempDir(), "m.yaml", memberSnapshotMapping)
+	c := fs.cli()
+	c.NoInput = true // nothing to confirm, so no --force is needed
+	stdout, stderr, err := runBackfill(t, c, strings.NewReader(""), mp, "--provider", "fake")
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	if fs.writeCount() != 0 {
+		t.Fatalf("wrote %d times with nothing missing", fs.writeCount())
+	}
+	if !strings.Contains(stdout, "4 tuples from Fake: 0 missing from the store, 4 already there") || !strings.Contains(stdout, "store read  14:03:13 UTC  4 tuples  acme") {
+		t.Errorf("stdout:\n%s", stdout)
+	}
+	if !strings.Contains(stderr, "nothing to write: 4 tuples already in store acme (Fake state as of 14:05:40 UTC)") || strings.Contains(stderr, "Snapshot is") {
+		t.Errorf("stderr:\n%s", stderr)
+	}
+}
+
+func TestBackfillWritesOnlyMissing(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, storedTuple("u1", "member"), storedTuple("u1", "reader"), storedTuple("u2", "member"))
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: fakeResult()})
+	mp := writeFile(t, t.TempDir(), "m.yaml", memberSnapshotMapping)
+	stdout, stderr, err := runBackfill(t, fs.cli(), nil, mp, "--provider", "fake", "--force")
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	if fs.writeCount() != 1 {
+		t.Fatalf("writes = %d, want 1", fs.writeCount())
+	}
+	if w := fs.writes[0]; strings.Count(w, `"user":`) != 1 || !strings.Contains(w, `"user:u2"`) || !strings.Contains(w, `"reader"`) {
+		t.Errorf("write carries more than the one missing tuple:\n%s", w)
+	}
+	if !strings.Contains(stdout, "4 tuples from Fake: 1 missing from the store, 3 already there") {
+		t.Errorf("stdout:\n%s", stdout)
+	}
+	if !strings.Contains(stderr, "wrote 1 tuple to store acme; 3 already there (Fake state as of 14:05:40 UTC)") {
+		t.Errorf("stderr:\n%s", stderr)
+	}
+}
+
+func TestBackfillLeavesChangedTuples(t *testing.T) {
+	configtest.Isolate(t)
+	changed := storedTuple("u1", "member")
+	changed["condition"] = map[string]any{"name": "in_office"}
+	fs := newFakeStore(t, changed)
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: fakeResult()})
+	mp := writeFile(t, t.TempDir(), "m.yaml", memberSnapshotMapping)
+
+	stdout, stderr, err := runBackfill(t, fs.cli(), nil, mp, "--provider", "fake", "--force")
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	if strings.Contains(fs.writes[0], `"user:u1"`) && strings.Contains(fs.writes[0], `"member"`) && strings.Count(fs.writes[0], `"user:u1"`) != 1 {
+		t.Errorf("changed tuple was written:\n%s", fs.writes[0])
+	}
+	if strings.Count(fs.writes[0], `"user":`) != 3 {
+		t.Errorf("write should carry the 3 missing tuples:\n%s", fs.writes[0])
+	}
+	for _, want := range []string{"3 missing from the store, 0 already there, 1 there with a different condition", "condition differs"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("stdout missing %q:\n%s", want, stdout)
+		}
+	}
+	if !strings.Contains(stderr, `1 tuple in the store with a different condition; backfill leaves them, "ofga mappings drift" replaces them`) {
+		t.Errorf("stderr:\n%s", stderr)
+	}
+
+	c := fs.cli()
+	c.JSON = true
+	stdout, stderr, err = runBackfill(t, c, nil, mp, "--provider", "fake", "--dry-run")
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	var got backfillResult
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Changed) != 1 || got.Changed[0].User != "user:u1" || got.Changed[0].Relation != "member" || len(got.Missing) != 3 || got.Existing != 0 {
+		t.Fatalf("result = %+v", got)
+	}
+}
+
+func TestBackfillDryRunDocumentReadsStore(t *testing.T) {
+	configtest.Isolate(t)
+	pinNow(t, time.Minute)
+	fs := newFakeStore(t, storedTuple("u1", "member"))
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: fakeResult()})
+	mp := writeFile(t, t.TempDir(), "m.yaml", memberSnapshotMapping)
+	c := fs.cli()
+	c.JSON = true
+	stdout, stderr, err := runBackfill(t, c, nil, mp, "--provider", "fake", "--dry-run")
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	if fs.writeCount() != 0 {
+		t.Fatal("dry run wrote")
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(stdout), &raw); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"store_read_at", "missing", "changed", "existing"} {
+		if _, ok := raw[k]; !ok {
+			t.Errorf("document has no %q:\n%s", k, stdout)
+		}
+	}
+	if string(raw["changed"]) != "[]" {
+		t.Errorf("changed = %s, want []", raw["changed"])
+	}
+	var got backfillResult
+	_ = json.Unmarshal([]byte(stdout), &got)
+	if !got.StoreReadAt.Equal(snapStart.Add(time.Minute)) || len(got.Missing) != 3 || got.Existing != 1 || got.Tuples == nil || len(got.Tuples) != 4 {
+		t.Fatalf("result = %+v", got)
+	}
+}
+
+func TestBackfillMachineNeedsFlagEvenWhenNothingIsMissing(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, storedTuple("u1", "member"), storedTuple("u1", "reader"), storedTuple("u2", "member"), storedTuple("u2", "reader"))
+	log := []string{}
+	fs.log = &log
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: fakeResult()})
+	mp := writeFile(t, t.TempDir(), "m.yaml", memberSnapshotMapping)
+	c := fs.cli()
+	c.YAML = true
+	_, _, err := runBackfill(t, c, nil, mp, "--provider", "fake")
+	if clierr.Code(err) != clierr.CodeUsage || len(log) != 0 {
+		t.Fatalf("code = %d err = %v reads = %v", clierr.Code(err), err, log)
 	}
 }
 

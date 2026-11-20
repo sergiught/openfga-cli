@@ -17,11 +17,7 @@ import (
 // header, each kind of drift with its tuples, and what was not checked.
 func renderDrift(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt time.Time, stored int, diff snapshot.Diff, notChecked []snapshot.NotChecked) error {
 	label := output.SanitizeField(run.Provider.Label())
-	layout := snapshotLayout(run.Result)
-	if storeReadAt.UTC().Format(time.DateOnly) != run.Result.FinishedAt.UTC().Format(time.DateOnly) {
-		layout = dateClockLayout // the store was read the day before the provider
-	}
-	_, _ = fmt.Fprintf(w, "store read  %s UTC  %s  %s\n", storeReadAt.UTC().Format(layout), mapping.Plural(stored, "tuple"), output.SanitizeField(storeLabel))
+	storeReadLine(w, run, storeLabel, storeReadAt, stored)
 	snapshotHeader(w, run.Provider.Label(), run.Result)
 
 	// A stale tuple is shown as the delete it would become.
@@ -30,23 +26,12 @@ func renderDrift(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt t
 		t.Action = language.ActionDelete
 		stale[i] = t
 	}
-	for _, s := range []struct {
-		name, what string
-		tuples     []language.Tuple
-	}{
+	if err := renderSections(w, []tupleSection{
 		{"missing", "in " + label + ", not in the store", diff.Missing},
 		{"changed", "condition differs", diff.Changed},
 		{"stale", "in the store, not in " + label, stale},
-	} {
-		if len(s.tuples) == 0 {
-			continue
-		}
-		if _, err := fmt.Fprintf(w, "\n%-7s  %s\n", s.name, s.what); err != nil {
-			return err
-		}
-		if err := renderTuples(w, s.tuples); err != nil {
-			return err
-		}
+	}); err != nil {
+		return err
 	}
 
 	if len(notChecked) == 0 {
@@ -59,6 +44,37 @@ func renderDrift(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt t
 	_, _ = fmt.Fprintf(w, "\nnot checked\n")
 	for _, n := range notChecked {
 		if _, err := fmt.Fprintf(w, "  %-*s  %s\n", width, output.SanitizeField(n.Rule), output.SanitizeField(n.Reason)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// storeReadLine prints when the store was read and how many tuples it held.
+func storeReadLine(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt time.Time, stored int) {
+	layout := snapshotLayout(run.Result)
+	if storeReadAt.UTC().Format(time.DateOnly) != run.Result.FinishedAt.UTC().Format(time.DateOnly) {
+		layout = dateClockLayout // the store was read the day before the provider
+	}
+	_, _ = fmt.Fprintf(w, "store read  %s UTC  %s  %s\n", storeReadAt.UTC().Format(layout), mapping.Plural(stored, "tuple"), output.SanitizeField(storeLabel))
+}
+
+// tupleSection is one named list of tuples in a report.
+type tupleSection struct {
+	name, what string
+	tuples     []language.Tuple
+}
+
+// renderSections prints each non-empty section after a blank line.
+func renderSections(w io.Writer, sections []tupleSection) error {
+	for _, s := range sections {
+		if len(s.tuples) == 0 {
+			continue
+		}
+		if _, err := fmt.Fprintf(w, "\n%-7s  %s\n", s.name, s.what); err != nil {
+			return err
+		}
+		if err := renderTuples(w, s.tuples); err != nil {
 			return err
 		}
 	}

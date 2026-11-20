@@ -316,10 +316,12 @@ selected, `--dry-run` included.
 
 #### Backfill
 
-`backfill` reads the provider, replays it through the mapping and writes the
-tuples. It only adds: it never deletes, and writing a tuple that already exists
-is ignored, so it is safe to run again after a failure. With the example mapping
-and an empty store that has the example model:
+`backfill` reads the store, then the provider, replays the provider through the
+mapping and writes the tuples the store lacks. It never deletes. A tuple the
+store already holds under another condition is left alone, for `drift` to
+replace. Because it writes only what is missing, it is safe to run again, after
+a failure or at any other time. With the example mapping and an empty store that
+has the example model:
 
 ```bash
 # Only if you followed the apply steps above: Anne's two tuples are in shapes
@@ -332,9 +334,13 @@ ofga mappings backfill examples/mappings/auth0.yaml --provider auth0 --dry-run
 ```
 
 ```
+store read  15:00:22 UTC  0 tuples  mappings-demo
 Auth0 read  15:00:23 → 15:00:23 UTC  example.us.auth0.com
   snapshot.organization.member       4
   snapshot.organization.member.role  4
+12 tuples from Auth0: 12 missing from the store, 0 already there
+
+missing  in Auth0, not in the store
 12 tuples
 SHAPE                             TUPLES
 membership#holder assignee role   4
@@ -354,9 +360,13 @@ user member organization          4
 + user:auth0|carol member organization:org_globex
 ```
 
-The header says when the read started and finished and which tenant it came
-from, then how many events each type produced. `--dry-run` stops here and says so
-on stderr:
+The first line says when the store was read and how many tuples it held. The
+header says when the read started and finished and which tenant it came from,
+then how many events each type produced, and the summary line says how many of
+the tuples are missing from the store. Only those are listed and written. A
+store tuple under another condition would be listed under `changed`, with a note
+on stderr that `drift` replaces it. `--dry-run` stops here and says so on
+stderr:
 
 ```
 ● dry run: nothing written
@@ -367,7 +377,22 @@ Without it, `backfill` warns how old the snapshot is, asks, and writes:
 ```
 ● Snapshot is 2s old; changes since then are not reflected.
 Write 12 tuples to store mappings-demo (01K1X2Y3Z4A5B6C7D8E9F0G1H2)? [y/N]: y
-● sent 12 writes to store mappings-demo (Auth0 state as of 15:00:23 UTC)
+● wrote 12 tuples to store mappings-demo; 0 already there (Auth0 state as of 15:00:23 UTC)
+```
+
+Run it again and there is nothing to write, so it neither asks nor needs
+`--force`:
+
+```
+store read  15:00:22 UTC  12 tuples  mappings-demo
+Auth0 read  15:00:22 → 15:00:23 UTC  example.us.auth0.com
+  snapshot.organization.member       4
+  snapshot.organization.member.role  4
+12 tuples from Auth0: 0 missing from the store, 12 already there
+```
+
+```
+● nothing to write: 12 tuples already in store mappings-demo (Auth0 state as of 15:00:23 UTC)
 ```
 
 `--force` skips the question and the age line, which only ever sits directly above
@@ -544,9 +569,11 @@ exit code says what is left:
 `backfill` exits `0` on success and with the same `1`, `2`, `4` and `130`.
 Under `-o json` both print one document. `backfill` has `store`, `provider`,
 `source`, `snapshot_started_at`, `snapshot_finished_at`, `counts` (an event
-count per type), `dry_run`, `tuples` (what it would write) and `sent` (the
-`writes` and `deletes` that reached the store). `drift` has the same fields
-without `tuples`, plus `store_read_at`, `missing`, `changed`, `stale`,
+count per type), `dry_run`, `store_read_at`, `tuples` (everything the provider backs),
+`missing` (what it would write), `changed` (tuples the store holds under another
+condition, which it leaves), `existing` (how many tuples were already there) and
+`sent` (the `writes` and `deletes` that reached the store). `drift` has the
+same fields without `tuples` and `existing`, plus `stale`,
 `not_checked` (each with its `rule`, `reason` and `shapes`) and `pruned`, the
 number of stale deletes sent, also when a prune failed part-way.
 Under `-o json` or `-o yaml`, `backfill` needs `--dry-run` or `--force`. The
