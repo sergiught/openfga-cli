@@ -164,6 +164,19 @@ func newFakeStore(t *testing.T, stored ...map[string]any) *fakeStore {
 				out = out[off:end]
 			}
 			if fs.bigStore && len(req.TupleKey) == 0 {
+				unfiltered := 0
+				for _, rr := range fs.reads {
+					if len(rr.TupleKey) == 0 {
+						unfiltered++
+					}
+				}
+				// A reader that never stops paging fails here instead of
+				// running until the test binary times out.
+				if unfiltered > 50 {
+					w.WriteHeader(http.StatusInternalServerError)
+					_, _ = io.WriteString(w, `{"code":"internal_error","message":"the fake store was paged more than 50 times"}`)
+					return
+				}
 				token = "more"
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"tuples": out, "continuation_token": token})

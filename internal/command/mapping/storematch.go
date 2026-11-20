@@ -78,6 +78,9 @@ func (s storeClient) ReadMatching(ctx context.Context, want []language.Tuple, on
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(storeWorkers)
 	for _, p := range pairs {
+		if gctx.Err() != nil {
+			break
+		}
 		g.Go(func() error {
 			var got []language.Tuple
 			n := 0
