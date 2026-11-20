@@ -69,6 +69,9 @@ func newProvider(t *testing.T, h http.HandlerFunc, opts ...option.RequestOption)
 	p, err := New(context.Background(), Config{Domain: srv.Listener.Addr().String(), Tenant: "acme"}, opts...)
 	noErr(t, err)
 
+	// Waits for a rate limit last no time, so tests do not sleep.
+	p.limits.sleep = func(ctx context.Context, _ time.Duration) error { return ctx.Err() }
+
 	return p, rec
 }
 
@@ -396,43 +399,6 @@ func TestSnapshotOrganizationConnectionsFullPageAsksForTheNext(t *testing.T) {
 	noErr(t, err)
 	equal(t, pageSize, len(res.Events))
 	equal(t, 2, len(rec.find("/organizations/org_1/enabled_connections")))
-}
-
-func TestCountingTransport(t *testing.T) {
-	t.Parallel()
-
-	status := http.StatusOK
-	base := roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: status, Body: http.NoBody}, nil
-	})
-	l := &rateLimits{}
-	waits := 0
-	l.begin(func() { waits++ })
-	rt := l.transport(base)
-
-	do := func() {
-		t.Helper()
-
-		req, err := http.NewRequest(http.MethodGet, "http://example.invalid/", nil)
-		noErr(t, err)
-		_, err = rt.RoundTrip(req)
-		noErr(t, err)
-	}
-
-	do()
-	equal(t, 0, l.count())
-	equal(t, 0, waits)
-
-	status = http.StatusTooManyRequests
-	do()
-	do()
-	equal(t, 2, l.count())
-	equal(t, 2, waits)
-
-	l.begin(nil) // a new read starts from zero
-	equal(t, 0, l.count())
-	do()
-	equal(t, 1, l.count())
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

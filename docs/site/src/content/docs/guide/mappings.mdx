@@ -631,14 +631,18 @@ cannot reproduce.
   `snapshot.connection` is one request per 100 connections plus at least one per
   connection to list its clients. A tenant of 40 organizations with up to 100
   members each is about 42 requests when the mapping names only member types.
-  The Free plan lets a burst of 10 requests through, then refills about 2 a
-  second. A run soon after another one therefore waits: each wait lasts at least
-  a second and is counted in the read header, as in `3 rate-limit waits`. The
-  requests are made one at a time, so a large tenant takes a while: 500
+  Requests run up to 8 at a time. When Auth0 answers 429 the read slows down and
+  waits as long as Auth0 asks, then speeds back up; each 429 is counted in the
+  read header, as in `3 rate-limit waits`. Ctrl-C interrupts a wait. The Free
+  plan lets a burst of 10 requests through, then refills about 2 a second, so a
+  run soon after another one waits, and a large tenant takes a while there: 500
   organizations with the member and connection types is about 1,000 requests,
-  around 8 minutes on the Free plan. A rate-limited request is retried, up to 5
-  attempts, before the command fails with "Auth0 is rate limiting reads of ...;
-  try again shortly".
+  around 8 minutes. The limit decides that, so running 8 at a time does not
+  make the Free plan faster. A plan that is not rate-bound does about 100 ms a
+  request, 8 at a time, so 1,000 organizations with the member and connection
+  types, about 2,000 requests, take under a minute. A request that is still
+  rate limited after 10 tries is retried again before the command fails with
+  "Auth0 is rate limiting reads of ...; try again shortly".
 - Groups are not covered yet; there is no snapshot type for them.
 
 ### In CI

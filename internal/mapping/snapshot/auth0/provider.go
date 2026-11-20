@@ -14,12 +14,16 @@ import (
 	"github.com/auth0/go-auth0/v2/management/client"
 	"github.com/auth0/go-auth0/v2/management/core"
 	"github.com/auth0/go-auth0/v2/management/option"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/sergiught/openfga-cli/internal/mapping/snapshot"
 )
 
 // now is the clock, replaceable in tests.
 var now = time.Now
+
+// readWorkers is how many requests of one read run at the same time.
+const readWorkers = 8
 
 // Config says which tenant to read and how to sign in.
 type Config struct {
@@ -31,57 +35,7 @@ type Config struct {
 type Provider struct {
 	m              *client.Management
 	source, tenant string
-	limits         *rateLimits
-}
-
-// rateLimits counts the HTTP 429 answers of the read in progress. It sees the
-// status code of each response and nothing else.
-type rateLimits struct {
-	mu     sync.Mutex
-	n      int
-	onWait func()
-}
-
-// begin starts counting for a new read; onWait runs on each 429.
-func (l *rateLimits) begin(onWait func()) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	l.n, l.onWait = 0, onWait
-}
-
-// count is how many 429 answers the read has had.
-func (l *rateLimits) count() int {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	return l.n
-}
-
-// transport wraps base so each 429 answer is counted.
-func (l *rateLimits) transport(base http.RoundTripper) http.RoundTripper {
-	return countingTransport{base: base, l: l}
-}
-
-type countingTransport struct {
-	base http.RoundTripper
-	l    *rateLimits
-}
-
-func (t countingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	resp, err := t.base.RoundTrip(req)
-	if err == nil && resp.StatusCode == http.StatusTooManyRequests {
-		t.l.mu.Lock()
-		t.l.n++
-		onWait := t.l.onWait
-		t.l.mu.Unlock()
-
-		if onWait != nil {
-			onWait()
-		}
-	}
-
-	return resp, err
+	limits         *pacer
 }
 
 var _ snapshot.Provider = (*Provider)(nil)
@@ -111,10 +65,11 @@ func New(ctx context.Context, cfg Config, opts ...option.RequestOption) (*Provid
 
 	all = append(all, option.WithMaxAttempts(5))
 
-	// The SDK's own default is http.DefaultClient, which has no timeout and
-	// uses http.DefaultTransport; this keeps both and only counts the 429s.
-	limits := &rateLimits{}
-	all = append(all, option.WithHTTPClient(&http.Client{Transport: limits.transport(http.DefaultTransport)}))
+	// This client replaces the one the SDK builds, which is why the pacer sets
+	// the User-Agent. Like the SDK's default, http.DefaultClient, it has no
+	// timeout and uses http.DefaultTransport.
+	limits := newPacer(http.DefaultTransport)
+	all = append(all, option.WithHTTPClient(&http.Client{Transport: limits}))
 	all = append(all, opts...)
 
 	m, err := client.New(host, all...)
@@ -141,20 +96,91 @@ type read struct {
 	ctx      context.Context //nolint:containedctx // scoped to one call
 	want     map[string]bool
 	progress func(string)
+	sayMu    *sync.Mutex // progress is called from several goroutines, one at a time
 	events   map[string][]event
 }
 
 func (r *read) say(msg string) {
 	if r.progress != nil {
+		r.sayMu.Lock()
+		defer r.sayMu.Unlock()
+
 		r.progress(msg)
 	}
+}
+
+// parallel runs task for 0..n-1, at most readWorkers at a time, and calls
+// finished with the number of tasks done so far after each one, never
+// concurrently and never going backwards. The first error wins and stops the
+// rest; a cancelled ctx gives its own error. Each task gets its own context
+// and must keep its results to itself.
+func parallel(ctx context.Context, n int, task func(ctx context.Context, i int) error, finished func(done int)) error {
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(readWorkers)
+
+	var (
+		mu   sync.Mutex
+		done int
+	)
+
+	for i := 0; i < n && gctx.Err() == nil; i++ {
+		g.Go(func() error {
+			if err := task(gctx, i); err != nil {
+				return err
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+
+			done++
+			if finished != nil {
+				finished(done)
+			}
+
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return err
+	}
+
+	return ctx.Err()
+}
+
+// each runs task once per organization in parallel. A task adds its events to
+// the read it is given; they are merged in organization order afterwards, so
+// the result is the same as reading one organization after the other.
+func (r *read) each(orgs []map[string]any, progress string, task func(sub *read, org map[string]any) error) error {
+	subs := make([]*read, len(orgs))
+
+	err := parallel(r.ctx, len(orgs), func(ctx context.Context, i int) error {
+		sub := *r
+		sub.ctx, sub.events = ctx, map[string][]event{}
+		subs[i] = &sub
+
+		return task(&sub, orgs[i])
+	}, func(done int) {
+		r.say(fmt.Sprintf(progress, done, len(orgs)))
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, sub := range subs {
+		for typ, events := range sub.events {
+			r.events[typ] = append(r.events[typ], events...)
+		}
+	}
+
+	return nil
 }
 
 func (r *read) add(e event) { r.events[e.typ] = append(r.events[e.typ], e) }
 
 // Snapshot reads the given types completely or returns an error.
 func (p *Provider) Snapshot(ctx context.Context, types []string, progress func(string)) (*snapshot.Result, error) {
-	r := &read{Provider: p, ctx: ctx, want: map[string]bool{}, progress: progress, events: map[string][]event{}}
+	r := &read{Provider: p, ctx: ctx, want: map[string]bool{}, progress: progress, sayMu: &sync.Mutex{}, events: map[string][]event{}}
 
 	known := map[string]bool{}
 	for _, t := range Types() {
@@ -280,16 +306,23 @@ func (r *read) connections() error {
 	page, err := r.m.Connections.List(r.ctx, &management.ListConnectionsQueryParameters{Take: &take})
 
 	return walk(r, page, err, "connections", typeConnection, func(items []*management.ConnectionForList, at time.Time) error {
-		for _, c := range items {
+		objs := make([]map[string]any, len(items))
+
+		err := parallel(r.ctx, len(items), func(ctx context.Context, i int) error {
+			c := items[i]
+
 			obj, err := toMap(c)
 			if err != nil {
 				return err
 			}
 
-			clients := []any{}
-			cp, err := r.m.Connections.Clients.Get(r.ctx, c.GetID(), &management.GetConnectionEnabledClientsRequestParameters{Take: &take})
+			sub := *r
+			sub.ctx = ctx
 
-			if err := walk(r, cp, err, "connection clients", typeConnection,
+			clients := []any{}
+			cp, err := sub.m.Connections.Clients.Get(ctx, c.GetID(), &management.GetConnectionEnabledClientsRequestParameters{Take: &take})
+
+			if err := walk(&sub, cp, err, "connection clients", typeConnection,
 				func(cs []*management.ConnectionEnabledClient, _ time.Time) error {
 					for _, cl := range cs {
 						clients = append(clients, cl.GetClientID())
@@ -301,7 +334,16 @@ func (r *read) connections() error {
 			}
 
 			obj["enabled_clients"] = clients
-			r.add(event{typ: typeConnection, subject: "connection " + c.GetID(), object: obj, at: at})
+			objs[i] = obj
+
+			return nil
+		}, nil)
+		if err != nil {
+			return err
+		}
+
+		for i, c := range items {
+			r.add(event{typ: typeConnection, subject: "connection " + c.GetID(), object: objs[i], at: at})
 		}
 
 		return nil
@@ -401,23 +443,21 @@ func (r *read) organizations() error {
 		delete(r.events, typeOrganization)
 	}
 
-	for i, org := range orgs {
-		if r.want[typeOrgConnection] {
-			r.say(fmt.Sprintf("reading connections of %d/%d organizations", i+1, len(orgs)))
-
-			if err := r.orgConnections(org); err != nil {
-				return err
-			}
+	if r.want[typeOrgConnection] {
+		err := r.each(orgs, "reading connections of %d/%d organizations", func(sub *read, org map[string]any) error {
+			return sub.orgConnections(org)
+		})
+		if err != nil {
+			return err
 		}
 	}
 
 	if r.want[typeOrgMember] || r.want[typeOrgMemberRole] {
-		for i, org := range orgs {
-			r.say(fmt.Sprintf("reading members of %d/%d organizations", i+1, len(orgs)))
-
-			if err := r.orgMembers(org); err != nil {
-				return err
-			}
+		err := r.each(orgs, "reading members of %d/%d organizations", func(sub *read, org map[string]any) error {
+			return sub.orgMembers(org)
+		})
+		if err != nil {
+			return err
 		}
 	}
 
