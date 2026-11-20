@@ -34,8 +34,10 @@ type snapshotRun struct {
 // unknown snapshot names and mappings with no snapshot rules, then asks the
 // provider for the requested types and replays the result.
 // beforeRead, when non-nil, runs after that and before the provider is
-// contacted (drift reads the store there).
-func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, beforeRead func() error) (*snapshotRun, error) {
+// contacted, with the loaded mapping file. Both commands resolve the store
+// there so a missing profile fails before the long provider read; drift also
+// reads the store there, keeping only the tuples the mapping writes.
+func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, beforeRead func(f *mapping.File) error) (*snapshotRun, error) {
 	machine := c.cli.JSON || c.cli.YAML
 	ctx, out, errw := cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr()
 	// Problem lines are not the machine payload: keep stdout clean for jq.
@@ -94,7 +96,7 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, beforeR
 		return nil, err
 	}
 	if beforeRead != nil {
-		if err := beforeRead(); err != nil {
+		if err := beforeRead(f); err != nil {
 			return nil, err
 		}
 	}

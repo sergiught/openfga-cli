@@ -6,6 +6,7 @@ import (
 
 	"github.com/expr-lang/expr/ast"
 	"github.com/expr-lang/expr/parser"
+	"github.com/openfga/mapper/language"
 	"github.com/sergiught/openfga-cli/internal/mapping"
 )
 
@@ -289,4 +290,27 @@ func Coverage(doc *mapping.Document, types []Type) (owned []mapping.Shape, notCh
 		}
 	}
 	return owned, notChecked
+}
+
+// Writes returns a predicate that is true for a tuple the mapping's rules can
+// write: one whose relation and object type match a shape of any rule, snapshot
+// or not. The user type is not compared, because a wildcard or userset user
+// changes it and a desired tuple must never be filtered out of the stored set.
+// A rule that writes a templated type or relation makes every tuple match.
+func Writes(doc *mapping.Document) func(language.Tuple) bool {
+	type key struct{ relation, objectType string }
+	keys := map[key]bool{}
+	for _, r := range doc.Rules {
+		shapes, unshaped := mapping.RuleShapes(r)
+		if unshaped > 0 {
+			return func(language.Tuple) bool { return true }
+		}
+		for _, s := range shapes {
+			keys[key{s.Relation, s.ObjectType}] = true
+		}
+	}
+	return func(t language.Tuple) bool {
+		s := mapping.ShapeOf(t)
+		return keys[key{s.Relation, s.ObjectType}]
+	}
 }

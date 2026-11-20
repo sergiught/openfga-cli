@@ -37,7 +37,7 @@ func Desired(ctx context.Context, m *mapper.Mapping, events []map[string]any, pr
 	set := map[string]language.Tuple{}
 	for _, ep := range plan.Events {
 		for _, c := range ep.Changes {
-			k := identity(c)
+			k := Identity(c)
 			if c.Action == language.ActionDelete {
 				delete(set, k)
 				continue
@@ -54,8 +54,8 @@ func Desired(ctx context.Context, m *mapper.Mapping, events []map[string]any, pr
 	return out, nil
 }
 
-// identity is what OpenFGA keys a tuple by.
-func identity(t language.Tuple) string {
+// Identity is what OpenFGA keys a tuple by.
+func Identity(t language.Tuple) string {
 	return t.User + "\x00" + t.Relation + "\x00" + t.Object
 }
 

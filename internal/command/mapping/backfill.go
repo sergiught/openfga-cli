@@ -96,7 +96,7 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider string, dryRun,
 	// The store is resolved and read before the provider, so a missing profile
 	// or an unreachable server does not cost a long read first, and the
 	// snapshot is never older than the store it is compared with.
-	run, err := c.runSnapshot(cmd, path, provider, func() error {
+	run, err := c.runSnapshot(cmd, path, provider, func(*mapping.File) error {
 		var r config.Resolved
 		var err error
 		if cl, r, err = c.cli.ClientWithStore(); err != nil {

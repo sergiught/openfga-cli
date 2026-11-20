@@ -87,9 +87,11 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider string, prune, dry
 		stored            []language.Tuple
 		storeReadAt       time.Time
 	)
+	var storedTotal int
 	// The store is read before the provider, so the snapshot is never older
-	// than the store it is compared with.
-	run, err := c.runSnapshot(cmd, path, provider, func() error {
+	// than the store it is compared with. The desired tuples are not known yet,
+	// so only the tuples the mapping can write are kept.
+	run, err := c.runSnapshot(cmd, path, provider, func(f *mapping.File) error {
 		var r config.Resolved
 		var err error
 		if cl, r, err = c.cli.ClientWithStore(); err != nil {
@@ -100,7 +102,7 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider string, prune, dry
 			return err
 		}
 		output.Progressf(errw, "reading the store")
-		if stored, err = (storeClient{cl}).ReadAll(ctx); err != nil {
+		if stored, storedTotal, err = (storeClient{cl}).ReadKept(ctx, snapshot.Writes(f.Doc)); err != nil {
 			return err
 		}
 		storeReadAt = now()
@@ -126,7 +128,7 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider string, prune, dry
 		res.NotChecked = append(res.NotChecked, notCheckedOut{Rule: n.Rule, Reason: n.Reason, Shapes: shapes})
 	}
 	if !machine {
-		if err := renderDrift(out, run, storeLbl, storeReadAt, len(stored), diff, notChecked); err != nil {
+		if err := renderDrift(out, run, storeLbl, storeReadAt, storedTotal, diff, notChecked); err != nil {
 			return err
 		}
 	}

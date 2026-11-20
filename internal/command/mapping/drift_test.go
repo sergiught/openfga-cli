@@ -712,3 +712,39 @@ func TestDriftPruneForceJSONReportsEverything(t *testing.T) {
 		t.Errorf("missing/changed/stale = %d/%d/%d, want 1 each", len(got.Missing), len(got.Changed), len(got.Stale))
 	}
 }
+
+func TestDriftReadsOneHundredTuplesARequest(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, member("u1"))
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1")})
+	if _, stderr, err := runDrift(t, fs.cli(), nil, driftArgs(t, driftMapping, "--dry-run")...); err != nil {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	reads := fs.readRequests()
+	if len(reads) != 1 || reads[0].PageSize != 100 || len(reads[0].TupleKey) != 0 {
+		t.Fatalf("reads = %+v, want one unfiltered read with page_size 100", reads)
+	}
+}
+
+func TestDriftIgnoresStoredRelationsTheMappingDoesNotWrite(t *testing.T) {
+	configtest.Isolate(t)
+	other := map[string]any{"user": "user:x", "relation": "viewer", "object": "document:d1"}
+	run := func(stored ...map[string]any) string {
+		fs := newFakeStore(t, stored...)
+		useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1", "u2")})
+		stdout, stderr, err := runDrift(t, fs.cli(), nil, driftArgs(t, driftMapping, "--dry-run")...)
+		if clierr.Code(err) != clierr.CodeTestFailed {
+			t.Fatalf("err = %v\n%s", err, stderr)
+		}
+		return stdout
+	}
+	with := run(member("u1"), member("gone"), other, other)
+	without := run(member("u1"), member("gone"))
+	if !strings.Contains(with, "4 tuples") || !strings.Contains(without, "2 tuples") {
+		t.Errorf("the store line must count every tuple read:\n%s\n%s", with, without)
+	}
+	strip := func(s string) string { return strings.NewReplacer("4 tuples", "N", "2 tuples", "N").Replace(s) }
+	if strip(with) != strip(without) {
+		t.Errorf("report differs:\n%s\n%s", with, without)
+	}
+}

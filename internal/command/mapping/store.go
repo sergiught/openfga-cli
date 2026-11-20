@@ -14,21 +14,29 @@ import (
 // place apply touches go-openfga, so the engine stays testable with fakes.
 type storeClient struct{ cl *openfga.Client }
 
+// readPageSize is the most tuples OpenFGA returns for one read request. The
+// server's default is 50, so asking for the maximum halves the requests.
+const readPageSize = 100
+
+func toTuple(t openfga.Tuple) language.Tuple {
+	lt := language.Tuple{User: t.Key.User, Relation: t.Key.Relation, Object: t.Key.Object}
+	if c := t.Key.Condition; c != nil {
+		lt.Condition, lt.Context = c.Name, c.Context
+	}
+	return lt
+}
+
 func (s storeClient) ReadTuples(ctx context.Context, f language.TupleFilter) ([]language.Tuple, error) {
 	rf := fga.ReadFilter{User: f.User, Relation: f.Relation, Object: f.Object}
 	if err := rf.Validate(); err != nil {
 		return nil, fmt.Errorf("tuple filter %s %s %s: %w", f.User, f.Relation, f.Object, err)
 	}
 	var out []language.Tuple
-	for t, err := range s.cl.Tuples.ReadAll(ctx, &openfga.ReadRequest{TupleKey: rf.TupleKey()}) {
+	for t, err := range s.cl.Tuples.ReadAll(ctx, &openfga.ReadRequest{TupleKey: rf.TupleKey(), PageSize: readPageSize}) {
 		if err != nil {
 			return nil, err
 		}
-		lt := language.Tuple{User: t.Key.User, Relation: t.Key.Relation, Object: t.Key.Object}
-		if c := t.Key.Condition; c != nil {
-			lt.Condition, lt.Context = c.Name, c.Context
-		}
-		out = append(out, lt)
+		out = append(out, toTuple(t))
 	}
 	return out, nil
 }
@@ -36,6 +44,21 @@ func (s storeClient) ReadTuples(ctx context.Context, f language.TupleFilter) ([]
 // ReadAll reads every tuple in the store.
 func (s storeClient) ReadAll(ctx context.Context) ([]language.Tuple, error) {
 	return s.ReadTuples(ctx, language.TupleFilter{})
+}
+
+// ReadKept reads the whole store and keeps only the tuples keep accepts, so a
+// large store is not held in memory. It also returns how many tuples it read.
+func (s storeClient) ReadKept(ctx context.Context, keep func(language.Tuple) bool) (kept []language.Tuple, total int, err error) {
+	for t, err := range s.cl.Tuples.ReadAll(ctx, &openfga.ReadRequest{PageSize: readPageSize}) {
+		if err != nil {
+			return nil, 0, err
+		}
+		total++
+		if lt := toTuple(t); keep(lt) {
+			kept = append(kept, lt)
+		}
+	}
+	return kept, total, nil
 }
 
 func (s storeClient) Write(ctx context.Context, writes, deletes []language.Tuple) error {

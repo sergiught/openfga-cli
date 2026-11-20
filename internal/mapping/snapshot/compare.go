@@ -27,12 +27,12 @@ func Compare(desired, store []language.Tuple, owned []mapping.Shape) Diff {
 	}
 	inStore := make(map[string]language.Tuple, len(store))
 	for _, t := range store {
-		inStore[identity(t)] = t
+		inStore[Identity(t)] = t
 	}
 	var d Diff
 	seen := make(map[string]bool, len(desired))
 	for _, t := range desired {
-		k := identity(t)
+		k := Identity(t)
 		seen[k] = true
 		s, ok := inStore[k]
 		switch {
@@ -43,7 +43,7 @@ func Compare(desired, store []language.Tuple, owned []mapping.Shape) Diff {
 		}
 	}
 	for _, t := range store {
-		if !seen[identity(t)] && own[mapping.ShapeOf(t)] {
+		if !seen[Identity(t)] && own[mapping.ShapeOf(t)] {
 			d.Stale = append(d.Stale, t)
 		}
 	}
@@ -51,7 +51,7 @@ func Compare(desired, store []language.Tuple, owned []mapping.Shape) Diff {
 	sortTuples(d.Changed)
 	sortTuples(d.Stale)
 	for _, t := range d.Changed {
-		d.Was = append(d.Was, inStore[identity(t)])
+		d.Was = append(d.Was, inStore[Identity(t)])
 	}
 	return d
 }

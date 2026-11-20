@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -101,6 +102,28 @@ type fakeStore struct {
 	// the client gives up (or a few seconds pass), so a test can cancel
 	// mid-request without racing the response.
 	onWrite func(n int) bool
+	// reads records every /read request body, in order.
+	reads []readReq
+	// bigStore makes an unfiltered /read (no tuple_key) always answer with a
+	// continuation token, as a store far larger than the mapping's data does.
+	bigStore bool
+	// pageSize, when > 0, pages filtered /read answers by that many tuples.
+	pageSize int
+	// failReadObject, when set, makes a /read whose tuple_key names that object answer 400.
+	failReadObject string
+}
+
+// readReq is one /read request as the fake saw it.
+type readReq struct {
+	TupleKey          map[string]string `json:"tuple_key"`
+	PageSize          int               `json:"page_size"`
+	ContinuationToken string            `json:"continuation_token"`
+}
+
+func (fs *fakeStore) readRequests() []readReq {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	return append([]readReq(nil), fs.reads...)
 }
 
 func newFakeStore(t *testing.T, stored ...map[string]any) *fakeStore {
@@ -117,17 +140,33 @@ func newFakeStore(t *testing.T, stored ...map[string]any) *fakeStore {
 			if fs.log != nil {
 				*fs.log = append(*fs.log, "store read")
 			}
-			var req struct {
-				TupleKey map[string]string `json:"tuple_key"`
-			}
+			var req readReq
 			_ = json.NewDecoder(r.Body).Decode(&req)
+			fs.reads = append(fs.reads, req)
+			if fs.failReadObject != "" && req.TupleKey["object"] == fs.failReadObject {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = io.WriteString(w, `{"code":"validation_error","message":"read rejected"}`)
+				return
+			}
 			var out []map[string]any
 			for _, k := range fs.tuples {
 				if matchesKey(k, req.TupleKey) {
 					out = append(out, map[string]any{"key": k})
 				}
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"tuples": out, "continuation_token": ""})
+			token := ""
+			if fs.pageSize > 0 && len(req.TupleKey) > 0 {
+				off, _ := strconv.Atoi(req.ContinuationToken)
+				end := min(off+fs.pageSize, len(out))
+				if end < len(out) {
+					token = strconv.Itoa(end)
+				}
+				out = out[off:end]
+			}
+			if fs.bigStore && len(req.TupleKey) == 0 {
+				token = "more"
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"tuples": out, "continuation_token": token})
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/write"):
 			b, _ := io.ReadAll(r.Body)
 			fs.writes = append(fs.writes, string(b))
