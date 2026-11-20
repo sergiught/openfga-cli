@@ -11,10 +11,12 @@ const (
 	typeOrgConnection      = "snapshot.organization.connection"
 	typeOrgMember          = "snapshot.organization.member"
 	typeOrgMemberRole      = "snapshot.organization.member.role"
-	maxUsers               = 1000
 	pageSize               = 100
 	scopeReadOrganizations = "read:organizations"
 )
+
+// maxUsers is how many users the list serves; a variable so tests can lower it.
+var maxUsers = 1000
 
 // Types lists the snapshot event types an Auth0 tenant can produce, in the
 // order their events are emitted. It needs no credentials.

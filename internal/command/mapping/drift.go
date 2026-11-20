@@ -55,7 +55,7 @@ func (c *Command) newDriftCmd() *cobra.Command {
 			"It then asks before writing the missing tuples and replacing the changed ones (a changed tuple is deleted and written again, 100 at a time, and put back if that fails), " +
 			"and with --prune asks again before deleting the stale ones. --force skips the questions, --dry-run stops after the report. " +
 			"Without a terminal, under --no-input or -o json/yaml, it only reports unless --force is given. " +
-			"The provider is read once, so the result reflects it as of that moment. Auth0 needs a machine-to-machine application. A mapping that names snapshot.user fails on a tenant with more than 1,000 users, since Auth0 lists no more through this API; nothing is truncated.\n\n" +
+			"The provider is read once, so the result reflects it as of that moment. Auth0 needs a machine-to-machine application. Above 1,000 users Auth0's list stops, so the read asks Auth0 for a user export job, waits for it and downloads it; this needs no extra scope. On a small tenant the job takes about a second, on a large one Auth0 decides. An exported identity may carry a profileData the list does not.\n\n" +
 			"Exit codes: 0 no drift, or all of it fixed · 1 error · 2 usage · 3 drift remains · 4 network · 130 interrupted.",
 		Example: `# See what differs between the store and Auth0
 ofga mappings drift auth0.yaml --provider auth0 --dry-run

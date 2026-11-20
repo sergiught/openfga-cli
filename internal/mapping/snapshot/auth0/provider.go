@@ -1,11 +1,15 @@
 package auth0
 
 import (
+	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -36,6 +40,7 @@ type Provider struct {
 	m              *client.Management
 	source, tenant string
 	limits         *pacer
+	wait           func(ctx context.Context, d time.Duration) error // between export job polls
 }
 
 var _ snapshot.Provider = (*Provider)(nil)
@@ -77,7 +82,7 @@ func New(ctx context.Context, cfg Config, opts ...option.RequestOption) (*Provid
 		return nil, err
 	}
 
-	return &Provider{m: m, source: host, tenant: tenant, limits: limits}, nil
+	return &Provider{m: m, source: host, tenant: tenant, limits: limits, wait: sleepContext}, nil
 }
 
 // Name is the --provider value.
@@ -359,16 +364,18 @@ func (r *read) users() error {
 	page, err := r.m.Users.List(r.ctx, &management.ListUsersRequestParameters{PerPage: &perPage, IncludeTotals: &totals, Sort: &sort})
 
 	seen := map[string]bool{}
-	pages, lastTotal := 0, -1.0
+	pages, lastTotal, exportTotal := 0, -1.0, 0.0
 
 	errDeleted := errors.New("Auth0 users were deleted while the list was being read, so a user may have been skipped; " +
 		"run the command again")
 
 	if err := walkPages(r, page, err, "users", typeUser, func(p *core.Page[*int, *management.UserResponseSchema, *management.ListUsersOffsetPaginatedResponseContent], at time.Time) error {
 		total := p.Response.GetTotal()
-		if total > maxUsers {
-			return fmt.Errorf("Auth0 lists at most 1,000 users through this API and this tenant has %.0f; "+
-				"tenants this large are not supported yet", total)
+		// The list serves no more than maxUsers users; Auth0's export job has no such limit.
+		if total > float64(maxUsers) {
+			exportTotal = total
+
+			return errStopWalk
 		}
 
 		if total < lastTotal {
@@ -404,13 +411,136 @@ func (r *read) users() error {
 		return err
 	}
 
+	if exportTotal > 0 {
+		return r.exportUsers(int(exportTotal))
+	}
+
 	// A deletion that empties the last page ends the walk without the total
 	// check ever seeing it, so compare what was read with what was reported.
-	if float64(len(seen)) < math.Min(lastTotal, maxUsers) {
+	if float64(len(seen)) < math.Min(lastTotal, float64(maxUsers)) {
 		return errDeleted
 	}
 
 	return nil
+}
+
+// exportUserFields are the fields the export job is asked for: the same keys the
+// users list returns. Without them the export has a default subset and flattens
+// identities.
+var exportUserFields = []string{
+	"user_id", "email", "email_verified", "username", "phone_number", "phone_verified", "created_at",
+	"updated_at", "identities", "app_metadata", "user_metadata", "picture", "name", "nickname", "multifactor",
+	"last_ip", "last_login", "last_password_reset", "logins_count", "blocked", "given_name", "family_name",
+}
+
+// exportPollEvery is how long to wait between polls of the export job.
+const exportPollEvery = 2 * time.Second
+
+// exportUsers reads every user through an export job, for tenants the list
+// cannot serve. total is the user count the list reported.
+func (r *read) exportUsers(total int) error {
+	r.say(fmt.Sprintf("exporting %d users", total))
+
+	format := management.JobFileFormatEnumJSON
+
+	fields := make([]*management.CreateExportUsersFields, len(exportUserFields))
+	for i, name := range exportUserFields {
+		fields[i] = &management.CreateExportUsersFields{Name: name}
+	}
+
+	job, err := r.m.Jobs.UsersExports.Create(r.ctx, &management.CreateExportUsersRequestContent{Format: &format, Fields: fields})
+	if err != nil {
+		return readError(r.ctx, err, "users export", r.scopes(typeUser))
+	}
+
+	for {
+		got, err := r.m.Jobs.Get(r.ctx, job.GetID())
+		if err != nil {
+			return readError(r.ctx, err, "users export", r.scopes(typeUser))
+		}
+
+		switch got.GetStatus() {
+		case "completed":
+			return r.downloadUsers(got.GetLocation(), now())
+		case "pending", "processing":
+			if got.PercentageDone != nil {
+				r.say(fmt.Sprintf("exporting users: %d%%", got.GetPercentageDone()))
+			}
+		default:
+			return fmt.Errorf("Auth0's user export job ended as %q", got.GetStatus())
+		}
+
+		if err := r.wait(r.ctx, exportPollEvery); err != nil {
+			return err
+		}
+	}
+}
+
+// downloadUsers streams the export file, one JSON user per line, into events.
+// The location is a signed URL on another host: it is fetched without the
+// Management client and never appears in an error.
+func (r *read) downloadUsers(location string, at time.Time) error {
+	fail := func(err error) error {
+		if ctxErr := r.ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+
+		return fmt.Errorf("downloading Auth0's user export failed: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(r.ctx, http.MethodGet, location, nil)
+	if err != nil {
+		return fail(errors.New("the job's location is not a URL"))
+	}
+
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		// Do wraps failures in a *url.Error, whose text is the signed URL.
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err
+		}
+
+		return fail(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return fail(fmt.Errorf("HTTP %d", resp.StatusCode))
+	}
+
+	zr, err := gzip.NewReader(resp.Body)
+	if err != nil {
+		return fail(err)
+	}
+
+	seen := map[string]bool{}
+	dec := json.NewDecoder(zr)
+
+	for {
+		var u management.UserResponseSchema
+
+		if err := dec.Decode(&u); err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+
+			return fail(err)
+		}
+
+		if seen[u.GetUserID()] {
+			continue
+		}
+
+		seen[u.GetUserID()] = true
+
+		obj, err := toMap(&u)
+		if err != nil {
+			return err
+		}
+
+		r.add(event{typ: typeUser, subject: "user " + u.GetUserID(), object: obj, at: at})
+	}
 }
 
 func (r *read) organizations() error {

@@ -614,11 +614,12 @@ cannot reproduce.
   either cannot serve snapshots; leave its snapshot type out of its `when`.
 - `snapshot.organization.member.role` covers only roles assigned to the member
   directly.
-- Auth0 lists at most 1,000 users through this API. A mapping that names
-  `snapshot.user` on a larger tenant fails with `Auth0 lists at most 1,000 users
-  through this API and this tenant has N; tenants this large are not supported
-  yet`; nothing is truncated. If users are deleted while the list is being read,
-  the read fails with `Auth0 users were deleted while the list was being read, so
+- Auth0 lists at most 1,000 users through this API. Above that, the read asks
+  Auth0 for a user export job, waits for it and downloads the file; it needs no
+  extra scope. On a small tenant the job takes about a second, on a large one
+  Auth0 decides. An exported identity may carry a `profileData` that a listed one
+  does not. If users are deleted while the list is being read (a tenant of 1,000
+  users or fewer), the read fails with `Auth0 users were deleted while the list was being read, so
   a user may have been skipped; run the command again`; run it again.
 - Auth0 rate-limits the Management API, at about 2 requests a second on the Free
   plan. A read makes one token request, then pages of 100, and only for

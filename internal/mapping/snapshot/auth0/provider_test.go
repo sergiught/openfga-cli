@@ -81,6 +81,9 @@ func newProvider(t *testing.T, h http.HandlerFunc, opts ...option.RequestOption)
 		return ctx.Err()
 	}
 
+	// The pause between export job polls lasts no time either.
+	p.wait = func(ctx context.Context, _ time.Duration) error { return ctx.Err() }
+
 	return p, rec
 }
 
@@ -454,22 +457,12 @@ func usersHandler(total int) http.HandlerFunc {
 	}
 }
 
-func TestSnapshotUsersCap(t *testing.T) {
+func TestSnapshotUsersList(t *testing.T) {
 	t.Parallel()
 
-	p, _ := newProvider(t, usersHandler(1001))
+	p, _ := newProvider(t, usersHandler(150))
 
 	res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
-	isErr(t, err)
-	if res != nil {
-		t.Errorf("result = %+v, want nil", res)
-	}
-	contains(t, err.Error(), "at most 1,000 users")
-	contains(t, err.Error(), "1001")
-
-	p, _ = newProvider(t, usersHandler(150))
-
-	res, err = p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
 	noErr(t, err)
 	if len(res.Events) != 150 {
 		t.Errorf("len(res.Events) = %d, want 150", len(res.Events))
