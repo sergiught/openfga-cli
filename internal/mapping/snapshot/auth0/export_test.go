@@ -1,6 +1,7 @@
 package auth0
 
 import (
+	"bytes"
 	"compress/gzip"
 	"context"
 	"encoding/json"
@@ -28,6 +29,7 @@ import (
 type exportFake struct {
 	statuses []string // JSON bodies of the job, one per poll
 	file     func(w http.ResponseWriter, r *http.Request)
+	users    http.HandlerFunc // the users list; the default reports the total given to newExportProvider
 
 	mu        sync.Mutex
 	createdBy []string // request bodies of the job creations
@@ -63,6 +65,8 @@ func newExportProvider(t *testing.T, total int, f *exportFake, opts ...option.Re
 
 	return newProvider(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.URL.Path == "/api/v2/users" && f.users != nil:
+			f.users(w, r)
 		case r.URL.Path == "/api/v2/users":
 			usersPage(w, r, total, func(page int) []int { return []int{page} })
 		case r.URL.Path == "/api/v2/jobs/users-exports" && r.Method == http.MethodPost:
@@ -94,6 +98,15 @@ func gzipLines(lines ...string) func(w http.ResponseWriter, r *http.Request) {
 		_, _ = zw.Write([]byte(strings.Join(lines, "\n") + "\n"))
 		_ = zw.Close()
 	}
+}
+
+// filled is lines plus filler users up to n, so a file matches the total the list reports.
+func filled(n int, lines ...string) []string {
+	for i := len(lines); i < n; i++ {
+		lines = append(lines, exportUserLine(10000+i))
+	}
+
+	return lines
 }
 
 func exportUserLine(i int) string {
@@ -181,7 +194,9 @@ func TestExportLargeTenantUsesAJob(t *testing.T) {
 	equal(t, "Bearer mgmt-token", f.apiAuth.Load())
 	equal(t, "", f.fileAuth.Load())
 
-	equal(t, []string{"reading users", "exporting 1500 users", "exporting users: 40%"}, said)
+	equal(t, []string{
+		"reading users", "exporting 1500 users", "exporting 1500 users: waiting for Auth0's job (0s)", "exporting users: 40%",
+	}, said)
 }
 
 func TestExportedUserEqualsListedUser(t *testing.T) {
@@ -205,13 +220,13 @@ func TestExportedUserEqualsListedUser(t *testing.T) {
 	noErr(t, err)
 
 	// Through the export.
-	f := &exportFake{file: gzipLines(exported)}
+	f := &exportFake{file: gzipLines(filled(1500, exported)...)}
 	pe, _ := newExportProvider(t, 1500, f)
 	resExport, err := pe.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
 	noErr(t, err)
 
 	equal(t, 1, len(resList.Events))
-	equal(t, 1, len(resExport.Events))
+	equal(t, 1500, len(resExport.Events))
 	equal(t, objectOf(resList.Events[0]), objectOf(resExport.Events[0]))
 }
 
@@ -219,8 +234,9 @@ func TestExportedUserEqualsListedUser(t *testing.T) {
 func TestExportedIdentityKeepsProfileData(t *testing.T) {
 	t.Parallel()
 
-	f := &exportFake{file: gzipLines(`{"user_id":"auth0|anne","identities":[{"provider":"auth0","user_id":"anne",` +
-		`"connection":"db","isSocial":false,"profileData":{"email":"anne@example.com"}}]}`)}
+	anne := `{"user_id":"auth0|anne","identities":[{"provider":"auth0","user_id":"anne",` +
+		`"connection":"db","isSocial":false,"profileData":{"email":"anne@example.com"}}]}`
+	f := &exportFake{file: gzipLines(filled(1500, anne)...)}
 	p, _ := newExportProvider(t, 1500, f)
 
 	res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
@@ -243,12 +259,14 @@ func objectOf(ev map[string]any) map[string]any {
 func TestExportDuplicateUserIsOneEvent(t *testing.T) {
 	t.Parallel()
 
-	f := &exportFake{file: gzipLines(exportUserLine(1), exportUserLine(2), exportUserLine(1))}
+	f := &exportFake{file: gzipLines(filled(1501, exportUserLine(1), exportUserLine(2), exportUserLine(1))...)}
 	p, _ := newExportProvider(t, 1500, f)
 
 	res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
 	noErr(t, err)
-	equal(t, []string{"user auth0|0001", "user auth0|0002"}, subjects(t, res.Events))
+	// The repeated line is one event: 2 + 1,498 filler users reach the total (1,501 lines).
+	equal(t, 1500, len(res.Events))
+	equal(t, []string{"user auth0|0001", "user auth0|0002"}, subjects(t, res.Events)[:2])
 }
 
 func TestExportFailedJobIsReportedWithoutDownload(t *testing.T) {
@@ -463,3 +481,230 @@ func notContains(t *testing.T, s, sub string) {
 }
 
 func errHint(err error) string { return clierr.NewEnvelope(err).Error.Hint }
+
+// gzipped compresses lines the way an export file is.
+func gzipped(lines ...string) []byte {
+	var b bytes.Buffer
+
+	zw := gzip.NewWriter(&b)
+	_, _ = zw.Write([]byte(strings.Join(lines, "\n") + "\n"))
+	_ = zw.Close()
+
+	return b.Bytes()
+}
+
+func serveBytes(b []byte) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(b) }
+}
+
+func TestExportShorterThanTheListedTotalFails(t *testing.T) {
+	t.Parallel()
+
+	for name, lines := range map[string][]string{"one missing": filled(1499), "empty": nil} {
+		f := &exportFake{file: gzipLines(lines...)}
+		p, _ := newExportProvider(t, 1500, f)
+
+		res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+		isErr(t, err)
+
+		if res != nil {
+			t.Errorf("%s: result = %+v, want nil", name, res)
+		}
+
+		want := fmt.Sprintf("Auth0's user export has %d users where the list reported 1500; "+
+			"users may have been deleted meanwhile, run the command again", len(lines))
+		equal(t, want, err.Error())
+	}
+}
+
+func TestExportLongerThanTheListedTotalPasses(t *testing.T) {
+	t.Parallel()
+
+	f := &exportFake{file: gzipLines(filled(1501)...)}
+	p, _ := newExportProvider(t, 1500, f)
+
+	res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	noErr(t, err)
+	equal(t, 1501, len(res.Events))
+}
+
+func TestExportCutMidFileFails(t *testing.T) {
+	t.Parallel()
+
+	whole := gzipped(filled(1500)...)
+	f := &exportFake{file: serveBytes(whole[:len(whole)/2])}
+	p, _ := newExportProvider(t, 1500, f)
+
+	res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	isErr(t, err)
+	equal(t, "downloading Auth0's user export failed: unexpected EOF", err.Error())
+
+	if res != nil {
+		t.Errorf("result = %+v, want nil", res)
+	}
+}
+
+func TestExportBadLineFailsWithoutQuotingIt(t *testing.T) {
+	t.Parallel()
+
+	lines := filled(1500)
+	lines[700] = "ZQXLINE not json"
+	f := &exportFake{file: gzipLines(lines...)}
+	p, _ := newExportProvider(t, 1500, f)
+
+	_, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	isErr(t, err)
+	contains(t, err.Error(), "downloading Auth0's user export failed")
+
+	for _, part := range []string{"ZQX", "not json", "'Z'"} {
+		notContains(t, err.Error(), part)
+	}
+}
+
+func TestExportPollFailureNamesTheExport(t *testing.T) {
+	t.Parallel()
+
+	p, _ := newProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/users":
+			usersPage(w, r, 1500, func(page int) []int { return []int{page} })
+		case "/api/v2/jobs/users-exports":
+			writeJSON(w, `{"status":"pending","type":"users_export","id":"job_1"}`)
+		default:
+			w.WriteHeader(http.StatusInternalServerError)
+			writeJSON(w, `{"message":"boom"}`)
+		}
+	}, option.WithMaxAttempts(1))
+
+	_, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	isErr(t, err)
+	contains(t, err.Error(), "users export")
+}
+
+func TestExportCancelledWhileDownloadingReturnsTheContextError(t *testing.T) {
+	t.Parallel()
+
+	var (
+		reading = make(chan struct{})
+		closed  = make(chan struct{})
+	)
+
+	whole := gzipped(filled(1500)...)
+	f := &exportFake{file: func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(whole[:len(whole)/2])
+		w.(http.Flusher).Flush()
+		close(reading)
+
+		<-r.Context().Done() // the client closed the body
+		close(closed)
+	}}
+	p, _ := newExportProvider(t, 1500, f)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		<-reading
+		cancel()
+	}()
+
+	_, err := p.Snapshot(ctx, []string{"snapshot.user"}, nil)
+	isErr(t, err)
+	equal(t, context.Canceled, err)
+	notContains(t, err.Error(), "secret123")
+
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the download body was not closed")
+	}
+}
+
+func TestExportReplacesUsersTheListGathered(t *testing.T) {
+	t.Parallel()
+
+	// The list says 1,000 on the first page and 1,001 on the second.
+	f := &exportFake{
+		file: gzipLines(filled(1001)...),
+		users: func(w http.ResponseWriter, r *http.Request) {
+			total := 1000
+			if r.URL.Query().Get("page") == "1" {
+				total = 1001
+			}
+
+			usersPage(w, r, total, func(page int) []int {
+				var ids []int
+				for i := page * pageSize; i < (page+1)*pageSize; i++ {
+					ids = append(ids, i)
+				}
+
+				return ids
+			})
+		},
+	}
+	p, _ := newExportProvider(t, 0, f)
+
+	res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	noErr(t, err)
+	equal(t, 1001, len(res.Events))
+
+	seen := map[string]bool{}
+	for _, s := range subjects(t, res.Events) {
+		if seen[s] {
+			t.Errorf("%s appears twice", s)
+		}
+
+		seen[s] = true
+	}
+}
+
+func TestExportProgressWhileWaiting(t *testing.T) {
+	t.Parallel()
+
+	job := func(extra string) string {
+		return `{"status":"processing","type":"users_export","id":"job_1"` + extra + `}`
+	}
+	f := &exportFake{
+		statuses: []string{
+			job(""), job(""), job(`,"percentage_done":10`), job(`,"percentage_done":10`), job(`,"percentage_done":20`),
+			`{"status":"completed","type":"users_export","id":"job_1","location":"LOCATION"}`,
+		},
+		file: gzipLines(filled(1500)...),
+	}
+	p, _ := newExportProvider(t, 1500, f)
+
+	// The provider's clock moves two seconds for each wait.
+	var (
+		mu      sync.Mutex
+		elapsed time.Duration
+	)
+
+	base := time.Now()
+	p.limits.now = func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+
+		return base.Add(elapsed)
+	}
+	p.wait = func(ctx context.Context, d time.Duration) error {
+		mu.Lock()
+		defer mu.Unlock()
+
+		elapsed += d
+
+		return ctx.Err()
+	}
+
+	var said []string
+
+	_, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, func(s string) { said = append(said, s) })
+	noErr(t, err)
+	equal(t, []string{
+		"reading users",
+		"exporting 1500 users",
+		"exporting 1500 users: waiting for Auth0's job (0s)",
+		"exporting 1500 users: waiting for Auth0's job (2s)",
+		"exporting users: 10%",
+		"exporting users: 20%",
+	}, said)
+}

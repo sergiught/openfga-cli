@@ -441,6 +441,10 @@ const exportPollEvery = 2 * time.Second
 func (r *read) exportUsers(total int) error {
 	r.say(fmt.Sprintf("exporting %d users", total))
 
+	// The total may have crossed the limit on a later page of the list; the
+	// export replaces what the pages gathered.
+	delete(r.events, typeUser)
+
 	format := management.JobFileFormatEnumJSON
 
 	fields := make([]*management.CreateExportUsersFields, len(exportUserFields))
@@ -453,6 +457,8 @@ func (r *read) exportUsers(total int) error {
 		return readError(r.ctx, err, "users export", r.scopes(typeUser))
 	}
 
+	created, lastPercent := r.limits.now(), -1
+
 	for {
 		got, err := r.m.Jobs.Get(r.ctx, job.GetID())
 		if err != nil {
@@ -461,10 +467,26 @@ func (r *read) exportUsers(total int) error {
 
 		switch got.GetStatus() {
 		case "completed":
-			return r.downloadUsers(got.GetLocation(), now())
+			n, err := r.downloadUsers(got.GetLocation(), now())
+			if err != nil {
+				return err
+			}
+
+			// drift --prune deletes what was not read, so a short file must not pass.
+			if n < total {
+				return fmt.Errorf("Auth0's user export has %d users where the list reported %d; "+
+					"users may have been deleted meanwhile, run the command again", n, total)
+			}
+
+			return nil
 		case "pending", "processing":
-			if got.PercentageDone != nil {
-				r.say(fmt.Sprintf("exporting users: %d%%", got.GetPercentageDone()))
+			switch pct := got.GetPercentageDone(); {
+			case got.PercentageDone == nil:
+				r.say(fmt.Sprintf("exporting %d users: waiting for Auth0's job (%ds)", total, int(r.limits.now().Sub(created).Seconds())))
+			case pct != lastPercent:
+				lastPercent = pct
+
+				r.say(fmt.Sprintf("exporting users: %d%%", pct))
 			}
 		default:
 			return fmt.Errorf("Auth0's user export job ended as %q", got.GetStatus())
@@ -479,13 +501,13 @@ func (r *read) exportUsers(total int) error {
 // downloadUsers streams the export file, one JSON user per line, into events.
 // The location is a signed URL on another host: it is fetched without the
 // Management client and never appears in an error.
-func (r *read) downloadUsers(location string, at time.Time) error {
-	fail := func(err error) error {
+func (r *read) downloadUsers(location string, at time.Time) (int, error) {
+	fail := func(err error) (int, error) {
 		if ctxErr := r.ctx.Err(); ctxErr != nil {
-			return ctxErr
+			return 0, ctxErr
 		}
 
-		return fmt.Errorf("downloading Auth0's user export failed: %w", err)
+		return 0, fmt.Errorf("downloading Auth0's user export failed: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(r.ctx, http.MethodGet, location, nil)
@@ -522,7 +544,16 @@ func (r *read) downloadUsers(location string, at time.Time) error {
 
 		if err := dec.Decode(&u); err != nil {
 			if errors.Is(err, io.EOF) {
-				return nil
+				return len(seen), nil
+			}
+
+			// A decoding error quotes part of the line, which is user data.
+			var syn *json.SyntaxError
+
+			var typ *json.UnmarshalTypeError
+
+			if errors.As(err, &syn) || errors.As(err, &typ) {
+				return fail(errors.New("a line is not a JSON user"))
 			}
 
 			return fail(err)
@@ -536,7 +567,7 @@ func (r *read) downloadUsers(location string, at time.Time) error {
 
 		obj, err := toMap(&u)
 		if err != nil {
-			return err
+			return 0, err
 		}
 
 		r.add(event{typ: typeUser, subject: "user " + u.GetUserID(), object: obj, at: at})

@@ -618,7 +618,9 @@ cannot reproduce.
   Auth0 for a user export job, waits for it and downloads the file; it needs no
   extra scope. On a small tenant the job takes about a second, on a large one
   Auth0 decides. An exported identity may carry a `profileData` that a listed one
-  does not. If users are deleted while the list is being read (a tenant of 1,000
+  does not. A short export fails the read with `Auth0's user export has M users where the
+  list reported N; users may have been deleted meanwhile, run the command again`;
+  run it again. If users are deleted while the list is being read (a tenant of 1,000
   users or fewer), the read fails with `Auth0 users were deleted while the list was being read, so
   a user may have been skipped; run the command again`; run it again.
 - Auth0 rate-limits the Management API, at about 2 requests a second on the Free
