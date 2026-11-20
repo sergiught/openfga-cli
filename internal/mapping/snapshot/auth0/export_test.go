@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -335,12 +336,19 @@ func TestExportCancelledWhileWaitingReturnsPromptly(t *testing.T) {
 		file:     gzipLines(),
 	}
 	p, _ := newExportProvider(t, 1500, f)
-	p.wait = sleepContext // the real wait, which a cancelled context must cut short
+	// A wait that only the context can end.
+	p.wait = func(ctx context.Context, _ time.Duration) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(10 * time.Second):
+			return errors.New("the context did not end the wait")
+		}
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	start := time.Now()
 	_, err := p.Snapshot(ctx, []string{"snapshot.user"}, func(s string) {
 		if strings.HasPrefix(s, "exporting users:") {
 			cancel()
@@ -349,10 +357,6 @@ func TestExportCancelledWhileWaitingReturnsPromptly(t *testing.T) {
 
 	isErr(t, err)
 	equal(t, context.Canceled, err)
-
-	if d := time.Since(start); d >= exportPollEvery {
-		t.Errorf("returned after %v, want before the %v wait ends", d, exportPollEvery)
-	}
 }
 
 func TestExportCreateForbiddenNamesScope(t *testing.T) {
@@ -707,4 +711,31 @@ func TestExportProgressWhileWaiting(t *testing.T) {
 		"exporting users: 10%",
 		"exporting users: 20%",
 	}, said)
+}
+
+func TestExportBadDateDoesNotQuoteItsValue(t *testing.T) {
+	t.Parallel()
+
+	lines := filled(1500)
+	lines[10] = `{"user_id":"auth0|bad","created_at":"ZQXDATE"}`
+	f := &exportFake{file: gzipLines(lines...)}
+	p, _ := newExportProvider(t, 1500, f)
+
+	_, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	isErr(t, err)
+	equal(t, "downloading Auth0's user export failed: a line is not a JSON user", err.Error())
+	notContains(t, err.Error(), "ZQX")
+}
+
+func TestExportLineWithoutUserIDFails(t *testing.T) {
+	t.Parallel()
+
+	lines := filled(1500)
+	lines[10] = `{}`
+	f := &exportFake{file: gzipLines(lines...)}
+	p, _ := newExportProvider(t, 1500, f)
+
+	_, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	isErr(t, err)
+	equal(t, "downloading Auth0's user export failed: a line is not a JSON user", err.Error())
 }

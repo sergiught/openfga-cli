@@ -387,30 +387,108 @@ func TestSnapshotOrganizationConnections(t *testing.T) {
 	equal(t, 1, len(reqs))
 }
 
-func TestSnapshotOrganizationConnectionsFullPageAsksForTheNext(t *testing.T) {
-	t.Parallel()
+// orgConnsHandler serves one organization whose connections list has total
+// connections, pages(page) of them on each page; page numbers start at 0.
+func orgConnsHandler(total any, pages func(page int) []int) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/organizations" {
+			writeJSON(w, `{"organizations":[{"id":"org_1","name":"acme-one"}]}`)
 
-	var conns []string
+			return
+		}
 
-	for i := range pageSize {
-		conns = append(conns, fmt.Sprintf(`{"connection_id":"con_%03d","connection":{"name":"c%03d","strategy":"auth0"}}`, i, i))
+		page := 0
+		_, _ = fmt.Sscan(r.URL.Query().Get("page"), &page)
+
+		var conns []string
+
+		for _, i := range pages(page) {
+			conns = append(conns, fmt.Sprintf(`{"connection_id":"con_%03d","connection":{"name":"c%03d","strategy":"auth0"}}`, i, i))
+		}
+
+		totalField := ""
+		if total != nil {
+			totalField = fmt.Sprintf(`,"total":%v`, total)
+		}
+
+		writeJSON(w, fmt.Sprintf(`{"enabled_connections":[%s],"start":%d,"limit":100%s}`,
+			strings.Join(conns, ","), page*100, totalField))
+	}
+}
+
+func span(from, to int) []int {
+	var out []int
+	for i := from; i < to; i++ {
+		out = append(out, i)
 	}
 
-	p, rec := newProvider(t, func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/api/v2/organizations":
-			writeJSON(w, `{"organizations":[{"id":"org_1","name":"acme-one"}]}`)
-		case r.URL.Query().Get("page") == "" || r.URL.Query().Get("page") == "0":
-			writeJSON(w, `{"enabled_connections":[`+strings.Join(conns, ",")+`],"start":0,"limit":100,"total":100}`)
-		default:
-			writeJSON(w, `{"enabled_connections":[],"start":1,"limit":100,"total":100}`)
-		}
-	})
+	return out
+}
+
+func TestSnapshotOrganizationConnectionsFullPageReachingTheTotalIsOneRequest(t *testing.T) {
+	t.Parallel()
+
+	p, rec := newProvider(t, orgConnsHandler(100, func(page int) []int { return span(0, 100) }))
 
 	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization.connection"}, nil)
 	noErr(t, err)
 	equal(t, pageSize, len(res.Events))
-	equal(t, 2, len(rec.find("/organizations/org_1/enabled_connections")))
+	equal(t, 1, len(rec.find("/organizations/org_1/enabled_connections")))
+}
+
+func TestSnapshotOrganizationConnectionsShortPagesBeforeTheTotalAskForTheNext(t *testing.T) {
+	t.Parallel()
+
+	// 120 connections served 50 at a time: a short page is not the last.
+	p, rec := newProvider(t, orgConnsHandler(120, func(page int) []int {
+		return span(page*50, min(page*50+50, 120))
+	}))
+
+	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization.connection"}, nil)
+	noErr(t, err)
+	equal(t, 120, len(res.Events))
+	equal(t, 3, len(rec.find("/organizations/org_1/enabled_connections")))
+}
+
+func TestSnapshotOrganizationConnectionsEmptyPageBeforeTheTotalFails(t *testing.T) {
+	t.Parallel()
+
+	p, _ := newProvider(t, orgConnsHandler(120, func(page int) []int {
+		if page == 0 {
+			return span(0, 50)
+		}
+
+		return nil
+	}))
+
+	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization.connection"}, nil)
+	isErr(t, err)
+	equal(t, "Auth0 organization connections changed while the list was being read, "+
+		"so a connection may have been skipped; run the command again", err.Error())
+
+	if res != nil {
+		t.Errorf("result = %+v, want nil", res)
+	}
+}
+
+func TestSnapshotOrganizationConnectionsWithoutATotalStopOnTheEmptyPage(t *testing.T) {
+	t.Parallel()
+
+	p, rec := newProvider(t, orgConnsHandler(nil, func(page int) []int {
+		switch page {
+		case 0:
+			return span(0, 100)
+		case 1:
+			return span(100, 130)
+		}
+
+		return nil
+	}))
+
+	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization.connection"}, nil)
+	noErr(t, err)
+	equal(t, 130, len(res.Events))
+	equal(t, 3, len(rec.find("/organizations/org_1/enabled_connections")))
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

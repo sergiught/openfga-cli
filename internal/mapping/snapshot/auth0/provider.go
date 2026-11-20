@@ -498,6 +498,25 @@ func (r *read) exportUsers(total int) error {
 	}
 }
 
+// errLine is what a line of the export that does not decode as a user reports.
+var errLine = errors.New("a line is not a JSON user")
+
+// streamReader remembers the first error of the stream other than its end, to
+// tell a failing stream from a line that does not decode.
+type streamReader struct {
+	r   io.Reader
+	err error
+}
+
+func (s *streamReader) Read(p []byte) (int, error) {
+	n, err := s.r.Read(p)
+	if err != nil && !errors.Is(err, io.EOF) && s.err == nil {
+		s.err = err
+	}
+
+	return n, err
+}
+
 // downloadUsers streams the export file, one JSON user per line, into events.
 // The location is a signed URL on another host: it is fetched without the
 // Management client and never appears in an error.
@@ -531,10 +550,12 @@ func (r *read) downloadUsers(location string, at time.Time) (int, error) {
 		return fail(fmt.Errorf("HTTP %d", resp.StatusCode))
 	}
 
-	zr, err := gzip.NewReader(resp.Body)
+	gz, err := gzip.NewReader(resp.Body)
 	if err != nil {
 		return fail(err)
 	}
+
+	zr := &streamReader{r: gz}
 
 	seen := map[string]bool{}
 	dec := json.NewDecoder(zr)
@@ -547,16 +568,18 @@ func (r *read) downloadUsers(location string, at time.Time) (int, error) {
 				return len(seen), nil
 			}
 
-			// A decoding error quotes part of the line, which is user data.
-			var syn *json.SyntaxError
-
-			var typ *json.UnmarshalTypeError
-
-			if errors.As(err, &syn) || errors.As(err, &typ) {
-				return fail(errors.New("a line is not a JSON user"))
+			// An error of the stream (gzip, the body, the context) is reported as it
+			// is. Any other is a decoding error, and the SDK's date parser quotes the
+			// raw value, so none of them may reach the error text.
+			if zr.err != nil {
+				return fail(zr.err)
 			}
 
-			return fail(err)
+			return fail(errLine)
+		}
+
+		if u.GetUserID() == "" {
+			return fail(errLine)
 		}
 
 		if seen[u.GetUserID()] {
@@ -631,7 +654,9 @@ func (r *read) orgConnections(org map[string]any) error {
 	page, err := r.m.Organizations.EnabledConnections.List(r.ctx, id,
 		&management.ListOrganizationConnectionsRequestParameters{PerPage: &perPage, IncludeTotals: &totals})
 
-	return walkPages(r, page, err, "organization connections", typeOrgConnection,
+	read, total := 0.0, 0.0
+
+	if err := walkPages(r, page, err, "organization connections", typeOrgConnection,
 		func(p *core.Page[*int, *management.OrganizationConnection, *management.ListOrganizationConnectionsOffsetPaginatedResponseContent], at time.Time) error {
 			for _, c := range p.Results {
 				raw, err := toMap(c)
@@ -645,14 +670,28 @@ func (r *read) orgConnections(org map[string]any) error {
 				})
 			}
 
-			// A short page is the last one; asking for the next would cost a request.
-			// Auth0 fills every page but the last at per_page=100, as users() relies on.
-			if len(p.Results) < pageSize {
+			// Stop when the total is reached. A short page that falls short of it is
+			// not the end; an empty one is, and is caught below. With no total, the
+			// empty page is the only end.
+			read += float64(len(p.Results))
+			total = p.Response.GetTotal()
+
+			if total > 0 && read >= total {
 				return errStopWalk
 			}
 
 			return nil
-		})
+		}); err != nil {
+		return err
+	}
+
+	// Pages ran out before the total: something changed, or Auth0 skipped some.
+	if read < total {
+		return errors.New("Auth0 organization connections changed while the list was being read, " +
+			"so a connection may have been skipped; run the command again")
+	}
+
+	return nil
 }
 
 func (r *read) orgMembers(org map[string]any) error {

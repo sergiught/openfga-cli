@@ -108,7 +108,9 @@ func get(t *testing.T, rt http.RoundTripper) (*http.Response, error) {
 	t.Helper()
 
 	req, err := http.NewRequest(http.MethodGet, "http://example.invalid/", nil)
-	noErr(t, err)
+	if err != nil {
+		return nil, err
+	}
 
 	return rt.RoundTrip(req)
 }
@@ -398,7 +400,11 @@ func TestPacerWidensOncePerWindow(t *testing.T) {
 			defer done.Done()
 
 			_, err := get(t, p)
-			noErr(t, err)
+			if err != nil {
+				t.Error(err)
+
+				return
+			}
 		}()
 	}
 
@@ -447,10 +453,18 @@ func TestPacerDoesNotSendIntoAClosedPacer(t *testing.T) {
 		defer wg.Done()
 
 		req, err := http.NewRequest(http.MethodPost, "http://example.invalid/", io.NopCloser(strings.NewReader("x")))
-		noErr(t, err)
+		if err != nil {
+			t.Error(err)
+
+			return
+		}
 
 		resp, err := p.RoundTrip(req)
-		noErr(t, err)
+		if err != nil {
+			t.Error(err)
+
+			return
+		}
 		equal(t, http.StatusTooManyRequests, resp.StatusCode)
 	}()
 
@@ -467,7 +481,11 @@ func TestPacerDoesNotSendIntoAClosedPacer(t *testing.T) {
 		s.mu.Unlock()
 
 		resp, err := get(t, p)
-		noErr(t, err)
+		if err != nil {
+			t.Error(err)
+
+			return
+		}
 		equal(t, http.StatusOK, resp.StatusCode)
 	}()
 
@@ -633,10 +651,16 @@ func TestPacerAgainstATokenBucket(t *testing.T) {
 				}
 
 				req, err := http.NewRequest(http.MethodGet, "http://example.invalid/", nil)
-				noErr(t, err)
+				if err != nil {
+					t.Error(err)
+					return
+				}
 
 				resp, err := p.RoundTrip(req)
-				noErr(t, err)
+				if err != nil {
+					t.Error(err)
+					return
+				}
 				equal(t, http.StatusOK, resp.StatusCode)
 			}
 		}()

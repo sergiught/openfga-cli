@@ -369,3 +369,26 @@ func TestSnapshotSendsUserAgent(t *testing.T) {
 	noErr(t, err)
 	equal(t, map[string]bool{"ofga-cli": true}, agents)
 }
+
+// A task that cancels the context and returns nil, with tasks still to start,
+// must not make parallel report success.
+func TestParallelCanceledContextIsReported(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var started atomic.Int64
+
+	err := parallel(ctx, 100, func(context.Context, int) error {
+		started.Add(1)
+		cancel()
+
+		return nil
+	}, nil)
+	equal(t, context.Canceled, err)
+
+	if n := started.Load(); n >= 100 {
+		t.Errorf("%d tasks started, want the cancellation to stop the rest", n)
+	}
+}
