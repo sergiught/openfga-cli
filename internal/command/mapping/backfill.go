@@ -53,7 +53,7 @@ func (c *Command) newBackfillCmd() *cobra.Command {
 			"A rule takes part when its `when` also names a snapshot type, such as `input.type == \"snapshot.organization.member\"`; " +
 			"a mapping with none has nothing to backfill, and the error suggests the clause for each rule. " +
 			"Only the types the mapping names are read.\n\n" +
-			"backfill reads the store first and writes only the tuples it lacks. It never deletes, and a tuple that is already there with a different condition is left for drift to replace. " +
+			"backfill reads the provider, then the store, and writes only the tuples the store lacks. On a large store it reads only the objects the mapping writes to. It never deletes, and a tuple that is already there with a different condition is left for drift to replace. " +
 			"It shows the tuples it would write and asks before writing (--force skips the question, --dry-run stops after showing them). " +
 			"The provider is read once, so the tuples reflect it as of that moment. Changes made while the command runs, or after it, are not included. " +
 			"Use `ofga mappings drift` to compare the store with the provider and to remove tuples the provider no longer backs.\n\n" +
@@ -90,12 +90,10 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider string, dryRun,
 		cl                *openfga.Client
 		storeID           string
 		storeNm, storeLbl string
-		stored            []language.Tuple
-		storeReadAt       time.Time
 	)
-	// The store is resolved and read before the provider, so a missing profile
-	// or an unreachable server does not cost a long read first, and the
-	// snapshot is never older than the store it is compared with.
+	// The store is resolved before the provider, so a missing profile or an
+	// unreachable server does not cost a long read first. It is read after the
+	// provider, once the desired tuples say which objects are worth reading.
 	run, err := c.runSnapshot(cmd, path, provider, func(*mapping.File) error {
 		var r config.Resolved
 		var err error
@@ -103,19 +101,30 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider string, dryRun,
 			return err
 		}
 		storeID = r.StoreID
-		if storeNm, storeLbl, err = storeName(ctx, cl, storeID); err != nil {
-			return err
-		}
-		output.Progressf(errw, "reading the store")
-		if stored, err = (storeClient{cl}).ReadAll(ctx); err != nil {
-			return err
-		}
-		storeReadAt = now()
-		return nil
+		storeNm, storeLbl, err = storeName(ctx, cl, storeID)
+		return err
 	})
 	if err != nil {
 		return err
 	}
+
+	// With nothing desired there is nothing to look up, so the store is not
+	// read and store_read_at stays the zero time.
+	var (
+		read        storeRead
+		storeReadAt time.Time
+	)
+	if len(run.Desired) > 0 {
+		output.Progressf(errw, "reading the store")
+		read, err = (storeClient{cl}).ReadMatching(ctx, run.Desired, func(objects int) {
+			output.Progressf(errw, "reading %s in the store", mapping.Plural(objects, "object"))
+		})
+		if err != nil {
+			return err
+		}
+		storeReadAt = now()
+	}
+	stored := read.Tuples
 
 	// With no owned shapes nothing is stale: backfill never deletes.
 	diff := snapshot.Compare(run.Desired, stored, nil)
@@ -126,8 +135,10 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider string, dryRun,
 		Tuples: tuplesOut(run.Desired), Missing: tuplesOut(diff.Missing), Changed: tuplesOut(diff.Changed), Existing: existing,
 	}
 	if !machine {
-		storeReadLine(out, run, storeLbl, storeReadAt, len(stored))
 		snapshotHeader(out, label, run.Result)
+		if len(run.Desired) > 0 {
+			storeReadLine(out, run, storeLbl, storeReadAt, read.Read, read.Objects)
+		}
 		if len(run.Desired) == 0 {
 			if err := renderTuples(out, run.Desired); err != nil {
 				return err

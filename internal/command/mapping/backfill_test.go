@@ -21,6 +21,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/configtest"
 	"github.com/sergiught/openfga-cli/internal/mapping/snapshot"
+	"github.com/sergiught/openfga-cli/internal/output"
 )
 
 const memberSnapshotMapping = `version: "1"
@@ -698,5 +699,186 @@ func TestBackfillEveryTupleChanged(t *testing.T) {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("stderr missing %q:\n%s", want, stderr)
 		}
+	}
+}
+
+// interactiveProgress makes progress lines print, as in a terminal session.
+func interactiveProgress(t *testing.T) {
+	t.Helper()
+	prev := output.Interactive
+	output.Interactive = true
+	t.Cleanup(func() { output.Interactive = prev })
+}
+
+func unfilteredReads(rs []readReq) (n int) {
+	for _, r := range rs {
+		if len(r.TupleKey) == 0 {
+			n++
+		}
+	}
+	return n
+}
+
+func TestBackfillSmallStoreIsOneRequestAndStoreLineFollowsProvider(t *testing.T) {
+	configtest.Isolate(t)
+	interactiveProgress(t)
+	pinNow(t, 60*time.Second)
+	fs := newFakeStore(t, storedTuple("u1", "member"), map[string]any{"user": "user:x", "relation": "viewer", "object": "document:d1"})
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: fakeResult()})
+	mp := writeFile(t, t.TempDir(), "m.yaml", memberSnapshotMapping)
+	stdout, stderr, err := runBackfill(t, fs.cli(), nil, mp, "--provider", "fake", "--dry-run")
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	reads := fs.readRequests()
+	if len(reads) != 1 || len(reads[0].TupleKey) != 0 || reads[0].PageSize != 100 {
+		t.Fatalf("reads = %+v, want one unfiltered read of 100", reads)
+	}
+	if !strings.Contains(stdout, "store read  14:03:13 UTC  2 tuples  acme\n") {
+		t.Errorf("stdout:\n%s", stdout)
+	}
+	if h, s := strings.Index(stdout, "Fake read"), strings.Index(stdout, "store read"); h < 0 || s < h {
+		t.Errorf("the provider header must come before the store line:\n%s", stdout)
+	}
+	if !strings.Contains(stderr, "reading the store") || strings.Contains(stderr, "objects in the store") {
+		t.Errorf("stderr:\n%s", stderr)
+	}
+}
+
+func TestBackfillLargeStoreReadsOnlyTheObjectsItWritesTo(t *testing.T) {
+	configtest.Isolate(t)
+	interactiveProgress(t)
+	pinNow(t, 60*time.Second)
+	changed := storedTuple("u2", "reader")
+	changed["condition"] = map[string]any{"name": "c"}
+	noise := storedTuple("zz", "member")
+	fs := newFakeStore(t, storedTuple("u1", "member"), noise, changed,
+		map[string]any{"user": "user:x", "relation": "viewer", "object": "document:d1"})
+	fs.bigStore, fs.pageSize = true, 1
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: fakeResult()})
+	mp := writeFile(t, t.TempDir(), "m.yaml", memberSnapshotMapping)
+	stdout, stderr, err := runBackfill(t, fs.cli(), nil, mp, "--provider", "fake", "--dry-run")
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	reads := fs.readRequests()
+	if unfilteredReads(reads) != 1 || len(reads) != 1+2+1 {
+		t.Fatalf("reads = %+v, want 1 unfiltered, one first request per pair and one more page", reads)
+	}
+	pairs := map[string]int{}
+	for _, r := range reads {
+		if len(r.TupleKey) == 0 {
+			continue
+		}
+		if r.TupleKey["user"] != "" || r.TupleKey["object"] != "organization:o1" || r.PageSize != 100 {
+			t.Errorf("pair read = %+v", r)
+		}
+		pairs[r.TupleKey["relation"]]++
+	}
+	if pairs["member"] != 2 || pairs["reader"] != 1 {
+		t.Errorf("pair reads = %v: member holds two tuples and is read in two pages", pairs)
+	}
+	if !strings.Contains(stdout, "store read  14:03:13 UTC  3 tuples on 1 object  acme\n") {
+		t.Errorf("stdout:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "4 tuples from Fake: 2 missing from the store, 1 already there, 1 there with a different condition") {
+		t.Errorf("stdout:\n%s", stdout)
+	}
+	if !strings.Contains(stderr, "reading the store") || !strings.Contains(stderr, "reading 1 object in the store") {
+		t.Errorf("stderr:\n%s", stderr)
+	}
+	// Forced, only the missing tuples are written.
+	fs2 := newFakeStore(t, storedTuple("u1", "member"), changed)
+	fs2.bigStore = true
+	if _, stderr, err := runBackfill(t, fs2.cli(), nil, mp, "--provider", "fake", "--force"); err != nil {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	if fs2.writeCount() != 1 {
+		t.Fatalf("writes = %v", fs2.writes)
+	}
+	if got := strings.Count(fs2.writes[0], `"user:`); got != 2 {
+		t.Errorf("write carries %d tuples, want the 2 missing:\n%s", got, fs2.writes[0])
+	}
+}
+
+func orgMemberResult(orgs int) *snapshot.Result {
+	res := fakeResult()
+	res.Events = nil
+	for i := 1; i <= orgs; i++ {
+		res.Events = append(res.Events, map[string]any{"type": "snapshot.organization.member", "user": "u1", "org": fmt.Sprintf("o%d", i)})
+	}
+	return res
+}
+
+func TestBackfillPageBudgetFollowsThePairCount(t *testing.T) {
+	const oneRule = `version: "1"
+rules:
+  - name: organization.member.added
+    when: input.type == "snapshot.organization.member"
+    tuples:
+      - user: "user:{{ input.user }}"
+        relation: member
+        object: "organization:{{ input.org }}"
+`
+	for _, tt := range []struct{ orgs, unfiltered int }{{9, 2}, {8, 1}, {1, 1}} {
+		configtest.Isolate(t)
+		fs := newFakeStore(t)
+		fs.bigStore = true
+		useFakeProvider(t, fakeProvider{types: fakeTypes(), result: orgMemberResult(tt.orgs)})
+		mp := writeFile(t, t.TempDir(), "m.yaml", oneRule)
+		if _, stderr, err := runBackfill(t, fs.cli(), nil, mp, "--provider", "fake", "--dry-run"); err != nil {
+			t.Fatalf("err = %v\n%s", err, stderr)
+		}
+		reads := fs.readRequests()
+		if got := unfilteredReads(reads); got != tt.unfiltered || len(reads)-got != tt.orgs {
+			t.Errorf("%d pairs: %d unfiltered and %d pair reads, want %d and %d", tt.orgs, got, len(reads)-got, tt.unfiltered, tt.orgs)
+		}
+	}
+}
+
+func TestBackfillNothingDesiredReadsNoStore(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, storedTuple("u1", "member"))
+	res := fakeResult()
+	res.Events = nil
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: res})
+	mp := writeFile(t, t.TempDir(), "m.yaml", memberSnapshotMapping)
+	stdout, stderr, err := runBackfill(t, fs.cli(), nil, mp, "--provider", "fake")
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	if reads := fs.readRequests(); len(reads) != 0 || strings.Contains(stdout, "store read") || strings.Contains(stderr, "reading the store") {
+		t.Fatalf("reads = %+v\n%s\n%s", reads, stdout, stderr)
+	}
+	c := fs.cli()
+	c.JSON = true
+	jsonOut, _, err := runBackfill(t, c, nil, mp, "--provider", "fake", "--dry-run")
+	var got backfillResult
+	if err != nil || json.Unmarshal([]byte(jsonOut), &got) != nil || !got.StoreReadAt.IsZero() {
+		t.Fatalf("err = %v store_read_at = %v\n%s", err, got.StoreReadAt, jsonOut)
+	}
+}
+
+func TestBackfillFailedPairReadWritesNothing(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t)
+	fs.bigStore, fs.failReadObject = true, "organization:o1"
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: fakeResult()})
+	mp := writeFile(t, t.TempDir(), "m.yaml", memberSnapshotMapping)
+	_, stderr, err := runBackfill(t, fs.cli(), nil, mp, "--provider", "fake", "--force")
+	if err == nil || fs.writeCount() != 0 {
+		t.Fatalf("err = %v writes = %d\n%s", err, fs.writeCount(), stderr)
+	}
+}
+
+func TestBackfillResolvesTheStoreBeforeContactingTheProvider(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t)
+	fs.srv.Close()
+	calls := 0
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: fakeResult(), calls: &calls})
+	mp := writeFile(t, t.TempDir(), "m.yaml", memberSnapshotMapping)
+	if _, _, err := runBackfill(t, fs.cli(), nil, mp, "--provider", "fake", "--dry-run"); err == nil || calls != 0 {
+		t.Fatalf("err = %v, provider calls = %d", err, calls)
 	}
 }

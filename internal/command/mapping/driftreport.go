@@ -17,7 +17,7 @@ import (
 // header, each kind of drift with its tuples, and what was not checked.
 func renderDrift(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt time.Time, stored int, diff snapshot.Diff, notChecked []snapshot.NotChecked) error {
 	label := output.SanitizeField(run.Provider.Label())
-	storeReadLine(w, run, storeLabel, storeReadAt, stored)
+	storeReadLine(w, run, storeLabel, storeReadAt, stored, 0)
 	snapshotHeader(w, run.Provider.Label(), run.Result)
 
 	// A stale tuple is shown as the delete it would become.
@@ -51,12 +51,18 @@ func renderDrift(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt t
 }
 
 // storeReadLine prints when the store was read and how many tuples it held.
-func storeReadLine(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt time.Time, stored int) {
+// A nonzero objects means only those objects were read, so the count is of the
+// tuples they held.
+func storeReadLine(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt time.Time, stored, objects int) {
 	layout := snapshotLayout(run.Result)
 	if storeReadAt.UTC().Format(time.DateOnly) != run.Result.FinishedAt.UTC().Format(time.DateOnly) {
-		layout = dateClockLayout // the store was read the day before the provider
+		layout = dateClockLayout // the store was read on another day than the provider finished
 	}
-	_, _ = fmt.Fprintf(w, "store read  %s UTC  %s  %s\n", storeReadAt.UTC().Format(layout), mapping.Plural(stored, "tuple"), output.SanitizeField(storeLabel))
+	count := mapping.Plural(stored, "tuple")
+	if objects > 0 {
+		count += " on " + mapping.Plural(objects, "object")
+	}
+	_, _ = fmt.Fprintf(w, "store read  %s UTC  %s  %s\n", storeReadAt.UTC().Format(layout), count, output.SanitizeField(storeLabel))
 }
 
 // tupleSection is one named list of tuples in a report.
