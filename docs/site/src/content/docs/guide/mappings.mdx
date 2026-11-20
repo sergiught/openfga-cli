@@ -629,16 +629,15 @@ cannot reproduce.
   organizations to list them. For each organization, `snapshot.organization.member`
   or `snapshot.organization.member.role` costs one request per 100 members (roles
   come in the same request), and `snapshot.organization.connection` costs one
-  per 100 enabled connections. Like `snapshot.user`, which is one request per 100
-  users, these lists stop at the total Auth0 reports, with no empty page after
-  the last; if a list ends before its total, the read fails and says to run it
-  again.
+  per 100 enabled connections. `snapshot.user` is one request per 100 users.
+  Those two lists stop at the total Auth0 reports, with no empty page after the
+  last; if one ends before its total, the read fails and says to run it again.
   `snapshot.connection` is one request per 100 connections plus at least one per
   connection to list its clients. A tenant of 40 organizations with up to 100
   members each is about 42 requests when the mapping names only member types.
   Requests run up to 8 at a time. When Auth0 answers 429 the read slows down and
   waits the seconds in Auth0's `Retry-After` header (1 second when it is
-  missing), then speeds back up; each 429 is counted in the
+  missing, 60 at most), then speeds back up; each 429 is counted in the
   read header, as in `3 rate-limit waits`. Ctrl-C interrupts a wait. The Free
   plan lets a burst of 10 requests through, then refills about 2 a second, so a
   run soon after another one waits, and a large tenant takes a while there: 500
