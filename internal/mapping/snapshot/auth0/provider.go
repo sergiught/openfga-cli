@@ -485,6 +485,7 @@ func (r *read) orgConnections(org map[string]any) error {
 			}
 
 			// A short page is the last one; asking for the next would cost a request.
+			// Auth0 fills every page but the last at per_page=100, as users() relies on.
 			if len(p.Results) < pageSize {
 				return errStopWalk
 			}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/spf13/cobra"
 
+	"github.com/sergiught/openfga-cli/internal/agentmode"
 	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/configtest"
@@ -198,8 +200,10 @@ func TestBackfillLeavesChangedTuples(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, stderr)
 	}
-	if strings.Contains(fs.writes[0], `"user:u1"`) && strings.Contains(fs.writes[0], `"member"`) && strings.Count(fs.writes[0], `"user:u1"`) != 1 {
-		t.Errorf("changed tuple was written:\n%s", fs.writes[0])
+	for _, w := range fs.writes {
+		if strings.Contains(w, `{"user":"user:u1","relation":"member","object":"organization:o1"}`) {
+			t.Errorf("changed tuple was written:\n%s", w)
+		}
 	}
 	if strings.Count(fs.writes[0], `"user":`) != 3 {
 		t.Errorf("write should carry the 3 missing tuples:\n%s", fs.writes[0])
@@ -209,7 +213,7 @@ func TestBackfillLeavesChangedTuples(t *testing.T) {
 			t.Errorf("stdout missing %q:\n%s", want, stdout)
 		}
 	}
-	if !strings.Contains(stderr, `1 tuple in the store with a different condition; backfill leaves them, "ofga mappings drift" replaces them`) {
+	if !strings.Contains(stderr, `1 tuple is in the store with a different condition; backfill leaves it, "ofga mappings drift" replaces it`) {
 		t.Errorf("stderr:\n%s", stderr)
 	}
 
@@ -605,4 +609,94 @@ func TestHintAnchorExistsInGuide(t *testing.T) {
 		}
 	}
 	t.Fatalf("no ### heading in the guide slugs to %q; headings slug to %v", fragment, slugs)
+}
+
+func TestBackfillFailureCountsMissingTuples(t *testing.T) {
+	configtest.Isolate(t)
+	res := fakeResult()
+	res.Events = nil
+	var stored []map[string]any
+	for i := range 120 { // 240 desired tuples
+		u := fmt.Sprintf("u%03d", i)
+		res.Events = append(res.Events, map[string]any{"type": "snapshot.organization.member", "user": u, "org": "o1"})
+		if i < 30 { // 60 already there, so 180 are missing: two requests
+			stored = append(stored, storedTuple(u, "member"), storedTuple(u, "reader"))
+		}
+	}
+	fs := newFakeStore(t, stored...)
+	fs.failAt = map[int]bool{2: true}
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: res})
+	mp := writeFile(t, t.TempDir(), "m.yaml", memberSnapshotMapping)
+	_, stderr, err := runBackfill(t, fs.cli(), nil, mp, "--provider", "fake", "--force")
+	if err == nil || fs.writeCount() != 2 {
+		t.Fatalf("err = %v writes = %d", err, fs.writeCount())
+	}
+	if !strings.Contains(stderr, "sent 100 of 180 writes before the failure") {
+		t.Errorf("stderr:\n%s", stderr)
+	}
+}
+
+func TestBackfillMachineForceWithNothingMissing(t *testing.T) {
+	all := []map[string]any{storedTuple("u1", "member"), storedTuple("u1", "reader"), storedTuple("u2", "member"), storedTuple("u2", "reader")}
+	for name, setup := range map[string]func(c *cli.CLI){
+		"json":  func(c *cli.CLI) { c.JSON = true },
+		"agent": func(c *cli.CLI) { c.JSON = true; c.Agent = agentmode.State{Enabled: true, Reason: "CLAUDECODE=1"} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			configtest.Isolate(t)
+			fs := newFakeStore(t, all...)
+			useFakeProvider(t, fakeProvider{types: fakeTypes(), result: fakeResult()})
+			mp := writeFile(t, t.TempDir(), "m.yaml", memberSnapshotMapping)
+			c := fs.cli()
+			setup(c)
+			stdout, stderr, err := runBackfill(t, c, nil, mp, "--provider", "fake", "--force")
+			if err != nil {
+				t.Fatalf("err = %v\n%s", err, stderr)
+			}
+			if fs.writeCount() != 0 {
+				t.Fatalf("wrote %d times with nothing missing", fs.writeCount())
+			}
+			var raw map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(stdout), &raw); err != nil {
+				t.Fatal(err)
+			}
+			var got backfillResult
+			_ = json.Unmarshal([]byte(stdout), &got)
+			if string(raw["missing"]) != "[]" || got.Existing != 4 || got.Sent.Writes != 0 {
+				t.Fatalf("document:\n%s", stdout)
+			}
+		})
+	}
+}
+
+func TestBackfillEveryTupleChanged(t *testing.T) {
+	configtest.Isolate(t)
+	var stored []map[string]any
+	for _, u := range []string{"u1", "u2"} {
+		for _, r := range []string{"member", "reader"} {
+			tp := storedTuple(u, r)
+			tp["condition"] = map[string]any{"name": "in_office"}
+			stored = append(stored, tp)
+		}
+	}
+	fs := newFakeStore(t, stored...)
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: fakeResult()})
+	mp := writeFile(t, t.TempDir(), "m.yaml", memberSnapshotMapping)
+	c := fs.cli()
+	c.NoInput = true
+	_, stderr, err := runBackfill(t, c, strings.NewReader(""), mp, "--provider", "fake")
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	if fs.writeCount() != 0 {
+		t.Fatalf("wrote %d times", fs.writeCount())
+	}
+	for _, want := range []string{
+		`4 tuples are in the store with a different condition; backfill leaves them, "ofga mappings drift" replaces them`,
+		"nothing to write: 0 tuples already in store acme, 4 there with a different condition (Fake state as of 14:05:40 UTC)",
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr missing %q:\n%s", want, stderr)
+		}
+	}
 }

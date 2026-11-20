@@ -57,7 +57,7 @@ func (c *Command) newBackfillCmd() *cobra.Command {
 			"It shows the tuples it would write and asks before writing (--force skips the question, --dry-run stops after showing them). " +
 			"The provider is read once, so the tuples reflect it as of that moment. Changes made while the command runs, or after it, are not included. " +
 			"Use `ofga mappings drift` to compare the store with the provider and to remove tuples the provider no longer backs.\n\n" +
-			"Run again after a failure: tuples that already landed are ignored. Auth0 needs a machine-to-machine application. A mapping that names snapshot.user fails on a tenant with more than 1,000 users, since Auth0 lists no more through this API; nothing is truncated.\n\n" +
+			"Run again after a failure: tuples that already landed are not written twice. Auth0 needs a machine-to-machine application. A mapping that names snapshot.user fails on a tenant with more than 1,000 users, since Auth0 lists no more through this API; nothing is truncated.\n\n" +
 			"Exit codes: 0 ok · 1 error · 2 usage · 4 network · 130 interrupted.",
 		Example: `# See what a backfill from Auth0 would write
 ofga mappings backfill auth0.yaml --provider auth0 --dry-run
@@ -149,7 +149,12 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider string, dryRun,
 			}
 		}
 		if len(diff.Changed) > 0 {
-			output.Notef(errw, "%s in the store with a different condition; backfill leaves them, \"ofga mappings drift\" replaces them", mapping.Plural(len(diff.Changed), "tuple"))
+			verb, pronoun := "is", "it"
+			if len(diff.Changed) > 1 {
+				verb, pronoun = "are", "them"
+			}
+			output.Notef(errw, "%s %s in the store with a different condition; backfill leaves %s, \"ofga mappings drift\" replaces %s",
+				mapping.Plural(len(diff.Changed), "tuple"), verb, pronoun, pronoun)
 		}
 	}
 	if len(run.Desired) == 0 {
@@ -173,8 +178,12 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider string, dryRun,
 			return err
 		}
 		_, finish := snapshotTimes(run.Result)
-		output.Successf(errw, "nothing to write: %s already in store %s (%s state as of %s UTC)", mapping.Plural(existing, "tuple"),
-			output.SanitizeField(storeLbl), output.SanitizeField(label), finish)
+		differ := ""
+		if len(diff.Changed) > 0 {
+			differ = fmt.Sprintf(", %d there with a different condition", len(diff.Changed))
+		}
+		output.Successf(errw, "nothing to write: %s already in store %s%s (%s state as of %s UTC)", mapping.Plural(existing, "tuple"),
+			output.SanitizeField(storeLbl), differ, output.SanitizeField(label), finish)
 		return nil
 	}
 	// The age belongs above a question, so only a run that will ask prints it.

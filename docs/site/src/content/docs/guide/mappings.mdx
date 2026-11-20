@@ -553,7 +553,8 @@ Without a terminal, with `--no-input` (which agent mode sets), or under `-o json
 or `-o yaml`, `drift` only reports unless you pass `--force`; it prints `report
 only: pass --force to write`. `backfill` has no report-only mode: without a
 terminal or under `--no-input` it refuses to write unless you pass `--force`
-(exit `1`, asking for confirmation), and `--dry-run` previews. Under `-o json`,
+(exit `1`, asking for confirmation), unless nothing is missing: then there is
+nothing to confirm and it exits `0`. `--dry-run` previews. Under `-o json`,
 `-o yaml` or agent mode it asks for one of the two flags up front (exit `2`). The
 exit code says what is left:
 
