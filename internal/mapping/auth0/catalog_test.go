@@ -109,6 +109,10 @@ func TestSamplesOnDiskMatchTheCatalog(t *testing.T) {
 		if !strings.HasSuffix(e.Name(), ".json") {
 			t.Fatalf("unexpected file in samples/: %s", e.Name())
 		}
+		// Snapshot samples are not catalog events; snapshot_test.go covers them.
+		if strings.HasPrefix(e.Name(), "snapshot.") {
+			continue
+		}
 		files = append(files, strings.TrimSuffix(e.Name(), ".json"))
 	}
 	var types []string

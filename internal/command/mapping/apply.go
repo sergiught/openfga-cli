@@ -142,20 +142,9 @@ func (c *Command) runApply(cmd *cobra.Command, path, eventsPath string, fromEven
 	if err != nil {
 		return err
 	}
-	// The name is a courtesy, so a store we may not read (403/404) just shows
-	// its id. An unreachable server or failed auth would fail every later
-	// request, so stop before planning rather than offer a prompt we cannot honour.
-	name := ""
-	s, serr := cl.Stores.Get(ctx, r.StoreID)
-	switch {
-	case serr == nil:
-		name = s.Name
-	case ctx.Err() != nil || clierr.IsConnErr(serr) || clierr.Friendly(serr) != serr.Error():
-		return serr
-	}
-	label := name
-	if label == "" {
-		label = r.StoreID
+	name, label, err := storeName(ctx, cl, r.StoreID)
+	if err != nil {
+		return err
 	}
 
 	plan, err := mapping.PlanEvents(ctx, m, events, fromEvent, storeClient{cl}, func(done, total int) {
@@ -217,6 +206,27 @@ func (c *Command) runApply(cmd *cobra.Command, path, eventsPath string, fromEven
 	// deletes already gone without saying which.
 	output.Successf(errw, "%s", mapping.SentLine(plan, output.SanitizeField(label)))
 	return nil
+}
+
+// storeName looks up the store's name for display; label is the name, or the
+// id when the name is unavailable.
+//
+// The name is a courtesy, so a store we may not read (403/404) just shows
+// its id. An unreachable server or failed auth would fail every later
+// request, so stop before planning rather than offer a prompt we cannot honour.
+func storeName(ctx context.Context, cl *openfga.Client, id string) (name, label string, err error) {
+	s, serr := cl.Stores.Get(ctx, id)
+	switch {
+	case serr == nil:
+		name = s.Name
+	case ctx.Err() != nil || clierr.IsConnErr(serr) || clierr.Friendly(serr) != serr.Error():
+		return "", "", serr
+	}
+	label = name
+	if label == "" {
+		label = id
+	}
+	return name, label, nil
 }
 
 // resumeCommand is the command line that continues an interrupted apply at

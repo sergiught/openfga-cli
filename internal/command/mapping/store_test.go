@@ -59,3 +59,35 @@ func TestStoreClientWritesOneRequestIgnoringDuplicatesAndMissing(t *testing.T) {
 		t.Fatalf("conditions: writes keep, deletes drop: %+v", req)
 	}
 }
+
+func TestReadTuplesAsksForOneHundredAPage(t *testing.T) {
+	var got struct {
+		PageSize int `json:"page_size"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		_, _ = io.WriteString(w, `{"tuples":[],"continuation_token":""}`)
+	}))
+	defer srv.Close()
+	cl, _ := openfga.NewClient(srv.URL, openfga.WithStoreID("01ARZ3NDEKTSV4RRFFQ69G5FAV"))
+	if _, err := (storeClient{cl}).ReadTuples(context.Background(), language.TupleFilter{}); err != nil {
+		t.Fatal(err)
+	}
+	if got.PageSize != 100 {
+		t.Fatalf("page_size = %d, want 100", got.PageSize)
+	}
+}
+
+func TestReadKeptKeepsOnlyWhatIsAskedForAndCountsEverything(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"tuples":[`+
+			`{"key":{"user":"user:1","relation":"member","object":"team:1"}},`+
+			`{"key":{"user":"user:1","relation":"viewer","object":"doc:1"}}],"continuation_token":""}`)
+	}))
+	defer srv.Close()
+	cl, _ := openfga.NewClient(srv.URL, openfga.WithStoreID("01ARZ3NDEKTSV4RRFFQ69G5FAV"))
+	kept, total, err := storeClient{cl}.ReadKept(context.Background(), func(t language.Tuple) bool { return t.Relation == "member" })
+	if err != nil || total != 2 || len(kept) != 1 || kept[0].Object != "team:1" {
+		t.Fatalf("kept=%+v total=%d err=%v", kept, total, err)
+	}
+}

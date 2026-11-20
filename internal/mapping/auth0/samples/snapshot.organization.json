@@ -1,0 +1,29 @@
+{
+  "specversion": "1.0",
+  "type": "snapshot.organization",
+  "source": "urn:auth0:example.auth0app.com",
+  "id": "snap_000001",
+  "time": "2025-02-01T12:34:56Z",
+  "a0tenant": "my-tenant",
+  "subject": "organization org_1234567890abcdef",
+  "data": {
+    "object": {
+      "id": "org_1234567890abcdef",
+      "name": "my-organization",
+      "display_name": "My Organization",
+      "metadata": {},
+      "branding": {
+        "logo_url": "logo_url",
+        "colors": {
+          "primary": "#0059d6",
+          "page_background": "#000000"
+        }
+      }
+    },
+    "context": {
+      "tenant": {
+        "id": "my-tenant"
+      }
+    }
+  }
+}

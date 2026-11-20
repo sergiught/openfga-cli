@@ -2,6 +2,7 @@ package mapping
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -136,6 +137,19 @@ func TestPlanFailsWholeOnABadEvent(t *testing.T) {
 	}, 1, &memStore{}, nil)
 	if err == nil || !strings.HasPrefix(err.Error(), "event 2") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestPlanEventsErrorIsTyped(t *testing.T) {
+	_, err := PlanEvents(context.Background(), compile(t, membership), []map[string]any{
+		ev("type", "added"), // missing fields
+	}, 1, &memStore{}, nil)
+	var ee *EventError
+	if !errors.As(err, &ee) {
+		t.Fatalf("err = %v, want an *EventError", err)
+	}
+	if ee.Index != 1 || ee.Type != "added" || !strings.HasPrefix(err.Error(), "event 1 (added): ") {
+		t.Fatalf("ee = %+v, err = %q", ee, err)
 	}
 }
 

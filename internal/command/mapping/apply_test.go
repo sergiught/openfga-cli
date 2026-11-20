@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -88,6 +89,41 @@ type fakeStore struct {
 	writes []string
 	// failWrite makes every /write answer 400 with this body when set.
 	failWrite string
+	// failFrom, when > 0, makes the failFrom-th /write and every later one
+	// answer 400 with failWrite (or a generic body when that is empty).
+	failFrom int
+	// failAt makes only the listed (1-based) /write numbers answer 400.
+	failAt map[int]bool
+	// log, when non-nil, gets "store read" for each /read, in order with
+	// the fake provider's entries.
+	log *[]string
+	// onWrite, when non-nil, is called with the number of writes so far as
+	// each /write arrives. Returning true holds the request unanswered until
+	// the client gives up (or a few seconds pass), so a test can cancel
+	// mid-request without racing the response.
+	onWrite func(n int) bool
+	// reads records every /read request body, in order.
+	reads []readReq
+	// bigStore makes an unfiltered /read (no tuple_key) always answer with a
+	// continuation token, as a store far larger than the mapping's data does.
+	bigStore bool
+	// pageSize, when > 0, pages filtered /read answers by that many tuples.
+	pageSize int
+	// failReadObject, when set, makes a /read whose tuple_key names that object answer 400.
+	failReadObject string
+}
+
+// readReq is one /read request as the fake saw it.
+type readReq struct {
+	TupleKey          map[string]string `json:"tuple_key"`
+	PageSize          int               `json:"page_size"`
+	ContinuationToken string            `json:"continuation_token"`
+}
+
+func (fs *fakeStore) readRequests() []readReq {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	return append([]readReq(nil), fs.reads...)
 }
 
 func newFakeStore(t *testing.T, stored ...map[string]any) *fakeStore {
@@ -101,23 +137,66 @@ func newFakeStore(t *testing.T, stored ...map[string]any) *fakeStore {
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/stores/"+applyStoreID):
 			_, _ = io.WriteString(w, `{"id":"`+applyStoreID+`","name":"acme"}`)
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/read"):
-			var req struct {
-				TupleKey map[string]string `json:"tuple_key"`
+			if fs.log != nil {
+				*fs.log = append(*fs.log, "store read")
 			}
+			var req readReq
 			_ = json.NewDecoder(r.Body).Decode(&req)
+			fs.reads = append(fs.reads, req)
+			if fs.failReadObject != "" && req.TupleKey["object"] == fs.failReadObject {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = io.WriteString(w, `{"code":"validation_error","message":"read rejected"}`)
+				return
+			}
 			var out []map[string]any
 			for _, k := range fs.tuples {
 				if matchesKey(k, req.TupleKey) {
 					out = append(out, map[string]any{"key": k})
 				}
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"tuples": out, "continuation_token": ""})
+			token := ""
+			if fs.pageSize > 0 && len(req.TupleKey) > 0 {
+				off, _ := strconv.Atoi(req.ContinuationToken)
+				end := min(off+fs.pageSize, len(out))
+				if end < len(out) {
+					token = strconv.Itoa(end)
+				}
+				out = out[off:end]
+			}
+			if fs.bigStore && len(req.TupleKey) == 0 {
+				unfiltered := 0
+				for _, rr := range fs.reads {
+					if len(rr.TupleKey) == 0 {
+						unfiltered++
+					}
+				}
+				// A reader that never stops paging fails here instead of
+				// running until the test binary times out.
+				if unfiltered > 50 {
+					w.WriteHeader(http.StatusInternalServerError)
+					_, _ = io.WriteString(w, `{"code":"internal_error","message":"the fake store was paged more than 50 times"}`)
+					return
+				}
+				token = "more"
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"tuples": out, "continuation_token": token})
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/write"):
 			b, _ := io.ReadAll(r.Body)
 			fs.writes = append(fs.writes, string(b))
-			if fs.failWrite != "" {
+			if fs.onWrite != nil && fs.onWrite(len(fs.writes)) {
+				select {
+				case <-r.Context().Done():
+				case <-time.After(5 * time.Second):
+				}
+				return
+			}
+			if fs.failWrite != "" || fs.failAt[len(fs.writes)] || (fs.failFrom > 0 && len(fs.writes) >= fs.failFrom) {
+				body := fs.failWrite
+				if body == "" {
+					body = `{"code":"validation_error","message":"write rejected"}`
+				}
 				w.WriteHeader(http.StatusBadRequest)
-				_, _ = io.WriteString(w, fs.failWrite)
+				_, _ = io.WriteString(w, body)
 				return
 			}
 			_, _ = io.WriteString(w, "{}")

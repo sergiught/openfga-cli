@@ -245,9 +245,23 @@ func (r *recorder) WriteTuples(_ context.Context, ts []language.Tuple) error {
 
 func uro(t language.Tuple) string { return t.User + "\x00" + t.Relation + "\x00" + t.Object }
 
-func eventErr(ep EventPlan, err error) error {
-	if ep.Type == "" {
-		return fmt.Errorf("event %d: %w", ep.Index, err)
+// EventError is a failure to plan one event: its 1-based number, its type when
+// it has one, and the cause.
+type EventError struct {
+	Index int
+	Type  string
+	Err   error
+}
+
+func (e *EventError) Error() string {
+	if e.Type == "" {
+		return fmt.Sprintf("event %d: %v", e.Index, e.Err)
 	}
-	return fmt.Errorf("event %d (%s): %w", ep.Index, ep.Type, err)
+	return fmt.Sprintf("event %d (%s): %v", e.Index, e.Type, e.Err)
+}
+
+func (e *EventError) Unwrap() error { return e.Err }
+
+func eventErr(ep EventPlan, err error) error {
+	return &EventError{Index: ep.Index, Type: ep.Type, Err: err}
 }
