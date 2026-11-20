@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -70,7 +71,15 @@ func newProvider(t *testing.T, h http.HandlerFunc, opts ...option.RequestOption)
 	noErr(t, err)
 
 	// Waits for a rate limit last no time, so tests do not sleep.
-	p.limits.sleep = func(ctx context.Context, _ time.Duration) error { return ctx.Err() }
+	// The pacer's clock jumps ahead by each wait instead.
+	var skipped atomic.Int64
+
+	p.limits.now = func() time.Time { return time.Now().Add(time.Duration(skipped.Load())) }
+	p.limits.sleep = func(ctx context.Context, d time.Duration) error {
+		skipped.Add(int64(d))
+
+		return ctx.Err()
+	}
 
 	return p, rec
 }
@@ -639,11 +648,14 @@ func TestSnapshotRetriesRateLimit(t *testing.T) {
 func TestSnapshotRateLimitExhausted(t *testing.T) {
 	t.Parallel()
 
+	var hits atomic.Int64
+
 	p, _ := newProvider(t, func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
 		w.Header().Set("Retry-After", "1")
 		w.WriteHeader(http.StatusTooManyRequests)
 		writeJSON(w, `{"message":"slow down"}`)
-	}, option.WithMaxAttempts(1))
+	})
 
 	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization"}, nil)
 	isErr(t, err)
@@ -651,6 +663,9 @@ func TestSnapshotRateLimitExhausted(t *testing.T) {
 		t.Errorf("result = %+v, want nil", res)
 	}
 	equal(t, clierr.KindRateLimited, clierr.Classify(err))
+	equal(t, "Auth0 kept rate-limiting the read (10 answers of HTTP 429 in a row for one request); "+
+		"wait a minute and run it again", err.Error())
+	equal(t, int64(10), hits.Load()) // the SDK does not start over
 }
 
 func TestSnapshotForbiddenNamesScope(t *testing.T) {

@@ -21,6 +21,10 @@ func readError(ctx context.Context, err error, what string, scopes []string) err
 		return ctxErr
 	}
 
+	if errors.Is(err, errKeptRateLimiting) {
+		return clierr.WithKind(clierr.KindRateLimited, errKeptRateLimiting)
+	}
+
 	if errors.Is(err, context.Canceled) {
 		return err
 	}

@@ -212,7 +212,15 @@ func TestSnapshotParallelKeepsOrganizationOrder(t *testing.T) {
 func TestSnapshotRunsAtMostReadWorkersRequestsAtOnce(t *testing.T) {
 	t.Parallel()
 
-	var inFlight, peak atomic.Int64
+	var (
+		inFlight, peak atomic.Int64
+		timedOut       atomic.Bool
+
+		mu       sync.Mutex
+		arrivals int
+	)
+
+	second := make(chan struct{})
 
 	p, _ := newProvider(t, tenant{n: 20, before: func(_ http.ResponseWriter, r *http.Request) bool {
 		if r.URL.Path == "/api/v2/organizations" || r.URL.Path == "/api/v2/connections" {
@@ -229,7 +237,25 @@ func TestSnapshotRunsAtMostReadWorkersRequestsAtOnce(t *testing.T) {
 			}
 		}
 
-		time.Sleep(20 * time.Millisecond)
+		// The first request waits until a second one is in flight, so a
+		// sequential read cannot pass whatever the machine's speed.
+		mu.Lock()
+		arrivals++
+		me := arrivals
+		mu.Unlock()
+
+		switch me {
+		case 1:
+			select {
+			case <-second:
+			case <-time.After(10 * time.Second):
+				timedOut.Store(true)
+			}
+		case 2:
+			close(second)
+		}
+
+		time.Sleep(10 * time.Millisecond)
 
 		return false
 	}}.handler())
@@ -237,9 +263,58 @@ func TestSnapshotRunsAtMostReadWorkersRequestsAtOnce(t *testing.T) {
 	_, err := p.Snapshot(context.Background(), tenantTypes, nil)
 	noErr(t, err)
 
-	if got := peak.Load(); got < 2 || got > readWorkers {
-		t.Errorf("peak requests in flight = %d, want between 2 and %d", got, readWorkers)
+	if timedOut.Load() {
+		t.Error("no second request was in flight while the first waited: the read is not parallel")
 	}
+
+	if got := peak.Load(); got > readWorkers {
+		t.Errorf("peak requests in flight = %d, want at most %d", got, readWorkers)
+	}
+}
+
+type countingTransport struct {
+	base   http.RoundTripper
+	active atomic.Int64
+}
+
+func (c *countingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	c.active.Add(1)
+	defer c.active.Add(-1)
+
+	return c.base.RoundTrip(r)
+}
+
+func TestSnapshotCanceledDuringParallelReadLeavesNothingRunning(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var arrivals atomic.Int64
+
+	p, _ := newProvider(t, tenant{n: 20, before: func(_ http.ResponseWriter, r *http.Request) bool {
+		if strings.HasSuffix(r.URL.Path, "/members") && arrivals.Add(1) == 3 {
+			cancel()
+		}
+
+		time.Sleep(20 * time.Millisecond)
+
+		return false
+	}}.handler())
+
+	ct := &countingTransport{base: p.limits.base}
+	p.limits.base = ct
+
+	res, err := p.Snapshot(ctx, []string{"snapshot.organization.member"}, nil)
+	if res != nil {
+		t.Errorf("result = %+v, want nil", res)
+	}
+
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error = %v, want context.Canceled", err)
+	}
+
+	equal(t, int64(0), ct.active.Load())
 }
 
 func TestSnapshotParallelFailureNamesTheCause(t *testing.T) {

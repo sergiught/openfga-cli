@@ -2,6 +2,7 @@ package auth0
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -17,7 +18,14 @@ const (
 	maxRetryWait = 60 * time.Second
 	defaultWait  = time.Second
 	userAgent    = "ofga-cli"
+	maxDrain     = 4 << 10
 )
+
+// errKeptRateLimiting is what a request gets back when all its sends were
+// answered 429. A transport error is not retried by the SDK, which would
+// otherwise sleep where Ctrl-C cannot reach and start over.
+var errKeptRateLimiting = errors.New(
+	"Auth0 kept rate-limiting the read (10 answers of HTTP 429 in a row for one request); wait a minute and run it again")
 
 // pacer is the HTTP transport of every Management API request of a provider.
 // It spaces requests out, slows down when Auth0 answers 429 and speeds back up
@@ -31,6 +39,8 @@ type pacer struct {
 	mu     sync.Mutex
 	gap    time.Duration // spacing between request starts, 0 when not rate limited
 	next   time.Time     // earliest start of the next request
+	closed time.Time     // no request is sent before this, the latest Retry-After
+	widen  time.Time     // when the gap was last widened
 	n      int
 	onWait func()
 }
@@ -84,6 +94,14 @@ func (p *pacer) slot() time.Duration {
 	return start.Sub(now)
 }
 
+// isClosed says whether Auth0 asked us to hold back at this moment.
+func (p *pacer) isClosed() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.now().Before(p.closed)
+}
+
 // succeeded speeds back up after an answer that is not a 429.
 func (p *pacer) succeeded() {
 	p.mu.Lock()
@@ -95,17 +113,29 @@ func (p *pacer) succeeded() {
 	}
 }
 
-// limited records a 429 answer: it counts, widens the gap and closes the gate
-// for the time Auth0 asked. It returns the progress callback to run.
-func (p *pacer) limited(resp *http.Response) func() {
+// limited records a 429 answer to a request sent at sentAt: it counts and
+// closes the pacer for the time Auth0 asked. It widens the gap only if the
+// request was sent after the last widening, so one dry spell that answers
+// many requests in flight widens it once. It returns the progress callback.
+func (p *pacer) limited(resp *http.Response, sentAt time.Time) func() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	p.n++
 
-	p.gap = min(max(2*p.gap, minGap), maxGap)
+	now := p.now()
 
-	if reopen := p.now().Add(retryAfter(resp)); reopen.After(p.next) {
+	if sentAt.After(p.widen) {
+		p.gap = min(max(2*p.gap, minGap), maxGap)
+		p.widen = now
+	}
+
+	reopen := now.Add(retryAfter(resp))
+	if reopen.After(p.closed) {
+		p.closed = reopen
+	}
+
+	if reopen.After(p.next) {
 		p.next = reopen
 	}
 
@@ -131,15 +161,25 @@ func (p *pacer) RoundTrip(req *http.Request) (*http.Response, error) {
 	ctx := req.Context()
 
 	for sent := 1; ; sent++ {
-		if wait := p.slot(); wait > 0 {
-			if err := p.sleep(ctx, wait); err != nil {
-				if req.Body != nil {
-					_ = req.Body.Close()
-				}
+		// Take a slot and wait for it; if the pacer was closed meanwhile, take
+		// a new slot, which starts at or after the reopening.
+		for {
+			if wait := p.slot(); wait > 0 {
+				if err := p.sleep(ctx, wait); err != nil {
+					if req.Body != nil {
+						_ = req.Body.Close()
+					}
 
-				return nil, err
+					return nil, err
+				}
+			}
+
+			if !p.isClosed() {
+				break
 			}
 		}
+
+		sentAt := p.now()
 
 		// Our client replaces the one the SDK builds, so the User-Agent is set here.
 		out := req.Clone(ctx)
@@ -156,21 +196,28 @@ func (p *pacer) RoundTrip(req *http.Request) (*http.Response, error) {
 			return resp, nil
 		}
 
-		onWait := p.limited(resp)
+		onWait := p.limited(resp, sentAt)
 
 		// A body that cannot be produced again is not sent twice; the caller
 		// gets the 429 and decides. Only a 429 that is followed by another
 		// send is reported as a wait.
 		resendable := req.Body == nil || req.Body == http.NoBody || req.GetBody != nil
-		if sent >= maxSends || !resendable {
+		if !resendable {
 			return resp, nil
+		}
+
+		if sent >= maxSends {
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDrain))
+			_ = resp.Body.Close()
+
+			return nil, errKeptRateLimiting
 		}
 
 		if onWait != nil {
 			onWait()
 		}
 
-		_, _ = io.Copy(io.Discard, resp.Body)
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDrain))
 		_ = resp.Body.Close()
 
 		if req.GetBody != nil && req.Body != nil && req.Body != http.NoBody {

@@ -641,9 +641,10 @@ cannot reproduce.
   around 8 minutes. The limit decides that, so running 8 at a time does not
   make the Free plan faster. A plan that is not rate-bound does about 100 ms a
   request, 8 at a time, so 1,000 organizations with the member and connection
-  types, about 2,000 requests, take under a minute. A request that is still
-  rate limited after 10 tries is retried again before the command fails with
-  "Auth0 is rate limiting reads of ...; try again shortly".
+  types, about 2,000 requests, take under a minute. A request answered 429
+  ten times in a row fails the read with "Auth0 kept rate-limiting the read (10
+  answers of HTTP 429 in a row for one request); wait a minute and run it
+  again".
 - Groups are not covered yet; there is no snapshot type for them.
 
 ### In CI
