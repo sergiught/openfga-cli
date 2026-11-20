@@ -3,24 +3,24 @@ module github.com/sergiught/openfga-cli
 go 1.27.4
 
 require (
-	charm.land/bubbles/v2 v2.2.1
-	charm.land/bubbletea/v2 v2.1.1
-	charm.land/lipgloss/v2 v2.1.0
+	charm.land/bubbles/v2 v2.2.2
+	charm.land/bubbletea/v2 v2.1.2
+	charm.land/lipgloss/v2 v2.1.1
 	charm.land/log/v2 v2.0.1
 	github.com/BurntSushi/toml v1.6.0
 	github.com/antlr4-go/antlr/v4 v4.13.1
-	github.com/aymanbagabas/go-udiff v0.4.1
+	github.com/aymanbagabas/go-udiff v0.4.2
 	github.com/bmatcuk/doublestar/v4 v4.10.4
 	github.com/charmbracelet/colorprofile v0.4.3
 	github.com/charmbracelet/harmonica v0.2.0
-	github.com/charmbracelet/x/ansi v0.11.9
+	github.com/charmbracelet/x/ansi v0.11.10
 	github.com/charmbracelet/x/term v0.2.2
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
-	github.com/google/cel-go v0.31.0
+	github.com/google/cel-go v0.32.0
 	github.com/google/licensecheck v0.3.1
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
-	github.com/grpc-ecosystem/grpc-gateway/v2 v2.33.0
+	github.com/grpc-ecosystem/grpc-gateway/v2 v2.34.0
 	github.com/invopop/jsonschema v0.14.0
 	github.com/itchyny/gojq v0.12.20
 	github.com/lucasb-eyer/go-colorful v1.4.1
@@ -29,8 +29,8 @@ require (
 	github.com/openfga/api/proto v0.0.0-20260928071936-c0650ce2169b
 	github.com/openfga/language/pkg/go v0.3.2
 	github.com/openfga/mapper v0.1.1
-	github.com/openfga/openfga v1.22.1
-	github.com/pressly/goose/v3 v3.30.0
+	github.com/openfga/openfga v1.23.0
+	github.com/pressly/goose/v3 v3.30.1
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/sergiught/go-openfga v0.111.0
 	github.com/spf13/cobra v1.10.2
