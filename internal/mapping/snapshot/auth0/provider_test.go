@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -44,6 +45,24 @@ func (r *recorder) find(path string) []url.Values {
 			out = append(out, u.Query())
 		}
 	}
+
+	return out
+}
+
+// paths returns the distinct request paths, sorted, without the API prefix.
+func (r *recorder) paths() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	var out []string
+
+	for _, u := range r.reqs {
+		if p := strings.TrimPrefix(u.Path, "/api/v2"); !slices.Contains(out, p) {
+			out = append(out, p)
+		}
+	}
+
+	slices.Sort(out)
 
 	return out
 }
@@ -813,6 +832,53 @@ func TestSnapshotSeveralTypesCountsInDeclaredOrder(t *testing.T) {
 	}
 	equal(t, "snapshot.user", res.Events[0]["type"])
 	equal(t, "snapshot.organization.member", res.Events[2]["type"])
+}
+
+// A type no rule asks for costs no request: each type reads its own endpoints,
+// plus the organization list when it is read per organization.
+func TestSnapshotReadsOnlyTheEndpointsOfTheRequestedTypes(t *testing.T) {
+	t.Parallel()
+
+	routes := fixtures(map[string]string{
+		"/connections":               `{"connections":[{"id":"con_1","name":"db","strategy":"auth0"}]}`,
+		"/connections/con_1/clients": `{"clients":[{"client_id":"c1"}]}`,
+		"/organizations":             `{"organizations":[{"id":"org_1","name":"acme-one"}]}`,
+		"/organizations/org_1/enabled_connections": `{"enabled_connections":[{"connection_id":"con_1",
+			"connection":{"name":"db","strategy":"auth0"}}],"start":0,"limit":100,"total":1}`,
+		"/organizations/org_1/members": `{"members":[{"user_id":"auth0|u1","roles":[{"id":"rol_1","name":"admin"}]}]}`,
+	})
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/users" {
+			usersHandler(2)(w, r)
+
+			return
+		}
+
+		routes(w, r)
+	}
+
+	orgs, members := "/organizations", "/organizations/org_1/members"
+	want := map[string][]string{
+		"snapshot.connection":               {"/connections", "/connections/con_1/clients"},
+		"snapshot.user":                     {"/users"},
+		"snapshot.organization":             {orgs},
+		"snapshot.organization.connection":  {orgs, "/organizations/org_1/enabled_connections"},
+		"snapshot.organization.member":      {orgs, members},
+		"snapshot.organization.member.role": {orgs, members},
+	}
+
+	for _, typ := range Types() {
+		t.Run(typ.Name, func(t *testing.T) {
+			t.Parallel()
+
+			p, rec := newProvider(t, handler)
+
+			res, err := p.Snapshot(context.Background(), []string{typ.Name}, nil)
+			noErr(t, err)
+			requireNotEmpty(t, res.Events)
+			equal(t, want[typ.Name], rec.paths())
+		})
+	}
 }
 
 func TestSnapshotMembersWithoutOrganizations(t *testing.T) {
