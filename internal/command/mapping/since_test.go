@@ -199,6 +199,10 @@ func TestBackfillSinceFailedWindowWritesNothing(t *testing.T) {
 	if err == nil || fs.writeCount() != 0 {
 		t.Fatalf("err = %v writes = %d", err, fs.writeCount())
 	}
+	// The fake provider returns its own error, so assert on its text.
+	if !strings.Contains(err.Error(), "tenant unreachable") {
+		t.Errorf("err = %v, want the provider's error", err)
+	}
 }
 
 func TestDriftSincePassesTheWindowToTheProvider(t *testing.T) {

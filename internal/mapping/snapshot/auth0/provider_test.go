@@ -1148,8 +1148,12 @@ func TestSnapshotUsersSinceAboveTheSearchLimitFails(t *testing.T) {
 	p, rec := newProvider(t, usersHandler(1001))
 	since := time.Date(2026, 11, 24, 9, 0, 0, 0, time.UTC)
 
-	_, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}, Since: since}, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}, Since: since}, nil)
 	isErr(t, err)
+
+	if res != nil {
+		t.Errorf("result = %+v, want nil", res)
+	}
 
 	for _, want := range []string{"1,000", "1001", "2026-11-24T09:00:00Z"} {
 		if !strings.Contains(err.Error(), want) {
