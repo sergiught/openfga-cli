@@ -1,0 +1,723 @@
+---
+title: How drift and backfill work
+description: Every step of ofga mappings drift and ofga mappings backfill, from the rules that take part to what the store holds after a failed write.
+sidebar:
+  order: 7.5
+---
+
+This page describes what `ofga mappings drift` and `ofga mappings backfill` do,
+step by step: which rules take part, what is read from Auth0 and from the store,
+how the two are compared, what is written, and what state a failure leaves
+behind. For a walkthrough with example output, start with
+[Checking for drift and backfilling](../mappings/#checking-for-drift-and-backfilling).
+
+Both commands answer the same question: which tuples should the store hold,
+given the identity provider's state right now? They read that state, turn it
+into **snapshot events**, run the events through the mapping file, and compare
+the tuples that come out (the **desired** tuples) with the store.
+
+## The two commands side by side
+
+| | `backfill` | `drift` |
+| --- | --- | --- |
+| Purpose | Write what the store lacks | Report every difference, and fix it when asked |
+| Reads the store | After the provider, narrowed to the desired tuples | Before the provider, the whole store |
+| Missing tuples | Written | Written |
+| Tuples under another condition | Reported, left alone | Replaced (delete, then write) |
+| Tuples the provider no longer backs | Never looked for | Reported; deleted only with `--prune` |
+| Deletes anything | Never | Only for a replace or a prune |
+| Exit code when a difference stays | `0` | `3` |
+
+Both take the same arguments:
+
+```
+ofga mappings backfill [file] --provider auth0 [--dry-run] [--force] [--since <when>]
+ofga mappings drift    [file] --provider auth0 [--dry-run] [--force] [--since <when>] [--prune]
+```
+
+With no file argument both use `./mapping.yaml`. `auth0` is the only provider.
+Every flag is listed in the [`drift`](../../reference/mappings/drift/) and
+[`backfill`](../../reference/mappings/backfill/) reference pages.
+
+## The steps, in order
+
+Each run goes through the same steps. A step that fails ends the run, so the
+order tells you what has not happened yet when you see an error.
+
+| # | Step | Network | Fails with |
+| --- | --- | --- | --- |
+| 1 | `backfill` only: machine output without `--dry-run` or `--force` is refused | none | exit `2` |
+| 2 | `--since` is parsed | none | exit `2` |
+| 3 | `--provider` is checked | none | exit `2` |
+| 4 | The mapping file is loaded and compiled | none | exit `1` |
+| 5 | Snapshot type names in the mapping are checked | none | exit `1` |
+| 6 | The types to read are worked out; a mapping with none is refused | none | exit `1` |
+| 7 | `--since` is checked against those types | none | exit `2` |
+| 8 | The Auth0 settings are read | none | exit `2` |
+| 9 | The active profile's store is resolved and its name looked up | OpenFGA | exit `1` or `4` |
+| 10 | `drift` only: the store is read | OpenFGA | exit `1` or `4` |
+| 11 | Auth0 is read | Auth0 | exit `1` or `4` |
+| 12 | The snapshot events are replayed through the mapping | none | exit `1` |
+| 13 | `backfill`, and `drift --since` when nothing can be stale: the store is read | OpenFGA | exit `1` or `4` |
+| 14 | Desired and stored tuples are compared and the report is printed | none | |
+| 15 | Writes, after a question or with `--force` | OpenFGA | see [Writing](#writing) |
+
+Steps 1 to 8 make no request at all, so a typo in a flag, a broken mapping or a
+missing credential costs nothing. Step 9 comes before the long Auth0 read so a
+missing profile or an unreachable OpenFGA server fails first. Ctrl-C at any step
+ends the run with exit `130`.
+
+## Which rules take part
+
+### Opting in
+
+A rule takes part when its `when` can be true because `input.type` equals a
+snapshot type. The check reads the parsed expression, not the text, so a
+comment or a string that merely contains the name does not count. What counts:
+
+- `input.type == "snapshot.user"`, with the operands in either order.
+- `input.type in ["user.created", "snapshot.user"]`.
+- Either of those joined to anything else by `||`, `or`, `&&` or `and`.
+- `input?.type` in place of `input.type`.
+
+What does not count: `!=`, a negated comparison, a comparison with a variable
+instead of a quoted string, and a `when` that does not parse.
+
+A rule that opts in to at least one type is a **snapshot rule**. Every other
+rule is ignored by the replay only in the sense that no snapshot event matches
+it; see [Shapes and ownership](#shapes-and-ownership) for how it still affects
+what `drift` may call stale.
+
+One consequence of reading the expression's structure: `input.type ==
+"snapshot.user" && false` still opts the rule in, although it can never be
+true. The rule then writes nothing, and its shapes count as owned.
+
+### Only the named types are read
+
+The types to read are the snapshot types at least one rule opts in to, in the
+provider's own order. Nothing else is requested from Auth0. A mapping that names
+only `snapshot.organization.member` never lists users or connections.
+
+### Unknown snapshot names
+
+Every quoted string in a rule's `when` that starts with `snapshot.` must be a
+type the provider has. Anything else is taken for a typo and ends the run:
+
+```
+✗ mapping.yaml names snapshot types Auth0 does not have: snapshot.group
+  Auth0 has: snapshot.connection, snapshot.user, snapshot.organization, snapshot.organization.connection, snapshot.organization.member, snapshot.organization.member.role
+```
+
+A prefix that ends in a dot and starts a real type name, such as `"snapshot."`
+or `"snapshot.organization."`, is allowed, so `startsWith` checks keep working.
+
+### A mapping with no snapshot rules
+
+When no rule opts in, there is nothing to check and the run ends with exit `1`.
+The error looks for rules that already handle the live event a snapshot type
+mirrors and prints the clause that would opt each in:
+
+```
+✗ mapping.yaml has no snapshot rules, so there is nothing to check
+  these rules can opt in by adding a clause to `when`:
+    organization.member.added  || input.type == "snapshot.organization.member"
+  see https://sergiught.github.io/openfga-cli/guide/mappings/#checking-for-drift-and-backfilling
+```
+
+With no such rule it says `add a rule whose when names one of:` and lists the
+types.
+
+## Reading Auth0
+
+### Settings
+
+| Setting | Flag | Environment variable |
+| --- | --- | --- |
+| Tenant domain | `--auth0-domain` | `AUTH0_DOMAIN` |
+| Application client ID | `--auth0-client-id` | `AUTH0_CLIENT_ID` |
+| Application client secret | `--auth0-client-secret-file` | `AUTH0_CLIENT_SECRET` |
+| Tenant name in events | `--auth0-tenant` | none |
+
+A flag wins over its variable. The secret file's content is trimmed; an empty
+file is an error. A missing setting is a usage error such as `--auth0-domain or
+AUTH0_DOMAIN is required`. A scheme and a trailing slash are stripped from the
+domain. `--auth0-tenant` defaults to the first label of the domain.
+
+Reading the settings contacts nobody. The access token is requested with the
+first Management API call, so wrong credentials show up at step 11.
+
+### The six types
+
+Events are read and replayed in this order:
+
+| Order | Type | Mirrors | Scopes |
+| --- | --- | --- | --- |
+| 1 | `snapshot.connection` | `connection.created` | `read:connections` |
+| 2 | `snapshot.user` | `user.created` | `read:users` |
+| 3 | `snapshot.organization` | `organization.created` | `read:organizations` |
+| 4 | `snapshot.organization.connection` | `organization.connection.added` | `read:organizations`, `read:organization_connections` |
+| 5 | `snapshot.organization.member` | `organization.member.added` | `read:organizations`, `read:organization_members` |
+| 6 | `snapshot.organization.member.role` | `organization.member.role.assigned` | `read:organizations`, `read:organization_members`, `read:organization_member_roles` |
+
+All requests go through one client that makes up to 5 attempts at a request
+and has no overall timeout. Lists are read in pages of 100, and per-item
+requests run up to 8 at a time.
+
+### Connections
+
+Connections are listed in pages of 100. For each connection one more list is
+read, the clients it is enabled for, and stored on the event as
+`enabled_clients` (a list of client IDs). That second list is read whether or
+not the mapping uses `enabled_clients`.
+
+### Users
+
+Users are listed sorted by `user_id`, 100 a page, with Auth0's total. Sorting
+keeps a deletion during the read from shifting a user across a page boundary.
+The list stops at the total, without asking for an empty page after the last,
+because Auth0 refuses pages past its 1,000-user limit.
+
+Two checks keep a short list from passing as the tenant's state:
+
+- If the total shrinks between pages, or fewer users were read than the total
+  promised, the read fails with `Auth0 users were deleted while the list was
+  being read, so a user may have been skipped; run the command again`.
+- A user ID seen twice is kept once.
+
+### More than 1,000 users: the export job
+
+When the total is above 1,000, the users read so far are discarded and the read
+asks Auth0 for a **user export job** instead:
+
+1. A JSON export job is created. It asks for these fields: `user_id`, `email`,
+   `email_verified`, `username`, `phone_number`, `phone_verified`, `created_at`,
+   `updated_at`, `identities`, `app_metadata`, `user_metadata`, `picture`,
+   `name`, `nickname`, `multifactor`, `last_ip`, `last_login`,
+   `last_password_reset`, `logins_count`, `blocked`, `given_name`,
+   `family_name`.
+2. The job is polled every 2 seconds. `pending` and `processing` print progress.
+   `completed` moves on. Any other status fails the read with `Auth0's user
+   export job ended as "<status>"`.
+3. The file is downloaded. It is gzip-compressed with one JSON user per line.
+   The download address is a signed link on another host, so it is fetched with
+   a separate plain HTTP client and never appears in an error message.
+4. The number of users in the file is compared with the list's total. Fewer
+   fails the read with `Auth0's user export has N users where the list reported
+   M; users may have been deleted meanwhile, run the command again`.
+
+A download that fails says `downloading Auth0's user export failed:` followed
+by `HTTP <status>`, the stream error, `a line is not a JSON user` or `the job's
+location is not a URL`. A line without a `user_id` fails the same way. Neither
+the polling nor the download has a time limit; Ctrl-C ends both.
+
+The job needs no scope beyond `read:users`.
+
+### Organizations and what hangs off them
+
+Organizations are listed whenever any of the four organization types is named.
+`snapshot.organization` events are produced only when that type itself is
+named. Then, for each organization, up to 8 at a time:
+
+- **Enabled connections**, when `snapshot.organization.connection` is named.
+  The list stops at Auth0's total. Pages running out before the total fails the
+  read with `Auth0 organization connections changed while the list was being
+  read, so a connection may have been skipped; run the command again`.
+- **Members**, when `snapshot.organization.member` or
+  `snapshot.organization.member.role` is named. When the role type is named, the
+  same request also asks for each member's roles, so roles cost no extra
+  request. Only roles assigned to the member directly are returned.
+
+Results are merged back in organization order, so the event order does not
+depend on which request finished first.
+
+### The events
+
+Each item becomes one event in the envelope a live Auth0 event uses:
+
+```yaml
+specversion: "1.0"
+type: snapshot.organization.member
+source: urn:auth0:example.us.auth0.com
+id: snap_000001
+time: "2026-11-19T15:00:23Z"
+a0tenant: example
+subject: organization org_acme member auth0|anne
+data:
+  object: { ... }
+  context:
+    tenant:
+      id: example
+```
+
+`id` is a running number across the whole read, assigned in type order. `time`
+is when the page holding the item arrived. There is no `previous_object` and no
+`a0stream`.
+
+| Type | `subject` | `data.object` |
+| --- | --- | --- |
+| `snapshot.connection` | `connection <id>` | the connection, plus `enabled_clients` |
+| `snapshot.user` | `user <id>` | the user |
+| `snapshot.organization` | `organization <id>` | the organization |
+| `snapshot.organization.connection` | `organization <id> connection <connection id>` | `organization: {id, name}`, `connection: {id, name, strategy}`, `is_enabled: true`, and the record's other fields |
+| `snapshot.organization.member` | `organization <id> member <user id>` | `organization: {id, name}`, `user: {...}` without its roles |
+| `snapshot.organization.member.role` | `organization <id> member <user id> role <role id>` | `organization: {id, name}`, `user: {user_id}`, `role: {...}` |
+
+Fields Auth0 returns that the client library has no name for are kept.
+
+### Rate limits
+
+Every Management API request passes through a pacer that reads only the status
+code and the `Retry-After` header of each answer:
+
+- Until the first `429` there is no spacing: requests go out as fast as the 8
+  workers send them.
+- On a `429` the gap between request starts doubles, starting at 100 ms and
+  capped at 2 seconds. It widens once per rate-limit window, not once per
+  worker that was refused.
+- All requests then wait for the seconds in `Retry-After`: 1 second when the
+  header is missing or not a positive number, 60 at most.
+- Every answer that is not a `429` shrinks the gap by 5 percent, down to no gap
+  at all.
+- The refused request is sent again. One request answered `429` ten times in a
+  row fails the read with `Auth0 kept rate-limiting the read (10 answers of HTTP
+  429 in a row for one request); wait a minute and run it again`.
+
+Each wait is counted and shown in the report header as `N rate-limit waits`.
+While waiting, the progress line reads `waiting on Auth0's rate limit`. Ctrl-C
+interrupts a wait.
+
+### When the read fails
+
+A read either returns everything it was asked for or fails. There is no partial
+snapshot, because a tuple missing from the snapshot would look stale and
+`--prune` would delete it.
+
+| Cause | Message | Hint | Exit |
+| --- | --- | --- | --- |
+| Credentials rejected (token endpoint or `401`) | `Auth0 rejected the credentials: ...` | `check the client id and secret, and that the application may use the Management API` | `1` |
+| Scope missing (`403`) | `Auth0 refused <what>: ...` | `grant the application these Management API scopes: ...`, listing the scopes of the type being read | `1` |
+| Still rate-limited after the retries | `Auth0 is rate limiting reads of <what>; try again shortly` | | `1` |
+| Auth0 unreachable | `could not reach Auth0 reading <what>: ...` | | `4` |
+| Anything else | `reading <what>: ...` | | `1` |
+| Ctrl-C | `canceled` | | `130` |
+
+### Progress lines
+
+While reading, stderr shows where the read is: `reading connections`, `reading
+users` (or `reading users changed since <time> UTC`), `exporting N users`,
+`exporting N users: waiting for Auth0's job (Ns)`, `exporting users: P%`,
+`reading organizations`, `reading connections of X/Y organizations`, `reading
+members of X/Y organizations`.
+
+## Replaying the events
+
+The events are run through the compiled mapping one at a time, in the order
+they were read, exactly as `ofga mappings apply` would run them, with one
+difference: **the store the rules see is empty**. A `tuple_filter` therefore
+finds only tuples that earlier snapshot events wrote, never what the real store
+holds.
+
+The changes each event produces are folded into one set of tuples, keyed by
+user, relation and object:
+
+- A write puts the tuple in the set. A later write of the same user, relation
+  and object replaces it, so the last event decides the condition.
+- A delete takes the tuple out of the set.
+
+What is left is the desired set, sorted by shape, then user, relation and
+object. An event the mapping cannot evaluate ends the run with the event's type
+and subject, for example `snapshot.organization.member (organization org_acme
+member auth0|anne): ...`. From 50 events on, stderr shows `replaying event
+N/M`.
+
+## Reading the store
+
+OpenFGA's Read API can filter by object, by relation on an object, or by a full
+tuple. It cannot filter by type alone. That shapes how each command reads.
+
+### `drift`: the whole store, before Auth0
+
+`drift` pages through the whole store, 100 tuples a request (the server's
+maximum), and keeps in memory only the tuples whose relation and object type
+some rule in the mapping writes. A rule with a templated user type, relation or
+object type has no fixed shape, so then every tuple is kept. The user type is not
+compared on purpose: a wildcard or a userset user changes it, and dropping the
+stored copy of a desired tuple would report it as missing forever.
+
+The store is read **before** Auth0. If it were read after, a tuple written by a
+live event between the two reads would be in the store and not in the snapshot,
+look stale, and be deleted by `--prune`. Read in this order, the snapshot is
+never older than the store it is compared with.
+
+### `backfill`: only what the desired tuples need
+
+`backfill` never looks for stale tuples, so it only needs to know which desired
+tuples the store already holds. It reads the store **after** Auth0, when the
+desired tuples are known, in up to three phases:
+
+1. **The whole store, within a budget.** Pages are read unfiltered for at most
+   one page per 8 distinct object-and-relation pairs of the desired tuples (at
+   least one page). If the store ends within that budget, this is the whole
+   read. The budget exists so a first backfill into an empty or small store is
+   one request, not one request per object.
+2. **Each object and relation.** Otherwise the pages read so far are set aside
+   and each distinct pair is read with a filter, 8 at a time, for at most one
+   page per 8 tuples wanted from that pair (at least one page).
+3. **Each tuple by its full key.** A pair that still has more pages after that
+   holds far more tuples than the mapping wants from it. Each wanted tuple of
+   such a pair is read by user, relation and object, 8 at a time.
+
+When the run is canceled during any phase, the command ends. A partly read
+store is never used as the store.
+
+With no desired tuples there is nothing to look up and the store is not read.
+
+### `drift --since`
+
+When every shape the mapping could prune falls outside what a `--since` run can
+vouch for, nothing can be stale, so `drift` skips the full read and reads the
+store after Auth0, the way `backfill` does. See [Checking only recent
+changes](#checking-only-recent-changes).
+
+## Shapes and ownership
+
+A **shape** is a tuple's user type, relation and object type, written `user
+member organization`. A userset user has the type with its relation, as in
+`membership#holder assignee role`. A wildcard user such as `user:*` is a shape
+of its own, `user:* viewer document`.
+
+A rule's shapes come from its tuple templates, including those under an
+iterator. A template whose user type, relation or object type is itself a
+template has no fixed shape. Delete templates, rules with `action: delete`, and
+`tuple_filters` contribute no shapes.
+
+`drift` may call a stored tuple stale only when its shape is **owned**: written
+by a snapshot rule's template that snapshot events can fire. This is what keeps
+`drift` away from tuples other systems, other rules or a person wrote.
+
+### Which templates count
+
+A tuple template can carry a `when` of its own:
+
+- No `when`, or one that never reads `input.type`: the template fires on
+  snapshot events, so its shape is owned.
+- A `when` that reads `input.type`: owned only when it matches one of the
+  snapshot types the rule itself opts in to.
+- A `when` that does not parse: not owned.
+
+### Templated shapes
+
+A template that counts but has a templated user type, relation or object type
+adds no shape: `drift` cannot tell which stored tuples it would have written.
+The rule still owns the shapes of its other templates, and is listed under `not
+checked`. The tuples the templated template writes are still compared for
+missing and changed; only stale ones cannot be found.
+
+### The `not checked` list
+
+Every rule whose tuples the snapshot cannot vouch for is listed, in file order,
+with the reason. The list never changes the exit code.
+
+| Reason | Meaning |
+| --- | --- |
+| `no snapshot rule writes <shapes>` | A rule that is not a snapshot rule writes shapes no snapshot rule owns. Those tuples are never compared. |
+| `the type or relation is templated, so stale tuples cannot be told apart` | A snapshot rule has a template without a fixed shape. Its missing and changed tuples are still found. |
+| `a tuple's own when leaves out snapshot events; not compared: <shapes>` | A snapshot rule has templates that snapshot events cannot fire, and no other template owns their shapes. |
+| `read with --since: only <types> changed since <time> UTC; not compared: <shapes>` | A `--since` run cannot find stale tuples in these shapes. |
+| `read with --since: only <types> changed since <time> UTC, and the type or relation is templated, so no stale tuple can be told apart` | A `--since` run in which a rule that can fire on a user event has a templated shape. Nothing at all is owned in that run. |
+
+## Comparing
+
+Two tuples are **the same tuple** when user, relation and object are equal.
+Each desired tuple and each stored tuple lands in one of these groups:
+
+| Group | Rule |
+| --- | --- |
+| **missing** | Desired, and the store has no tuple with that user, relation and object. |
+| **changed** | Desired, and the store has that tuple under another condition name or another condition context. |
+| matching | Desired and stored identically. Not listed. |
+| **stale** | Stored, not desired, and its shape is owned. `drift` only. |
+| ignored | Stored, not desired, and its shape is not owned. Not listed. |
+
+`backfill` owns nothing, so it has no stale group. It counts the matching
+tuples as `already there`.
+
+## Writing
+
+### Requests
+
+A request carries at most 100 changes and is either all writes or all deletes.
+Writes ignore a tuple that is already there and deletes ignore one that is
+already gone, so sending the same change twice is harmless. Cancellation is
+checked before each request, and the first failed request stops the rest.
+
+### Missing tuples
+
+Both commands send missing tuples as plain writes. `backfill` shows `sent X/Y
+writes` when there are more than 100.
+
+### Changed tuples
+
+OpenFGA cannot overwrite a tuple's condition, and it rejects a request that
+deletes and writes the same tuple. So `drift` replaces changed tuples in batches
+of 100, each batch being two requests:
+
+1. Delete the stored versions.
+2. Write the desired versions.
+
+Between those two requests the tuples do not exist, so a check that depends on
+one can be denied for a moment. To keep that moment from becoming permanent:
+
+- Each of the two requests has its own 30-second deadline, and Ctrl-C does not
+  cancel a batch that has started. Ctrl-C is honored between batches.
+- If either request fails, the stored versions are written back. Because writes
+  ignore a tuple that is already there, this is safe even when the failed delete
+  never reached the store.
+
+`backfill` never replaces. It lists changed tuples and says `drift` replaces
+them.
+
+### Stale tuples
+
+`drift` deletes stale tuples only with `--prune`, in delete requests of up to
+100, after the writes.
+
+### After a failure
+
+Every message says what the store holds now. A failure is exit `4` when the
+store could not be reached, `130` when you interrupted the run, `1` otherwise.
+
+| Message | What the store holds |
+| --- | --- |
+| `sent N of M writes before the failure; run the command again to send the rest` (`backfill`) | The first N missing tuples. |
+| `sent N of M changes before the failure; run the command again to send the rest` (`drift`) | The first N writes or deletes of that step. |
+| `could not replace M changed tuples; the stored versions are in place, nothing was replaced` | What it held before. |
+| `replaced N of M changed tuples; the next batch failed and its stored versions are in place` | N desired versions; the rest unchanged. |
+| `replaced N of M changed tuples before the interruption; run the command again to replace the rest` | N desired versions; the rest unchanged. |
+| `deleted N tuples and could not write the stored version back` | The N tuples listed below the message are gone. |
+| `deleting N tuples failed and so did writing the stored version back; the store may have lost what is listed below` | Unknown for the listed tuples. |
+
+The last two happen only when a replace fails and writing the stored versions
+back fails too. The tuples are listed (50 at most), and the hint reads `run the
+command again once the cause is fixed: it reports them as missing or changed and
+writes the desired version`.
+
+When OpenFGA refuses a write because the tuple exists under another condition,
+`backfill` adds the hint `ofga mappings drift replaces tuples whose condition
+changed`.
+
+Running either command again after any failure is safe: it reads the state
+again and sends only what is still different.
+
+## Questions, `--force` and `--dry-run`
+
+### `backfill`
+
+| Run | What happens |
+| --- | --- |
+| Nothing desired | `nothing to write`, exit `0`. |
+| `--dry-run` | Report, then `dry run: nothing written`, exit `0`. |
+| Nothing missing | `nothing to write: N tuples already in store ...`, exit `0`. No question, no `--force` needed. |
+| On a terminal | `Snapshot is Ns old; changes since then are not reflected.`, then `Write N tuples to store name (id)? [y/N]`. Anything but `y` or `yes` ends with `aborted`, exit `1`. |
+| `--force` | Writes without asking. |
+| No terminal, or `--no-input`, without `--force` | `refusing to proceed without confirmation; pass --force to skip the prompt`, exit `1`. |
+| `-o json`, `-o yaml` or agent mode, without `--dry-run` or `--force` | `non-interactive runs never prompt; pass --dry-run to preview or --force to write`, exit `2`, before anything is read. |
+
+### `drift`
+
+| Run | What happens |
+| --- | --- |
+| No difference | `no drift: N tuples match Auth0`, exit `0`. |
+| `--dry-run` | Report, then `dry run: nothing written`, exit `3`. |
+| No terminal, `--no-input`, or machine output, without `--force` | Report, then `report only: pass --force to write`, exit `3`. |
+| On a terminal | One question for the writes, then with `--prune` one for the deletes. |
+| `--force` | Writes without asking; with `--prune` also deletes without asking. |
+
+The write question depends on what there is to do:
+
+- `Write N tuples to store name (id)?`
+- `Replace N changed tuples (delete, then write) in store name (id)?`
+- `Write N tuples and replace M changed tuples (delete, then write) in store name (id)?`
+
+Missing tuples are sent first, then changed tuples are replaced. Answering no
+skips both and is not an error: `drift` goes on to the stale tuples.
+
+For stale tuples:
+
+- Without `--prune`: `N stale tuples left alone; run again with --prune to
+  delete them`.
+- With `--prune`: a table of the stale tuples by shape, the snapshot's age, and
+  `Delete N stale tuples from store name (id)?`.
+
+`drift` exits `0` only when every missing and changed tuple was written and
+either nothing was stale or the stale tuples were pruned. Otherwise it exits
+`3` with what remains, for example after answering no, or after a `--force` run
+without `--prune` that left stale tuples.
+
+The age in `Snapshot is Ns old` is measured from the start of the Auth0 read:
+seconds under a minute, whole minutes after.
+
+## Checking only recent changes
+
+`--since` takes a duration counted back from now (`2h`, `30m`) or an RFC 3339
+time (`2026-11-24T09:00:00Z`). A duration that is not positive, or a value that
+is neither, is a usage error; so is a time in the future.
+
+### What it narrows
+
+Only `snapshot.user` is read by window. Auth0's user search is asked for users
+whose `updated_at` is at or after the time, which covers users created and
+users updated since then. Organizations, their members, their connections and
+tenant connections carry no usable timestamp and are always read in full.
+
+`--since` on a mapping with no `snapshot.user` rule would narrow nothing, so it
+is refused: `--since narrows only snapshot.user, and mapping.yaml has no rule
+for them`.
+
+The search returns at most 1,000 users, and the export job cannot filter. More
+than 1,000 changed users fails the read with `Auth0's user search returns at
+most 1,000 users and N changed since <time>; use a later --since or run without
+it`.
+
+### What it cannot find
+
+A window returns users who changed. It returns nothing for users who did not,
+and nothing for users who were deleted. So for every shape a user event can
+write, the desired set is incomplete, and a stored tuple that is not in it may
+be perfectly valid. Under `--since`, `drift` therefore does not own:
+
+- Any shape written by a template of **any** rule that can fire on a
+  `snapshot.user` event. That includes rules that are not snapshot rules and
+  rules with no `input.type` check at all, since those fire on every event.
+- Anything, when such a template has a templated type or relation.
+
+A rule is taken to fire on user events unless its `when` provably leaves them
+out: an `==` against a different quoted type, an `in` list of quoted types that
+lacks it, an `&&` where either side leaves them out, or an `||` where both sides
+do. Negation, `!=`, anything not written with quoted strings, an empty `when`
+and one that does not parse are all taken to fire. The same test is applied to
+each tuple template's own `when`.
+
+The effect: `drift --since` finds missing and changed tuples for users, and
+still finds missing, changed and stale tuples for shapes only the fully read
+types write. `--prune` never deletes a tuple in a shape a user event can write.
+A full run without `--since` is still needed to find those.
+
+### The store read
+
+If no shape is left to own, nothing can be stale, and `drift --since` reads the
+store after Auth0, narrowed to the desired tuples as `backfill` does. If no user
+changed and nothing is desired, the store is not read at all.
+
+## Output
+
+### The report
+
+Human output goes to stdout; progress, notes, questions and results go to
+stderr.
+
+```
+store read  15:02:41 UTC  9 tuples  mappings-demo
+Auth0 read  15:02:41 → 15:02:42 UTC  example.us.auth0.com
+  snapshot.organization.member       4
+  snapshot.organization.member.role  3
+
+missing  in Auth0, not in the store
+2 tuples
+SHAPE                       TUPLES
+user holder membership      1
+user member organization    1
++ user:auth0|erin holder membership:org_acme|auth0|erin
++ user:auth0|erin member organization:org_acme
+```
+
+- **`store read`**: when the store read finished, how many tuples were read, and
+  the store's name (its ID when the name cannot be read). `drift` prints it
+  first, because it reads the store first. `backfill` and a `drift --since` run
+  that reads the store afterwards print it under the Auth0 header, with `on M
+  objects` when the read was narrowed. It is left out when the store was not
+  read.
+- **`Auth0 read`**: start and finish of the read, the tenant domain, and `N
+  rate-limit waits` when there were any. One line per type follows with its
+  event count, and `(changed since <time> UTC)` on a count read by window.
+- Times are `HH:MM:SS` in UTC. A read that crosses midnight UTC shows dates.
+- `backfill` adds a summary line: `12 tuples from Auth0: 2 missing from the
+  store, 10 already there`, with `, N there with a different condition` when
+  any.
+- **Sections**: `missing`, `changed` and (in `drift`) `stale`, each with a tuple
+  count, a table of shapes, and at most 50 tuple lines followed by `… N more; -o
+  json lists them all`. Stale tuples are shown as deletes.
+- **`not checked`**: `drift` only, one line per rule with its reason.
+
+### JSON and YAML
+
+With `-o json` or `-o yaml` the report is one document on stdout, printed last
+so it carries what was sent. The schemas are published as
+`mappings-drift.v1.json` and `mappings-backfill.v1.json`; see [Output
+schemas](../output-schemas/).
+
+| Field | In | Meaning |
+| --- | --- | --- |
+| `store` | both | Store ID. |
+| `provider` | both | `auth0`. |
+| `source` | both | Tenant domain. |
+| `snapshot_started_at`, `snapshot_finished_at` | both | The Auth0 read. |
+| `counts` | both | `[{type, count}]`, events per type. |
+| `dry_run` | both | Whether `--dry-run` was given. |
+| `since` | both | The `--since` time; absent without the flag. |
+| `store_read_at` | both | When the store read finished. The zero time when the store was not read. |
+| `tuples` | `backfill` | Every desired tuple. |
+| `missing`, `changed` | both | Tuples, each with `user`, `relation`, `object` and, when set, `condition` and `context`. |
+| `existing` | `backfill` | How many desired tuples the store already holds unchanged. |
+| `stale` | `drift` | Stale tuples. |
+| `not_checked` | `drift` | `[{rule, reason, shapes}]`. |
+| `sent` | both | `{writes, deletes}` that reached the store. |
+| `pruned` | `drift` | Stale tuples deleted, also when the prune failed part-way. |
+
+`--plain` prints tab-separated key and value lines: `store`, `provider`,
+`dry_run`, `missing`, `changed`, `writes`, plus `tuples` and `existing` for
+`backfill` and `stale` and `deletes` for `drift`.
+
+## Exit codes
+
+| Code | `backfill` | `drift` |
+| --- | --- | --- |
+| `0` | Done, or nothing to write | No drift, or all of it fixed |
+| `1` | Invalid mapping, Auth0 or OpenFGA refused, a write failed, the question was declined or could not be asked | Invalid mapping, Auth0 or OpenFGA refused, a write failed |
+| `2` | Usage: a flag, `--since`, a missing setting, machine output without `--dry-run` or `--force` | Usage: a flag, `--since`, a missing setting |
+| `3` | never | Drift remains |
+| `4` | Auth0 or OpenFGA unreachable | Auth0 or OpenFGA unreachable |
+| `130` | Interrupted | Interrupted |
+
+## Known limits
+
+- **Another writer of an owned shape.** `drift` cannot tell who wrote a tuple.
+  A rule that is not a snapshot rule, another system or a second tenant writing
+  a shape the snapshot rules own makes those tuples look stale, and `--prune`
+  deletes them. Nothing warns about this before the question.
+- **A full store read.** `drift` without `--since` reads every tuple in the
+  store, one request per 100, one after another.
+- **The changed section shows the desired version only.** The condition being
+  replaced is not printed.
+- **Users created and deleted during the list.** If one user is deleted and
+  another created while the user list is being read, the total stays the same
+  and a user can be skipped without the read noticing.
+- **The export job has not been run on a tenant with more than 1,000 real
+  users.** It is covered by tests against recorded responses.
+- **Auth0's search total above 1,000.** The `--since` over-limit error relies
+  on Auth0 reporting a total above 1,000; that has not been observed on a real
+  tenant.
+- **Auth0's search index lags.** A user changed a few seconds ago may be absent
+  from the list or from a `--since` window. Use an overlapping window.
+- **A replace that times out.** If a write request passes its 30-second
+  deadline on the client and the store applies it anyway, the store holds the
+  desired version while the message says the stored versions are in place. The
+  next run reports the truth.
+- **Wrong credentials.** Auth0's answer to a wrong client ID or secret can
+  surface as `Missing authentication` instead of the token endpoint's own
+  message.
+- **A store with its own rate limits.** The narrowed store read sends up to 8
+  requests at a time and does not pace itself. It has not been tried against a
+  hosted store that rate-limits reads.
+- **Roles.** Only roles assigned to a member directly are read.
+- **Groups.** There is no snapshot type for them.

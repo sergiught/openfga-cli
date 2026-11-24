@@ -234,7 +234,9 @@ Events get lost: a webhook is down, a stream is replayed from the wrong place,
 someone edits the store by hand. The identity provider's current state is the
 reference, so `ofga mappings backfill` writes the tuples that state maps to, and
 `ofga mappings drift` compares them with the store and fixes the difference.
-Both only read the provider.
+Both only read the provider. This section shows how to use them;
+[How drift and backfill work](../mappings-drift-backfill/) describes every step
+they take.
 
 They read the provider's current state as **snapshot events**: one event per
 user, organization, membership and so on, in the same envelope as a live event
@@ -735,5 +737,7 @@ pane's keys and what they do.
 
 - [mapper's language spec](https://github.com/openfga/mapper/blob/v0.1.1/docs/language-spec.md):
   rules, expressions, tuple filters and iterators.
+- [How drift and backfill work](../mappings-drift-backfill/): every step of
+  `ofga mappings drift` and `ofga mappings backfill`.
 - [`ofga mappings` reference](../../reference/mappings/): every subcommand and
   flag.
