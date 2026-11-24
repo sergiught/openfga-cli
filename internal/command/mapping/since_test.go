@@ -309,6 +309,34 @@ func TestDriftSincePruneLeavesWindowedShapes(t *testing.T) {
 	}
 }
 
+// A rule with a disjunct that does not read input.type also fires on user
+// events, so its shape is not stale-checked under --since.
+const adminDisjunctMapping = userSnapshotMapping + `  - name: admins
+    when: input.type == "snapshot.organization.member" || input.admin == true
+    tuples:
+      - user: "user:{{ input.user }}"
+        relation: admin
+        object: "tenant:t1"
+`
+
+func TestDriftSincePruneLeavesShapeOfRuleWithOtherDisjunct(t *testing.T) {
+	configtest.Isolate(t)
+	pinNow(t, 0)
+	fs := newFakeStore(t, map[string]any{"user": "user:old", "relation": "admin", "object": "tenant:t1"})
+	useFakeProvider(t, fakeProvider{types: windowedTypes(), result: windowedResult()})
+	mp := writeFile(t, t.TempDir(), "m.yaml", adminDisjunctMapping)
+
+	_, stderr, err := runDrift(t, fs.cli(), nil, mp, "--provider", "fake", "--since", "2h", "--prune", "--force")
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	for _, w := range fs.writes {
+		if strings.Contains(w, `"deletes"`) {
+			t.Errorf("a delete was sent: %s", w)
+		}
+	}
+}
+
 func TestDriftSinceUsersOnlyReadsTheStoreAfterTheProvider(t *testing.T) {
 	configtest.Isolate(t)
 	pinNow(t, 0)

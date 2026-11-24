@@ -3,6 +3,7 @@ package snapshot
 import (
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -274,5 +275,101 @@ func TestCoverageWindowed(t *testing.T) {
 	owned, notChecked := Coverage(&mapping.Document{Rules: []mapping.Rule{userRule, memberRule}}, types, nil, since)
 	if !reflect.DeepEqual(owned, []mapping.Shape{tenant, org}) || len(notChecked) != 0 {
 		t.Errorf("no window: owned = %+v, notChecked = %+v", owned, notChecked)
+	}
+}
+
+func TestCoverageWindowedEvents(t *testing.T) {
+	types := []Type{
+		{Name: "snapshot.user", Windowed: true},
+		{Name: "snapshot.organization.member"},
+	}
+	since := time.Date(2026, 11, 24, 9, 0, 0, 0, time.UTC)
+	tup := func(rel, obj string) mapping.Tuple {
+		return mapping.Tuple{User: "user:{{ input.user }}", Relation: rel, Object: obj + ":{{ input.id }}"}
+	}
+	shape := func(rel, obj string) mapping.Shape {
+		return mapping.Shape{UserType: "user", Relation: rel, ObjectType: obj}
+	}
+	const memberWhen = `input.type == "snapshot.organization.member"`
+	whole := mapping.Rule{Name: "whole", When: memberWhen, Tuples: []mapping.Tuple{tup("member", "tenant")}}
+	reason := func(shapes string) string {
+		return "read with --since: only snapshot.user changed since 2026-11-24 09:00:00 UTC; not compared: " + shapes
+	}
+	member := shape("member", "tenant")
+	admin := shape("admin", "tenant")
+
+	cases := []struct {
+		name           string
+		rules          []mapping.Rule
+		wantOwned      []mapping.Shape
+		wantNotChecked []NotChecked
+	}{
+		{"a disjunct that does not read the type", []mapping.Rule{
+			{Name: "admins", When: memberWhen + ` || input.admin == true`, Tuples: []mapping.Tuple{tup("admin", "tenant")}},
+			{Name: "members", When: memberWhen, Tuples: []mapping.Tuple{tup("member", "organization")}},
+		}, []mapping.Shape{shape("member", "organization")},
+			[]NotChecked{{Rule: "admins", Reason: reason("user admin tenant"), Shapes: []mapping.Shape{admin}}}},
+		{"a rule that never reads the type", []mapping.Rule{
+			whole,
+			{Name: "plain", When: `input.admin == true`, Tuples: []mapping.Tuple{tup("member", "tenant")}},
+		}, nil,
+			[]NotChecked{{Rule: "plain", Reason: reason("user member tenant"), Shapes: []mapping.Shape{member}}}},
+		{"a rule with no when", []mapping.Rule{
+			whole,
+			{Name: "always", Tuples: []mapping.Tuple{tup("member", "tenant")}},
+		}, nil,
+			[]NotChecked{{Rule: "always", Reason: reason("user member tenant"), Shapes: []mapping.Shape{member}}}},
+		{"rules limited to other event types", []mapping.Rule{
+			whole,
+			{Name: "eq", When: `input.type == "user.created"`, Tuples: []mapping.Tuple{tup("member", "tenant")}},
+			{Name: "in", When: `input.type in ["user.created", "user.updated"]`, Tuples: []mapping.Tuple{tup("member", "tenant")}},
+		}, []mapping.Shape{member}, nil},
+		{"a conjunction with another type", []mapping.Rule{
+			{Name: "conj", When: memberWhen + ` && input.admin == true`, Tuples: []mapping.Tuple{tup("member", "tenant")}},
+		}, []mapping.Shape{member}, nil},
+		{"a template limited to the whole-read type", []mapping.Rule{{
+			Name: "both", When: `input.type == "snapshot.user" || ` + memberWhen,
+			Tuples: []mapping.Tuple{
+				{User: "user:{{ input.user }}", Relation: "member", Object: "tenant:{{ input.id }}", When: memberWhen},
+				tup("admin", "tenant"),
+			},
+		}}, []mapping.Shape{member},
+			[]NotChecked{{Rule: "both", Reason: reason("user admin tenant"), Shapes: []mapping.Shape{admin}}}},
+		{"a templated relation owns nothing", []mapping.Rule{
+			{Name: "users", When: `input.type == "snapshot.user"`, Tuples: []mapping.Tuple{
+				{User: "user:{{ input.user }}", Relation: "{{ input.role }}", Object: "tenant:{{ input.id }}"},
+			}},
+			{Name: "members", When: memberWhen, Tuples: []mapping.Tuple{tup("member", "organization")}},
+		}, nil,
+			[]NotChecked{{Rule: "users", Reason: "read with --since: only snapshot.user changed since 2026-11-24 09:00:00 UTC, and the type or relation is templated, so no stale tuple can be told apart"}}},
+	}
+	for _, tc := range cases {
+		owned, notChecked := Coverage(&mapping.Document{Rules: tc.rules}, types, []string{"snapshot.user"}, since)
+		if !reflect.DeepEqual(owned, tc.wantOwned) {
+			t.Errorf("%s: owned = %+v, want %+v", tc.name, owned, tc.wantOwned)
+		}
+		if !reflect.DeepEqual(notChecked, tc.wantNotChecked) {
+			t.Errorf("%s: notChecked = %+v, want %+v", tc.name, notChecked, tc.wantNotChecked)
+		}
+		for _, n := range notChecked {
+			if strings.HasSuffix(n.Reason, "not compared: ") {
+				t.Errorf("%s: entry %q names no shapes", tc.name, n.Reason)
+			}
+		}
+	}
+
+	// Without a window the rules keep the owned shapes they always had.
+	owned, notChecked := Coverage(&mapping.Document{Rules: []mapping.Rule{
+		{Name: "admins", When: memberWhen + ` || input.admin == true`, Tuples: []mapping.Tuple{tup("admin", "tenant")}},
+		whole,
+		{Name: "plain", When: `input.admin == true`, Tuples: []mapping.Tuple{tup("member", "tenant")}},
+		{Name: "viewers", When: `input.type == "user.created"`, Tuples: []mapping.Tuple{tup("viewer", "tenant")}},
+	}}, types, nil, since)
+	if want := []mapping.Shape{admin, member}; !reflect.DeepEqual(owned, want) {
+		t.Errorf("no window: owned = %+v, want %+v", owned, want)
+	}
+	wantNC := []NotChecked{{Rule: "viewers", Reason: "no snapshot rule writes user viewer tenant", Shapes: []mapping.Shape{shape("viewer", "tenant")}}}
+	if !reflect.DeepEqual(notChecked, wantNC) {
+		t.Errorf("no window: notChecked = %+v, want %+v", notChecked, wantNC)
 	}
 }

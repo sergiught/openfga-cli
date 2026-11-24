@@ -231,35 +231,115 @@ func splitTemplates(r mapping.Rule, types []Type) (kept, dropped mapping.Rule) {
 	return kept, dropped
 }
 
-// Coverage returns the shapes snapshot rules write, and the rules whose
-// tuples fall outside that: non-snapshot rules writing shapes no snapshot
-// rule owns, snapshot rules with templated types or relations, and snapshot
-// rules with templates whose own "when" leaves out snapshot events.
-// windowed names the types the provider read by window since a time. A rule
-// that opts in to one of them cannot tell which stored tuples are stale, so
-// its shapes are not owned and the rule is listed with the window. With no
-// windowed names since is ignored.
-func Coverage(doc *mapping.Document, types []Type, windowed []string, since time.Time) (owned []mapping.Shape, notChecked []NotChecked) {
-	// windowedNames is the windowed types a rule opts in to.
-	windowedNames := func(r mapping.Rule) []string {
-		var out []string
-		for _, n := range windowed {
-			if names(r, n) {
-				out = append(out, n)
+// excludes reports whether the expression provably leaves out events of type
+// name: a comparison or in-list of input.type that does not name it, joined by
+// && (either side is enough) or || (both sides are needed). Anything else,
+// including negation and !=, does not exclude.
+func excludes(n ast.Node, name string) bool {
+	switch n := n.(type) {
+	case *ast.ChainNode:
+		return excludes(n.Node, name)
+	case *ast.BinaryNode:
+		switch n.Operator {
+		case "||", "or":
+			return excludes(n.Left, name) && excludes(n.Right, name)
+		case "&&", "and":
+			return excludes(n.Left, name) || excludes(n.Right, name)
+		case "==":
+			if isInputType(n.Left) {
+				s, ok := n.Right.(*ast.StringNode)
+				return ok && s.Value != name
+			}
+			if isInputType(n.Right) {
+				s, ok := n.Left.(*ast.StringNode)
+				return ok && s.Value != name
+			}
+		case "in":
+			list, ok := n.Right.(*ast.ArrayNode)
+			if !ok || !isInputType(n.Left) {
+				return false
+			}
+			for _, e := range list.Nodes {
+				if _, ok := e.(*ast.StringNode); !ok {
+					return false
+				}
+			}
+			return !slices.ContainsFunc(list.Nodes, func(e ast.Node) bool { return isString(e, name) })
+		}
+	}
+	return false
+}
+
+// firesOn reports whether a "when" expression can be true for an event of type
+// name. An empty expression or one that does not parse is taken to.
+func firesOn(when, name string) bool {
+	root := parse(when)
+	return root == nil || !excludes(root, name)
+}
+
+// firedTemplates returns r with only the templates an event of type name can
+// fire, or false when r's own "when" leaves that event out.
+func firedTemplates(r mapping.Rule, name string) (mapping.Rule, bool) {
+	if !firesOn(r.When, name) {
+		return r, false
+	}
+	keep := func(ts []mapping.Tuple) (out []mapping.Tuple) {
+		for _, t := range ts {
+			if firesOn(t.When, name) {
+				out = append(out, t)
 			}
 		}
 		return out
 	}
-	var windowedShapes []mapping.Shape
-	for _, r := range doc.Rules {
-		if IsSnapshotRule(r, types) && len(windowedNames(r)) > 0 {
-			kept, _ := splitTemplates(r, types)
-			shapes, _ := mapping.RuleShapes(kept)
-			windowedShapes = append(windowedShapes, shapes...)
+	fired := r
+	fired.Tuples = keep(r.Tuples)
+	if r.Iterator != nil {
+		it := *r.Iterator
+		it.Tuples = keep(r.Iterator.Tuples)
+		fired.Iterator = &it
+	}
+	return fired, true
+}
+
+// Coverage returns the shapes snapshot rules write, and the rules whose
+// tuples fall outside that: non-snapshot rules writing shapes no snapshot
+// rule owns, snapshot rules with templated types or relations, and snapshot
+// rules with templates whose own "when" leaves out snapshot events.
+// windowed names the types the provider read by window since a time. Users
+// outside the window send no event, so any rule that can fire on one of those
+// types, snapshot rule or not, cannot tell which stored tuples are stale: its
+// shapes are not owned and it is listed with the window. A template of such a
+// rule with a templated type or relation can write any shape, so nothing is
+// owned. With no windowed names since is ignored.
+func Coverage(doc *mapping.Document, types []Type, windowed []string, since time.Time) (owned []mapping.Shape, notChecked []NotChecked) {
+	// fire returns the windowed types a rule can fire on, the shapes its
+	// templates write for them, and how many of those templates have no shape.
+	fire := func(r mapping.Rule) (w []string, shapes []mapping.Shape, unshaped int) {
+		for _, n := range windowed {
+			fired, ok := firedTemplates(r, n)
+			if !ok {
+				continue
+			}
+			w = append(w, n)
+			ss, u := mapping.RuleShapes(fired)
+			unshaped += u
+			for _, s := range ss {
+				if !slices.Contains(shapes, s) {
+					shapes = append(shapes, s)
+				}
+			}
 		}
+		return w, shapes, unshaped
+	}
+	var windowedShapes []mapping.Shape
+	anyTemplated := false
+	for _, r := range doc.Rules {
+		_, shapes, unshaped := fire(r)
+		windowedShapes = append(windowedShapes, shapes...)
+		anyTemplated = anyTemplated || unshaped > 0
 	}
 	for _, r := range doc.Rules {
-		if IsSnapshotRule(r, types) {
+		if IsSnapshotRule(r, types) && !anyTemplated {
 			kept, _ := splitTemplates(r, types)
 			shapes, _ := mapping.RuleShapes(kept)
 			for _, s := range shapes {
@@ -270,10 +350,10 @@ func Coverage(doc *mapping.Document, types []Type, windowed []string, since time
 		}
 	}
 	for _, r := range doc.Rules {
-		if IsSnapshotRule(r, types) {
-			kept, dropped := splitTemplates(r, types)
-			if w := windowedNames(r); len(w) > 0 {
-				shapes, _ := mapping.RuleShapes(kept)
+		windowTemplated := false
+		if w, shapes, unshaped := fire(r); len(shapes) > 0 || unshaped > 0 {
+			at := since.UTC().Format("2006-01-02 15:04:05")
+			if len(shapes) > 0 {
 				text := make([]string, len(shapes))
 				for i, s := range shapes {
 					text[i] = s.String()
@@ -281,11 +361,22 @@ func Coverage(doc *mapping.Document, types []Type, windowed []string, since time
 				notChecked = append(notChecked, NotChecked{
 					Rule: r.Name,
 					Reason: fmt.Sprintf("read with --since: only %s changed since %s UTC; not compared: %s",
-						strings.Join(w, ", "), since.UTC().Format("2006-01-02 15:04:05"), strings.Join(text, ", ")),
+						strings.Join(w, ", "), at, strings.Join(text, ", ")),
 					Shapes: shapes,
 				})
 			}
-			if _, unshaped := mapping.RuleShapes(kept); unshaped > 0 {
+			if unshaped > 0 {
+				windowTemplated = true
+				notChecked = append(notChecked, NotChecked{
+					Rule: r.Name,
+					Reason: fmt.Sprintf("read with --since: only %s changed since %s UTC, and the type or relation is templated, so no stale tuple can be told apart",
+						strings.Join(w, ", "), at),
+				})
+			}
+		}
+		if IsSnapshotRule(r, types) {
+			kept, dropped := splitTemplates(r, types)
+			if _, unshaped := mapping.RuleShapes(kept); unshaped > 0 && !windowTemplated {
 				notChecked = append(notChecked, NotChecked{
 					Rule:   r.Name,
 					Reason: "the type or relation is templated, so stale tuples cannot be told apart",
