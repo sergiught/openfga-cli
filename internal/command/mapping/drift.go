@@ -58,7 +58,7 @@ func (c *Command) newDriftCmd() *cobra.Command {
 			"Without a terminal, under --no-input or -o json/yaml, it only reports unless --force is given. " +
 			"The provider is read once, so the result reflects it as of that moment. Auth0 needs a machine-to-machine application. Above 1,000 users the read uses Auth0's user export job, which needs no extra scope. " +
 			"--since 2h (or an RFC 3339 time) reads only the Auth0 users changed since then, at most 1,000; other types are still read whole. " +
-			"Shapes written by a rule for a windowed type are then not checked for stale tuples.\n\n" +
+			"Shapes written by a rule that can fire on a windowed type are then not checked for stale tuples.\n\n" +
 			"Exit codes: 0 no drift, or all of it fixed · 1 error · 2 usage · 3 drift remains · 4 network · 130 interrupted.",
 		Example: `# See what differs between the store and Auth0
 ofga mappings drift auth0.yaml --provider auth0 --dry-run

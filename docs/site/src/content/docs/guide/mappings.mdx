@@ -665,18 +665,21 @@ that time are read. Every other type is still read whole, because Auth0 has no
 change time for them.
 
 `drift --since` finds missing and changed tuples. It cannot tell which stored
-tuples are stale, because it has not seen every user. So the shapes your user
-rule writes are listed under "not checked", and a user's old tuple (from a
-previous plan, or for a deleted user) stays until you run `drift` without
-`--since`. `--prune` never deletes a tuple in those shapes.
+tuples are stale, because it has not seen every user. So every shape that a
+rule able to fire on a user event writes is listed under "not checked", which
+includes a rule whose `when` does not look at `input.type`. A rule limited to
+other types, such as `input.type == "snapshot.organization.member"`, keeps its
+stale check. A user's old tuple (from a previous plan, or for a deleted user)
+stays until you run `drift` without `--since`. `--prune` never deletes a tuple
+in those shapes.
 
 ```bash
-ofga mappings drift examples/mappings/auth0.yaml --provider auth0 --since 2h --dry-run
+ofga mappings drift examples/mappings-full/auth0.yaml --provider auth0 --since 2h --dry-run
 ```
 
 ```text
 not checked
-  users  read with --since: only snapshot.user changed since 2026-11-24 09:00:00 UTC; not compared: user member tenant
+  user.created  read with --since: only snapshot.user changed since 2026-11-24 09:00:00 UTC; not compared: user member tenant, user assignee plan
 ```
 
 Auth0's user search returns at most 1,000 users. When more changed, the read
