@@ -42,6 +42,7 @@ type driftResult struct {
 func (c *Command) newDriftCmd() *cobra.Command {
 	var (
 		provider             string
+		since                string
 		prune, dryRun, force bool
 	)
 	cmd := &cobra.Command{
@@ -55,10 +56,15 @@ func (c *Command) newDriftCmd() *cobra.Command {
 			"It then asks before writing the missing tuples and replacing the changed ones (a changed tuple is deleted and written again, 100 at a time, and put back if that fails), " +
 			"and with --prune asks again before deleting the stale ones. --force skips the questions, --dry-run stops after the report. " +
 			"Without a terminal, under --no-input or -o json/yaml, it only reports unless --force is given. " +
-			"The provider is read once, so the result reflects it as of that moment. Auth0 needs a machine-to-machine application. Above 1,000 users the read uses Auth0's user export job, which needs no extra scope.\n\n" +
+			"The provider is read once, so the result reflects it as of that moment. Auth0 needs a machine-to-machine application. Above 1,000 users the read uses Auth0's user export job, which needs no extra scope. " +
+			"--since 2h (or an RFC 3339 time) reads only the Auth0 users changed since then, at most 1,000; other types are still read whole. " +
+			"Shapes written by a rule for a windowed type are then not checked for stale tuples.\n\n" +
 			"Exit codes: 0 no drift, or all of it fixed · 1 error · 2 usage · 3 drift remains · 4 network · 130 interrupted.",
 		Example: `# See what differs between the store and Auth0
 ofga mappings drift auth0.yaml --provider auth0 --dry-run
+
+# Check only the users changed in the last two hours
+ofga mappings drift auth0.yaml --provider auth0 --since 2h --dry-run
 
 # Fix it, including stale tuples, without the prompts
 ofga mappings drift auth0.yaml --provider auth0 --auth0-client-secret-file ./secret --prune --force`,
@@ -66,17 +72,22 @@ ofga mappings drift auth0.yaml --provider auth0 --auth0-client-secret-file ./sec
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return c.runDrift(cmd, targetPath(args), provider, prune, dryRun, force)
+			return c.runDrift(cmd, targetPath(args), provider, since, prune, dryRun, force)
 		},
 	}
 	addProviderFlags(cmd, &provider)
+	cmd.Flags().StringVar(&since, "since", "", "read only what changed since a duration ago (2h) or an RFC 3339 time; users only")
 	cmd.Flags().BoolVar(&prune, "prune", false, "also delete stale tuples the provider no longer backs")
 	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "show the drift without writing anything")
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "write without asking")
 	return cmd
 }
 
-func (c *Command) runDrift(cmd *cobra.Command, path, provider string, prune, dryRun, force bool) error {
+func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, prune, dryRun, force bool) error {
+	sinceTime, err := parseSince(since)
+	if err != nil {
+		return err
+	}
 	machine := c.cli.JSON || c.cli.YAML
 	ctx, out, errw := cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr()
 
@@ -91,7 +102,7 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider string, prune, dry
 	// The store is read before the provider, so the snapshot is never older
 	// than the store it is compared with. The desired tuples are not known yet,
 	// so only the tuples the mapping can write are kept.
-	run, err := c.runSnapshot(cmd, path, provider, func(f *mapping.File) error {
+	run, err := c.runSnapshot(cmd, path, provider, sinceTime, func(f *mapping.File) error {
 		var r config.Resolved
 		var err error
 		if cl, r, err = c.cli.ClientWithStore(); err != nil {

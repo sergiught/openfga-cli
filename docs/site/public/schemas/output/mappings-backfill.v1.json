@@ -42,6 +42,10 @@
         "sent": {
           "$ref": "#/$defs/sentOut"
         },
+        "since": {
+          "format": "date-time",
+          "type": "string"
+        },
         "snapshot_finished_at": {
           "format": "date-time",
           "type": "string"

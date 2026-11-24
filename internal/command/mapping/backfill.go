@@ -43,6 +43,7 @@ type sentOut struct {
 func (c *Command) newBackfillCmd() *cobra.Command {
 	var (
 		provider      string
+		since         string
 		dryRun, force bool
 	)
 	cmd := &cobra.Command{
@@ -57,10 +58,14 @@ func (c *Command) newBackfillCmd() *cobra.Command {
 			"It shows the tuples it would write and asks before writing (--force skips the question, --dry-run stops after showing them). " +
 			"The provider is read once, so the tuples reflect it as of that moment. Changes made while the command runs, or after it, are not included. " +
 			"Use `ofga mappings drift` to compare the store with the provider and to remove tuples the provider no longer backs.\n\n" +
-			"Run again after a failure: tuples that already landed are not written twice. Auth0 needs a machine-to-machine application. Above 1,000 users the read uses Auth0's user export job, which needs no extra scope.\n\n" +
+			"Run again after a failure: tuples that already landed are not written twice. Auth0 needs a machine-to-machine application. Above 1,000 users the read uses Auth0's user export job, which needs no extra scope. " +
+			"--since 2h (or an RFC 3339 time) reads only the Auth0 users changed since then, at most 1,000; other types are still read whole.\n\n" +
 			"Exit codes: 0 ok · 1 error · 2 usage · 4 network · 130 interrupted.",
 		Example: `# See what a backfill from Auth0 would write
 ofga mappings backfill auth0.yaml --provider auth0 --dry-run
+
+# Read only the users changed in the last two hours
+ofga mappings backfill auth0.yaml --provider auth0 --since 2h --force
 
 # Write it without the prompt, in a script
 ofga mappings backfill auth0.yaml --provider auth0 --auth0-client-secret-file ./secret --force`,
@@ -68,21 +73,26 @@ ofga mappings backfill auth0.yaml --provider auth0 --auth0-client-secret-file ./
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return c.runBackfill(cmd, targetPath(args), provider, dryRun, force)
+			return c.runBackfill(cmd, targetPath(args), provider, since, dryRun, force)
 		},
 	}
 	addProviderFlags(cmd, &provider)
+	cmd.Flags().StringVar(&since, "since", "", "read only what changed since a duration ago (2h) or an RFC 3339 time; users only")
 	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "show the tuples without writing anything")
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "write without asking")
 	return cmd
 }
 
-func (c *Command) runBackfill(cmd *cobra.Command, path, provider string, dryRun, force bool) error {
+func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, dryRun, force bool) error {
 	machine := c.cli.JSON || c.cli.YAML
 	if machine && !dryRun && !force {
 		// Machine output covers -o json/yaml/jsonl and agent mode, which has no -o.
 		return clierr.WithCode(clierr.CodeUsage, clierr.WithHint("pass --dry-run to preview or --force to write",
 			errors.New("non-interactive runs never prompt; pass --dry-run to preview or --force to write")))
+	}
+	sinceTime, err := parseSince(since)
+	if err != nil {
+		return err
 	}
 	ctx, out, errw := cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr()
 
@@ -94,7 +104,7 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider string, dryRun,
 	// The store is resolved before the provider, so a missing profile or an
 	// unreachable server does not cost a long read first. It is read after the
 	// provider, once the desired tuples say which objects are worth reading.
-	run, err := c.runSnapshot(cmd, path, provider, func(*mapping.File) error {
+	run, err := c.runSnapshot(cmd, path, provider, sinceTime, func(*mapping.File) error {
 		var r config.Resolved
 		var err error
 		if cl, r, err = c.cli.ClientWithStore(); err != nil {
@@ -135,7 +145,7 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider string, dryRun,
 		Tuples: tuplesOut(run.Desired), Missing: tuplesOut(diff.Missing), Changed: tuplesOut(diff.Changed), Existing: existing,
 	}
 	if !machine {
-		snapshotHeader(out, label, run.Result)
+		snapshotHeader(out, label, run.Result, run.Since)
 		if len(run.Desired) > 0 {
 			storeReadLine(out, run, storeLbl, storeReadAt, read.Read, read.Objects)
 		}

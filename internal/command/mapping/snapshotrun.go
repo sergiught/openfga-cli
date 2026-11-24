@@ -3,6 +3,7 @@ package mapping
 import (
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -28,6 +29,10 @@ type snapshotRun struct {
 	Types    []snapshot.Type
 	Result   *snapshot.Result
 	Desired  []language.Tuple
+	// Since is the --since time, zero without it. Windowed names the requested
+	// types read by window, empty without --since.
+	Since    time.Time
+	Windowed []string
 }
 
 // runSnapshot loads and compiles the mapping, resolves --provider, rejects
@@ -37,7 +42,7 @@ type snapshotRun struct {
 // contacted, with the loaded mapping file. Both commands resolve the store
 // there so a missing profile fails before the long provider read; drift also
 // reads the store there, keeping only the tuples the mapping writes.
-func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, beforeRead func(f *mapping.File) error) (*snapshotRun, error) {
+func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since time.Time, beforeRead func(f *mapping.File) error) (*snapshotRun, error) {
 	machine := c.cli.JSON || c.cli.YAML
 	ctx, out, errw := cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr()
 	// Problem lines are not the machine payload: keep stdout clean for jq.
@@ -88,6 +93,12 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, beforeR
 	if len(requested) == 0 {
 		return nil, noSnapshotRules(problemsOut, machine, path, f, types, typeNames)
 	}
+	var windowed []string
+	if !since.IsZero() {
+		if windowed, err = windowedRequested(entry.Label, path, types, requested); err != nil {
+			return nil, err
+		}
+	}
 
 	// Building the provider does no network I/O, so a missing credential fails
 	// before beforeRead spends a store read.
@@ -100,7 +111,7 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, beforeR
 			return nil, err
 		}
 	}
-	res, err := p.Snapshot(ctx, snapshot.Request{Types: requested}, func(msg string) { output.Progressf(errw, "%s", msg) })
+	res, err := p.Snapshot(ctx, snapshot.Request{Types: requested, Since: since}, func(msg string) { output.Progressf(errw, "%s", msg) })
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +123,30 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, beforeR
 	if err != nil {
 		return nil, err
 	}
-	return &snapshotRun{File: f, Provider: p, Types: types, Result: res, Desired: desired}, nil
+	return &snapshotRun{File: f, Provider: p, Types: types, Result: res, Desired: desired, Since: since, Windowed: windowed}, nil
+}
+
+// windowedRequested returns the requested types the provider can read by
+// window, or a usage error when --since would narrow nothing.
+func windowedRequested(label, path string, types []snapshot.Type, requested []string) ([]string, error) {
+	var all, windowed []string
+	for _, t := range types {
+		if !t.Windowed {
+			continue
+		}
+		all = append(all, t.Name)
+		if slices.Contains(requested, t.Name) {
+			windowed = append(windowed, t.Name)
+		}
+	}
+	switch {
+	case len(all) == 0:
+		return nil, clierr.WithCode(clierr.CodeUsage, fmt.Errorf("--since is not supported by %s", label))
+	case len(windowed) == 0:
+		return nil, clierr.WithCode(clierr.CodeUsage, fmt.Errorf(
+			"--since narrows only %s, and %s has no rule for them", strings.Join(all, ", "), path))
+	}
+	return windowed, nil
 }
 
 // noSnapshotRules reports a mapping with nothing to check, suggesting the
@@ -167,8 +201,8 @@ func snapshotLayout(r *snapshot.Result) string {
 }
 
 // snapshotHeader prints which provider was read, when, from where, and how
-// many events of each type it produced.
-func snapshotHeader(w io.Writer, label string, r *snapshot.Result) {
+// many events of each type it produced. A count read by window says since when.
+func snapshotHeader(w io.Writer, label string, r *snapshot.Result, since time.Time) {
 	start, finish := snapshotTimes(r)
 	waits := ""
 	if r.RateLimited > 0 {
@@ -180,7 +214,11 @@ func snapshotHeader(w io.Writer, label string, r *snapshot.Result) {
 		width = max(width, len(c.Type))
 	}
 	for _, c := range r.Counts {
-		_, _ = fmt.Fprintf(w, "  %-*s  %d\n", width, output.SanitizeField(c.Type), c.N)
+		window := ""
+		if c.Windowed {
+			window = "  (changed since " + since.UTC().Format(dateClockLayout) + " UTC)"
+		}
+		_, _ = fmt.Fprintf(w, "  %-*s  %d%s\n", width, output.SanitizeField(c.Type), c.N, window)
 	}
 }
 
@@ -227,6 +265,7 @@ type snapshotMeta struct {
 	FinishedAt time.Time       `json:"snapshot_finished_at"`
 	Counts     []snapshotCount `json:"counts"`
 	DryRun     bool            `json:"dry_run"`
+	Since      *time.Time      `json:"since,omitempty"`
 }
 
 func newSnapshotMeta(storeID string, run *snapshotRun, dryRun bool) snapshotMeta {
@@ -237,6 +276,10 @@ func newSnapshotMeta(storeID string, run *snapshotRun, dryRun bool) snapshotMeta
 	}
 	for _, c := range run.Result.Counts {
 		meta.Counts = append(meta.Counts, snapshotCount{Type: c.Type, Count: c.N})
+	}
+	if !run.Since.IsZero() {
+		since := run.Since.UTC()
+		meta.Since = &since
 	}
 	return meta
 }

@@ -18,7 +18,7 @@ import (
 func renderDrift(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt time.Time, stored int, diff snapshot.Diff, notChecked []snapshot.NotChecked) error {
 	label := output.SanitizeField(run.Provider.Label())
 	storeReadLine(w, run, storeLabel, storeReadAt, stored, 0)
-	snapshotHeader(w, run.Provider.Label(), run.Result)
+	snapshotHeader(w, run.Provider.Label(), run.Result, run.Since)
 
 	// A stale tuple is shown as the delete it would become.
 	stale := make([]language.Tuple, len(diff.Stale))
