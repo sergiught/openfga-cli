@@ -2,6 +2,7 @@ package mapping
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -150,6 +151,27 @@ func TestReadMatchingKeyReadFailureFailsTheRead(t *testing.T) {
 	fs.bigStore, fs.pageSize, fs.failReadUser = true, 1, "user:u2"
 	if _, err := readMatching(t, fs, wantMember("user:u1", "user:u2")); err == nil {
 		t.Fatal("want an error")
+	}
+}
+
+func TestReadMatchingCanceledReadFailsInsteadOfReturningPart(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, tenantTuple("user:u1"), tenantTuple("user:n1"))
+	fs.bigStore, fs.pageSize = true, 1
+	cl, _, err := fs.cli().ClientWithStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// Canceling as the pair reads are about to start leaves their loop with
+	// nothing to run and no goroutine to report an error.
+	got, err := storeClient{cl}.ReadMatching(ctx, wantMember("user:u1", "user:u2"), func(int) { cancel() })
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, tuples = %+v, want context.Canceled", err, got.Tuples)
+	}
+	if got.Tuples != nil || got.Read != 0 {
+		t.Errorf("got = %+v, want nothing", got)
 	}
 }
 

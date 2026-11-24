@@ -135,6 +135,11 @@ func (s storeClient) ReadMatching(ctx context.Context, want []language.Tuple, on
 	if err := g.Wait(); err != nil {
 		return storeRead{}, err
 	}
+	// A canceled context stops the loop above without any read failing, so
+	// what was read so far is only part of the store.
+	if err := ctx.Err(); err != nil {
+		return storeRead{}, err
+	}
 
 	// Started only after the pair phase, so no goroutine of one errgroup
 	// starts work on the same group.
@@ -165,6 +170,11 @@ func (s storeClient) ReadMatching(ctx context.Context, want []language.Tuple, on
 		})
 	}
 	if err := g.Wait(); err != nil {
+		return storeRead{}, err
+	}
+	// A canceled context stops the loop above without any read failing, so
+	// what was read so far is only part of the store.
+	if err := ctx.Err(); err != nil {
 		return storeRead{}, err
 	}
 	return res, nil
