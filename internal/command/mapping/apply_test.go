@@ -111,6 +111,8 @@ type fakeStore struct {
 	pageSize int
 	// failReadObject, when set, makes a /read whose tuple_key names that object answer 400.
 	failReadObject string
+	// failReadUser, when set, makes a /read whose tuple_key names that user answer 400.
+	failReadUser string
 }
 
 // readReq is one /read request as the fake saw it.
@@ -143,7 +145,8 @@ func newFakeStore(t *testing.T, stored ...map[string]any) *fakeStore {
 			var req readReq
 			_ = json.NewDecoder(r.Body).Decode(&req)
 			fs.reads = append(fs.reads, req)
-			if fs.failReadObject != "" && req.TupleKey["object"] == fs.failReadObject {
+			if (fs.failReadObject != "" && req.TupleKey["object"] == fs.failReadObject) ||
+				(fs.failReadUser != "" && req.TupleKey["user"] == fs.failReadUser) {
 				w.WriteHeader(http.StatusBadRequest)
 				_, _ = io.WriteString(w, `{"code":"validation_error","message":"read rejected"}`)
 				return

@@ -595,6 +595,8 @@ cannot reproduce.
   tuples takes 10,000 requests. It keeps in memory only the tuples whose
   relation and object type the mapping writes. `backfill` reads the whole store only while that is cheap,
   then reads just the objects the mapping writes to, 8 at a time.
+  On an object that holds far more tuples than the mapping wants, `backfill` asks
+  for each wanted tuple by its full key instead.
 - An event rule and a separate snapshot rule that write the same shape
   differently disagree on every run, so `drift` reports the difference forever.
   Name the live and the snapshot type in one rule's `when`, as `auth0.yaml` does.

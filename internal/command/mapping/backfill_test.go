@@ -762,21 +762,21 @@ func TestBackfillLargeStoreReadsOnlyTheObjectsItWritesTo(t *testing.T) {
 		t.Fatalf("err = %v\n%s", err, stderr)
 	}
 	reads := fs.readRequests()
-	if unfilteredReads(reads) != 1 || len(reads) != 1+2+1 {
-		t.Fatalf("reads = %+v, want 1 unfiltered, one first request per pair and one more page", reads)
+	if unfilteredReads(reads) != 1 || len(reads) != 1+2+2 {
+		t.Fatalf("reads = %+v, want 1 unfiltered, one request per pair and one key read for each of the 2 users wanted on the crowded member pair", reads)
 	}
 	pairs := map[string]int{}
 	for _, r := range reads {
-		if len(r.TupleKey) == 0 {
+		if len(r.TupleKey) == 0 || r.TupleKey["user"] != "" {
 			continue
 		}
-		if r.TupleKey["user"] != "" || r.TupleKey["object"] != "organization:o1" || r.PageSize != 100 {
+		if r.TupleKey["object"] != "organization:o1" || r.PageSize != 100 {
 			t.Errorf("pair read = %+v", r)
 		}
 		pairs[r.TupleKey["relation"]]++
 	}
-	if pairs["member"] != 2 || pairs["reader"] != 1 {
-		t.Errorf("pair reads = %v: member holds two tuples and is read in two pages", pairs)
+	if pairs["member"] != 1 || pairs["reader"] != 1 {
+		t.Errorf("pair reads = %v: the member pair is cut after its page budget", pairs)
 	}
 	if !strings.Contains(stdout, "store read  14:03:13 UTC  3 tuples on 1 object  acme\n") {
 		t.Errorf("stdout:\n%s", stdout)

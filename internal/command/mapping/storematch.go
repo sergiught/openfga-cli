@@ -29,21 +29,27 @@ type storeRead struct {
 // exhausted after a budget of pages, it reads each distinct (object, relation)
 // of the wanted tuples instead, storeWorkers at a time, so a store far larger
 // than the mapping's data is not read whole. The budget keeps the pages wasted
-// on the first attempt to about the cost of the pair reads. onPairs is called
+// on the first attempt to about the cost of the pair reads. A pair read stops
+// after a few pages too: when an object holds far more tuples than are wanted
+// from it, each wanted tuple is read by its full key instead. onPairs is called
 // with the number of distinct objects just before the pair reads start.
 func (s storeClient) ReadMatching(ctx context.Context, want []language.Tuple, onPairs func(objects int)) (storeRead, error) {
 	ids := make(map[string]bool, len(want))
 	type pair struct{ object, relation string }
 	var pairs []pair
-	seenPair := map[pair]bool{}
+	wanted := map[pair][]language.Tuple{}
 	objects := map[string]bool{}
 	for _, t := range want {
-		ids[snapshot.Identity(t)] = true
+		id := snapshot.Identity(t)
+		if ids[id] {
+			continue
+		}
+		ids[id] = true
 		p := pair{t.Object, t.Relation}
-		if !seenPair[p] {
-			seenPair[p] = true
+		if _, ok := wanted[p]; !ok {
 			pairs = append(pairs, p)
 		}
+		wanted[p] = append(wanted[p], t)
 		objects[t.Object] = true
 	}
 	budget := max(1, (len(pairs)+storeWorkers-1)/storeWorkers)
@@ -74,7 +80,10 @@ func (s storeClient) ReadMatching(ctx context.Context, want []language.Tuple, on
 		onPairs(len(objects))
 	}
 	res = storeRead{Objects: len(objects)}
-	var mu sync.Mutex
+	var (
+		mu      sync.Mutex
+		crowded []language.Tuple
+	)
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(storeWorkers)
 	for _, p := range pairs {
@@ -82,22 +91,75 @@ func (s storeClient) ReadMatching(ctx context.Context, want []language.Tuple, on
 			break
 		}
 		g.Go(func() error {
+			// A pair wanted by few tuples is read for few pages. When the
+			// last of them still continues, the object holds far more than
+			// is wanted and each wanted tuple is read by its full key later.
+			pages := max(1, (len(wanted[p])+storeWorkers-1)/storeWorkers)
+			req := &openfga.ReadRequest{
+				TupleKey: &openfga.ReadRequestTupleKey{Object: p.object, Relation: p.relation}, PageSize: readPageSize,
+			}
 			var got []language.Tuple
 			n := 0
-			for t, err := range s.cl.Tuples.ReadAll(gctx, &openfga.ReadRequest{
-				TupleKey: &openfga.ReadRequestTupleKey{Object: p.object, Relation: p.relation}, PageSize: readPageSize,
-			}) {
+			for page := 1; ; page++ {
+				resp, err := s.cl.Tuples.Read(gctx, req)
 				if err != nil {
 					return err
 				}
-				n++
-				if lt := toTuple(t); ids[snapshot.Identity(lt)] {
+				n += len(resp.Tuples)
+				for _, t := range resp.Tuples {
+					if lt := toTuple(t); ids[snapshot.Identity(lt)] {
+						got = append(got, lt)
+					}
+				}
+				if resp.ContinuationToken == "" {
+					break
+				}
+				if page >= pages {
+					// The key reads fetch the wanted tuples again, so the
+					// pages read here are not kept.
+					got = nil
+					mu.Lock()
+					crowded = append(crowded, wanted[p]...)
+					mu.Unlock()
+					break
+				}
+				req.ContinuationToken = resp.ContinuationToken
+			}
+			mu.Lock()
+			res.Tuples = append(res.Tuples, got...)
+			res.Read += n
+			mu.Unlock()
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return storeRead{}, err
+	}
+
+	// Started only after the pair phase, so no goroutine of one errgroup
+	// starts work on the same group.
+	g, gctx = errgroup.WithContext(ctx)
+	g.SetLimit(storeWorkers)
+	for _, t := range crowded {
+		if gctx.Err() != nil {
+			break
+		}
+		g.Go(func() error {
+			resp, err := s.cl.Tuples.Read(gctx, &openfga.ReadRequest{
+				TupleKey: &openfga.ReadRequestTupleKey{User: t.User, Relation: t.Relation, Object: t.Object}, PageSize: readPageSize,
+			})
+			if err != nil {
+				return err
+			}
+			var got []language.Tuple
+			for _, st := range resp.Tuples {
+				if lt := toTuple(st); ids[snapshot.Identity(lt)] {
 					got = append(got, lt)
 				}
 			}
 			mu.Lock()
 			res.Tuples = append(res.Tuples, got...)
-			res.Read += n
+			res.Read += len(resp.Tuples)
 			mu.Unlock()
 			return nil
 		})
