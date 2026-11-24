@@ -223,6 +223,16 @@ func TestTypes(t *testing.T) {
 	}, names)
 }
 
+func TestTypesWindowed(t *testing.T) {
+	t.Parallel()
+
+	for _, typ := range Types() {
+		if want := typ.Name == "snapshot.user"; typ.Windowed != want {
+			t.Errorf("%s Windowed = %v, want %v", typ.Name, typ.Windowed, want)
+		}
+	}
+}
+
 const orgsBody = `{"organizations":[{"id":"org_1","name":"acme-one"},{"id":"org_2","name":"acme-two"}]}`
 
 var memberRoutes = map[string]string{
@@ -242,7 +252,7 @@ func TestSnapshotMembersAndRoles(t *testing.T) {
 	var progress []string
 
 	res, err := p.Snapshot(context.Background(),
-		[]string{"snapshot.organization.member", "snapshot.organization.member.role"},
+		snapshot.Request{Types: []string{"snapshot.organization.member", "snapshot.organization.member.role"}},
 		func(msg string) { progress = append(progress, msg) })
 	noErr(t, err)
 
@@ -303,7 +313,7 @@ func TestSnapshotMembersOnlyOmitsFields(t *testing.T) {
 
 	p, rec := newProvider(t, fixtures(memberRoutes))
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization.member"}, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.organization.member"}}, nil)
 	noErr(t, err)
 	if len(res.Events) != 3 {
 		t.Errorf("len(res.Events) = %d, want 3", len(res.Events))
@@ -326,7 +336,7 @@ func TestSnapshotKeepsUnknownFields(t *testing.T) {
 		"/organizations": `{"organizations":[{"id":"org_1","name":"acme-one","x_new_field":{"a":1}}]}`,
 	}))
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization"}, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.organization"}}, nil)
 	noErr(t, err)
 	if len(res.Events) != 1 {
 		t.Fatalf("len(res.Events) = %d, want 1", len(res.Events))
@@ -346,7 +356,7 @@ func TestSnapshotConnections(t *testing.T) {
 		"/connections/con_2/clients": `{"clients":[]}`,
 	}))
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.connection"}, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.connection"}}, nil)
 	noErr(t, err)
 	if len(res.Events) != 2 {
 		t.Fatalf("len(res.Events) = %d, want 2", len(res.Events))
@@ -383,7 +393,7 @@ func TestSnapshotOrganizationConnections(t *testing.T) {
 		routes(w, r)
 	})
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization.connection"}, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.organization.connection"}}, nil)
 	noErr(t, err)
 	if len(res.Events) != 1 {
 		t.Fatalf("len(res.Events) = %d, want 1", len(res.Events))
@@ -449,7 +459,7 @@ func TestSnapshotOrganizationConnectionsFullPageReachingTheTotalIsOneRequest(t *
 
 	p, rec := newProvider(t, orgConnsHandler(100, func(page int) []int { return span(0, 100) }))
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization.connection"}, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.organization.connection"}}, nil)
 	noErr(t, err)
 	equal(t, pageSize, len(res.Events))
 	equal(t, 1, len(rec.find("/organizations/org_1/enabled_connections")))
@@ -463,7 +473,7 @@ func TestSnapshotOrganizationConnectionsShortPagesBeforeTheTotalAskForTheNext(t 
 		return span(page*50, min(page*50+50, 120))
 	}))
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization.connection"}, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.organization.connection"}}, nil)
 	noErr(t, err)
 	equal(t, 120, len(res.Events))
 	equal(t, 3, len(rec.find("/organizations/org_1/enabled_connections")))
@@ -480,7 +490,7 @@ func TestSnapshotOrganizationConnectionsEmptyPageBeforeTheTotalFails(t *testing.
 		return nil
 	}))
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization.connection"}, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.organization.connection"}}, nil)
 	isErr(t, err)
 	equal(t, "Auth0 organization connections changed while the list was being read, "+
 		"so a connection may have been skipped; run the command again", err.Error())
@@ -504,7 +514,7 @@ func TestSnapshotOrganizationConnectionsWithoutATotalStopOnTheEmptyPage(t *testi
 		return nil
 	}))
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization.connection"}, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.organization.connection"}}, nil)
 	noErr(t, err)
 	equal(t, 130, len(res.Events))
 	equal(t, 3, len(rec.find("/organizations/org_1/enabled_connections")))
@@ -559,7 +569,7 @@ func TestSnapshotUsersList(t *testing.T) {
 
 	p, _ := newProvider(t, usersHandler(150))
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
 	noErr(t, err)
 	if len(res.Events) != 150 {
 		t.Errorf("len(res.Events) = %d, want 150", len(res.Events))
@@ -574,7 +584,7 @@ func TestSnapshotUsersStopAtTotal(t *testing.T) {
 	for _, tc := range []struct{ total, requests int }{{1000, 10}, {901, 10}, {900, 9}, {5, 1}} {
 		p, rec := newProvider(t, usersHandler(tc.total))
 
-		res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+		res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
 		noErr(t, err)
 		if len(res.Events) != tc.total {
 			t.Errorf("total %d: len(res.Events) = %d", tc.total, len(res.Events))
@@ -611,7 +621,7 @@ func TestSnapshotUsersDeletedDuringRead(t *testing.T) {
 		})
 	})
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
 	isErr(t, err)
 	if res != nil {
 		t.Errorf("result = %+v, want nil", res)
@@ -634,7 +644,7 @@ func TestSnapshotUsersDeletedEmptiesLastPage(t *testing.T) {
 		usersPage(w, r, total, func(page int) []int { return seq(0, 100) })
 	})
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
 	isErr(t, err)
 	if res != nil {
 		t.Errorf("result = %+v, want nil", res)
@@ -662,7 +672,7 @@ func TestSnapshotUsersGrowingTotalIsRead(t *testing.T) {
 		})
 	})
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
 	noErr(t, err)
 	if len(res.Events) != 230 {
 		t.Errorf("len(res.Events) = %d, want 230", len(res.Events))
@@ -683,7 +693,7 @@ func TestSnapshotUsersRepeatedUserIsOneEvent(t *testing.T) {
 		})
 	})
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
 	noErr(t, err)
 	if len(res.Events) != 150 {
 		t.Errorf("len(res.Events) = %d, want 150", len(res.Events))
@@ -726,7 +736,7 @@ func TestSnapshotRetriesRateLimit(t *testing.T) {
 
 	var said []string
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization"}, func(msg string) { said = append(said, msg) })
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.organization"}}, func(msg string) { said = append(said, msg) })
 	noErr(t, err)
 	if len(res.Events) != 2 {
 		t.Errorf("len(res.Events) = %d, want 2", len(res.Events))
@@ -747,7 +757,7 @@ func TestSnapshotRateLimitExhausted(t *testing.T) {
 		writeJSON(w, `{"message":"slow down"}`)
 	})
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization"}, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.organization"}}, nil)
 	isErr(t, err)
 	if res != nil {
 		t.Errorf("result = %+v, want nil", res)
@@ -772,7 +782,7 @@ func TestSnapshotForbiddenNamesScope(t *testing.T) {
 		writeJSON(w, orgsBody)
 	})
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization.member"}, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.organization.member"}}, nil)
 	isErr(t, err)
 	if res != nil {
 		t.Errorf("result = %+v, want nil", res)
@@ -797,7 +807,7 @@ func TestSnapshotForbiddenRolesNamesRoleScope(t *testing.T) {
 	})
 
 	_, err := p.Snapshot(context.Background(),
-		[]string{"snapshot.organization.member", "snapshot.organization.member.role"}, nil)
+		snapshot.Request{Types: []string{"snapshot.organization.member", "snapshot.organization.member.role"}}, nil)
 	isErr(t, err)
 	equal(t, clierr.KindForbidden, clierr.Classify(err))
 	contains(t, clierr.NewEnvelope(err).Error.Hint, "read:organization_member_roles")
@@ -818,9 +828,9 @@ func TestSnapshotSeveralTypesCountsInDeclaredOrder(t *testing.T) {
 
 	// Requested out of order: counts follow the provider's order, and a type
 	// with no events is still counted.
-	res, err := p.Snapshot(context.Background(), []string{
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{
 		"snapshot.organization.member", "snapshot.user", "snapshot.connection",
-	}, nil)
+	}}, nil)
 	noErr(t, err)
 	equal(t, []snapshot.Count{
 		{Type: "snapshot.connection", N: 0},
@@ -873,7 +883,7 @@ func TestSnapshotReadsOnlyTheEndpointsOfTheRequestedTypes(t *testing.T) {
 
 			p, rec := newProvider(t, handler)
 
-			res, err := p.Snapshot(context.Background(), []string{typ.Name}, nil)
+			res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{typ.Name}}, nil)
 			noErr(t, err)
 			requireNotEmpty(t, res.Events)
 			equal(t, want[typ.Name], rec.paths())
@@ -886,7 +896,7 @@ func TestSnapshotMembersWithoutOrganizations(t *testing.T) {
 
 	p, _ := newProvider(t, fixtures(memberRoutes))
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization.member.role"}, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.organization.member.role"}}, nil)
 	noErr(t, err)
 	equal(t, []snapshot.Count{{Type: "snapshot.organization.member.role", N: 2}}, res.Counts)
 
@@ -903,7 +913,7 @@ func TestSnapshotUnauthorized(t *testing.T) {
 		writeJSON(w, `{"message":"bad token"}`)
 	})
 
-	_, err := p.Snapshot(context.Background(), []string{"snapshot.organization"}, nil)
+	_, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.organization"}}, nil)
 	isErr(t, err)
 	equal(t, clierr.KindUnauthenticated, clierr.Classify(err))
 	contains(t, err.Error(), "Auth0 rejected the credentials: bad token")
@@ -923,7 +933,7 @@ func TestSnapshotFailsWhole(t *testing.T) {
 		}
 	}, option.WithMaxAttempts(1))
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization.member"}, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.organization.member"}}, nil)
 	isErr(t, err)
 	if res != nil {
 		t.Errorf("result = %+v, want nil", res)
@@ -959,7 +969,7 @@ func TestSnapshotCanceled(t *testing.T) {
 		writeJSON(w, memberRoutes["/organizations/org_1/members"])
 	})
 
-	res, err := p.Snapshot(ctx, []string{"snapshot.organization.member"}, nil)
+	res, err := p.Snapshot(ctx, snapshot.Request{Types: []string{"snapshot.organization.member"}}, nil)
 	isErr(t, err)
 	if res != nil {
 		t.Errorf("result = %+v, want nil", res)
@@ -974,7 +984,7 @@ func TestSnapshotUnknownTypeFails(t *testing.T) {
 
 	p, rec := newProvider(t, fixtures(nil))
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.group"}, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.group"}}, nil)
 	isErr(t, err)
 	if res != nil {
 		t.Errorf("result = %+v, want nil", res)
@@ -1014,7 +1024,7 @@ func TestErrorsCarryNoSecret(t *testing.T) {
 	}, option.WithInsecure())
 	noErr(t, err)
 
-	_, err = p.Snapshot(context.Background(), []string{"snapshot.organization"}, nil)
+	_, err = p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.organization"}}, nil)
 	isErr(t, err)
 	if strings.Contains(err.Error(), secret) {
 		t.Error("error contains the client secret")
@@ -1032,7 +1042,7 @@ func TestSnapshotNetworkFailure(t *testing.T) {
 	p, err := New(context.Background(), Config{Domain: addr, Tenant: "acme"}, option.WithInsecure(), option.WithMaxAttempts(1))
 	noErr(t, err)
 
-	_, err = p.Snapshot(context.Background(), []string{"snapshot.organization"}, nil)
+	_, err = p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.organization"}}, nil)
 	isErr(t, err)
 	equal(t, clierr.KindNetwork, clierr.Classify(err))
 	equal(t, clierr.CodeNetwork, clierr.Code(err))
@@ -1054,7 +1064,7 @@ func TestLiveSnapshot(t *testing.T) {
 		names = append(names, typ.Name)
 	}
 
-	res, err := p.Snapshot(ctx, names, nil)
+	res, err := p.Snapshot(ctx, snapshot.Request{Types: names}, nil)
 	noErr(t, err)
 
 	counts := map[string]int{}
@@ -1090,4 +1100,87 @@ func TestLiveSnapshot(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestSnapshotUsersSinceSearchesByUpdatedAt(t *testing.T) {
+	t.Parallel()
+
+	p, rec := newProvider(t, usersHandler(3))
+	since := time.Date(2026, 11, 24, 9, 0, 0, 123456789, time.FixedZone("x", 3600))
+
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}, Since: since}, nil)
+	noErr(t, err)
+
+	reqs := rec.find("/users")
+	if len(reqs) == 0 {
+		t.Fatal("no /users request")
+	}
+
+	for _, q := range reqs {
+		equal(t, "updated_at:[2026-11-24T08:00:00.123Z TO *]", q.Get("q"))
+		equal(t, "v3", q.Get("search_engine"))
+		equal(t, "user_id:1", q.Get("sort"))
+	}
+
+	equal(t, []snapshot.Count{{Type: "snapshot.user", N: 3, Windowed: true}}, res.Counts)
+}
+
+func TestSnapshotUsersWithoutSinceSendsNoQuery(t *testing.T) {
+	t.Parallel()
+
+	p, rec := newProvider(t, usersHandler(3))
+
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
+	noErr(t, err)
+
+	for _, q := range rec.find("/users") {
+		if q.Has("q") || q.Has("search_engine") {
+			t.Errorf("query = %v, want no q or search_engine", q)
+		}
+	}
+
+	equal(t, []snapshot.Count{{Type: "snapshot.user", N: 3}}, res.Counts)
+}
+
+func TestSnapshotUsersSinceAboveTheSearchLimitFails(t *testing.T) {
+	t.Parallel()
+
+	p, rec := newProvider(t, usersHandler(1001))
+	since := time.Date(2026, 11, 24, 9, 0, 0, 0, time.UTC)
+
+	_, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}, Since: since}, nil)
+	isErr(t, err)
+
+	for _, want := range []string{"1,000", "1001", "2026-11-24T09:00:00Z"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not contain %q", err, want)
+		}
+	}
+
+	if slices.Contains(rec.paths(), "/jobs/users-exports") {
+		t.Errorf("paths = %v, want no export job", rec.paths())
+	}
+}
+
+func TestSnapshotSinceLeavesOtherTypesWhole(t *testing.T) {
+	t.Parallel()
+
+	p, rec := newProvider(t, fixtures(map[string]string{"/organizations": orgsBody}))
+	since := time.Date(2026, 11, 24, 9, 0, 0, 0, time.UTC)
+
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.organization"}, Since: since}, nil)
+	noErr(t, err)
+
+	reqs := rec.find("/organizations")
+	if len(reqs) == 0 {
+		t.Fatal("no /organizations request")
+	}
+
+	for _, q := range reqs {
+		if q.Has("q") {
+			t.Errorf("query = %v, want no q", q)
+		}
+	}
+
+	equal(t, []snapshot.Count{{Type: "snapshot.organization", N: 2}}, res.Counts)
 }

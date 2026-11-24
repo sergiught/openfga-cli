@@ -100,6 +100,7 @@ type read struct {
 
 	ctx      context.Context //nolint:containedctx // scoped to one call
 	want     map[string]bool
+	since    time.Time
 	progress func(string)
 	sayMu    *sync.Mutex // progress is called from several goroutines, one at a time
 	events   map[string][]event
@@ -184,15 +185,15 @@ func (r *read) each(orgs []map[string]any, progress string, task func(sub *read,
 func (r *read) add(e event) { r.events[e.typ] = append(r.events[e.typ], e) }
 
 // Snapshot reads the given types completely or returns an error.
-func (p *Provider) Snapshot(ctx context.Context, types []string, progress func(string)) (*snapshot.Result, error) {
-	r := &read{Provider: p, ctx: ctx, want: map[string]bool{}, progress: progress, sayMu: &sync.Mutex{}, events: map[string][]event{}}
+func (p *Provider) Snapshot(ctx context.Context, req snapshot.Request, progress func(string)) (*snapshot.Result, error) {
+	r := &read{Provider: p, ctx: ctx, want: map[string]bool{}, since: req.Since, progress: progress, sayMu: &sync.Mutex{}, events: map[string][]event{}}
 
 	known := map[string]bool{}
 	for _, t := range Types() {
 		known[t.Name] = true
 	}
 
-	for _, t := range types {
+	for _, t := range req.Types {
 		if !known[t] {
 			return nil, fmt.Errorf("unknown snapshot type %q", t)
 		}
@@ -238,7 +239,7 @@ func (p *Provider) Snapshot(ctx context.Context, types []string, progress func(s
 			res.Events = append(res.Events, p.envelope(e, seq))
 		}
 
-		res.Counts = append(res.Counts, snapshot.Count{Type: t.Name, N: len(r.events[t.Name])})
+		res.Counts = append(res.Counts, snapshot.Count{Type: t.Name, N: len(r.events[t.Name]), Windowed: t.Windowed && !r.since.IsZero()})
 	}
 
 	res.FinishedAt = now()
@@ -356,12 +357,22 @@ func (r *read) connections() error {
 }
 
 func (r *read) users() error {
-	r.say("reading users")
-
 	// Sorting keeps a deletion during the read from shifting a user across a
 	// page boundary; the total check below catches the deletion itself.
 	perPage, totals, sort := pageSize, true, "user_id:1"
-	page, err := r.m.Users.List(r.ctx, &management.ListUsersRequestParameters{PerPage: &perPage, IncludeTotals: &totals, Sort: &sort})
+	params := &management.ListUsersRequestParameters{PerPage: &perPage, IncludeTotals: &totals, Sort: &sort}
+
+	windowed := !r.since.IsZero()
+	if windowed {
+		r.say("reading users changed since " + r.since.UTC().Format("2006-01-02 15:04:05") + " UTC")
+
+		q, engine := "updated_at:["+r.since.UTC().Format("2006-01-02T15:04:05.000Z")+" TO *]", management.SearchEngineVersionsEnumV3
+		params.Q, params.SearchEngine = &q, &engine
+	} else {
+		r.say("reading users")
+	}
+
+	page, err := r.m.Users.List(r.ctx, params)
 
 	seen := map[string]bool{}
 	pages, lastTotal, exportTotal := 0, -1.0, 0.0
@@ -373,6 +384,12 @@ func (r *read) users() error {
 		total := p.Response.GetTotal()
 		// The list serves no more than maxUsers users; Auth0's export job has no such limit.
 		if total > float64(maxUsers) {
+			// The export job has no query, so a search that matches too much cannot fall back to it.
+			if windowed {
+				return fmt.Errorf("Auth0's user search returns at most 1,000 users and %d changed since %s; use a later --since or run without it",
+					int(total), r.since.UTC().Format(time.RFC3339))
+			}
+
 			exportTotal = total
 
 			return errStopWalk

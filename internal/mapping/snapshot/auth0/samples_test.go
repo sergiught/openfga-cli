@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/sergiught/openfga-cli/internal/mapping/snapshot"
 )
 
 // recipeSample reads the snapshot sample the built-in recipes ship for typ.
@@ -115,7 +117,7 @@ func TestRecipeSamplesMatchWhatProviderEmits(t *testing.T) {
 		types = append(types, typ.Name)
 	}
 
-	res, err := p.Snapshot(context.Background(), types, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: types}, nil)
 	noErr(t, err)
 
 	got := map[string]map[string]any{}

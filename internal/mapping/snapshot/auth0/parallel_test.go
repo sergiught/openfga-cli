@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/mapping/snapshot"
 )
 
 // tenant serves n organizations, each with one enabled connection and one
@@ -123,7 +124,7 @@ func TestSnapshotRateLimitedReadMatchesUnthrottled(t *testing.T) {
 	t.Parallel()
 
 	plain, _ := newProvider(t, tenant{n: 6}.handler())
-	want, err := plain.Snapshot(context.Background(), tenantTypes, nil)
+	want, err := plain.Snapshot(context.Background(), snapshot.Request{Types: tenantTypes}, nil)
 	noErr(t, err)
 	equal(t, 0, want.RateLimited)
 
@@ -145,7 +146,7 @@ func TestSnapshotRateLimitedReadMatchesUnthrottled(t *testing.T) {
 		said []string
 	)
 
-	got, err := p.Snapshot(context.Background(), tenantTypes, func(msg string) {
+	got, err := p.Snapshot(context.Background(), snapshot.Request{Types: tenantTypes}, func(msg string) {
 		mu.Lock()
 		defer mu.Unlock()
 
@@ -177,7 +178,7 @@ func TestSnapshotParallelKeepsOrganizationOrder(t *testing.T) {
 		said []string
 	)
 
-	res, err := p.Snapshot(context.Background(), tenantTypes, func(msg string) {
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: tenantTypes}, func(msg string) {
 		mu.Lock()
 		defer mu.Unlock()
 
@@ -260,7 +261,7 @@ func TestSnapshotRunsAtMostReadWorkersRequestsAtOnce(t *testing.T) {
 		return false
 	}}.handler())
 
-	_, err := p.Snapshot(context.Background(), tenantTypes, nil)
+	_, err := p.Snapshot(context.Background(), snapshot.Request{Types: tenantTypes}, nil)
 	noErr(t, err)
 
 	if timedOut.Load() {
@@ -305,7 +306,7 @@ func TestSnapshotCanceledDuringParallelReadLeavesNothingRunning(t *testing.T) {
 	ct := &countingTransport{base: p.limits.base}
 	p.limits.base = ct
 
-	res, err := p.Snapshot(ctx, []string{"snapshot.organization.member"}, nil)
+	res, err := p.Snapshot(ctx, snapshot.Request{Types: []string{"snapshot.organization.member"}}, nil)
 	if res != nil {
 		t.Errorf("result = %+v, want nil", res)
 	}
@@ -334,7 +335,7 @@ func TestSnapshotParallelFailureNamesTheCause(t *testing.T) {
 		return false
 	}}.handler())
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.organization.member"}, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.organization.member"}}, nil)
 	isErr(t, err)
 
 	if res != nil {
@@ -365,7 +366,7 @@ func TestSnapshotSendsUserAgent(t *testing.T) {
 		return false
 	}}.handler())
 
-	_, err := p.Snapshot(context.Background(), tenantTypes, nil)
+	_, err := p.Snapshot(context.Background(), snapshot.Request{Types: tenantTypes}, nil)
 	noErr(t, err)
 	equal(t, map[string]bool{"ofga-cli": true}, agents)
 }

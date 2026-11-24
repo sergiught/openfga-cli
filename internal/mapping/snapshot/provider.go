@@ -13,12 +13,20 @@ type Type struct {
 	Mirrors     string   // "organization.member.added"
 	Description string   // one line
 	Scopes      []string // provider permissions the read needs
+	Windowed    bool     // the read can be limited to entities changed since a time
 }
 
 // Count is how many events of one type a snapshot produced.
 type Count struct {
-	Type string
-	N    int
+	Type     string
+	N        int
+	Windowed bool // this read was limited by Request.Since
+}
+
+// Request is what one snapshot read asks for.
+type Request struct {
+	Types []string
+	Since time.Time // zero: everything. Otherwise Windowed types return only entities changed at or after it.
 }
 
 // Result is a completed snapshot read.
@@ -35,7 +43,7 @@ type Provider interface {
 	Name() string  // "auth0", the --provider value
 	Label() string // "Auth0", for display
 	Types() []Type
-	// Snapshot reads the given types completely or returns an error.
+	// Snapshot reads the requested types completely or returns an error.
 	// Events are ordered parents before children; the core replays them as given.
-	Snapshot(ctx context.Context, types []string, progress func(msg string)) (*Result, error)
+	Snapshot(ctx context.Context, req Request, progress func(msg string)) (*Result, error)
 }

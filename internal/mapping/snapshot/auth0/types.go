@@ -27,7 +27,7 @@ func Types() []snapshot.Type {
 			Scopes:      []string{"read:connections"}},
 		{Name: typeUser, Mirrors: "user.created",
 			Description: "each user",
-			Scopes:      []string{"read:users"}},
+			Scopes:      []string{"read:users"}, Windowed: true},
 		{Name: typeOrganization, Mirrors: "organization.created",
 			Description: "each organization",
 			Scopes:      []string{scopeReadOrganizations}},

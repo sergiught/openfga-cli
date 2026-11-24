@@ -22,6 +22,7 @@ import (
 	"github.com/auth0/go-auth0/v2/management/option"
 
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/mapping/snapshot"
 )
 
 // exportFake is a tenant whose users list reports total users and whose export
@@ -156,7 +157,7 @@ func TestExportLargeTenantUsesAJob(t *testing.T) {
 		return nil
 	}
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, func(s string) { said = append(said, s) })
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, func(s string) { said = append(said, s) })
 	noErr(t, err)
 	equal(t, 1500, len(res.Events))
 	equal(t, "user auth0|0000", res.Events[0]["subject"])
@@ -217,13 +218,13 @@ func TestExportedUserEqualsListedUser(t *testing.T) {
 	pl, _ := newProvider(t, func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, `{"start":0,"limit":100,"total":1,"users":[`+listed+`]}`)
 	})
-	resList, err := pl.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	resList, err := pl.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
 	noErr(t, err)
 
 	// Through the export.
 	f := &exportFake{file: gzipLines(filled(1500, exported)...)}
 	pe, _ := newExportProvider(t, 1500, f)
-	resExport, err := pe.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	resExport, err := pe.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
 	noErr(t, err)
 
 	equal(t, 1, len(resList.Events))
@@ -240,7 +241,7 @@ func TestExportedIdentityKeepsProfileData(t *testing.T) {
 	f := &exportFake{file: gzipLines(filled(1500, anne)...)}
 	p, _ := newExportProvider(t, 1500, f)
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
 	noErr(t, err)
 
 	ids, _ := objectOf(res.Events[0])["identities"].([]any)
@@ -263,7 +264,7 @@ func TestExportDuplicateUserIsOneEvent(t *testing.T) {
 	f := &exportFake{file: gzipLines(filled(1501, exportUserLine(1), exportUserLine(2), exportUserLine(1))...)}
 	p, _ := newExportProvider(t, 1500, f)
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
 	noErr(t, err)
 	// The repeated line is one event: 2 + 1,498 filler users reach the total (1,501 lines).
 	equal(t, 1500, len(res.Events))
@@ -279,7 +280,7 @@ func TestExportFailedJobIsReportedWithoutDownload(t *testing.T) {
 	}
 	p, _ := newExportProvider(t, 1500, f)
 
-	_, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	_, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
 	isErr(t, err)
 	equal(t, `Auth0's user export job ended as "failed"`, err.Error())
 	equal(t, int64(0), f.downloads.Load())
@@ -291,7 +292,7 @@ func TestExportDownloadRefusedHidesTheURL(t *testing.T) {
 	f := &exportFake{file: func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) }}
 	p, _ := newExportProvider(t, 1500, f)
 
-	_, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	_, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
 	isErr(t, err)
 	equal(t, "downloading Auth0's user export failed: HTTP 403", err.Error())
 	notContains(t, err.Error(), "secret123")
@@ -320,7 +321,7 @@ func TestExportDownloadUnreachableHidesTheURL(t *testing.T) {
 		}
 	})
 
-	_, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	_, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
 	isErr(t, err)
 	contains(t, err.Error(), "downloading Auth0's user export failed: ")
 	notContains(t, err.Error(), "secret123")
@@ -349,7 +350,7 @@ func TestExportCancelledWhileWaitingReturnsPromptly(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	_, err := p.Snapshot(ctx, []string{"snapshot.user"}, func(s string) {
+	_, err := p.Snapshot(ctx, snapshot.Request{Types: []string{"snapshot.user"}}, func(s string) {
 		if strings.HasPrefix(s, "exporting users:") {
 			cancel()
 		}
@@ -373,7 +374,7 @@ func TestExportCreateForbiddenNamesScope(t *testing.T) {
 		writeJSON(w, `{"message":"Insufficient scope"}`)
 	})
 
-	_, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	_, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
 	isErr(t, err)
 	contains(t, err.Error(), "users export")
 	contains(t, errHint(err), "read:users")
@@ -384,7 +385,7 @@ func TestExportNotUsedAtTheLimit(t *testing.T) {
 
 	p, rec := newProvider(t, usersHandler(1000))
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
 	noErr(t, err)
 	equal(t, 1000, len(res.Events))
 	equal(t, 0, len(rec.find("/jobs/users-exports")))
@@ -406,7 +407,7 @@ func TestLiveExportEqualsList(t *testing.T) {
 	p, err := New(ctx, Config{Domain: domain, ClientID: id, ClientSecret: secret})
 	noErr(t, err)
 
-	listed, err := p.Snapshot(ctx, []string{typeUser}, nil)
+	listed, err := p.Snapshot(ctx, snapshot.Request{Types: []string{typeUser}}, nil)
 	noErr(t, err)
 
 	old := maxUsers
@@ -414,7 +415,7 @@ func TestLiveExportEqualsList(t *testing.T) {
 
 	defer func() { maxUsers = old }()
 
-	exported, err := p.Snapshot(ctx, []string{typeUser}, nil)
+	exported, err := p.Snapshot(ctx, snapshot.Request{Types: []string{typeUser}}, nil)
 	noErr(t, err)
 
 	byID := func(events []map[string]any) map[string]map[string]any {
@@ -508,7 +509,7 @@ func TestExportShorterThanTheListedTotalFails(t *testing.T) {
 		f := &exportFake{file: gzipLines(lines...)}
 		p, _ := newExportProvider(t, 1500, f)
 
-		res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+		res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
 		isErr(t, err)
 
 		if res != nil {
@@ -527,7 +528,7 @@ func TestExportLongerThanTheListedTotalPasses(t *testing.T) {
 	f := &exportFake{file: gzipLines(filled(1501)...)}
 	p, _ := newExportProvider(t, 1500, f)
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
 	noErr(t, err)
 	equal(t, 1501, len(res.Events))
 }
@@ -539,7 +540,7 @@ func TestExportCutMidFileFails(t *testing.T) {
 	f := &exportFake{file: serveBytes(whole[:len(whole)/2])}
 	p, _ := newExportProvider(t, 1500, f)
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
 	isErr(t, err)
 	equal(t, "downloading Auth0's user export failed: unexpected EOF", err.Error())
 
@@ -556,7 +557,7 @@ func TestExportBadLineFailsWithoutQuotingIt(t *testing.T) {
 	f := &exportFake{file: gzipLines(lines...)}
 	p, _ := newExportProvider(t, 1500, f)
 
-	_, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	_, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
 	isErr(t, err)
 	contains(t, err.Error(), "downloading Auth0's user export failed")
 
@@ -580,7 +581,7 @@ func TestExportPollFailureNamesTheExport(t *testing.T) {
 		}
 	}, option.WithMaxAttempts(1))
 
-	_, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	_, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
 	isErr(t, err)
 	contains(t, err.Error(), "users export")
 }
@@ -612,7 +613,7 @@ func TestExportCancelledWhileDownloadingReturnsTheContextError(t *testing.T) {
 		cancel()
 	}()
 
-	_, err := p.Snapshot(ctx, []string{"snapshot.user"}, nil)
+	_, err := p.Snapshot(ctx, snapshot.Request{Types: []string{"snapshot.user"}}, nil)
 	isErr(t, err)
 	equal(t, context.Canceled, err)
 	notContains(t, err.Error(), "secret123")
@@ -648,7 +649,7 @@ func TestExportReplacesUsersTheListGathered(t *testing.T) {
 	}
 	p, _ := newExportProvider(t, 0, f)
 
-	res, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
 	noErr(t, err)
 	equal(t, 1001, len(res.Events))
 
@@ -701,7 +702,7 @@ func TestExportProgressWhileWaiting(t *testing.T) {
 
 	var said []string
 
-	_, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, func(s string) { said = append(said, s) })
+	_, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, func(s string) { said = append(said, s) })
 	noErr(t, err)
 	equal(t, []string{
 		"reading users",
@@ -721,7 +722,7 @@ func TestExportBadDateDoesNotQuoteItsValue(t *testing.T) {
 	f := &exportFake{file: gzipLines(lines...)}
 	p, _ := newExportProvider(t, 1500, f)
 
-	_, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	_, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
 	isErr(t, err)
 	equal(t, "downloading Auth0's user export failed: a line is not a JSON user", err.Error())
 	notContains(t, err.Error(), "ZQX")
@@ -735,7 +736,7 @@ func TestExportLineWithoutUserIDFails(t *testing.T) {
 	f := &exportFake{file: gzipLines(lines...)}
 	p, _ := newExportProvider(t, 1500, f)
 
-	_, err := p.Snapshot(context.Background(), []string{"snapshot.user"}, nil)
+	_, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
 	isErr(t, err)
 	equal(t, "downloading Auth0's user export failed: a line is not a JSON user", err.Error())
 }

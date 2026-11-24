@@ -4,18 +4,20 @@ import (
 	"context"
 	"github.com/spf13/cobra"
 	"testing"
+	"time"
 
 	"github.com/sergiught/openfga-cli/internal/mapping/snapshot"
 )
 
 // fakeProvider answers Snapshot from a canned result. calls counts the reads
-// and gotTypes records the types asked for; both may be nil.
+// and gotTypes and gotSince record what was asked for; both may be nil.
 type fakeProvider struct {
 	types    []snapshot.Type
 	result   *snapshot.Result
 	err      error
 	calls    *int
 	gotTypes *[]string
+	gotSince *time.Time
 	// log, when non-nil, gets "provider read" for each Snapshot.
 	log *[]string
 }
@@ -24,7 +26,7 @@ func (fakeProvider) Name() string             { return "fake" }
 func (fakeProvider) Label() string            { return "Fake" }
 func (p fakeProvider) Types() []snapshot.Type { return p.types }
 
-func (p fakeProvider) Snapshot(_ context.Context, types []string, progress func(string)) (*snapshot.Result, error) {
+func (p fakeProvider) Snapshot(_ context.Context, req snapshot.Request, progress func(string)) (*snapshot.Result, error) {
 	if p.calls != nil {
 		*p.calls++
 	}
@@ -32,7 +34,10 @@ func (p fakeProvider) Snapshot(_ context.Context, types []string, progress func(
 		*p.log = append(*p.log, "provider read")
 	}
 	if p.gotTypes != nil {
-		*p.gotTypes = types
+		*p.gotTypes = req.Types
+	}
+	if p.gotSince != nil {
+		*p.gotSince = req.Since
 	}
 	if progress != nil {
 		progress("reading fake")
