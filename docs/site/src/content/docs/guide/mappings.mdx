@@ -570,7 +570,7 @@ exit code says what is left:
 `backfill` exits `0` on success and with the same `1`, `2`, `4` and `130`.
 Under `-o json` both print one document. `backfill` has `store`, `provider`,
 `source`, `snapshot_started_at`, `snapshot_finished_at`, `counts` (an event
-count per type), `dry_run`, `store_read_at` (the zero time when nothing was read), `tuples` (everything the provider backs),
+count per type), `dry_run`, `since` (only with `--since`), `store_read_at` (the zero time when nothing was read), `tuples` (everything the provider backs),
 `missing` (what it would write), `changed` (tuples the store holds under another
 condition, which it leaves), `existing` (how many tuples were already there) and
 `sent` (the `writes` and `deletes` that reached the store). `drift` has the
@@ -654,6 +654,41 @@ cannot reproduce.
   answers of HTTP 429 in a row for one request); wait a minute and run it
   again".
 - Groups are not covered yet; there is no snapshot type for them.
+
+#### Checking only recent changes
+
+`--since` makes `drift` and `backfill` read less from Auth0. It takes a duration
+such as `2h` or an RFC 3339 time. Auth0 users whose `updated_at` is at or after
+that time are read. Every other type is still read whole, because Auth0 has no
+change time for them.
+
+`drift --since` finds missing and changed tuples. It cannot tell which stored
+tuples are stale, because it has not seen every user. So the shapes your user
+rule writes are listed under "not checked", and a user's old tuple (from a
+previous plan, or for a deleted user) stays until you run `drift` without
+`--since`. `--prune` never deletes a tuple in those shapes.
+
+```bash
+ofga mappings drift examples/mappings/auth0.yaml --provider auth0 --since 2h --dry-run
+```
+
+```text
+not checked
+  users  read with --since: only snapshot.user changed since 2026-11-24 09:00:00 UTC; not compared: user member tenant
+```
+
+Auth0's user search returns at most 1,000 users. When more changed, the read
+fails with `Auth0's user search returns at most 1,000 users and N changed since
+<time>; use a later --since or run without it`. The search is also eventually
+consistent, so a user changed a moment ago may not show yet. For an hourly run,
+use an overlapping window such as `--since 2h`.
+
+When the mapping has only user rules, there is nothing to check for stale
+tuples, so `drift --since` reads the store after Auth0, as `backfill` does: the
+whole store while that is cheap, then only the objects it needs. It reads nothing when no user changed.
+
+Event streams through `mappings apply` remain the way to stay in sync.
+`--since` is a check that nothing was lost.
 
 ### In CI
 

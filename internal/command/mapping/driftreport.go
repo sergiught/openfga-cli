@@ -15,10 +15,17 @@ import (
 
 // renderDrift prints the human report: when the store was read, the snapshot
 // header, each kind of drift with its tuples, and what was not checked.
-func renderDrift(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt time.Time, stored int, diff snapshot.Diff, notChecked []snapshot.NotChecked) error {
+func renderDrift(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt time.Time, stored, objects int, afterProvider bool, diff snapshot.Diff, notChecked []snapshot.NotChecked) error {
 	label := output.SanitizeField(run.Provider.Label())
-	storeReadLine(w, run, storeLabel, storeReadAt, stored, 0)
+	// The store line follows the provider header when the store was read after
+	// the provider, and is left out when it was not read at all.
+	if !afterProvider {
+		storeReadLine(w, run, storeLabel, storeReadAt, stored, 0)
+	}
 	snapshotHeader(w, run.Provider.Label(), run.Result, run.Since)
+	if afterProvider && !storeReadAt.IsZero() {
+		storeReadLine(w, run, storeLabel, storeReadAt, stored, objects)
+	}
 
 	// A stale tuple is shown as the delete it would become.
 	stale := make([]language.Tuple, len(diff.Stale))

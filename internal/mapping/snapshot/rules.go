@@ -1,8 +1,10 @@
 package snapshot
 
 import (
+	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/expr-lang/expr/ast"
 	"github.com/expr-lang/expr/parser"
@@ -233,13 +235,35 @@ func splitTemplates(r mapping.Rule, types []Type) (kept, dropped mapping.Rule) {
 // tuples fall outside that: non-snapshot rules writing shapes no snapshot
 // rule owns, snapshot rules with templated types or relations, and snapshot
 // rules with templates whose own "when" leaves out snapshot events.
-func Coverage(doc *mapping.Document, types []Type) (owned []mapping.Shape, notChecked []NotChecked) {
+// windowed names the types the provider read by window since a time. A rule
+// that opts in to one of them cannot tell which stored tuples are stale, so
+// its shapes are not owned and the rule is listed with the window. With no
+// windowed names since is ignored.
+func Coverage(doc *mapping.Document, types []Type, windowed []string, since time.Time) (owned []mapping.Shape, notChecked []NotChecked) {
+	// windowedNames is the windowed types a rule opts in to.
+	windowedNames := func(r mapping.Rule) []string {
+		var out []string
+		for _, n := range windowed {
+			if names(r, n) {
+				out = append(out, n)
+			}
+		}
+		return out
+	}
+	var windowedShapes []mapping.Shape
+	for _, r := range doc.Rules {
+		if IsSnapshotRule(r, types) && len(windowedNames(r)) > 0 {
+			kept, _ := splitTemplates(r, types)
+			shapes, _ := mapping.RuleShapes(kept)
+			windowedShapes = append(windowedShapes, shapes...)
+		}
+	}
 	for _, r := range doc.Rules {
 		if IsSnapshotRule(r, types) {
 			kept, _ := splitTemplates(r, types)
 			shapes, _ := mapping.RuleShapes(kept)
 			for _, s := range shapes {
-				if !slices.Contains(owned, s) {
+				if !slices.Contains(owned, s) && !slices.Contains(windowedShapes, s) {
 					owned = append(owned, s)
 				}
 			}
@@ -248,6 +272,19 @@ func Coverage(doc *mapping.Document, types []Type) (owned []mapping.Shape, notCh
 	for _, r := range doc.Rules {
 		if IsSnapshotRule(r, types) {
 			kept, dropped := splitTemplates(r, types)
+			if w := windowedNames(r); len(w) > 0 {
+				shapes, _ := mapping.RuleShapes(kept)
+				text := make([]string, len(shapes))
+				for i, s := range shapes {
+					text[i] = s.String()
+				}
+				notChecked = append(notChecked, NotChecked{
+					Rule: r.Name,
+					Reason: fmt.Sprintf("read with --since: only %s changed since %s UTC; not compared: %s",
+						strings.Join(w, ", "), since.UTC().Format("2006-01-02 15:04:05"), strings.Join(text, ", ")),
+					Shapes: shapes,
+				})
+			}
 			if _, unshaped := mapping.RuleShapes(kept); unshaped > 0 {
 				notChecked = append(notChecked, NotChecked{
 					Rule:   r.Name,
@@ -276,7 +313,7 @@ func Coverage(doc *mapping.Document, types []Type) (owned []mapping.Shape, notCh
 		var missing []mapping.Shape
 		var text []string
 		for _, s := range shapes {
-			if !slices.Contains(owned, s) {
+			if !slices.Contains(owned, s) && !slices.Contains(windowedShapes, s) {
 				missing = append(missing, s)
 				text = append(text, s.String())
 			}

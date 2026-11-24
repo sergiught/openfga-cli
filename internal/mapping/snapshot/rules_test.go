@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/sergiught/openfga-cli/internal/mapping"
 )
@@ -104,7 +105,7 @@ func TestCoverage(t *testing.T) {
 		{Name: "roles", When: `input.type == "snapshot.organization.member.role"`, Tuples: []mapping.Tuple{templated}},
 	}}
 
-	owned, notChecked := Coverage(doc, testTypes)
+	owned, notChecked := Coverage(doc, testTypes, nil, time.Time{})
 	if want := []mapping.Shape{{UserType: "user", Relation: "member", ObjectType: "organization"}}; !reflect.DeepEqual(owned, want) {
 		t.Errorf("owned = %+v, want %+v", owned, want)
 	}
@@ -163,7 +164,7 @@ func TestOptInReadsTheExpression(t *testing.T) {
 			wantOwned = 1
 		}
 		doc = &mapping.Document{Rules: []mapping.Rule{r}}
-		if owned, _ := Coverage(doc, testTypes); len(owned) != wantOwned {
+		if owned, _ := Coverage(doc, testTypes, nil, time.Time{}); len(owned) != wantOwned {
 			t.Errorf("%s: owned = %v, want %d shapes", tc.name, owned, wantOwned)
 		}
 	}
@@ -188,7 +189,7 @@ func TestCoverageTupleWhen(t *testing.T) {
 	member := mapping.Shape{UserType: "user", Relation: "member", ObjectType: "organization"}
 	owner := mapping.Shape{UserType: "user", Relation: "owner", ObjectType: "organization"}
 
-	owned, notChecked := Coverage(&mapping.Document{Rules: []mapping.Rule{rule(`input.type == "organization.member.added"`)}}, testTypes)
+	owned, notChecked := Coverage(&mapping.Document{Rules: []mapping.Rule{rule(`input.type == "organization.member.added"`)}}, testTypes, nil, time.Time{})
 	if !reflect.DeepEqual(owned, []mapping.Shape{member}) {
 		t.Errorf("owned = %+v, want only member", owned)
 	}
@@ -207,20 +208,71 @@ func TestCoverageTupleWhen(t *testing.T) {
 		"names snapshot":  `input.type == "snapshot.organization.member"`,
 		"empty":           ``,
 	} {
-		owned, notChecked := Coverage(&mapping.Document{Rules: []mapping.Rule{rule(when)}}, testTypes)
+		owned, notChecked := Coverage(&mapping.Document{Rules: []mapping.Rule{rule(when)}}, testTypes, nil, time.Time{})
 		if !reflect.DeepEqual(owned, []mapping.Shape{member, owner}) || len(notChecked) != 0 {
 			t.Errorf("%s: owned = %+v, notChecked = %+v, want both shapes owned", name, owned, notChecked)
 		}
 	}
 
-	owned, _ = Coverage(&mapping.Document{Rules: []mapping.Rule{rule(`input.data.x ==`)}}, testTypes)
+	owned, _ = Coverage(&mapping.Document{Rules: []mapping.Rule{rule(`input.data.x ==`)}}, testTypes, nil, time.Time{})
 	if !reflect.DeepEqual(owned, []mapping.Shape{member}) {
 		t.Errorf("unparsable tuple when: owned = %+v, want only member", owned)
 	}
 
 	// A snapshot type the rule itself never matches cannot fire the template.
-	owned, _ = Coverage(&mapping.Document{Rules: []mapping.Rule{rule(`input.type == "snapshot.organization.member.role"`)}}, testTypes)
+	owned, _ = Coverage(&mapping.Document{Rules: []mapping.Rule{rule(`input.type == "snapshot.organization.member.role"`)}}, testTypes, nil, time.Time{})
 	if !reflect.DeepEqual(owned, []mapping.Shape{member}) {
 		t.Errorf("another snapshot type: owned = %+v, want only member", owned)
+	}
+}
+
+func TestCoverageWindowed(t *testing.T) {
+	types := []Type{
+		{Name: "snapshot.user", Windowed: true},
+		{Name: "snapshot.organization.member"},
+	}
+	since := time.Date(2026, 11, 24, 9, 0, 0, 0, time.UTC)
+	tup := func(rel, obj string) mapping.Tuple {
+		return mapping.Tuple{User: "user:{{ input.user }}", Relation: rel, Object: obj + ":{{ input.id }}"}
+	}
+	userRule := mapping.Rule{Name: "users", When: `input.type == "snapshot.user"`, Tuples: []mapping.Tuple{tup("member", "tenant")}}
+	memberRule := mapping.Rule{Name: "members", When: `input.type == "snapshot.organization.member"`, Tuples: []mapping.Tuple{tup("member", "organization")}}
+	bothRule := mapping.Rule{Name: "both", When: `input.type == "snapshot.user" || input.type == "snapshot.organization.member"`, Tuples: []mapping.Tuple{tup("member", "tenant")}}
+	otherRule := mapping.Rule{Name: "other", When: `input.type == "user.updated"`, Tuples: []mapping.Tuple{tup("member", "tenant")}}
+	tenant := mapping.Shape{UserType: "user", Relation: "member", ObjectType: "tenant"}
+	org := mapping.Shape{UserType: "user", Relation: "member", ObjectType: "organization"}
+	reason := func(name string) string {
+		return "read with --since: only " + name + " changed since 2026-11-24 09:00:00 UTC; not compared: user member tenant"
+	}
+
+	cases := []struct {
+		name           string
+		rules          []mapping.Rule
+		wantOwned      []mapping.Shape
+		wantNotChecked []NotChecked
+	}{
+		{"user rule leaves member rule owned", []mapping.Rule{userRule, memberRule}, []mapping.Shape{org},
+			[]NotChecked{{Rule: "users", Reason: reason("snapshot.user"), Shapes: []mapping.Shape{tenant}}}},
+		{"rule that opts in to both is windowed", []mapping.Rule{bothRule, memberRule}, []mapping.Shape{org},
+			[]NotChecked{{Rule: "both", Reason: reason("snapshot.user"), Shapes: []mapping.Shape{tenant}}}},
+		{"a whole-read rule writing the same shape does not own it", []mapping.Rule{userRule, {Name: "whole", When: `input.type == "snapshot.organization.member"`, Tuples: []mapping.Tuple{tup("member", "tenant")}}}, nil,
+			[]NotChecked{{Rule: "users", Reason: reason("snapshot.user"), Shapes: []mapping.Shape{tenant}}}},
+		{"a non-snapshot rule on a windowed shape is not listed", []mapping.Rule{userRule, otherRule}, nil,
+			[]NotChecked{{Rule: "users", Reason: reason("snapshot.user"), Shapes: []mapping.Shape{tenant}}}},
+	}
+	for _, tc := range cases {
+		owned, notChecked := Coverage(&mapping.Document{Rules: tc.rules}, types, []string{"snapshot.user"}, since)
+		if !reflect.DeepEqual(owned, tc.wantOwned) {
+			t.Errorf("%s: owned = %+v, want %+v", tc.name, owned, tc.wantOwned)
+		}
+		if !reflect.DeepEqual(notChecked, tc.wantNotChecked) {
+			t.Errorf("%s: notChecked = %+v, want %+v", tc.name, notChecked, tc.wantNotChecked)
+		}
+	}
+
+	// Without a window the same rules are all owned, whatever since says.
+	owned, notChecked := Coverage(&mapping.Document{Rules: []mapping.Rule{userRule, memberRule}}, types, nil, since)
+	if !reflect.DeepEqual(owned, []mapping.Shape{tenant, org}) || len(notChecked) != 0 {
+		t.Errorf("no window: owned = %+v, notChecked = %+v", owned, notChecked)
 	}
 }

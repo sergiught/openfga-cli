@@ -221,3 +221,140 @@ func TestDriftSincePassesTheWindowToTheProvider(t *testing.T) {
 		t.Errorf("stdout:\n%s", stdout)
 	}
 }
+
+// userAndMemberMapping has a user rule for a windowed type and a member rule
+// for a whole one, each writing a shape of its own.
+const userAndMemberMapping = `version: "1"
+rules:
+  - name: user.created
+    when: input.type == "snapshot.user"
+    tuples:
+      - user: "user:{{ input.user }}"
+        relation: member
+        object: "tenant:t1"
+  - name: organization.member.added
+    when: input.type == "snapshot.organization.member"
+    tuples:
+      - user: "user:{{ input.user }}"
+        relation: member
+        object: "organization:o1"
+`
+
+func userAndMemberResult() *snapshot.Result {
+	res := windowedResult()
+	res.Events = append(res.Events, map[string]any{"type": "snapshot.organization.member", "user": "u1", "org": "o1"})
+	res.Counts = append(res.Counts, snapshot.Count{Type: "snapshot.organization.member", N: 1})
+	return res
+}
+
+func staleTuples() []map[string]any {
+	return []map[string]any{
+		{"user": "user:gone", "relation": "member", "object": "tenant:t1"},
+		{"user": "user:gone", "relation": "member", "object": "organization:o1"},
+	}
+}
+
+func TestDriftSinceListsWindowedShapesAsNotChecked(t *testing.T) {
+	configtest.Isolate(t)
+	pinNow(t, 0)
+	var log []string
+	fs := newFakeStore(t, staleTuples()...)
+	fs.log = &log
+	useFakeProvider(t, fakeProvider{types: windowedTypes(), result: userAndMemberResult(), log: &log})
+	mp := writeFile(t, t.TempDir(), "m.yaml", userAndMemberMapping)
+
+	stdout, stderr, err := runDrift(t, fs.cli(), nil, mp, "--provider", "fake", "--since", "2h", "--dry-run")
+	if clierr.Code(err) != clierr.CodeTestFailed {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	if len(log) != 2 || log[0] != "store read" || log[1] != "provider read" {
+		t.Errorf("order = %v, want the whole store read before the provider", log)
+	}
+	from, to := strings.Index(stdout, "\nstale"), strings.Index(stdout, "\nnot checked")
+	if from < 0 || to < from {
+		t.Fatalf("want a stale section before not checked:\n%s", stdout)
+	}
+	if stale := stdout[from:to]; !strings.Contains(stale, "organization:o1") || strings.Contains(stale, "tenant:t1") {
+		t.Errorf("stale section:\n%s", stale)
+	}
+	want := "read with --since: only snapshot.user changed since 2026-11-19 12:02:13 UTC; not compared: user member tenant"
+	if !strings.Contains(stdout, "\nnot checked\n") || !strings.Contains(stdout, "user.created") || !strings.Contains(stdout, want) {
+		t.Errorf("stdout:\n%s", stdout)
+	}
+}
+
+func TestDriftSincePruneLeavesWindowedShapes(t *testing.T) {
+	configtest.Isolate(t)
+	pinNow(t, 0)
+	fs := newFakeStore(t, staleTuples()...)
+	useFakeProvider(t, fakeProvider{types: windowedTypes(), result: userAndMemberResult()})
+	mp := writeFile(t, t.TempDir(), "m.yaml", userAndMemberMapping)
+
+	_, stderr, err := runDrift(t, fs.cli(), nil, mp, "--provider", "fake", "--since", "2h", "--prune", "--force")
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	deletes := 0
+	for _, w := range fs.writes {
+		if !strings.Contains(w, `"deletes"`) {
+			continue
+		}
+		deletes++
+		if !strings.Contains(w, "organization:o1") || strings.Contains(w, "tenant:t1") {
+			t.Errorf("delete request: %s", w)
+		}
+	}
+	if deletes != 1 {
+		t.Errorf("delete requests = %d in %v", deletes, fs.writes)
+	}
+}
+
+func TestDriftSinceUsersOnlyReadsTheStoreAfterTheProvider(t *testing.T) {
+	configtest.Isolate(t)
+	pinNow(t, 0)
+	var log []string
+	fs := newFakeStore(t, map[string]any{"user": "user:gone", "relation": "member", "object": "tenant:t1"})
+	fs.log = &log
+	useFakeProvider(t, fakeProvider{types: windowedTypes(), result: windowedResult(), log: &log})
+	mp := writeFile(t, t.TempDir(), "m.yaml", userSnapshotMapping)
+
+	stdout, stderr, err := runDrift(t, fs.cli(), nil, mp, "--provider", "fake", "--since", "2h", "--dry-run")
+	if clierr.Code(err) != clierr.CodeTestFailed {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	if len(log) == 0 || log[0] != "provider read" {
+		t.Errorf("order = %v, want the provider read first", log)
+	}
+	header, storeLine := strings.Index(stdout, "Fake read"), strings.Index(stdout, "store read")
+	if header < 0 || storeLine < header {
+		t.Errorf("want the provider header before the store line:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "\nmissing") || !strings.Contains(stdout, "user:u1") || !strings.Contains(stdout, "organization:o1") {
+		t.Errorf("stdout:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "\nstale") {
+		t.Errorf("a users-only run reported stale:\n%s", stdout)
+	}
+}
+
+func TestDriftSinceNothingChangedReadsNoTuples(t *testing.T) {
+	configtest.Isolate(t)
+	pinNow(t, 0)
+	fs := newFakeStore(t, staleTuples()...)
+	res := windowedResult()
+	res.Events = nil
+	res.Counts[0].N = 0
+	useFakeProvider(t, fakeProvider{types: windowedTypes(), result: res})
+	mp := writeFile(t, t.TempDir(), "m.yaml", userSnapshotMapping)
+
+	stdout, stderr, err := runDrift(t, fs.cli(), nil, mp, "--provider", "fake", "--since", "2h", "--dry-run")
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	if n := len(fs.readRequests()); n != 0 {
+		t.Errorf("store reads = %d, want 0", n)
+	}
+	if !strings.Contains(stderr, "no drift") || strings.Contains(stdout, "store read") {
+		t.Errorf("stdout:\n%s\nstderr:\n%s", stdout, stderr)
+	}
+}

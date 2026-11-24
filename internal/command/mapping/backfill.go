@@ -104,7 +104,7 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, 
 	// The store is resolved before the provider, so a missing profile or an
 	// unreachable server does not cost a long read first. It is read after the
 	// provider, once the desired tuples say which objects are worth reading.
-	run, err := c.runSnapshot(cmd, path, provider, sinceTime, func(*mapping.File) error {
+	run, err := c.runSnapshot(cmd, path, provider, sinceTime, func(*mapping.File, []snapshot.Type, []string) error {
 		var r config.Resolved
 		var err error
 		if cl, r, err = c.cli.ClientWithStore(); err != nil {

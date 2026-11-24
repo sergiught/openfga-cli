@@ -98,11 +98,18 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 		stored            []language.Tuple
 		storeReadAt       time.Time
 	)
-	var storedTotal int
+	var (
+		storedTotal int
+		// usersOnly is a --since run in which every shape is windowed, so
+		// nothing can be stale and the store is read for the desired tuples only.
+		usersOnly bool
+		read      storeRead
+	)
 	// The store is read before the provider, so the snapshot is never older
 	// than the store it is compared with. The desired tuples are not known yet,
-	// so only the tuples the mapping can write are kept.
-	run, err := c.runSnapshot(cmd, path, provider, sinceTime, func(f *mapping.File) error {
+	// so only the tuples the mapping can write are kept. With nothing left to
+	// check for stale, the store is read after the provider instead.
+	run, err := c.runSnapshot(cmd, path, provider, sinceTime, func(f *mapping.File, types []snapshot.Type, windowed []string) error {
 		var r config.Resolved
 		var err error
 		if cl, r, err = c.cli.ClientWithStore(); err != nil {
@@ -111,6 +118,12 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 		storeID = r.StoreID
 		if storeNm, storeLbl, err = storeName(ctx, cl, storeID); err != nil {
 			return err
+		}
+		if !sinceTime.IsZero() {
+			owned, _ := snapshot.Coverage(f.Doc, types, windowed, sinceTime)
+			if usersOnly = len(owned) == 0; usersOnly {
+				return nil
+			}
 		}
 		output.Progressf(errw, "reading the store")
 		if stored, storedTotal, err = (storeClient{cl}).ReadKept(ctx, snapshot.Writes(f.Doc)); err != nil {
@@ -123,7 +136,18 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 		return err
 	}
 
-	owned, notChecked := snapshot.Coverage(run.File.Doc, run.Types)
+	if usersOnly && len(run.Desired) > 0 {
+		output.Progressf(errw, "reading the store")
+		read, err = (storeClient{cl}).ReadMatching(ctx, run.Desired, func(objects int) {
+			output.Progressf(errw, "reading %s in the store", mapping.Plural(objects, "object"))
+		})
+		if err != nil {
+			return err
+		}
+		stored, storedTotal, storeReadAt = read.Tuples, read.Read, now()
+	}
+
+	owned, notChecked := snapshot.Coverage(run.File.Doc, run.Types, run.Windowed, run.Since)
 	diff := snapshot.Compare(run.Desired, stored, owned)
 	label := run.Provider.Label()
 	res := driftResult{
@@ -139,7 +163,7 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 		res.NotChecked = append(res.NotChecked, notCheckedOut{Rule: n.Rule, Reason: n.Reason, Shapes: shapes})
 	}
 	if !machine {
-		if err := renderDrift(out, run, storeLbl, storeReadAt, storedTotal, diff, notChecked); err != nil {
+		if err := renderDrift(out, run, storeLbl, storeReadAt, storedTotal, read.Objects, usersOnly, diff, notChecked); err != nil {
 			return err
 		}
 	}
