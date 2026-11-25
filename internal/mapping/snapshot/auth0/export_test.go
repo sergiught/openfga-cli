@@ -157,7 +157,11 @@ func TestExportLargeTenantUsesAJob(t *testing.T) {
 		return nil
 	}
 
-	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, func(s string) { said = append(said, s) })
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, func(pr snapshot.Progress) {
+		if pr.Message != "" {
+			said = append(said, pr.Message)
+		}
+	})
 	noErr(t, err)
 	equal(t, 1500, len(res.Events))
 	equal(t, "user auth0|0000", res.Events[0]["subject"])
@@ -350,8 +354,8 @@ func TestExportCancelledWhileWaitingReturnsPromptly(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	_, err := p.Snapshot(ctx, snapshot.Request{Types: []string{"snapshot.user"}}, func(s string) {
-		if strings.HasPrefix(s, "exporting users:") {
+	_, err := p.Snapshot(ctx, snapshot.Request{Types: []string{"snapshot.user"}}, func(pr snapshot.Progress) {
+		if strings.HasPrefix(pr.Message, "exporting users:") {
 			cancel()
 		}
 	})
@@ -653,6 +657,9 @@ func TestExportReplacesUsersTheListGathered(t *testing.T) {
 	noErr(t, err)
 	equal(t, 1001, len(res.Events))
 
+	// The tally was reset when the export replaced what the list gathered.
+	equal(t, res.Counts, p.Stats().Counts)
+
 	seen := map[string]bool{}
 	for _, s := range subjects(t, res.Events) {
 		if seen[s] {
@@ -702,7 +709,11 @@ func TestExportProgressWhileWaiting(t *testing.T) {
 
 	var said []string
 
-	_, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, func(s string) { said = append(said, s) })
+	_, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, func(pr snapshot.Progress) {
+		if pr.Message != "" {
+			said = append(said, pr.Message)
+		}
+	})
 	noErr(t, err)
 	equal(t, []string{
 		"reading users",

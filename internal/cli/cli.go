@@ -184,8 +184,9 @@ func (cli *CLI) Client() (*openfga.Client, error) {
 }
 
 // ClientWithStore returns a client and guarantees a store ID is configured,
-// returning a friendly error otherwise. Most commands need a store.
-func (cli *CLI) ClientWithStore() (*openfga.Client, config.Resolved, error) {
+// returning a friendly error otherwise. Most commands need a store. extra
+// options are applied after the ones every command's client is built with.
+func (cli *CLI) ClientWithStore(extra ...client.Option) (*openfga.Client, config.Resolved, error) {
 	r, err := cli.Resolve()
 	if err != nil {
 		return nil, config.Resolved{}, err
@@ -200,7 +201,7 @@ func (cli *CLI) ClientWithStore() (*openfga.Client, config.Resolved, error) {
 		return nil, r, clierr.WithCode(clierr.CodeUsage, err)
 	}
 	cli.traceResolved(r)
-	c, err := client.New(r, cli.clientOptions()...)
+	c, err := client.New(r, append(cli.clientOptions(), extra...)...)
 	if err != nil {
 		return nil, r, err
 	}

@@ -48,7 +48,9 @@ func (s storeClient) ReadAll(ctx context.Context) ([]language.Tuple, error) {
 
 // ReadKept reads the whole store and keeps only the tuples keep accepts, so a
 // large store is not held in memory. It also returns how many tuples it read.
-func (s storeClient) ReadKept(ctx context.Context, keep func(language.Tuple) bool) (kept []language.Tuple, total int, err error) {
+// progress may be nil; it is called after every readPageSize tuples read and
+// once at the end.
+func (s storeClient) ReadKept(ctx context.Context, keep func(language.Tuple) bool, progress func(read, kept int)) (kept []language.Tuple, total int, err error) {
 	for t, err := range s.cl.Tuples.ReadAll(ctx, &openfga.ReadRequest{PageSize: readPageSize}) {
 		if err != nil {
 			return nil, 0, err
@@ -57,6 +59,12 @@ func (s storeClient) ReadKept(ctx context.Context, keep func(language.Tuple) boo
 		if lt := toTuple(t); keep(lt) {
 			kept = append(kept, lt)
 		}
+		if progress != nil && total%readPageSize == 0 {
+			progress(total, len(kept))
+		}
+	}
+	if progress != nil {
+		progress(total, len(kept))
 	}
 	return kept, total, nil
 }

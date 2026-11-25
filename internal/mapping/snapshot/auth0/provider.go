@@ -41,6 +41,9 @@ type Provider struct {
 	source, tenant string
 	limits         *pacer
 	wait           func(ctx context.Context, d time.Duration) error // between export job polls
+
+	mu  sync.Mutex
+	cur *tally // the read in progress, or the last one; nil before any
 }
 
 var _ snapshot.Provider = (*Provider)(nil)
@@ -94,6 +97,60 @@ func (p *Provider) Label() string { return "Auth0" }
 // Types lists the snapshot event types this provider produces.
 func (p *Provider) Types() []snapshot.Type { return Types() }
 
+// tally counts the items a read has gathered per type. Every sub-read of one
+// Snapshot shares it.
+type tally struct {
+	mu    sync.Mutex
+	n     map[string]int
+	want  map[string]bool
+	since time.Time
+}
+
+func (t *tally) add(typ string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.n[typ]++
+}
+
+func (t *tally) reset(typ string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	delete(t.n, typ)
+}
+
+// counts lists the requested types in Types() order.
+func (t *tally) counts() []snapshot.Count {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	var out []snapshot.Count
+
+	for _, typ := range Types() {
+		if t.want[typ.Name] {
+			out = append(out, snapshot.Count{Type: typ.Name, N: t.n[typ.Name], Windowed: typ.Windowed && !t.since.IsZero()})
+		}
+	}
+
+	return out
+}
+
+// Stats says what the read in progress, or the last one, has done so far.
+func (p *Provider) Stats() snapshot.Stats {
+	p.mu.Lock()
+	cur := p.cur
+	p.mu.Unlock()
+
+	if cur == nil {
+		return snapshot.Stats{}
+	}
+
+	sent, limited, gap := p.limits.stats()
+
+	return snapshot.Stats{Requests: sent, RateLimited: limited, Pace: gap, Counts: cur.counts()}
+}
+
 // read is one Snapshot call's state.
 type read struct {
 	*Provider
@@ -101,17 +158,22 @@ type read struct {
 	ctx      context.Context //nolint:containedctx // scoped to one call
 	want     map[string]bool
 	since    time.Time
-	progress func(string)
+	progress func(snapshot.Progress)
 	sayMu    *sync.Mutex // progress is called from several goroutines, one at a time
 	events   map[string][]event
+	tally    *tally // shared by every sub-read
 }
 
 func (r *read) say(msg string) {
+	r.report(snapshot.Progress{Message: msg})
+}
+
+func (r *read) report(pr snapshot.Progress) {
 	if r.progress != nil {
 		r.sayMu.Lock()
 		defer r.sayMu.Unlock()
 
-		r.progress(msg)
+		r.progress(pr)
 	}
 }
 
@@ -157,7 +219,7 @@ func parallel(ctx context.Context, n int, task func(ctx context.Context, i int) 
 // each runs task once per organization in parallel. A task adds its events to
 // the read it is given; they are merged in organization order afterwards, so
 // the result is the same as reading one organization after the other.
-func (r *read) each(orgs []map[string]any, progress string, task func(sub *read, org map[string]any) error) error {
+func (r *read) each(orgs []map[string]any, step, progress string, task func(sub *read, org map[string]any) error) error {
 	subs := make([]*read, len(orgs))
 
 	err := parallel(r.ctx, len(orgs), func(ctx context.Context, i int) error {
@@ -167,7 +229,7 @@ func (r *read) each(orgs []map[string]any, progress string, task func(sub *read,
 
 		return task(&sub, orgs[i])
 	}, func(done int) {
-		r.say(fmt.Sprintf(progress, done, len(orgs)))
+		r.report(snapshot.Progress{Message: fmt.Sprintf(progress, done, len(orgs)), Step: step, Done: done, Total: len(orgs)})
 	})
 	if err != nil {
 		return err
@@ -182,11 +244,15 @@ func (r *read) each(orgs []map[string]any, progress string, task func(sub *read,
 	return nil
 }
 
-func (r *read) add(e event) { r.events[e.typ] = append(r.events[e.typ], e) }
+func (r *read) add(e event) {
+	r.events[e.typ] = append(r.events[e.typ], e)
+	r.tally.add(e.typ)
+}
 
 // Snapshot reads the given types completely or returns an error.
-func (p *Provider) Snapshot(ctx context.Context, req snapshot.Request, progress func(string)) (*snapshot.Result, error) {
+func (p *Provider) Snapshot(ctx context.Context, req snapshot.Request, progress func(snapshot.Progress)) (*snapshot.Result, error) {
 	r := &read{Provider: p, ctx: ctx, want: map[string]bool{}, since: req.Since, progress: progress, sayMu: &sync.Mutex{}, events: map[string][]event{}}
+	r.tally = &tally{n: map[string]int{}, want: r.want, since: req.Since}
 
 	known := map[string]bool{}
 	for _, t := range Types() {
@@ -202,6 +268,10 @@ func (p *Provider) Snapshot(ctx context.Context, req snapshot.Request, progress 
 	}
 
 	p.limits.begin(func() { r.say("waiting on Auth0's rate limit") })
+
+	p.mu.Lock()
+	p.cur = r.tally
+	p.mu.Unlock()
 
 	res := &snapshot.Result{Source: p.source, StartedAt: now()}
 
@@ -306,7 +376,7 @@ func walkPages[C comparable, T, R any](
 }
 
 func (r *read) connections() error {
-	r.say("reading connections")
+	r.report(snapshot.Progress{Message: "reading connections", Step: "connections"})
 
 	take := pageSize
 	page, err := r.m.Connections.List(r.ctx, &management.ListConnectionsQueryParameters{Take: &take})
@@ -364,12 +434,14 @@ func (r *read) users() error {
 
 	windowed := !r.since.IsZero()
 	if windowed {
-		r.say("reading users changed since " + r.since.UTC().Format("2006-01-02 15:04:05") + " UTC")
+		r.report(snapshot.Progress{
+			Message: "reading users changed since " + r.since.UTC().Format("2006-01-02 15:04:05") + " UTC", Step: "users",
+		})
 
 		q, engine := "updated_at:["+r.since.UTC().Format("2006-01-02T15:04:05.000Z")+" TO *]", management.SearchEngineVersionsEnumV3
 		params.Q, params.SearchEngine = &q, &engine
 	} else {
-		r.say("reading users")
+		r.report(snapshot.Progress{Message: "reading users", Step: "users"})
 	}
 
 	page, err := r.m.Users.List(r.ctx, params)
@@ -419,6 +491,8 @@ func (r *read) users() error {
 		// Auth0 refuses pages past 1,000 users and the SDK would otherwise ask
 		// for one more page to find the end.
 		pages++
+		r.report(snapshot.Progress{Step: "users", Done: len(seen), Total: int(total)})
+
 		if float64(pages*pageSize) >= total {
 			return errStopWalk
 		}
@@ -450,17 +524,27 @@ var exportUserFields = []string{
 	"last_ip", "last_login", "last_password_reset", "logins_count", "blocked", "given_name", "family_name",
 }
 
+// exportJobStep and exportDownloadStep name the two stretches of the export in progress reports.
+const (
+	exportJobStep      = "users (export job)"
+	exportDownloadStep = "users (export download)"
+)
+
+// exportReportEvery is how many decoded users pass between progress reports of the download.
+const exportReportEvery = 1000
+
 // exportPollEvery is how long to wait between polls of the export job.
 const exportPollEvery = 2 * time.Second
 
 // exportUsers reads every user through an export job, for tenants the list
 // cannot serve. total is the user count the list reported.
 func (r *read) exportUsers(total int) error {
-	r.say(fmt.Sprintf("exporting %d users", total))
+	r.report(snapshot.Progress{Message: fmt.Sprintf("exporting %d users", total), Step: exportJobStep, Total: total})
 
 	// The total may have crossed the limit on a later page of the list; the
 	// export replaces what the pages gathered.
 	delete(r.events, typeUser)
+	r.tally.reset(typeUser)
 
 	format := management.JobFileFormatEnumJSON
 
@@ -484,7 +568,7 @@ func (r *read) exportUsers(total int) error {
 
 		switch got.GetStatus() {
 		case "completed":
-			n, err := r.downloadUsers(got.GetLocation(), now())
+			n, err := r.downloadUsers(got.GetLocation(), now(), total)
 			if err != nil {
 				return err
 			}
@@ -499,11 +583,16 @@ func (r *read) exportUsers(total int) error {
 		case "pending", "processing":
 			switch pct := got.GetPercentageDone(); {
 			case got.PercentageDone == nil:
-				r.say(fmt.Sprintf("exporting %d users: waiting for Auth0's job (%ds)", total, int(r.limits.now().Sub(created).Seconds())))
+				r.report(snapshot.Progress{
+					Message: fmt.Sprintf("exporting %d users: waiting for Auth0's job (%ds)", total, int(r.limits.now().Sub(created).Seconds())),
+					Step:    exportJobStep, Total: total,
+				})
 			case pct != lastPercent:
 				lastPercent = pct
 
-				r.say(fmt.Sprintf("exporting users: %d%%", pct))
+				r.report(snapshot.Progress{
+					Message: fmt.Sprintf("exporting users: %d%%", pct), Step: exportJobStep, Done: total * pct / 100, Total: total,
+				})
 			}
 		default:
 			return fmt.Errorf("Auth0's user export job ended as %q", got.GetStatus())
@@ -537,7 +626,7 @@ func (s *streamReader) Read(p []byte) (int, error) {
 // downloadUsers streams the export file, one JSON user per line, into events.
 // The location is a signed URL on another host: it is fetched without the
 // Management client and never appears in an error.
-func (r *read) downloadUsers(location string, at time.Time) (int, error) {
+func (r *read) downloadUsers(location string, at time.Time, total int) (int, error) {
 	fail := func(err error) (int, error) {
 		if ctxErr := r.ctx.Err(); ctxErr != nil {
 			return 0, ctxErr
@@ -582,6 +671,8 @@ func (r *read) downloadUsers(location string, at time.Time) (int, error) {
 
 		if err := dec.Decode(&u); err != nil {
 			if errors.Is(err, io.EOF) {
+				r.report(snapshot.Progress{Step: exportDownloadStep, Done: len(seen), Total: total})
+
 				return len(seen), nil
 			}
 
@@ -611,11 +702,15 @@ func (r *read) downloadUsers(location string, at time.Time) (int, error) {
 		}
 
 		r.add(event{typ: typeUser, subject: "user " + u.GetUserID(), object: obj, at: at})
+
+		if len(seen)%exportReportEvery == 0 {
+			r.report(snapshot.Progress{Step: exportDownloadStep, Done: len(seen), Total: total})
+		}
 	}
 }
 
 func (r *read) organizations() error {
-	r.say("reading organizations")
+	r.report(snapshot.Progress{Message: "reading organizations", Step: "organizations"})
 
 	take := pageSize
 	page, err := r.m.Organizations.List(r.ctx, &management.ListOrganizationsRequestParameters{Take: &take})
@@ -634,6 +729,8 @@ func (r *read) organizations() error {
 			r.add(event{typ: typeOrganization, subject: "organization " + o.GetID(), object: obj, at: at})
 		}
 
+		r.report(snapshot.Progress{Step: "organizations", Done: len(orgs)})
+
 		return nil
 	})
 	if err != nil {
@@ -645,7 +742,7 @@ func (r *read) organizations() error {
 	}
 
 	if r.want[typeOrgConnection] {
-		err := r.each(orgs, "reading connections of %d/%d organizations", func(sub *read, org map[string]any) error {
+		err := r.each(orgs, "connections of organizations", "reading connections of %d/%d organizations", func(sub *read, org map[string]any) error {
 			return sub.orgConnections(org)
 		})
 		if err != nil {
@@ -654,7 +751,7 @@ func (r *read) organizations() error {
 	}
 
 	if r.want[typeOrgMember] || r.want[typeOrgMemberRole] {
-		err := r.each(orgs, "reading members of %d/%d organizations", func(sub *read, org map[string]any) error {
+		err := r.each(orgs, "members of organizations", "reading members of %d/%d organizations", func(sub *read, org map[string]any) error {
 			return sub.orgMembers(org)
 		})
 		if err != nil {

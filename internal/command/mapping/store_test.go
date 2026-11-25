@@ -86,8 +86,24 @@ func TestReadKeptKeepsOnlyWhatIsAskedForAndCountsEverything(t *testing.T) {
 	}))
 	defer srv.Close()
 	cl, _ := openfga.NewClient(srv.URL, openfga.WithStoreID("01ARZ3NDEKTSV4RRFFQ69G5FAV"))
-	kept, total, err := storeClient{cl}.ReadKept(context.Background(), func(t language.Tuple) bool { return t.Relation == "member" })
+	kept, total, err := storeClient{cl}.ReadKept(context.Background(), func(t language.Tuple) bool { return t.Relation == "member" }, nil)
 	if err != nil || total != 2 || len(kept) != 1 || kept[0].Object != "team:1" {
 		t.Fatalf("kept=%+v total=%d err=%v", kept, total, err)
+	}
+}
+
+func TestReadKeptReportsProgressAtTheEnd(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"tuples":[`+
+			`{"key":{"user":"user:1","relation":"member","object":"team:1"}},`+
+			`{"key":{"user":"user:1","relation":"viewer","object":"doc:1"}}],"continuation_token":""}`)
+	}))
+	defer srv.Close()
+	cl, _ := openfga.NewClient(srv.URL, openfga.WithStoreID("01ARZ3NDEKTSV4RRFFQ69G5FAV"))
+	var reports [][2]int
+	_, _, err := storeClient{cl}.ReadKept(context.Background(), func(t language.Tuple) bool { return t.Relation == "member" },
+		func(read, kept int) { reports = append(reports, [2]int{read, kept}) })
+	if err != nil || len(reports) != 1 || reports[0] != [2]int{2, 1} {
+		t.Fatalf("reports=%v err=%v", reports, err)
 	}
 }

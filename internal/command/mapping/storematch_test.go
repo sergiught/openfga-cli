@@ -166,7 +166,11 @@ func TestReadMatchingCanceledReadFailsInsteadOfReturningPart(t *testing.T) {
 	defer cancel()
 	// Canceling as the pair reads are about to start leaves their loop with
 	// nothing to run and no goroutine to report an error.
-	got, err := storeClient{cl}.ReadMatching(ctx, wantMember("user:u1", "user:u2"), func(int) { cancel() })
+	got, err := storeClient{cl}.ReadMatching(ctx, wantMember("user:u1", "user:u2"), func(mp matchProgress) {
+		if mp.Step == "objects" && mp.Done == 0 {
+			cancel()
+		}
+	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, tuples = %+v, want context.Canceled", err, got.Tuples)
 	}
@@ -216,5 +220,48 @@ func TestBackfillCrowdedPairClassifiesLikeAFullRead(t *testing.T) {
 	}
 	if len(keyReads(crowded.readRequests())) == 0 {
 		t.Error("the crowded run made no key reads")
+	}
+}
+
+func TestReadMatchingReportsProgress(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t,
+		tenantTuple("user:u1"), tenantTuple("user:n1"), tenantTuple("user:n2"), tenantTuple("user:u2"),
+		map[string]any{"user": "user:u1", "relation": "reader", "object": "doc:d1"})
+	fs.bigStore, fs.pageSize = true, 1
+	want := append(wantMember("user:u1", "user:u2", "user:u3"),
+		language.Tuple{User: "user:u1", Relation: "reader", Object: "doc:d1"})
+	cl, _, err := fs.cli().ClientWithStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reports []matchProgress
+	if _, err := (storeClient{cl}).ReadMatching(context.Background(), want, func(mp matchProgress) { reports = append(reports, mp) }); err != nil {
+		t.Fatal(err)
+	}
+	var steps []string
+	last := map[string]int{}
+	first := map[string]matchProgress{}
+	for _, r := range reports {
+		if len(steps) == 0 || steps[len(steps)-1] != r.Step {
+			steps = append(steps, r.Step)
+			first[r.Step] = r
+		}
+		if r.Done < last[r.Step] {
+			t.Errorf("%s went backwards: %+v after %d", r.Step, r, last[r.Step])
+		}
+		last[r.Step] = r.Done
+	}
+	if !slices.Equal(steps, []string{"store", "objects", "keys"}) {
+		t.Fatalf("steps = %v, reports = %+v", steps, reports)
+	}
+	if o := first["objects"]; o.Done != 0 || o.Total != 2 || o.Objects != 2 {
+		t.Errorf("first objects report = %+v, want Done 0, Total 2, Objects 2", o)
+	}
+	if k := first["keys"]; k.Done != 0 || k.Total != 3 {
+		t.Errorf("first keys report = %+v, want Done 0, Total 3", k)
+	}
+	if last["objects"] != 2 || last["keys"] != 3 {
+		t.Errorf("final Done: objects %d keys %d, want 2 and 3", last["objects"], last["keys"])
 	}
 }

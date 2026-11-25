@@ -112,7 +112,11 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since t
 			return nil, err
 		}
 	}
-	res, err := p.Snapshot(ctx, snapshot.Request{Types: requested, Since: since}, func(msg string) { output.Progressf(errw, "%s", msg) })
+	res, err := p.Snapshot(ctx, snapshot.Request{Types: requested, Since: since}, func(pr snapshot.Progress) {
+		if pr.Message != "" {
+			output.Progressf(errw, "%s", pr.Message)
+		}
+	})
 	if err != nil {
 		return nil, err
 	}

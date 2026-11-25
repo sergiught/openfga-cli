@@ -253,7 +253,7 @@ func TestSnapshotMembersAndRoles(t *testing.T) {
 
 	res, err := p.Snapshot(context.Background(),
 		snapshot.Request{Types: []string{"snapshot.organization.member", "snapshot.organization.member.role"}},
-		func(msg string) { progress = append(progress, msg) })
+		func(pr snapshot.Progress) { progress = append(progress, pr.Message) })
 	noErr(t, err)
 
 	equal(t, []snapshot.Count{
@@ -736,7 +736,11 @@ func TestSnapshotRetriesRateLimit(t *testing.T) {
 
 	var said []string
 
-	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.organization"}}, func(msg string) { said = append(said, msg) })
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.organization"}}, func(pr snapshot.Progress) {
+		if pr.Message != "" {
+			said = append(said, pr.Message)
+		}
+	})
 	noErr(t, err)
 	if len(res.Events) != 2 {
 		t.Errorf("len(res.Events) = %d, want 2", len(res.Events))

@@ -41,7 +41,8 @@ type pacer struct {
 	next   time.Time     // earliest start of the next request
 	closed time.Time     // no request is sent before this, the latest Retry-After
 	widen  time.Time     // when the gap was last widened
-	n      int
+	n      int           // answers of HTTP 429
+	sent   int           // every send, resends included
 	onWait func()
 }
 
@@ -66,7 +67,7 @@ func (p *pacer) begin(onWait func()) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.n, p.onWait = 0, onWait
+	p.n, p.sent, p.onWait = 0, 0, onWait
 }
 
 // count is how many 429 answers the read has had.
@@ -75,6 +76,23 @@ func (p *pacer) count() int {
 	defer p.mu.Unlock()
 
 	return p.n
+}
+
+// stats is how many requests the read has sent, how many were answered 429 and
+// the spacing currently kept between requests.
+func (p *pacer) stats() (sent, limited int, gap time.Duration) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.sent, p.n, p.gap
+}
+
+// sending counts one send.
+func (p *pacer) sending() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.sent++
 }
 
 // slot reserves the next start time and returns how long to wait for it.
@@ -184,6 +202,8 @@ func (p *pacer) RoundTrip(req *http.Request) (*http.Response, error) {
 		// Our client replaces the one the SDK builds, so the User-Agent is set here.
 		out := req.Clone(ctx)
 		out.Header.Set("User-Agent", userAgent)
+
+		p.sending()
 
 		resp, err := p.base.RoundTrip(out)
 		if err != nil {

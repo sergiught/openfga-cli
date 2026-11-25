@@ -15,6 +15,16 @@ import (
 // store object by object.
 const storeWorkers = 8
 
+// matchProgress is one report of ReadMatching. Step is "store" while the
+// whole store is paged (Done is tuples read, Total 0), "objects" during the
+// per-object reads and "keys" during the full-key reads (Done of Total reads).
+// Objects is the number of distinct objects, set on "objects" reports.
+type matchProgress struct {
+	Step        string
+	Done, Total int
+	Objects     int
+}
+
 // storeRead is what ReadMatching found. Objects is zero when the whole store
 // was read; otherwise it is how many distinct objects were read one by one.
 type storeRead struct {
@@ -31,9 +41,9 @@ type storeRead struct {
 // than the mapping's data is not read whole. The budget keeps the pages wasted
 // on the first attempt to about the cost of the pair reads. A pair read stops
 // after a few pages too: when an object holds far more tuples than are wanted
-// from it, each wanted tuple is read by its full key instead. onPairs is called
-// with the number of distinct objects just before the pair reads start.
-func (s storeClient) ReadMatching(ctx context.Context, want []language.Tuple, onPairs func(objects int)) (storeRead, error) {
+// from it, each wanted tuple is read by its full key instead. progress may be
+// nil; it is never called concurrently.
+func (s storeClient) ReadMatching(ctx context.Context, want []language.Tuple, progress func(matchProgress)) (storeRead, error) {
 	ids := make(map[string]bool, len(want))
 	type pair struct{ object, relation string }
 	var pairs []pair
@@ -67,6 +77,9 @@ func (s storeClient) ReadMatching(ctx context.Context, want []language.Tuple, on
 				res.Tuples = append(res.Tuples, lt)
 			}
 		}
+		if progress != nil {
+			progress(matchProgress{Step: "store", Done: res.Read})
+		}
 		if resp.ContinuationToken == "" {
 			return res, nil
 		}
@@ -76,13 +89,14 @@ func (s storeClient) ReadMatching(ctx context.Context, want []language.Tuple, on
 		req.ContinuationToken = resp.ContinuationToken
 	}
 
-	if onPairs != nil {
-		onPairs(len(objects))
+	if progress != nil {
+		progress(matchProgress{Step: "objects", Total: len(pairs), Objects: len(objects)})
 	}
 	res = storeRead{Objects: len(objects)}
 	var (
-		mu      sync.Mutex
-		crowded []language.Tuple
+		mu        sync.Mutex // also orders the progress reports
+		crowded   []language.Tuple
+		pairsDone int
 	)
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(storeWorkers)
@@ -128,6 +142,10 @@ func (s storeClient) ReadMatching(ctx context.Context, want []language.Tuple, on
 			mu.Lock()
 			res.Tuples = append(res.Tuples, got...)
 			res.Read += n
+			pairsDone++
+			if progress != nil {
+				progress(matchProgress{Step: "objects", Done: pairsDone, Total: len(pairs), Objects: len(objects)})
+			}
 			mu.Unlock()
 			return nil
 		})
@@ -143,6 +161,10 @@ func (s storeClient) ReadMatching(ctx context.Context, want []language.Tuple, on
 
 	// Started only after the pair phase, so no goroutine of one errgroup
 	// starts work on the same group.
+	keysDone := 0
+	if progress != nil && len(crowded) > 0 {
+		progress(matchProgress{Step: "keys", Total: len(crowded)})
+	}
 	g, gctx = errgroup.WithContext(ctx)
 	g.SetLimit(storeWorkers)
 	for _, t := range crowded {
@@ -165,6 +187,10 @@ func (s storeClient) ReadMatching(ctx context.Context, want []language.Tuple, on
 			mu.Lock()
 			res.Tuples = append(res.Tuples, got...)
 			res.Read += len(resp.Tuples)
+			keysDone++
+			if progress != nil {
+				progress(matchProgress{Step: "keys", Done: keysDone, Total: len(crowded)})
+			}
 			mu.Unlock()
 			return nil
 		})

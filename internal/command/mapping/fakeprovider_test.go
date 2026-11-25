@@ -26,7 +26,9 @@ func (fakeProvider) Name() string             { return "fake" }
 func (fakeProvider) Label() string            { return "Fake" }
 func (p fakeProvider) Types() []snapshot.Type { return p.types }
 
-func (p fakeProvider) Snapshot(_ context.Context, req snapshot.Request, progress func(string)) (*snapshot.Result, error) {
+func (fakeProvider) Stats() snapshot.Stats { return snapshot.Stats{} }
+
+func (p fakeProvider) Snapshot(_ context.Context, req snapshot.Request, progress func(snapshot.Progress)) (*snapshot.Result, error) {
 	if p.calls != nil {
 		*p.calls++
 	}
@@ -40,7 +42,7 @@ func (p fakeProvider) Snapshot(_ context.Context, req snapshot.Request, progress
 		*p.gotSince = req.Since
 	}
 	if progress != nil {
-		progress("reading fake")
+		progress(snapshot.Progress{Message: "reading fake"})
 	}
 	return p.result, p.err
 }

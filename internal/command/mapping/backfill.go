@@ -126,8 +126,10 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, 
 	)
 	if len(run.Desired) > 0 {
 		output.Progressf(errw, "reading the store")
-		read, err = (storeClient{cl}).ReadMatching(ctx, run.Desired, func(objects int) {
-			output.Progressf(errw, "reading %s in the store", mapping.Plural(objects, "object"))
+		read, err = (storeClient{cl}).ReadMatching(ctx, run.Desired, func(mp matchProgress) {
+			if mp.Step == "objects" && mp.Done == 0 {
+				output.Progressf(errw, "reading %s in the store", mapping.Plural(mp.Objects, "object"))
+			}
 		})
 		if err != nil {
 			return err

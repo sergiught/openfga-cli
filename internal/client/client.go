@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -48,6 +49,47 @@ type Option func(*options)
 type options struct {
 	capture apilog.Sink
 	timeout time.Duration
+	meter   *Meter
+}
+
+// Meter counts the HTTP requests a client sends to the API and how many of
+// them were answered 429. The zero value is ready to use.
+type Meter struct {
+	requests, rateLimited atomic.Int64
+}
+
+// Requests is how many requests have been sent.
+func (m *Meter) Requests() int { return int(m.requests.Load()) }
+
+// RateLimited is how many requests were answered HTTP 429.
+func (m *Meter) RateLimited() int { return int(m.rateLimited.Load()) }
+
+// WithMeter counts every request sent to the API URL's host into m.
+func WithMeter(m *Meter) Option {
+	return func(o *options) { o.meter = m }
+}
+
+// meterTransport counts sends to one host. It reads nothing but the status code.
+type meterTransport struct {
+	base  http.RoundTripper
+	meter *Meter
+	host  string
+}
+
+func (t *meterTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// The same base transport carries OAuth token requests, which are not store requests.
+	if req.URL.Host != t.host {
+		return t.base.RoundTrip(req)
+	}
+
+	t.meter.requests.Add(1)
+
+	resp, err := t.base.RoundTrip(req)
+	if err == nil && resp.StatusCode == http.StatusTooManyRequests {
+		t.meter.rateLimited.Add(1)
+	}
+
+	return resp, err
 }
 
 // WithCapture records every HTTP request/response into rec by wrapping the base
@@ -365,6 +407,11 @@ func New(r config.Resolved, opts ...Option) (*openfga.Client, error) {
 	}
 
 	base := baseTransport(o.timeout)
+	if o.meter != nil {
+		if u, err := url.Parse(r.APIURL); err == nil {
+			base = &meterTransport{base: base, meter: o.meter, host: u.Host}
+		}
+	}
 	if o.capture != nil {
 		base = apilog.Transport(base, o.capture, r.APIURL, headerNames(hdrs))
 	}

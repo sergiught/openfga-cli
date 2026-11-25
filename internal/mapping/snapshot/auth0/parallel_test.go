@@ -146,11 +146,13 @@ func TestSnapshotRateLimitedReadMatchesUnthrottled(t *testing.T) {
 		said []string
 	)
 
-	got, err := p.Snapshot(context.Background(), snapshot.Request{Types: tenantTypes}, func(msg string) {
+	got, err := p.Snapshot(context.Background(), snapshot.Request{Types: tenantTypes}, func(pr snapshot.Progress) {
 		mu.Lock()
 		defer mu.Unlock()
 
-		said = append(said, msg)
+		if pr.Message != "" {
+			said = append(said, pr.Message)
+		}
 	})
 	noErr(t, err)
 	equal(t, withoutTimes(want.Events), withoutTimes(got.Events))
@@ -178,11 +180,13 @@ func TestSnapshotParallelKeepsOrganizationOrder(t *testing.T) {
 		said []string
 	)
 
-	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: tenantTypes}, func(msg string) {
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: tenantTypes}, func(pr snapshot.Progress) {
 		mu.Lock()
 		defer mu.Unlock()
 
-		said = append(said, msg)
+		if pr.Message != "" {
+			said = append(said, pr.Message)
+		}
 	})
 	noErr(t, err)
 	equal(t, expectedSubjects(n), subjectsByType(res.Events))

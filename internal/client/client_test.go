@@ -8,6 +8,7 @@ import (
 	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -562,5 +563,70 @@ func TestIdempotentRetryTransportAppliesJitterToBackoff(t *testing.T) {
 	}
 	if gotWait != fixedJittered {
 		t.Fatalf("wait received %v, want the jittered value %v", gotWait, fixedJittered)
+	}
+}
+
+func TestMeterCountsRequestsToTheAPIHostOnly(t *testing.T) {
+	var status atomic.Int64
+	status.Store(http.StatusOK)
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(int(status.Load()))
+	}))
+	defer api.Close()
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	defer other.Close()
+
+	m := &Meter{}
+	apiURL, _ := url.Parse(api.URL)
+	tr := &meterTransport{base: http.DefaultTransport, meter: m, host: apiURL.Host}
+	do := func(target string) {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodGet, target, nil)
+		resp, err := tr.RoundTrip(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+	}
+
+	do(api.URL)
+	if m.Requests() != 1 || m.RateLimited() != 0 {
+		t.Fatalf("after a 200: %d requests, %d limited", m.Requests(), m.RateLimited())
+	}
+	status.Store(http.StatusTooManyRequests)
+	do(api.URL)
+	if m.Requests() != 2 || m.RateLimited() != 1 {
+		t.Fatalf("after a 429: %d requests, %d limited", m.Requests(), m.RateLimited())
+	}
+	do(other.URL)
+	if m.Requests() != 2 || m.RateLimited() != 1 {
+		t.Fatalf("another host was counted: %d requests, %d limited", m.Requests(), m.RateLimited())
+	}
+
+	api.Close()
+	req, _ := http.NewRequest(http.MethodGet, api.URL, nil)
+	if _, err := tr.RoundTrip(req); err == nil {
+		t.Fatal("want a transport error")
+	}
+	if m.Requests() != 3 || m.RateLimited() != 1 {
+		t.Fatalf("after an error: %d requests, %d limited", m.Requests(), m.RateLimited())
+	}
+}
+
+func TestWithMeterCountsClientRequests(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"stores":[]}`))
+	}))
+	defer srv.Close()
+
+	m := &Meter{}
+	c, err := New(config.Resolved{APIURL: srv.URL}, WithMeter(m))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = c.Stores.List(context.Background(), nil)
+	if m.Requests() != 1 {
+		t.Fatalf("requests = %d, want 1", m.Requests())
 	}
 }

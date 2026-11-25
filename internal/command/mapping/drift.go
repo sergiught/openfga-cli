@@ -126,7 +126,7 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 			}
 		}
 		output.Progressf(errw, "reading the store")
-		if stored, storedTotal, err = (storeClient{cl}).ReadKept(ctx, snapshot.Writes(f.Doc)); err != nil {
+		if stored, storedTotal, err = (storeClient{cl}).ReadKept(ctx, snapshot.Writes(f.Doc), nil); err != nil {
 			return err
 		}
 		storeReadAt = now()
@@ -138,8 +138,10 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 
 	if usersOnly && len(run.Desired) > 0 {
 		output.Progressf(errw, "reading the store")
-		read, err = (storeClient{cl}).ReadMatching(ctx, run.Desired, func(objects int) {
-			output.Progressf(errw, "reading %s in the store", mapping.Plural(objects, "object"))
+		read, err = (storeClient{cl}).ReadMatching(ctx, run.Desired, func(mp matchProgress) {
+			if mp.Step == "objects" && mp.Done == 0 {
+				output.Progressf(errw, "reading %s in the store", mapping.Plural(mp.Objects, "object"))
+			}
 		})
 		if err != nil {
 			return err
