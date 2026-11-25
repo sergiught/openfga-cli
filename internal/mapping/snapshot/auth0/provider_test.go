@@ -525,8 +525,8 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 // usersPage serves page of a users list the way Auth0 does: ids picks the
-// users on the page, pages that start at or past 1,000 are refused and pages
-// past the total are empty.
+// users on the page, pages that start at or past 1,000 are refused, pages
+// past the total are empty and the total reported is never above 1,000.
 func usersPage(w http.ResponseWriter, r *http.Request, total int, ids func(page int) []int) {
 	page := 0
 	_, _ = fmt.Sscan(r.URL.Query().Get("page"), &page)
@@ -547,7 +547,7 @@ func usersPage(w http.ResponseWriter, r *http.Request, total int, ids func(page 
 	}
 
 	writeJSON(w, fmt.Sprintf(`{"start":%d,"limit":%d,"total":%d,"users":[%s]}`,
-		page*pageSize, pageSize, total, strings.Join(users, ",")))
+		page*pageSize, pageSize, min(total, maxUsers), strings.Join(users, ",")))
 }
 
 func usersHandler(total int) http.HandlerFunc {
@@ -581,7 +581,7 @@ func TestSnapshotUsersList(t *testing.T) {
 func TestSnapshotUsersStopAtTotal(t *testing.T) {
 	t.Parallel()
 
-	for _, tc := range []struct{ total, requests int }{{1000, 10}, {901, 10}, {900, 9}, {5, 1}} {
+	for _, tc := range []struct{ total, requests int }{{999, 10}, {901, 10}, {900, 9}, {5, 1}} {
 		p, rec := newProvider(t, usersHandler(tc.total))
 
 		res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
@@ -1149,7 +1149,8 @@ func TestSnapshotUsersWithoutSinceSendsNoQuery(t *testing.T) {
 func TestSnapshotUsersSinceAboveTheSearchLimitFails(t *testing.T) {
 	t.Parallel()
 
-	p, rec := newProvider(t, usersHandler(1001))
+	// Auth0 reports 1,000 for a search that matches that many users or more.
+	p, rec := newProvider(t, usersHandler(1205))
 	since := time.Date(2026, 11, 24, 9, 0, 0, 0, time.UTC)
 
 	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}, Since: since}, nil)
@@ -1159,11 +1160,8 @@ func TestSnapshotUsersSinceAboveTheSearchLimitFails(t *testing.T) {
 		t.Errorf("result = %+v, want nil", res)
 	}
 
-	for _, want := range []string{"1,000", "1001", "2026-11-24T09:00:00Z"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error %q does not contain %q", err, want)
-		}
-	}
+	equal(t, "Auth0's user search returns at most 1,000 users and at least that many changed since 2026-11-24T09:00:00Z; "+
+		"use a later --since or run without it", err.Error())
 
 	if slices.Contains(rec.paths(), "/jobs/users-exports") {
 		t.Errorf("paths = %v, want no export job", rec.paths())

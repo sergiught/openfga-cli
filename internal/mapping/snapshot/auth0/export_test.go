@@ -201,7 +201,7 @@ func TestExportLargeTenantUsesAJob(t *testing.T) {
 	equal(t, "", f.fileAuth.Load())
 
 	equal(t, []string{
-		"reading users", "exporting 1500 users", "exporting 1500 users: waiting for Auth0's job (0s)", "exporting users: 40%",
+		"reading users", "exporting users", "exporting users: waiting for Auth0's job (0s)", "exporting users: 40%",
 	}, said)
 }
 
@@ -384,15 +384,32 @@ func TestExportCreateForbiddenNamesScope(t *testing.T) {
 	contains(t, errHint(err), "read:users")
 }
 
-func TestExportNotUsedAtTheLimit(t *testing.T) {
+func TestExportNotUsedBelowTheLimit(t *testing.T) {
 	t.Parallel()
 
-	p, rec := newProvider(t, usersHandler(1000))
+	p, rec := newProvider(t, usersHandler(999))
 
 	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
 	noErr(t, err)
-	equal(t, 1000, len(res.Events))
+	equal(t, 999, len(res.Events))
 	equal(t, 0, len(rec.find("/jobs/users-exports")))
+}
+
+// Auth0 reports a total of 1,000 for any tenant with that many users or more,
+// so a total at the limit cannot be told from a larger one.
+func TestExportUsedAtTheLimit(t *testing.T) {
+	t.Parallel()
+
+	for _, users := range []int{1000, 1205} {
+		f := &exportFake{file: gzipLines(filled(users)...)}
+		p, rec := newExportProvider(t, users, f)
+
+		res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
+		noErr(t, err)
+		equal(t, users, len(res.Events))
+		equal(t, 1, len(rec.find("/users")))
+		equal(t, 1, len(rec.find("/jobs/users-exports")))
+	}
 }
 
 // TestLiveExportEqualsList reads a real tenant's users through the list and,
@@ -509,7 +526,7 @@ func serveBytes(b []byte) func(w http.ResponseWriter, r *http.Request) {
 func TestExportShorterThanTheListedTotalFails(t *testing.T) {
 	t.Parallel()
 
-	for name, lines := range map[string][]string{"one missing": filled(1499), "empty": nil} {
+	for name, lines := range map[string][]string{"below the listed total": filled(999), "empty": nil} {
 		f := &exportFake{file: gzipLines(lines...)}
 		p, _ := newExportProvider(t, 1500, f)
 
@@ -520,7 +537,7 @@ func TestExportShorterThanTheListedTotalFails(t *testing.T) {
 			t.Errorf("%s: result = %+v, want nil", name, res)
 		}
 
-		want := fmt.Sprintf("Auth0's user export has %d users where the list reported 1500; "+
+		want := fmt.Sprintf("Auth0's user export has %d users where the list reported 1000 or more; "+
 			"users may have been deleted meanwhile, run the command again", len(lines))
 		equal(t, want, err.Error())
 	}
@@ -632,13 +649,13 @@ func TestExportCancelledWhileDownloadingReturnsTheContextError(t *testing.T) {
 func TestExportReplacesUsersTheListGathered(t *testing.T) {
 	t.Parallel()
 
-	// The list says 1,000 on the first page and 1,001 on the second.
+	// The list says 999 on the first page and 1,000 on the second.
 	f := &exportFake{
 		file: gzipLines(filled(1001)...),
 		users: func(w http.ResponseWriter, r *http.Request) {
-			total := 1000
+			total := 999
 			if r.URL.Query().Get("page") == "1" {
-				total = 1001
+				total = 1000
 			}
 
 			usersPage(w, r, total, func(page int) []int {
@@ -717,9 +734,9 @@ func TestExportProgressWhileWaiting(t *testing.T) {
 	noErr(t, err)
 	equal(t, []string{
 		"reading users",
-		"exporting 1500 users",
-		"exporting 1500 users: waiting for Auth0's job (0s)",
-		"exporting 1500 users: waiting for Auth0's job (2s)",
+		"exporting users",
+		"exporting users: waiting for Auth0's job (0s)",
+		"exporting users: waiting for Auth0's job (2s)",
 		"exporting users: 10%",
 		"exporting users: 20%",
 	}, said)

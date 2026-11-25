@@ -173,18 +173,17 @@ func TestExportReportsJobAndDownloadSteps(t *testing.T) {
 	var download []int
 
 	for _, pr := range got {
-		switch pr.Step {
-		case "users (export job)":
-			equal(t, 2500, pr.Total)
-		case "users (export download)":
-			equal(t, 2500, pr.Total)
+		// The list cannot say how many users there are, so the download has no total.
+		if pr.Step == "users (export download)" {
+			equal(t, 0, pr.Total)
 
 			download = append(download, pr.Done)
 		}
 	}
 
 	equal(t, []int{1000, 2000, 2500}, download)
-	equal(t, snapshot.Progress{Message: "exporting users: 40%", Step: "users (export job)", Done: 1000, Total: 2500}, got[len(got)-4])
+	equal(t, snapshot.Progress{Message: "exporting users", Step: "users (export job)"}, got[len(got)-5])
+	equal(t, snapshot.Progress{Message: "exporting users: 40%", Step: "users (export job)", Done: 40, Total: 100}, got[len(got)-4])
 }
 
 func TestStatsNeverMixTwoReads(t *testing.T) {

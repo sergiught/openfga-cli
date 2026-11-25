@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -449,22 +448,23 @@ func (r *read) users() error {
 	page, err := r.m.Users.List(r.ctx, params)
 
 	seen := map[string]bool{}
-	pages, lastTotal, exportTotal := 0, -1.0, 0.0
+	pages, lastTotal, exportFloor := 0, -1.0, -1
 
 	errDeleted := errors.New("Auth0 users were deleted while the list was being read, so a user may have been skipped; " +
 		"run the command again")
 
 	if err := walkPages(r, page, err, "users", typeUser, func(p *core.Page[*int, *management.UserResponseSchema, *management.ListUsersOffsetPaginatedResponseContent], at time.Time) error {
 		total := p.Response.GetTotal()
-		// The list serves no more than maxUsers users; Auth0's export job has no such limit.
-		if total > float64(maxUsers) {
+		// The list serves no more than maxUsers users and reports no higher a total,
+		// so a total at the limit means that many or more. Auth0's export job has no such limit.
+		if total >= float64(maxUsers) {
 			// The export job has no query, so a search that matches too much cannot fall back to it.
 			if windowed {
-				return fmt.Errorf("Auth0's user search returns at most 1,000 users and %d changed since %s; use a later --since or run without it",
-					int(total), r.since.UTC().Format(time.RFC3339))
+				return fmt.Errorf("Auth0's user search returns at most 1,000 users and at least that many changed since %s; "+
+					"use a later --since or run without it", r.since.UTC().Format(time.RFC3339))
 			}
 
-			exportTotal = total
+			exportFloor = int(total)
 
 			return errStopWalk
 		}
@@ -504,13 +504,13 @@ func (r *read) users() error {
 		return err
 	}
 
-	if exportTotal > 0 {
-		return r.exportUsers(int(exportTotal))
+	if exportFloor >= 0 {
+		return r.exportUsers(exportFloor)
 	}
 
 	// A deletion that empties the last page ends the walk without the total
 	// check ever seeing it, so compare what was read with what was reported.
-	if float64(len(seen)) < math.Min(lastTotal, float64(maxUsers)) {
+	if float64(len(seen)) < lastTotal {
 		return errDeleted
 	}
 
@@ -539,11 +539,12 @@ const exportReportEvery = 1000
 const exportPollEvery = 2 * time.Second
 
 // exportUsers reads every user through an export job, for tenants the list
-// cannot serve. total is the user count the list reported.
-func (r *read) exportUsers(total int) error {
-	r.report(snapshot.Progress{Message: fmt.Sprintf("exporting %d users", total), Step: exportJobStep, Total: total})
+// cannot serve. atLeast is the total the list reported: the tenant has that
+// many users or more.
+func (r *read) exportUsers(atLeast int) error {
+	r.report(snapshot.Progress{Message: "exporting users", Step: exportJobStep})
 
-	// The total may have crossed the limit on a later page of the list; the
+	// The total may have reached the limit on a later page of the list; the
 	// export replaces what the pages gathered.
 	delete(r.events, typeUser)
 	r.tally.reset(typeUser)
@@ -570,15 +571,15 @@ func (r *read) exportUsers(total int) error {
 
 		switch got.GetStatus() {
 		case "completed":
-			n, err := r.downloadUsers(got.GetLocation(), now(), total)
+			n, err := r.downloadUsers(got.GetLocation(), now())
 			if err != nil {
 				return err
 			}
 
 			// drift --prune deletes what was not read, so a short file must not pass.
-			if n < total {
-				return fmt.Errorf("Auth0's user export has %d users where the list reported %d; "+
-					"users may have been deleted meanwhile, run the command again", n, total)
+			if n < atLeast {
+				return fmt.Errorf("Auth0's user export has %d users where the list reported %d or more; "+
+					"users may have been deleted meanwhile, run the command again", n, atLeast)
 			}
 
 			return nil
@@ -586,15 +587,13 @@ func (r *read) exportUsers(total int) error {
 			switch pct := got.GetPercentageDone(); {
 			case got.PercentageDone == nil:
 				r.report(snapshot.Progress{
-					Message: fmt.Sprintf("exporting %d users: waiting for Auth0's job (%ds)", total, int(r.limits.now().Sub(created).Seconds())),
-					Step:    exportJobStep, Total: total,
+					Message: fmt.Sprintf("exporting users: waiting for Auth0's job (%ds)", int(r.limits.now().Sub(created).Seconds())),
+					Step:    exportJobStep,
 				})
 			case pct != lastPercent:
 				lastPercent = pct
 
-				r.report(snapshot.Progress{
-					Message: fmt.Sprintf("exporting users: %d%%", pct), Step: exportJobStep, Done: total * pct / 100, Total: total,
-				})
+				r.report(snapshot.Progress{Message: fmt.Sprintf("exporting users: %d%%", pct), Step: exportJobStep, Done: pct, Total: 100})
 			}
 		default:
 			return fmt.Errorf("Auth0's user export job ended as %q", got.GetStatus())
@@ -628,7 +627,7 @@ func (s *streamReader) Read(p []byte) (int, error) {
 // downloadUsers streams the export file, one JSON user per line, into events.
 // The location is a signed URL on another host: it is fetched without the
 // Management client and never appears in an error.
-func (r *read) downloadUsers(location string, at time.Time, total int) (int, error) {
+func (r *read) downloadUsers(location string, at time.Time) (int, error) {
 	fail := func(err error) (int, error) {
 		if ctxErr := r.ctx.Err(); ctxErr != nil {
 			return 0, ctxErr
@@ -673,7 +672,7 @@ func (r *read) downloadUsers(location string, at time.Time, total int) (int, err
 
 		if err := dec.Decode(&u); err != nil {
 			if errors.Is(err, io.EOF) {
-				r.report(snapshot.Progress{Step: exportDownloadStep, Done: len(seen), Total: total})
+				r.report(snapshot.Progress{Step: exportDownloadStep, Done: len(seen)})
 
 				return len(seen), nil
 			}
@@ -706,7 +705,7 @@ func (r *read) downloadUsers(location string, at time.Time, total int) (int, err
 		r.add(event{typ: typeUser, subject: "user " + u.GetUserID(), object: obj, at: at})
 
 		if len(seen)%exportReportEvery == 0 {
-			r.report(snapshot.Progress{Step: exportDownloadStep, Done: len(seen), Total: total})
+			r.report(snapshot.Progress{Step: exportDownloadStep, Done: len(seen)})
 		}
 	}
 }
