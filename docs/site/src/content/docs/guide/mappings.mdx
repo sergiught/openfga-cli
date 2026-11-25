@@ -336,39 +336,39 @@ ofga mappings backfill examples/mappings/auth0.yaml --provider auth0 --dry-run
 ```
 
 ```
-Auth0 read  15:00:23 → 15:00:23 UTC  example.us.auth0.com
-  snapshot.organization.member       4
-  snapshot.organization.member.role  4
-store read  15:00:23 UTC  0 tuples  mappings-demo
-12 tuples from Auth0: 12 missing from the store, 0 already there
+  Auth0     example.us.auth0.com · 15:00:23 → 15:00:23 UTC
+            snapshot.organization.member       4
+            snapshot.organization.member.role  4
+  Store     mappings-demo · 15:00:23 UTC · 0 tuples
 
-missing  in Auth0, not in the store
-12 tuples
-SHAPE                             TUPLES
-membership#holder assignee role   4
-user holder membership            4
-user member organization          4
-+ membership:org_acme|auth0|anne#holder assignee role:org_acme|rol_admin
-+ membership:org_acme|auth0|bob#holder assignee role:org_acme|rol_viewer
-+ membership:org_globex|auth0|anne#holder assignee role:org_globex|rol_viewer
-+ membership:org_globex|auth0|carol#holder assignee role:org_globex|rol_admin
-+ user:auth0|anne holder membership:org_acme|auth0|anne
-+ user:auth0|anne holder membership:org_globex|auth0|anne
-+ user:auth0|bob holder membership:org_acme|auth0|bob
-+ user:auth0|carol holder membership:org_globex|auth0|carol
-+ user:auth0|anne member organization:org_acme
-+ user:auth0|anne member organization:org_globex
-+ user:auth0|bob member organization:org_acme
-+ user:auth0|carol member organization:org_globex
+  Backfill  + 12 missing · 0 already there · 12 from Auth0
+
+  MISSING  12 tuples in Auth0, not in the store
+  membership#holder assignee role · 4
+    + membership:org_acme|auth0|anne#holder assignee role:org_acme|rol_admin
+    + membership:org_acme|auth0|bob#holder assignee role:org_acme|rol_viewer
+    + membership:org_globex|auth0|anne#holder assignee role:org_globex|rol_viewer
+    + membership:org_globex|auth0|carol#holder assignee role:org_globex|rol_admin
+  user holder membership · 4
+    + user:auth0|anne holder membership:org_acme|auth0|anne
+    + user:auth0|anne holder membership:org_globex|auth0|anne
+    + user:auth0|bob holder membership:org_acme|auth0|bob
+    + user:auth0|carol holder membership:org_globex|auth0|carol
+  user member organization · 4
+    + user:auth0|anne member organization:org_acme
+    + user:auth0|anne member organization:org_globex
+    + user:auth0|bob member organization:org_acme
+    + user:auth0|carol member organization:org_globex
 ```
 
-The header says when the read started and finished and which tenant it came
-from, then how many events each type produced. The store line says when the
-store was read and how many tuples it held. The summary line says how many of
-the tuples are missing from the store. Only those are listed and written. A
-store tuple under another condition would be listed under `changed`, with a note
-on stderr that `drift` replaces it. `--dry-run` stops here and says so on
-stderr:
+The `Auth0` row says which tenant the read came from and when it started and
+finished, then how many events each type produced. The `Store` row says when the
+store was read and how many tuples it held. The `Backfill` row says how many of
+the tuples are missing from the store. Only those are listed and written,
+grouped by shape. A store tuple under another condition would be listed under
+`CHANGED` with the condition the store holds, and a note on stderr that `drift`
+replaces it. On a terminal the report is colored; `--plain` prints it as
+tab-separated lines. `--dry-run` stops here and says so on stderr:
 
 ```
 ● dry run: nothing written
@@ -386,11 +386,12 @@ Run it again and there is nothing to write, so it neither asks nor needs
 `--force`:
 
 ```
-Auth0 read  15:00:22 → 15:00:23 UTC  example.us.auth0.com
-  snapshot.organization.member       4
-  snapshot.organization.member.role  4
-store read  15:00:23 UTC  12 tuples  mappings-demo
-12 tuples from Auth0: 0 missing from the store, 12 already there
+  Auth0     example.us.auth0.com · 15:00:22 → 15:00:23 UTC
+            snapshot.organization.member       4
+            snapshot.organization.member.role  4
+  Store     mappings-demo · 15:00:23 UTC · 12 tuples
+
+  Backfill  + 0 missing · 12 already there · 12 from Auth0
 ```
 
 ```
@@ -399,7 +400,8 @@ store read  15:00:23 UTC  12 tuples  mappings-demo
 
 `--force` skips the question and the age line, which only ever sits directly above
 a question. The tuples come out in batches of at most 100
-changes per request. At most 50 tuple lines are printed; `-o json` lists them all.
+changes per request. A section of more than 50 tuples shows a few of each shape
+and says how many it left out; `-o json` lists them all.
 
 #### Drift
 
@@ -412,7 +414,7 @@ changes per request. At most 50 tuple lines are printed; `-o json` lists them al
 Stale tuples are only looked for in shapes a snapshot rule writes: a shape is a
 tuple's user type, relation and object type, such as `user member organization`.
 A rule that writes anything else, or a snapshot rule whose type or relation is
-a template, is listed under `not checked` and never changes the exit code.
+a template, is listed under `NOT CHECKED` and never changes the exit code.
 
 ```bash
 ofga mappings drift examples/mappings/auth0.yaml --provider auth0 --dry-run
@@ -421,10 +423,12 @@ ofga mappings drift examples/mappings/auth0.yaml --provider auth0 --dry-run
 With the store from the backfill, nothing differs:
 
 ```
-store read  15:00:27 UTC  12 tuples  mappings-demo
-Auth0 read  15:00:27 → 15:00:28 UTC  example.us.auth0.com
-  snapshot.organization.member       4
-  snapshot.organization.member.role  4
+  Store  mappings-demo · 15:00:27 UTC · 12 tuples
+  Auth0  example.us.auth0.com · 15:00:27 → 15:00:28 UTC
+         snapshot.organization.member       4
+         snapshot.organization.member.role  4
+
+  Drift  + 0 missing · ~ 0 changed · - 0 stale · 12 in sync
 ● no drift: 12 tuples match Auth0
 ```
 
@@ -441,29 +445,30 @@ both, and exits `3`:
 The store holds 12 tuples. Auth0 now backs 11: 4 members and 3 roles.
 
 ```
-store read  15:02:41 UTC  12 tuples  mappings-demo
-Auth0 read  15:02:41 → 15:02:42 UTC  example.us.auth0.com
-  snapshot.organization.member       4
-  snapshot.organization.member.role  3
+  Store  mappings-demo · 15:02:41 UTC · 12 tuples
+  Auth0  example.us.auth0.com · 15:02:41 → 15:02:42 UTC
+         snapshot.organization.member       4
+         snapshot.organization.member.role  3
 
-missing  in Auth0, not in the store
-2 tuples
-SHAPE                      TUPLES
-user holder membership     1
-user member organization   1
-+ user:auth0|erin holder membership:org_acme|auth0|erin
-+ user:auth0|erin member organization:org_acme
+  Drift  + 2 missing · ~ 0 changed · - 3 stale · 9 in sync
 
-stale    in the store, not in Auth0
-3 tuples
-SHAPE                             TUPLES
-membership#holder assignee role   1
-user holder membership            1
-user member organization          1
-- membership:org_acme|auth0|bob#holder assignee role:org_acme|rol_viewer
-- user:auth0|bob holder membership:org_acme|auth0|bob
-- user:auth0|bob member organization:org_acme
+  MISSING  2 tuples in Auth0, not in the store
+  user holder membership · 1
+    + user:auth0|erin holder membership:org_acme|auth0|erin
+  user member organization · 1
+    + user:auth0|erin member organization:org_acme
+
+  STALE  3 tuples in the store, not in Auth0
+  membership#holder assignee role · 1
+    - membership:org_acme|auth0|bob#holder assignee role:org_acme|rol_viewer
+  user holder membership · 1
+    - user:auth0|bob holder membership:org_acme|auth0|bob
+  user member organization · 1
+    - user:auth0|bob member organization:org_acme
 ```
+
+The `Drift` row counts each kind, and how many tuples Auth0 backs that the store
+already holds as they should be.
 
 and on stderr:
 
@@ -512,30 +517,29 @@ ofga mappings drift examples/mappings/auth0.yaml --provider auth0 --prune
 ```
 
 ```
-store read  15:03:10 UTC  14 tuples  mappings-demo
-Auth0 read  15:03:10 → 15:03:11 UTC  example.us.auth0.com
-  snapshot.organization.member       4
-  snapshot.organization.member.role  3
+  Store  mappings-demo · 15:03:10 UTC · 14 tuples
+  Auth0  example.us.auth0.com · 15:03:10 → 15:03:11 UTC
+         snapshot.organization.member       4
+         snapshot.organization.member.role  3
 
-stale    in the store, not in Auth0
-3 tuples
-SHAPE                             TUPLES
-membership#holder assignee role   1
-user holder membership            1
-user member organization          1
-- membership:org_acme|auth0|bob#holder assignee role:org_acme|rol_viewer
-- user:auth0|bob holder membership:org_acme|auth0|bob
-- user:auth0|bob member organization:org_acme
+  Drift  + 0 missing · ~ 0 changed · - 3 stale · 11 in sync
+
+  STALE  3 tuples in the store, not in Auth0
+  membership#holder assignee role · 1
+    - membership:org_acme|auth0|bob#holder assignee role:org_acme|rol_viewer
+  user holder membership · 1
+    - user:auth0|bob holder membership:org_acme|auth0|bob
+  user member organization · 1
+    - user:auth0|bob member organization:org_acme
 ```
 
 and on stderr, after the report:
 
 ```
-3 tuples
-SHAPE                             TUPLES
-membership#holder assignee role   1
-user holder membership            1
-user member organization          1
+  STALE  3 tuples to delete
+  membership#holder assignee role · 1
+  user holder membership · 1
+  user member organization · 1
 ● Snapshot is 1s old; changes since then are not reflected.
 Delete 3 stale tuples from store mappings-demo (01K1X2Y3Z4A5B6C7D8E9F0G1H2)? [y/N]: y
 ● deleted 3 stale tuples from store mappings-demo
@@ -691,7 +695,7 @@ cannot reproduce.
   Requests run up to 8 at a time. When Auth0 answers 429 the read slows down and
   waits the seconds in Auth0's `Retry-After` header (1 second when it is
   missing, 60 at most), then speeds back up; each 429 is counted in the
-  read header, as in `3 rate-limit waits`. Ctrl-C interrupts a wait. The Free
+  report's `Auth0` row, as in `3 rate-limit waits`. Ctrl-C interrupts a wait. The Free
   plan lets a burst of 10 requests through, then refills about 2 a second, so a
   run soon after another one waits, and a large tenant takes a while there: 500
   organizations with the member and connection types is about 1,000 requests,
@@ -713,7 +717,7 @@ change time for them.
 
 `drift --since` finds missing and changed tuples. It cannot tell which stored
 tuples are stale, because it has not seen every user. So every shape that a
-rule able to fire on a user event writes is listed under "not checked", which
+rule able to fire on a user event writes is listed under `NOT CHECKED`, which
 includes a rule whose `when` does not look at `input.type`. A rule limited to
 other types, such as `input.type == "snapshot.organization.member"`, keeps its
 stale check. A user's old tuple (from a previous plan, or for a deleted user)
@@ -725,8 +729,8 @@ ofga mappings drift examples/mappings-full/auth0.yaml --provider auth0 --since 2
 ```
 
 ```text
-not checked
-  user.created  read with --since: only snapshot.user changed since 2026-11-24 09:00:00 UTC; not compared: user member tenant, user assignee plan
+  NOT CHECKED  1 rule
+    user.created  read with --since: only snapshot.user changed since 2026-11-24 09:00:00 UTC; not compared: user member tenant, user assignee plan
 ```
 
 Auth0's user search returns at most 1,000 users. When more changed, the read

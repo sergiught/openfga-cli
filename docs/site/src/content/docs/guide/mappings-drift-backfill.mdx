@@ -282,7 +282,8 @@ code and the `Retry-After` header of each answer:
   row fails the read with `Auth0 kept rate-limiting the read (10 answers of HTTP
   429 in a row for one request); wait a minute and run it again`.
 
-Each wait is counted and shown in the report header as `N rate-limit waits`.
+Each wait is counted and shown in the report's `Auth0` row as `N rate-limit
+waits`.
 While waiting, the progress line reads `waiting on Auth0's rate limit`. The live
 status card does not print that line; its RATE LIMITED tile counts the waits
 instead. Ctrl-C interrupts a wait.
@@ -488,11 +489,11 @@ A tuple template can carry a `when` of its own:
 
 A template that counts but has a templated user type, relation or object type
 adds no shape: `drift` cannot tell which stored tuples it would have written.
-The rule still owns the shapes of its other templates, and is listed under `not
-checked`. The tuples the templated template writes are still compared for
+The rule still owns the shapes of its other templates, and is listed under
+`NOT CHECKED`. The tuples the templated template writes are still compared for
 missing and changed; only stale ones cannot be found.
 
-### The `not checked` list
+### The `NOT CHECKED` list
 
 Every rule whose tuples the snapshot cannot vouch for is listed, in file order,
 with the reason. The list never changes the exit code.
@@ -626,7 +627,7 @@ For stale tuples:
 
 - Without `--prune`: `N stale tuples left alone; run again with --prune to
   delete them`.
-- With `--prune`: a table of the stale tuples by shape, the snapshot's age, and
+- With `--prune`: the count of stale tuples for each shape, the snapshot's age, and
   `Delete N stale tuples from store name (id)?`.
 
 `drift` exits `0` only when every missing and changed tuple was written and
@@ -697,37 +698,45 @@ Human output goes to stdout; progress, notes, questions and results go to
 stderr, and so does the live status card.
 
 ```
-store read  15:02:41 UTC  9 tuples  mappings-demo
-Auth0 read  15:02:41 → 15:02:42 UTC  example.us.auth0.com
-  snapshot.organization.member       4
-  snapshot.organization.member.role  3
+  Store  mappings-demo · 15:02:41 UTC · 9 tuples
+  Auth0  example.us.auth0.com · 15:02:41 → 15:02:42 UTC
+         snapshot.organization.member       4
+         snapshot.organization.member.role  3
 
-missing  in Auth0, not in the store
-2 tuples
-SHAPE                       TUPLES
-user holder membership      1
-user member organization    1
-+ user:auth0|erin holder membership:org_acme|auth0|erin
-+ user:auth0|erin member organization:org_acme
+  Drift  + 2 missing · ~ 0 changed · - 0 stale · 9 in sync
+
+  MISSING  2 tuples in Auth0, not in the store
+  user holder membership · 1
+    + user:auth0|erin holder membership:org_acme|auth0|erin
+  user member organization · 1
+    + user:auth0|erin member organization:org_acme
 ```
 
-- **`store read`**: when the store read finished, how many tuples were read, and
-  the store's name (its ID when the name cannot be read). `drift` prints it
-  first, because it reads the store first. `backfill` and a `drift --since` run
-  that reads the store afterwards print it under the Auth0 header, with `on M
+- **`Store`**: the store's name (its ID when the name cannot be read), when the
+  store read finished, and how many tuples were read. `drift` prints it first,
+  because it reads the store first. `backfill` and a `drift --since` run that
+  reads the store afterwards print it under the `Auth0` rows, with `on M
   objects` when the read was narrowed. It is left out when the store was not
   read.
-- **`Auth0 read`**: start and finish of the read, the tenant domain, and `N
+- **`Auth0`**: the tenant domain, start and finish of the read, and `N
   rate-limit waits` when there were any. One line per type follows with its
   event count, and `(changed since <time> UTC)` on a count read by window.
 - Times are `HH:MM:SS` in UTC. A read that crosses midnight UTC shows dates.
-- `backfill` adds a summary line: `12 tuples from Auth0: 2 missing from the
-  store, 10 already there`, with `, N there with a different condition` when
-  any.
-- **Sections**: `missing`, `changed` and (in `drift`) `stale`, each with a tuple
-  count, a table of shapes, and at most 50 tuple lines followed by `… N more; -o
-  json lists them all`. Stale tuples are shown as deletes.
-- **`not checked`**: `drift` only, one line per rule with its reason.
+- **`Drift`**: how many tuples are missing, changed and stale, and how many
+  desired tuples the store already holds as they should be. `backfill` prints a
+  `Backfill` row instead: `+ 2 missing · 10 already there · 12 from Auth0`,
+  with `~ N with a different condition` when any.
+- **Sections**: `MISSING`, `CHANGED` and (in `drift`) `STALE`, each with a tuple
+  count and its tuples grouped by shape. Missing tuples are marked `+`, stale
+  ones `-`, and changed ones `~`, followed by `was (...)` with the condition the
+  store holds, or `was unconditional`. A section of 50 tuples or fewer lists
+  them all. A longer one shows an equal share of each shape, at least one and
+  about 50 lines in all, with `… N more` under a shape that has more, and ends
+  with `-o json lists all N`.
+- **`NOT CHECKED`**: `drift` only, one line per rule with its reason.
+- On a terminal the report is colored: green for missing, amber for changed, red
+  for stale. A pipe, `NO_COLOR` or `--no-color` gives the same layout without
+  color. `--plain` keeps its tab-separated lines.
 
 ### JSON and YAML
 
