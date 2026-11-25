@@ -60,7 +60,7 @@ func (c *Command) newBackfillCmd() *cobra.Command {
 			"It shows the tuples it would write and asks before writing (--force skips the question, --dry-run stops after showing them). " +
 			"The provider is read once, so the tuples reflect it as of that moment. Changes made while the command runs, or after it, are not included. " +
 			"Use `ofga mappings drift` to compare the store with the provider and to remove tuples the provider no longer backs.\n\n" +
-			"Run again after a failure: tuples that already landed are not written twice. Auth0 needs a machine-to-machine application. Above 1,000 users the read uses Auth0's user export job, which needs no extra scope. " +
+			"Run again after a failure: tuples that already landed are not written twice. Auth0 needs a machine-to-machine application. From 1,000 users up the read uses Auth0's user export job, which needs no extra scope. " +
 			"--since 2h (or an RFC 3339 time) reads only the Auth0 users changed since then, at most 1,000; other types are still read whole.\n\n" +
 			"Exit codes: 0 ok · 1 error · 2 usage · 4 network · 130 interrupted.",
 		Example: `# See what a backfill from Auth0 would write

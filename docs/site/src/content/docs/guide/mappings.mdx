@@ -671,14 +671,14 @@ cannot reproduce.
   either cannot serve snapshots; leave its snapshot type out of its `when`.
 - `snapshot.organization.member.role` covers only roles assigned to the member
   directly.
-- Auth0 lists at most 1,000 users through this API. Above that, the read asks
+- Auth0 lists at most 1,000 users through this API. From 1,000 users up, the read asks
   Auth0 for a user export job, waits for it and downloads the file; it needs no
   extra scope. On a small tenant the job takes about a second, on a large one
   Auth0 decides. An exported identity may carry a `profileData` that a listed one
   does not. A short export fails the read with `Auth0's user export has M users where the
-  list reported N; users may have been deleted meanwhile, run the command again`;
-  run it again. If users are deleted while the list is being read (a tenant of 1,000
-  users or fewer), the read fails with `Auth0 users were deleted while the list was being read, so
+  list reported N or more; users may have been deleted meanwhile, run the command again`;
+  run it again. If users are deleted while the list is being read (a tenant of fewer than
+  1,000 users), the read fails with `Auth0 users were deleted while the list was being read, so
   a user may have been skipped; run the command again`; run it again.
 - Auth0 rate-limits the Management API, at about 2 requests a second on the Free
   plan. A read makes one token request, then pages of 100, and only for
@@ -733,8 +733,8 @@ ofga mappings drift examples/mappings-full/auth0.yaml --provider auth0 --since 2
     user.created  read with --since: only snapshot.user changed since 2026-11-24 09:00:00 UTC; not compared: user member tenant, user assignee plan
 ```
 
-Auth0's user search returns at most 1,000 users. When more changed, the read
-fails with `Auth0's user search returns at most 1,000 users and N changed since
+Auth0's user search returns at most 1,000 users. When that many or more changed, the read
+fails with `Auth0's user search returns at most 1,000 users and at least that many changed since
 <time>; use a later --since or run without it`. The search is also eventually
 consistent, so a user changed a moment ago may not show yet. For an hourly run,
 use an overlapping window such as `--since 2h`.

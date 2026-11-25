@@ -58,7 +58,7 @@ func (c *Command) newDriftCmd() *cobra.Command {
 			"It then asks before writing the missing tuples and replacing the changed ones (a changed tuple is deleted and written again, 100 at a time, and put back if that fails), " +
 			"and with --prune asks again before deleting the stale ones. --force skips the questions, --dry-run stops after the report. " +
 			"Without a terminal, under --no-input or -o json/yaml, it only reports unless --force is given. " +
-			"The provider is read once, so the result reflects it as of that moment. Auth0 needs a machine-to-machine application. Above 1,000 users the read uses Auth0's user export job, which needs no extra scope. " +
+			"The provider is read once, so the result reflects it as of that moment. Auth0 needs a machine-to-machine application. From 1,000 users up the read uses Auth0's user export job, which needs no extra scope. " +
 			"--since 2h (or an RFC 3339 time) reads only the Auth0 users changed since then, at most 1,000; other types are still read whole. " +
 			"Shapes written by a rule that can fire on a windowed type are then not checked for stale tuples.\n\n" +
 			"Exit codes: 0 no drift, or all of it fixed · 1 error · 2 usage · 3 drift remains · 4 network · 130 interrupted.",

@@ -45,4 +45,4 @@ ofga mappings drift examples/mappings-full/auth0.yaml --provider auth0 --dry-run
 ofga mappings drift examples/mappings-full/auth0.yaml --provider auth0 --prune     # asks, then deletes it
 ```
 
-Read the warning under [Things to know before you run it](https://sergiught.github.io/openfga-cli/guide/mappings/#things-to-know-before-you-run-it) before using `--prune` on a store that anything else writes to. Above 1,000 users the read asks Auth0 for a user export job, waits for it and downloads it; this needs no extra scope.
+Read the warning under [Things to know before you run it](https://sergiught.github.io/openfga-cli/guide/mappings/#things-to-know-before-you-run-it) before using `--prune` on a store that anything else writes to. From 1,000 users up the read asks Auth0 for a user export job, waits for it and downloads it; this needs no extra scope.

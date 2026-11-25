@@ -184,10 +184,11 @@ Two checks keep a short list from passing as the tenant's state:
   being read, so a user may have been skipped; run the command again`.
 - A user ID seen twice is kept once.
 
-### More than 1,000 users: the export job
+### 1,000 users or more: the export job
 
-When the total is above 1,000, the users read so far are discarded and the read
-asks Auth0 for a **user export job** instead:
+Auth0 never reports a total above 1,000: a tenant with 1,000 users and a tenant
+with 50,000 both say 1,000. So when the total reaches 1,000, the users read so
+far are discarded and the read asks Auth0 for a **user export job** instead:
 
 1. A JSON export job is created. It asks for these fields: `user_id`, `email`,
    `email_verified`, `username`, `phone_number`, `phone_verified`, `created_at`,
@@ -203,7 +204,9 @@ asks Auth0 for a **user export job** instead:
    a separate plain HTTP client and never appears in an error message.
 4. The number of users in the file is compared with the list's total. Fewer
    fails the read with `Auth0's user export has N users where the list reported
-   M; users may have been deleted meanwhile, run the command again`.
+   M or more; users may have been deleted meanwhile, run the command again`.
+   Because the list's total stops at 1,000, this catches only a file with fewer
+   than 1,000 users.
 
 A download that fails says `downloading Auth0's user export failed:` followed
 by `HTTP <status>`, the stream error, `a line is not a JSON user` or `the job's
@@ -349,7 +352,7 @@ The card has one row per step, in the order the command runs them:
 A step is `✓` when done, with a note and how long it took, a spinner while it
 runs, `○` while it waits, and `–` when a later step started without it. A
 running step shows a progress bar with the percent done and the time left when
-its size is known: the organizations, the user export, the narrowed store read,
+its size is known: the organizations, the user export job, the narrowed store read,
 the replay and the writes. Otherwise it shows a running count and the rate.
 `drift` reads the whole store this way, because OpenFGA does not report how many
 tuples it holds.
@@ -384,8 +387,8 @@ stderr is sent to a file, that is a progress line per step. In a pipe, in CI,
 with stdout sent to a file, and with `--quiet`, `--plain` or agent mode, it is
 neither the card nor progress lines. Reading the provider prints `reading
 connections`, `reading
-users` (or `reading users changed since <time> UTC`), `exporting N users`,
-`exporting N users: waiting for Auth0's job (Ns)`, `exporting users: P%`,
+users` (or `reading users changed since <time> UTC`), `exporting users`,
+`exporting users: waiting for Auth0's job (Ns)`, `exporting users: P%`,
 `reading organizations`, `reading connections of X/Y organizations`, `reading
 members of X/Y organizations`.
 
@@ -655,10 +658,10 @@ tenant connections carry no usable timestamp and are always read in full.
 is refused: `--since narrows only snapshot.user, and mapping.yaml has no rule
 for them`.
 
-The search returns at most 1,000 users, and the export job cannot filter. More
-than 1,000 changed users fails the read with `Auth0's user search returns at
-most 1,000 users and N changed since <time>; use a later --since or run without
-it`.
+The search returns at most 1,000 users and reports no higher a total, and the
+export job cannot filter. So 1,000 or more changed users fails the read with
+`Auth0's user search returns at most 1,000 users and at least that many changed
+since <time>; use a later --since or run without it`.
 
 ### What it cannot find
 
@@ -791,11 +794,12 @@ schemas](../output-schemas/).
 - **Users created and deleted during the list.** If one user is deleted and
   another created while the user list is being read, the total stays the same
   and a user can be skipped without the read noticing.
-- **The export job has not been run on a tenant with more than 1,000 real
-  users.** It is covered by tests against recorded responses.
-- **Auth0's search total above 1,000.** The `--since` over-limit error relies
-  on Auth0 reporting a total above 1,000; that has not been observed on a real
-  tenant.
+- **A tenant of exactly 1,000 users uses the export job.** Auth0 reports 1,000
+  for that tenant and for any larger one, so the read cannot tell them apart.
+  For the same reason `--since` fails when exactly 1,000 users changed.
+- **A short export of a large tenant.** The list cannot say how many users a
+  tenant above 1,000 has, so an export file is checked only for holding at
+  least 1,000 users and for being a complete gzip stream.
 - **Auth0's search index lags.** A user changed a few seconds ago may be absent
   from the list or from a `--since` window. Use an overlapping window.
 - **A replace that times out.** If a write request passes its 30-second
