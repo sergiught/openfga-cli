@@ -47,6 +47,9 @@ func TestETA(t *testing.T) {
 	if got := eta(10*time.Second, 0, 100); got != 0 {
 		t.Errorf("eta with nothing done = %v, want 0", got)
 	}
+	if got := eta(time.Hour, 1, 1_000_000_000); got != 0 {
+		t.Errorf("eta of a huge ratio = %v, want 0", got)
+	}
 	if got := eta(10*time.Second, 25, 100); got != 30*time.Second {
 		t.Errorf("eta = %v, want 30s", got)
 	}

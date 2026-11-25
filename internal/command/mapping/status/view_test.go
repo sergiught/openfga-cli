@@ -1,6 +1,7 @@
 package status
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +34,8 @@ func sample0() state {
 		},
 	}
 }
+
+var sgrColor = regexp.MustCompile(`\x1b\[[0-9;]*(3[0-9]|4[0-9]|9[0-7]|10[0-7]|38|48)[0-9;]*m`)
 
 func plain(s string) string { return ansi.Strip(s) }
 
@@ -121,8 +124,8 @@ func TestViewMono(t *testing.T) {
 		t.Fatal("no mono theme")
 	}
 	out := view(sample0(), 100, 40)
-	if strings.Contains(out, "38;2;") || strings.Contains(out, "38;5;") {
-		t.Errorf("color in the mono theme: %q", out)
+	if m := sgrColor.FindString(out); m != "" {
+		t.Errorf("color %q in the mono theme: %q", m, out)
 	}
 	if !strings.Contains(plain(out), "━━━╸") && !strings.Contains(plain(out), "━─") {
 		t.Errorf("mono bar is not filled and empty:\n%s", plain(out))
@@ -152,7 +155,69 @@ func TestViewMemoryOnly(t *testing.T) {
 	}
 }
 
+func TestViewNeverPanicsOrOverflows(t *testing.T) {
+	for cols := 0; cols <= 30; cols++ {
+		for rows := 0; rows <= 5; rows++ {
+			out := view(sample0(), cols, rows)
+			if cols < minCols || rows < 3 {
+				if out != "" {
+					t.Errorf("cols %d rows %d drew %q", cols, rows, plain(out))
+				}
+				continue
+			}
+			checkWidths(t, out, cols)
+		}
+	}
+}
+
 func TestRenderedCards(t *testing.T) {
-	t.Log("\n" + plain(view(sample0(), 100, 40)))
-	t.Log("\n" + plain(view(sample0(), 56, 60)))
+	wide := `╭─ ofga mappings drift ───────────────────────────────────────────── 3m 16s ─╮
+│                                                                            │
+│  ✓ Store   1,204,300 tuples read · 412,118 kept                    1m 02s  │
+│  ⠹ Auth0   members of organizations                        3,120 / 10,000  │
+│            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━   31% · 14m 00s left  │
+│  ○ Replay                                                                  │
+│  ○ Write                                                                   │
+│                                                                            │
+│  ────────────────────────────────────────────────────────────────────────  │
+│                                                                            │
+│  REQUESTS                  RATE LIMITED                 MEMORY             │
+│  Auth0   3,274  8.1/s      Auth0  12×  1 per 120ms      1.1 GB             │
+│  store  12,043             store  0×                    peak 1.3 GB        │
+│                                                                            │
+│  DATA  214 organizations · 311,870 organization members · 98,112 roles     │
+│                                                                            │
+╰────────────────────────────────────────────────────────────────────────────╯`
+	narrow := `╭─ ofga mappings drift ────────────────────── 3m 16s ─╮
+│                                                     │
+│  ✓ Store   1,204,300 tuples read · 412,118… 1m 02s  │
+│  ⠹ Auth0   members of organizations 3,120 / 10,000  │
+│            ━━━━━━━━━━━━━━━━━━   31% · 14m 00s left  │
+│  ○ Replay                                           │
+│  ○ Write                                            │
+│                                                     │
+│  ─────────────────────────────────────────────────  │
+│                                                     │
+│  REQUESTS                                           │
+│  Auth0   3,274  8.1/s                               │
+│  store  12,043                                      │
+│                                                     │
+│  RATE LIMITED                                       │
+│  Auth0  12×  1 per 120ms                            │
+│  store  0×                                          │
+│                                                     │
+│  MEMORY                                             │
+│  1.1 GB                                             │
+│  peak 1.3 GB                                        │
+│                                                     │
+│  DATA  214 organizations ·                          │
+│        311,870 organization members · 98,112 roles  │
+│                                                     │
+╰─────────────────────────────────────────────────────╯`
+	if got := plain(view(sample0(), 100, 40)); got != wide {
+		t.Errorf("card at 100 columns:\n%s", got)
+	}
+	if got := plain(view(sample0(), 56, 60)); got != narrow {
+		t.Errorf("card at 56 columns:\n%s", got)
+	}
 }

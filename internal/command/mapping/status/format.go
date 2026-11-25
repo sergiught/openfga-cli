@@ -53,7 +53,11 @@ func eta(elapsed time.Duration, done, total int) time.Duration {
 	if elapsed < 3*time.Second || done <= 0 || done >= total {
 		return 0
 	}
-	return time.Duration(float64(elapsed) * float64(total-done) / float64(done))
+	left := float64(elapsed) * float64(total-done) / float64(done)
+	if left <= 0 || left > float64(99*time.Hour) {
+		return 0
+	}
+	return time.Duration(left)
 }
 
 // sample is a counter value at a moment.
@@ -69,6 +73,9 @@ const windowSpan = 5 * time.Second
 
 // add records n at now, at most once a second, and drops old samples.
 func (w *window) add(now time.Time, n int) {
+	if len(*w) > 0 && n < (*w)[len(*w)-1].n { // the counter was reset
+		*w = nil
+	}
 	if len(*w) > 0 && now.Sub((*w)[len(*w)-1].at) < time.Second {
 		return
 	}

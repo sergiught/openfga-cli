@@ -13,6 +13,9 @@ import (
 	"sync"
 	"time"
 
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
 
 	"github.com/sergiught/openfga-cli/internal/client"
@@ -28,23 +31,34 @@ const (
 
 // Live is a status card drawn in place on a terminal. Every method is a no-op
 // on a nil *Live.
+//
+// Phase, Suspend and Close must be called from one goroutine; Set and Note may
+// be called from any goroutine.
 type Live struct {
 	size  func() (cols, rows int)
 	now   func() time.Time
 	mem   func() uint64
 	async bool // Phase starts a goroutine that redraws every 100 ms
 
+	// omu serialises everything written to the terminal. It is taken before
+	// mu, and mu is never held while writing, so a stalled terminal cannot
+	// block Set.
+	omu    sync.Mutex
+	w      io.Writer // the summary line goes here
+	frameW io.Writer // frames and erasures go here
+	plain  bool      // strip colors from frames
+	widths []int     // cell widths of the previous frame's lines
+
 	mu      sync.Mutex
-	w       io.Writer
 	title   string
 	phases  []*livePhase
 	prov    *liveSource
+	provFn  func() snapshot.Stats
+	stats   snapshot.Stats // the provider's last reading
 	store   *liveSource
-	counts  func() []snapshot.Count
-	pace    func() time.Duration
+	meter   *client.Meter
 	drawing bool
 	started time.Time // when drawing last started or resumed
-	lines   int       // lines of the previous frame
 	frames  int
 	cur     *livePhase
 	memNow  uint64
@@ -61,19 +75,44 @@ type livePhase struct {
 	items     window
 }
 
-// liveSource is a counter pair polled each frame, with the values at the last
-// summary line.
+// liveSource is a pair of counters read once a frame, with the values at the
+// last summary line.
 type liveSource struct {
 	name          string
-	read          func() (requests, limited int)
+	req, lim      int
 	rate          window
 	base, baseLim int
 }
 
+// target finds where a status for w would draw: the terminal file behind w
+// (unwrapping a colorprofile.Writer), the writer frames go to, and whether
+// frames must be colorless. A NoTTY writer strips every escape sequence,
+// cursor movement included, so frames then go straight to the file; on a dumb
+// terminal there is no card at all.
+func target(w io.Writer) (f *os.File, frames io.Writer, plain, ok bool) {
+	inner, frames := w, w
+	cw, wrapped := w.(*colorprofile.Writer)
+	if wrapped {
+		inner = cw.Forward
+	}
+	f, isFile := inner.(*os.File)
+	if !isFile {
+		return nil, nil, false, false
+	}
+	if wrapped && cw.Profile <= colorprofile.NoTTY {
+		if os.Getenv("TERM") == "dumb" {
+			return nil, nil, false, false
+		}
+		return f, f, true, true
+	}
+	return f, frames, false, true
+}
+
 // New returns a live status drawing on w, or nil when w is not a terminal or
-// output is quiet, plain, terse or not interactive.
+// output is quiet, plain, terse or not interactive. w may be the file itself
+// or a *colorprofile.Writer over it.
 func New(w io.Writer, title string, phases ...string) *Live {
-	f, ok := w.(*os.File)
+	f, frames, plain, ok := target(w)
 	if !ok || !term.IsTerminal(f.Fd()) || output.Quiet || output.Plain || output.Terse || !output.Interactive {
 		return nil
 	}
@@ -84,12 +123,12 @@ func New(w io.Writer, title string, phases ...string) *Live {
 		}
 		return cols, rows
 	}, time.Now, heapInUse, title, phases...)
-	l.async = true
+	l.frameW, l.plain, l.async = frames, plain, true
 	return l
 }
 
 func newLive(w io.Writer, size func() (int, int), now func() time.Time, mem func() uint64, title string, phases ...string) *Live {
-	l := &Live{w: w, size: size, now: now, mem: mem, title: title}
+	l := &Live{w: w, frameW: w, size: size, now: now, mem: mem, title: title}
 	for _, name := range phases {
 		l.phases = append(l.phases, &livePhase{phase: phase{name: name}})
 	}
@@ -110,12 +149,8 @@ func (l *Live) Provider(label string, stats func() snapshot.Stats) {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.prov = &liveSource{name: label, read: func() (int, int) {
-		s := stats()
-		return s.Requests, s.RateLimited
-	}}
-	l.counts = func() []snapshot.Count { return stats().Counts }
-	l.pace = func() time.Duration { return stats().Pace }
+	l.prov = &liveSource{name: label}
+	l.provFn = stats
 }
 
 // Store sets the meter of the store's requests, polled each frame.
@@ -125,7 +160,8 @@ func (l *Live) Store(m *client.Meter) {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.store = &liveSource{name: "store", read: func() (int, int) { return m.Requests(), m.RateLimited() }}
+	l.store = &liveSource{name: "store"}
+	l.meter = m
 }
 
 // Phase starts the named phase running; the phase that was running is done.
@@ -153,7 +189,12 @@ func (l *Live) Phase(name string) {
 	ph.step, ph.done, ph.total, ph.items = "", 0, 0, nil
 	l.cur = ph
 	if !l.drawing {
-		l.drawing, l.started, l.lines = true, now, 0
+		l.drawing, l.started = true, now
+		for _, s := range []*liveSource{l.prov, l.store} {
+			if s != nil {
+				s.rate = nil
+			}
+		}
 		if l.async {
 			l.stop, l.stopped = make(chan struct{}), make(chan struct{})
 			go l.loop(l.stop, l.stopped)
@@ -228,35 +269,57 @@ func (l *Live) end(lead string) {
 		<-stopped
 	}
 
+	l.omu.Lock()
+	defer l.omu.Unlock()
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	now := l.now()
 	l.finish(now)
-	l.poll(now)
-	var buf bytes.Buffer
-	if l.lines > 0 {
-		fmt.Fprintf(&buf, "\x1b[%dA", l.lines)
-	}
-	buf.WriteString("\r\x1b[J")
-	l.lines = 0
-	output.Infof(&buf, "%s", lead+dur(now.Sub(l.started))+l.summary())
-	_, _ = l.w.Write(buf.Bytes())
+	l.sample(now)
+	line := lead + dur(now.Sub(l.started)) + l.summary()
 	for _, s := range []*liveSource{l.prov, l.store} {
 		if s != nil {
-			s.base, s.baseLim = s.read()
+			s.base, s.baseLim = s.req, s.lim
 		}
+	}
+	l.mu.Unlock()
+
+	cols, _ := l.size()
+	var buf bytes.Buffer
+	l.moveUp(&buf, cols)
+	buf.WriteString("\r\x1b[J")
+	l.widths = nil
+	_, _ = l.frameW.Write(buf.Bytes())
+	buf.Reset()
+	output.Infof(&buf, "%s", line)
+	_, _ = l.w.Write(buf.Bytes())
+}
+
+// moveUp writes the cursor movement to the top of the previous frame. Lines
+// wider than the terminal now (it was narrowed) have wrapped into more rows.
+func (l *Live) moveUp(buf *bytes.Buffer, cols int) {
+	rows := 0
+	for _, w := range l.widths {
+		rows += max(1, (w+max(1, cols)-1)/max(1, cols))
+	}
+	if rows > 0 {
+		fmt.Fprintf(buf, "\x1b[%dA", rows)
 	}
 }
 
-// summary is the part of the summary line after the elapsed time.
+// summary is the part of the summary line after the elapsed time. The caller
+// holds mu.
 func (l *Live) summary() string {
 	var b strings.Builder
 	for _, s := range []*liveSource{l.prov, l.store} {
 		if s == nil {
 			continue
 		}
-		req, lim := s.read()
-		req, lim = req-s.base, lim-s.baseLim
+		// A provider resets its counters when a read starts.
+		base, baseLim := s.base, s.baseLim
+		if s.req < base || s.lim < baseLim {
+			base, baseLim = 0, 0
+		}
+		req, lim := s.req-base, s.lim-baseLim
 		if req <= 0 {
 			continue
 		}
@@ -292,12 +355,19 @@ func (l *Live) loop(stop <-chan struct{}, stopped chan<- struct{}) {
 	}
 }
 
-// poll samples the counters and memory, each at most once a second.
-func (l *Live) poll(now time.Time) {
+// sample reads the counters once and takes the rate and memory samples, each
+// at most once a second. The caller holds mu.
+func (l *Live) sample(now time.Time) {
+	if l.provFn != nil {
+		l.stats = l.provFn()
+		l.prov.req, l.prov.lim = l.stats.Requests, l.stats.RateLimited
+	}
+	if l.meter != nil {
+		l.store.req, l.store.lim = l.meter.Requests(), l.meter.RateLimited()
+	}
 	for _, s := range []*liveSource{l.prov, l.store} {
 		if s != nil {
-			req, _ := s.read()
-			s.rate.add(now, req)
+			s.rate.add(now, s.req)
 		}
 	}
 	if l.cur != nil {
@@ -324,19 +394,16 @@ func (l *Live) snapshot(now time.Time) state {
 		if src == nil {
 			continue
 		}
-		req, lim := src.read()
-		out := source{name: src.name, requests: req, limited: lim, rate: src.rate.rate()}
-		if src == l.prov && l.pace != nil {
-			out.pace = l.pace()
+		out := source{name: src.name, requests: src.req, limited: src.lim, rate: src.rate.rate()}
+		if src == l.prov {
+			out.pace = l.stats.Pace
 		}
 		s.sources = append(s.sources, out)
 	}
-	if l.counts != nil {
-		pal := newPalette()
-		for _, c := range l.counts() {
-			if c.N > 0 {
-				s.data = append(s.data, pal.bold.Render(num(c.N))+pal.subtle.Render(" "+typeName(c.Type, c.N)))
-			}
+	pal := newPalette()
+	for _, c := range l.stats.Counts {
+		if c.N > 0 {
+			s.data = append(s.data, pal.bold.Render(num(c.N))+pal.subtle.Render(" "+typeName(c.Type, c.N)))
 		}
 	}
 	return s
@@ -344,29 +411,37 @@ func (l *Live) snapshot(now time.Time) state {
 
 // frame draws one frame in place of the previous one, with a single Write.
 func (l *Live) frame() {
+	l.omu.Lock()
+	defer l.omu.Unlock()
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	if !l.drawing {
+		l.mu.Unlock()
 		return
 	}
 	now := l.now()
-	l.poll(now)
-	cols, rows := l.size()
-	card := view(l.snapshot(now), cols, rows)
+	l.sample(now)
+	st := l.snapshot(now)
 	l.frames++
+	l.mu.Unlock()
+
+	cols, rows := l.size()
+	card := view(st, cols, rows)
+	if l.plain {
+		card = ansi.Strip(card)
+	}
+	var lines []string
+	if card != "" {
+		lines = strings.Split(card, "\n")
+	}
 	var buf bytes.Buffer
-	if l.lines > 0 {
-		fmt.Fprintf(&buf, "\x1b[%dA", l.lines)
-	}
+	l.moveUp(&buf, cols)
 	buf.WriteString("\r")
-	lines := strings.Split(card, "\n")
-	if card == "" {
-		lines = nil
-	}
-	for _, line := range lines {
+	widths := make([]int, len(lines))
+	for i, line := range lines {
 		buf.WriteString(line + "\x1b[K\n")
+		widths[i] = lipgloss.Width(line)
 	}
 	buf.WriteString("\x1b[J")
-	l.lines = len(lines)
-	_, _ = l.w.Write(buf.Bytes())
+	l.widths = widths
+	_, _ = l.frameW.Write(buf.Bytes())
 }

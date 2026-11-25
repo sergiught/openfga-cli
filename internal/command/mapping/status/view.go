@@ -17,6 +17,9 @@ const (
 	done
 )
 
+// minCols is the narrowest terminal a card is drawn in.
+const minCols = 20
+
 var spinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 // phase is one step of the card.
@@ -74,7 +77,7 @@ func newPalette() palette {
 func (p palette) bar(w int, frac float64) string {
 	filled := max(0, min(w, int(frac*float64(w)+0.5)))
 	if p.mono {
-		return strings.Repeat("━", filled) + strings.Repeat("─", w-filled)
+		return strings.Repeat("━", filled) + strings.Repeat("─", max(0, w-filled))
 	}
 	var b strings.Builder
 	for i := range filled {
@@ -85,7 +88,7 @@ func (p palette) bar(w int, frac float64) string {
 		c := style.Blend(style.Primary, style.Secondary, k)
 		b.WriteString(lipgloss.NewStyle().Foreground(c).Render("━"))
 	}
-	return b.String() + p.faint.Render(strings.Repeat("━", w-filled))
+	return b.String() + p.faint.Render(strings.Repeat("━", max(0, w-filled)))
 }
 
 // spread puts left and right at the two ends of w cells; left gives way.
@@ -217,9 +220,12 @@ func (p palette) dataLines(items []string, w int) []string {
 // in rows-1 lines only the running phase is drawn. Every line is at most
 // cols-1 cells wide.
 func view(s state, cols, rows int) string {
+	if cols < minCols || rows < 3 {
+		return ""
+	}
 	p := newPalette()
-	cardW := min(cols-1, 78)
-	w := cardW - 6 // border and two cells of padding each side
+	cardW := max(0, min(cols-1, 78))
+	w := max(0, cardW-6) // border and two cells of padding each side
 	nameW := 0
 	for _, ph := range s.phases {
 		nameW = max(nameW, lipgloss.Width(ph.name))
@@ -258,8 +264,8 @@ func view(s state, cols, rows int) string {
 	b.WriteString(ansi.Truncate(top, cols-1, "") + "\n")
 	for _, l := range body {
 		l = ansi.Truncate(l, w, "…")
-		b.WriteString(ansi.Truncate(p.rule.Render("│")+"  "+l+strings.Repeat(" ", w-lipgloss.Width(l))+"  "+p.rule.Render("│"), cols-1, "") + "\n")
+		b.WriteString(ansi.Truncate(p.rule.Render("│")+"  "+l+strings.Repeat(" ", max(0, w-lipgloss.Width(l)))+"  "+p.rule.Render("│"), cols-1, "") + "\n")
 	}
-	b.WriteString(ansi.Truncate(p.rule.Render("╰"+strings.Repeat("─", cardW-2)+"╯"), cols-1, ""))
+	b.WriteString(ansi.Truncate(p.rule.Render("╰"+strings.Repeat("─", max(0, cardW-2))+"╯"), cols-1, ""))
 	return b.String()
 }
