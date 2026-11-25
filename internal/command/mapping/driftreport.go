@@ -16,6 +16,9 @@ import (
 // renderDrift prints the human report: when the store was read, the snapshot
 // header, each kind of drift with its tuples, and what was not checked.
 func renderDrift(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt time.Time, stored, objects int, afterProvider bool, diff snapshot.Diff, notChecked []snapshot.NotChecked) error {
+	if !output.Plain {
+		return renderDriftReport(w, run, storeLabel, storeReadAt, stored, objects, afterProvider, diff, notChecked)
+	}
 	label := output.SanitizeField(run.Provider.Label())
 	// The store line follows the provider header when the store was read after
 	// the provider, and is left out when it was not read at all.

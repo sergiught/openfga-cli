@@ -204,7 +204,7 @@ func TestBackfillCrowdedPairClassifiesLikeAFullRead(t *testing.T) {
 			t.Fatalf("err = %v\n%s", err, stderr)
 		}
 		for line := range strings.SplitSeq(stdout, "\n") {
-			if strings.Contains(line, "tuples from Fake:") {
+			if strings.Contains(line, "Backfill  ") {
 				return line
 			}
 		}

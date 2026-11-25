@@ -274,7 +274,7 @@ func TestDriftSinceListsWindowedShapesAsNotChecked(t *testing.T) {
 	if len(log) != 2 || log[0] != "store read" || log[1] != "provider read" {
 		t.Errorf("order = %v, want the whole store read before the provider", log)
 	}
-	from, to := strings.Index(stdout, "\nstale"), strings.Index(stdout, "\nnot checked")
+	from, to := strings.Index(stdout, " STALE "), strings.Index(stdout, " NOT CHECKED ")
 	if from < 0 || to < from {
 		t.Fatalf("want a stale section before not checked:\n%s", stdout)
 	}
@@ -282,7 +282,7 @@ func TestDriftSinceListsWindowedShapesAsNotChecked(t *testing.T) {
 		t.Errorf("stale section:\n%s", stale)
 	}
 	want := "read with --since: only snapshot.user changed since 2026-11-19 12:02:13 UTC; not compared: user member tenant"
-	if !strings.Contains(stdout, "\nnot checked\n") || !strings.Contains(stdout, "user.created") || !strings.Contains(stdout, want) {
+	if !strings.Contains(stdout, " NOT CHECKED ") || !strings.Contains(stdout, "user.created") || !strings.Contains(stdout, want) {
 		t.Errorf("stdout:\n%s", stdout)
 	}
 }
@@ -357,14 +357,14 @@ func TestDriftSinceUsersOnlyReadsTheStoreAfterTheProvider(t *testing.T) {
 	if len(log) == 0 || log[0] != "provider read" {
 		t.Errorf("order = %v, want the provider read first", log)
 	}
-	header, storeLine := strings.Index(stdout, "Fake read"), strings.Index(stdout, "store read")
+	header, storeLine := strings.Index(stdout, "Fake  "), strings.Index(stdout, "Store  ")
 	if header < 0 || storeLine < header {
 		t.Errorf("want the provider header before the store line:\n%s", stdout)
 	}
-	if !strings.Contains(stdout, "\nmissing") || !strings.Contains(stdout, "user:u1") || !strings.Contains(stdout, "organization:o1") {
+	if !strings.Contains(stdout, " MISSING ") || !strings.Contains(stdout, "user:u1") || !strings.Contains(stdout, "organization:o1") {
 		t.Errorf("stdout:\n%s", stdout)
 	}
-	if strings.Contains(stdout, "\nstale") {
+	if strings.Contains(stdout, " STALE ") {
 		t.Errorf("a users-only run reported stale:\n%s", stdout)
 	}
 }
@@ -386,7 +386,7 @@ func TestDriftSinceNothingChangedReadsNoTuples(t *testing.T) {
 	if n := len(fs.readRequests()); n != 0 {
 		t.Errorf("store reads = %d, want 0", n)
 	}
-	if !strings.Contains(stderr, "no drift") || strings.Contains(stdout, "store read") {
+	if !strings.Contains(stderr, "no drift") || strings.Contains(stdout, "Store  ") {
 		t.Errorf("stdout:\n%s\nstderr:\n%s", stdout, stderr)
 	}
 }

@@ -88,7 +88,7 @@ func TestDriftNoDrift(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, stderr)
 	}
-	if !strings.Contains(stderr, "no drift: 2 tuples match Fake") || !strings.Contains(stdout, "store read") {
+	if !strings.Contains(stderr, "no drift: 2 tuples match Fake") || !strings.Contains(stdout, "Store  ") {
 		t.Errorf("stdout:\n%s\nstderr:\n%s", stdout, stderr)
 	}
 	if fs.writeCount() != 0 {
@@ -117,15 +117,16 @@ func TestDriftReport(t *testing.T) {
 	if clierr.Code(err) != clierr.CodeTestFailed || !clierr.IsSilent(err) {
 		t.Fatalf("code = %d err = %v\n%s", clierr.Code(err), err, stderr)
 	}
-	for _, want := range []string{"store read", "3 tuples", "acme", "Fake read",
-		"missing", "in Fake, not in the store", "+ user:u2 member organization:o1",
-		"stale", "in the store, not in Fake", "- user:gone member organization:o1",
-		"not checked", "user.updated", "user identity connection"} {
+	for _, want := range []string{"Store  ", "acme", "3 tuples", "Fake   ",
+		"MISSING", "1 tuple in Fake, not in the store", "+ user:u2 member organization:o1",
+		"STALE", "1 tuple in the store, not in Fake", "- user:gone member organization:o1",
+		"Drift  + 1 missing · ~ 0 changed · - 1 stale · 1 in sync",
+		"NOT CHECKED", "user.updated", "user identity connection"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout missing %q:\n%s", want, stdout)
 		}
 	}
-	if strings.Contains(stdout, "user:u9") || strings.Contains(stdout, "condition differs") {
+	if strings.Contains(stdout, "user:u9") || strings.Contains(stdout, "CHANGED") {
 		t.Errorf("identity tuple counted, or empty section printed:\n%s", stdout)
 	}
 	if fs.writeCount() != 0 {
@@ -147,7 +148,7 @@ func TestDriftStoreReadBeforeProvider(t *testing.T) {
 	if len(log) < 2 || log[0] != "store read" || log[len(log)-1] != "provider read" {
 		t.Fatalf("order = %v", log)
 	}
-	if !strings.Contains(stdout, "store read  14:03:13 UTC  1 tuple  acme") {
+	if !strings.Contains(stdout, "Store  acme · 14:03:13 UTC · 1 tuple") {
 		t.Errorf("stdout:\n%s", stdout)
 	}
 }
@@ -275,7 +276,7 @@ func TestDriftStoreLineUsesDatesAcrossMidnight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"store read  2026-11-19 23:59:40 UTC", "2026-11-19 23:59:50 → 2026-11-20 00:00:10 UTC"} {
+	for _, want := range []string{"acme · 2026-11-19 23:59:40 UTC", "2026-11-19 23:59:50 → 2026-11-20 00:00:10 UTC"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout missing %q:\n%s", want, stdout)
 		}
@@ -297,7 +298,7 @@ func TestDriftStoreLineIsDatedWhenReadTheDayBefore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "store read  2026-11-19 23:59:58 UTC"; !strings.Contains(stdout, want) {
+	if want := "acme · 2026-11-19 23:59:58 UTC"; !strings.Contains(stdout, want) {
 		t.Errorf("stdout missing %q:\n%s", want, stdout)
 	}
 }
@@ -479,7 +480,7 @@ func TestDriftCapsLongLists(t *testing.T) {
 	if clierr.Code(err) != clierr.CodeTestFailed {
 		t.Fatalf("err = %v", err)
 	}
-	if n := strings.Count(stdout, "+ user:"); n != 50 || !strings.Contains(stdout, "… 30 more; -o json lists them all") {
+	if n := strings.Count(stdout, "+ user:"); n != 50 || !strings.Contains(stdout, "… 30 more\n") || !strings.Contains(stdout, "-o json lists all 80\n") {
 		t.Errorf("tuple lines = %d\n%s", n, stdout)
 	}
 }

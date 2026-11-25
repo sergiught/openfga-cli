@@ -90,7 +90,8 @@ func runSnapshotCmd(t *testing.T, c *cli.CLI, stdin io.Reader, name string, args
 	root.SetArgs(append([]string{name}, args...))
 	root.SilenceUsage, root.SilenceErrors = true, true
 	err = root.ExecuteContext(context.Background())
-	return out.String(), errb.String(), err
+	// The report is styled; layout and wording are what these tests pin.
+	return ansi.Strip(out.String()), ansi.Strip(errb.String()), err
 }
 
 func TestBackfillDryRun(t *testing.T) {
@@ -102,8 +103,8 @@ func TestBackfillDryRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, stderr)
 	}
-	for _, want := range []string{"Fake read", "14:02:13 → 14:05:40 UTC", "tenant.example", "4 tuples",
-		"user member organization", "user reader organization", "+ user:u1 member organization:o1"} {
+	for _, want := range []string{"Fake  ", "tenant.example · 14:02:13 → 14:05:40 UTC", "Backfill  + 4 missing · 0 already there · 4 from Fake",
+		"user member organization · 2", "user reader organization · 2", "+ user:u1 member organization:o1"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout missing %q:\n%s", want, stdout)
 		}
@@ -158,7 +159,7 @@ func TestBackfillRerunWritesNothing(t *testing.T) {
 	if fs.writeCount() != 0 {
 		t.Fatalf("wrote %d times with nothing missing", fs.writeCount())
 	}
-	if !strings.Contains(stdout, "4 tuples from Fake: 0 missing from the store, 4 already there") || !strings.Contains(stdout, "store read  14:03:13 UTC  4 tuples  acme") {
+	if !strings.Contains(stdout, "Backfill  + 0 missing · 4 already there · 4 from Fake") || !strings.Contains(stdout, "Store     acme · 14:03:13 UTC · 4 tuples") {
 		t.Errorf("stdout:\n%s", stdout)
 	}
 	if !strings.Contains(stderr, "nothing to write: 4 tuples already in store acme (Fake state as of 14:05:40 UTC)") || strings.Contains(stderr, "Snapshot is") {
@@ -181,7 +182,7 @@ func TestBackfillWritesOnlyMissing(t *testing.T) {
 	if w := fs.writes[0]; strings.Count(w, `"user":`) != 1 || !strings.Contains(w, `"user:u2"`) || !strings.Contains(w, `"reader"`) {
 		t.Errorf("write carries more than the one missing tuple:\n%s", w)
 	}
-	if !strings.Contains(stdout, "4 tuples from Fake: 1 missing from the store, 3 already there") {
+	if !strings.Contains(stdout, "Backfill  + 1 missing · 3 already there · 4 from Fake") {
 		t.Errorf("stdout:\n%s", stdout)
 	}
 	if !strings.Contains(stderr, "wrote 1 tuple to store acme; 3 already there (Fake state as of 14:05:40 UTC)") {
@@ -209,7 +210,7 @@ func TestBackfillLeavesChangedTuples(t *testing.T) {
 	if strings.Count(fs.writes[0], `"user":`) != 3 {
 		t.Errorf("write should carry the 3 missing tuples:\n%s", fs.writes[0])
 	}
-	for _, want := range []string{"3 missing from the store, 0 already there, 1 there with a different condition", "condition differs"} {
+	for _, want := range []string{"+ 3 missing · ~ 1 with a different condition · 0 already there", "1 tuple whose condition differs", "~ user:u1 member organization:o1  was (in_office)"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout missing %q:\n%s", want, stdout)
 		}
@@ -492,7 +493,7 @@ func TestBackfillCapsTupleLines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stdout, "60 tuples") || !strings.Contains(stdout, "… 10 more; -o json lists them all") {
+	if !strings.Contains(stdout, "60 tuples in Fake") || strings.Count(stdout, "… 5 more\n") != 2 || !strings.Contains(stdout, "-o json lists all 60\n") || strings.Count(stdout, "+ user:") != 50 {
 		t.Errorf("stdout:\n%s", stdout)
 	}
 }
@@ -734,10 +735,10 @@ func TestBackfillSmallStoreIsOneRequestAndStoreLineFollowsProvider(t *testing.T)
 	if len(reads) != 1 || len(reads[0].TupleKey) != 0 || reads[0].PageSize != 100 {
 		t.Fatalf("reads = %+v, want one unfiltered read of 100", reads)
 	}
-	if !strings.Contains(stdout, "store read  14:03:13 UTC  2 tuples  acme\n") {
+	if !strings.Contains(stdout, "Store     acme · 14:03:13 UTC · 2 tuples\n") {
 		t.Errorf("stdout:\n%s", stdout)
 	}
-	if h, s := strings.Index(stdout, "Fake read"), strings.Index(stdout, "store read"); h < 0 || s < h {
+	if h, s := strings.Index(stdout, "Fake  "), strings.Index(stdout, "Store  "); h < 0 || s < h {
 		t.Errorf("the provider header must come before the store line:\n%s", stdout)
 	}
 	if !strings.Contains(stderr, "reading the store") || strings.Contains(stderr, "objects in the store") {
@@ -778,10 +779,10 @@ func TestBackfillLargeStoreReadsOnlyTheObjectsItWritesTo(t *testing.T) {
 	if pairs["member"] != 1 || pairs["reader"] != 1 {
 		t.Errorf("pair reads = %v: the member pair is cut after its page budget", pairs)
 	}
-	if !strings.Contains(stdout, "store read  14:03:13 UTC  3 tuples on 1 object  acme\n") {
+	if !strings.Contains(stdout, "Store     acme · 14:03:13 UTC · 3 tuples on 1 object\n") {
 		t.Errorf("stdout:\n%s", stdout)
 	}
-	if !strings.Contains(stdout, "4 tuples from Fake: 2 missing from the store, 1 already there, 1 there with a different condition") {
+	if !strings.Contains(stdout, "Backfill  + 2 missing · ~ 1 with a different condition · 1 already there · 4 from Fake") {
 		t.Errorf("stdout:\n%s", stdout)
 	}
 	if !strings.Contains(stderr, "reading the store") || !strings.Contains(stderr, "reading 1 object in the store") {

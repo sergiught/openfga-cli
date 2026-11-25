@@ -149,7 +149,7 @@ func TestBackfillDrawsTheCardInsteadOfProgressLines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
-	inOrder(t, out, "ofga mappings backfill", "read in ", "Fake read", "store read", "ofga mappings backfill", "wrote in ", "wrote 4 tuples to store acme")
+	inOrder(t, out, "ofga mappings backfill", "read in ", "Fake  ", "Store  ", "ofga mappings backfill", "wrote in ", "wrote 4 tuples to store acme")
 	noLegacy(t, out)
 	read := w.indexOf(0, "read in ")
 	w.onlyCard(t, w.firstCard(0), read)
@@ -169,7 +169,7 @@ func TestDriftDrawsTheCardInsteadOfProgressLines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
-	inOrder(t, out, "ofga mappings drift", "read in ", "store read", "ofga mappings drift", "wrote in ", "sent 1 write to store acme",
+	inOrder(t, out, "ofga mappings drift", "read in ", "Store  ", "ofga mappings drift", "wrote in ", "sent 1 write to store acme",
 		"ofga mappings drift", "pruned in ", "deleted 1 stale tuple from store acme")
 	noLegacy(t, out)
 	read := w.indexOf(0, "read in ")

@@ -219,7 +219,7 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 		if len(run.Desired) == 1 {
 			verb = "matches"
 		}
-		output.Successf(errw, "no drift: %s %s %s", mapping.Plural(len(run.Desired), "tuple"), verb, output.SanitizeField(label))
+		output.Successf(errw, "no drift: %s %s %s", bold(mapping.Plural(len(run.Desired), "tuple")), verb, output.SanitizeField(label))
 		return finish(nil)
 	}
 	missing, changed, stale := len(diff.Missing), len(diff.Changed), len(diff.Stale)
@@ -350,7 +350,7 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 			if changed > 0 {
 				replaced = ", replacing " + mapping.Plural(changed, "changed tuple")
 			}
-			output.Successf(errw, "sent %s to store %s%s (%s state as of %s UTC)", mapping.Plural(sent.Writes, "write"),
+			output.Successf(errw, "sent %s to store %s%s (%s state as of %s UTC)", bold(mapping.Plural(sent.Writes, "write")),
 				output.SanitizeField(storeLbl), replaced, output.SanitizeField(label), finishedAt)
 		case !errors.Is(err, prompt.ErrAborted):
 			return finish(err)
@@ -367,7 +367,11 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 		output.Notef(errw, "%s left alone; run again with --prune to delete %s", mapping.Plural(stale, "stale tuple"), it)
 	default:
 		if !force {
-			if err := renderShapes(errw, diff.Stale); err != nil {
+			shapes := renderShapes
+			if !output.Plain {
+				shapes = renderShapeLines
+			}
+			if err := shapes(errw, diff.Stale); err != nil {
 				return err
 			}
 			output.Notef(errw, "%s", snapshotAge(run.Result))
@@ -387,7 +391,7 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 			pruned = true
 			live.Note(thousands(sent.Deletes) + " changes")
 			live.Suspend("pruned")
-			output.Successf(errw, "deleted %s from store %s", mapping.Plural(sent.Deletes, "stale tuple"), output.SanitizeField(storeLbl))
+			output.Successf(errw, "deleted %s from store %s", bold(mapping.Plural(sent.Deletes, "stale tuple")), output.SanitizeField(storeLbl))
 		case !errors.Is(err, prompt.ErrAborted):
 			return finish(err)
 		}

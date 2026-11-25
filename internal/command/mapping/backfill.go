@@ -166,29 +166,14 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, 
 		Tuples: tuplesOut(run.Desired), Missing: tuplesOut(diff.Missing), Changed: tuplesOut(diff.Changed), Existing: existing,
 	}
 	if !machine {
-		snapshotHeader(out, label, run.Result, run.Since)
-		if len(run.Desired) > 0 {
-			storeReadLine(out, run, storeLbl, storeReadAt, read.Read, read.Objects)
+		report := func() error {
+			if output.Plain {
+				return renderBackfillPlain(out, run, label, storeLbl, storeReadAt, read, diff, existing)
+			}
+			return renderBackfillReport(out, run, storeLbl, storeReadAt, read.Read, read.Objects, diff, existing)
 		}
-		if len(run.Desired) == 0 {
-			if err := renderTuples(out, run.Desired); err != nil {
-				return err
-			}
-		} else {
-			summary := fmt.Sprintf("%s from %s: %d missing from the store, %d already there",
-				mapping.Plural(len(run.Desired), "tuple"), output.SanitizeField(label), len(diff.Missing), existing)
-			if len(diff.Changed) > 0 {
-				summary += fmt.Sprintf(", %d there with a different condition", len(diff.Changed))
-			}
-			if _, err := fmt.Fprintln(out, summary); err != nil {
-				return err
-			}
-			if err := renderSections(out, []tupleSection{
-				{"missing", "in " + output.SanitizeField(label) + ", not in the store", diff.Missing},
-				{"changed", "condition differs", diff.Changed},
-			}); err != nil {
-				return err
-			}
+		if err := report(); err != nil {
+			return err
 		}
 		if len(diff.Changed) > 0 {
 			verb, pronoun := "is", "it"
@@ -224,7 +209,7 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, 
 		if len(diff.Changed) > 0 {
 			differ = fmt.Sprintf(", %d there with a different condition", len(diff.Changed))
 		}
-		output.Successf(errw, "nothing to write: %s already in store %s%s (%s state as of %s UTC)", mapping.Plural(existing, "tuple"),
+		output.Successf(errw, "nothing to write: %s already in store %s%s (%s state as of %s UTC)", bold(mapping.Plural(existing, "tuple")),
 			output.SanitizeField(storeLbl), differ, output.SanitizeField(label), finish)
 		return nil
 	}
@@ -258,7 +243,7 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, 
 		return err
 	}
 	_, finish := snapshotTimes(run.Result)
-	output.Successf(errw, "wrote %s to store %s; %d already there (%s state as of %s UTC)", mapping.Plural(sent.Writes, "tuple"),
+	output.Successf(errw, "wrote %s to store %s; %d already there (%s state as of %s UTC)", bold(mapping.Plural(sent.Writes, "tuple")),
 		output.SanitizeField(storeLbl), existing, output.SanitizeField(label), finish)
 	return nil
 }
@@ -278,6 +263,35 @@ func storeTarget(name, id string) string {
 		target = fmt.Sprintf("%s (%s)", output.SanitizeField(name), target)
 	}
 	return target
+}
+
+// renderBackfillPlain prints the backfill report for --plain.
+func renderBackfillPlain(out io.Writer, run *snapshotRun, label, storeLbl string, storeReadAt time.Time, read storeRead, diff snapshot.Diff, existing int) error {
+	snapshotHeader(out, label, run.Result, run.Since)
+	if len(run.Desired) > 0 {
+		storeReadLine(out, run, storeLbl, storeReadAt, read.Read, read.Objects)
+	}
+	if len(run.Desired) == 0 {
+		if err := renderTuples(out, run.Desired); err != nil {
+			return err
+		}
+	} else {
+		summary := fmt.Sprintf("%s from %s: %d missing from the store, %d already there",
+			mapping.Plural(len(run.Desired), "tuple"), output.SanitizeField(label), len(diff.Missing), existing)
+		if len(diff.Changed) > 0 {
+			summary += fmt.Sprintf(", %d there with a different condition", len(diff.Changed))
+		}
+		if _, err := fmt.Fprintln(out, summary); err != nil {
+			return err
+		}
+		if err := renderSections(out, []tupleSection{
+			{"missing", "in " + output.SanitizeField(label) + ", not in the store", diff.Missing},
+			{"changed", "condition differs", diff.Changed},
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // renderShapes prints how many tuples there are and how many of each shape.
