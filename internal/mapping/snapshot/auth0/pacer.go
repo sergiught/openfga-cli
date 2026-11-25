@@ -29,8 +29,9 @@ var errKeptRateLimiting = errors.New(
 
 // pacer is the HTTP transport of every Management API request of a provider.
 // It spaces requests out, slows down when Auth0 answers 429 and speeds back up
-// on success, and counts the 429 answers of the read in progress. It reads the
-// status code and Retry-After header of each response and nothing else.
+// on success, and counts every request sent and the 429 answers of the read in
+// progress. It reads the status code and Retry-After header of each response
+// and nothing else.
 type pacer struct {
 	base  http.RoundTripper
 	now   func() time.Time

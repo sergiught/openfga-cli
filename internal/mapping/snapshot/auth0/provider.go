@@ -267,9 +267,10 @@ func (p *Provider) Snapshot(ctx context.Context, req snapshot.Request, progress 
 		r.want[t] = true
 	}
 
-	p.limits.begin(func() { r.say("waiting on Auth0's rate limit") })
-
+	// Stats takes p.mu too, so it sees the new tally together with the new
+	// pacer counts, never one read's tally next to the other's requests.
 	p.mu.Lock()
+	p.limits.begin(func() { r.say("waiting on Auth0's rate limit") })
 	p.cur = r.tally
 	p.mu.Unlock()
 

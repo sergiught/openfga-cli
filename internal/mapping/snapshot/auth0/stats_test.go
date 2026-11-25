@@ -185,3 +185,85 @@ func TestExportReportsJobAndDownloadSteps(t *testing.T) {
 	equal(t, []int{1000, 2000, 2500}, download)
 	equal(t, snapshot.Progress{Message: "exporting users: 40%", Step: "users (export job)", Done: 1000, Total: 2500}, got[len(got)-4])
 }
+
+func TestStatsNeverMixTwoReads(t *testing.T) {
+	t.Parallel()
+
+	var (
+		second  atomic.Bool
+		blocked = make(chan struct{})
+		release = make(chan struct{})
+		once    sync.Once
+	)
+
+	p, _ := newProvider(t, tenant{n: 3, before: func(http.ResponseWriter, *http.Request) bool {
+		if second.Load() {
+			once.Do(func() { close(blocked) })
+			<-release
+		}
+
+		return false
+	}}.handler())
+
+	_, err := p.Snapshot(context.Background(), snapshot.Request{Types: tenantTypes}, nil)
+	noErr(t, err)
+
+	if p.Stats().Requests == 0 {
+		t.Fatal("the first read counted nothing")
+	}
+
+	var (
+		mixed atomic.Bool
+		stop  = make(chan struct{})
+		wg    sync.WaitGroup
+	)
+
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+
+			st := p.Stats()
+			items := 0
+
+			for _, c := range st.Counts {
+				items += c.N
+			}
+
+			if st.Requests == 0 && items > 0 {
+				mixed.Store(true)
+			}
+		}
+	}()
+
+	second.Store(true)
+
+	done := make(chan error, 1)
+
+	go func() {
+		_, err := p.Snapshot(context.Background(), snapshot.Request{Types: tenantTypes}, nil)
+		done <- err
+	}()
+
+	<-blocked
+	close(stop)
+	wg.Wait()
+
+	for _, c := range p.Stats().Counts {
+		equal(t, 0, c.N)
+	}
+
+	if mixed.Load() {
+		t.Error("Stats returned the previous read's items next to zeroed request counts")
+	}
+
+	close(release)
+	noErr(t, <-done)
+}

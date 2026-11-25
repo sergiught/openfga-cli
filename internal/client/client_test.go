@@ -630,3 +630,26 @@ func TestWithMeterCountsClientRequests(t *testing.T) {
 		t.Fatalf("requests = %d, want 1", m.Requests())
 	}
 }
+
+// The meter sits below the retry layers, so a request they resend is counted
+// each time it is sent.
+func TestMeterCountsARequestResentByTheRetryLayerTwice(t *testing.T) {
+	srv, attempts := idempotentRetryServer(t, http.StatusBadGateway, 1)
+	defer srv.Close()
+
+	m := &Meter{}
+	u, _ := url.Parse(srv.URL)
+	rt := &idempotentRetryTransport{base: &meterTransport{base: http.DefaultTransport, meter: m, host: u.Host}, wait: noWait}
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/stores", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip error = %v", err)
+	}
+	_ = resp.Body.Close()
+	if attempts.Load() != 2 || m.Requests() != 2 {
+		t.Fatalf("attempts = %d, metered = %d, want 2 and 2", attempts.Load(), m.Requests())
+	}
+}

@@ -221,3 +221,22 @@ func TestRenderedCards(t *testing.T) {
 		t.Errorf("card at 56 columns:\n%s", got)
 	}
 }
+
+func TestViewDrawsAPendingPhaseBeforeAStartedOneAsSkipped(t *testing.T) {
+	s := sample0()
+	s.phases = []phase{
+		{name: "Store", state: done, note: "5 tuples read", took: time.Second},
+		{name: "Write", note: "stale note"},
+		{name: "Prune", state: running},
+		{name: "Later"},
+	}
+	out := plain(view(s, 100, 40))
+	for _, want := range []string{"– Write", "○ Later", "Prune"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("card lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "○ Write") || strings.Contains(out, "stale note") {
+		t.Errorf("a skipped phase is drawn as pending or with a note:\n%s", out)
+	}
+}

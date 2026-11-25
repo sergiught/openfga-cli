@@ -2,6 +2,7 @@ package status
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ const (
 	pending = iota
 	running
 	done
+	skipped // derived by view: pending, though a later phase has started
 )
 
 // minCols is the narrowest terminal a card is drawn in.
@@ -108,6 +110,8 @@ func (p palette) phaseLines(ph phase, frame, w, nameW int) []string {
 		return []string{spread(p.ok.Render(style.IconCheck)+" "+p.subtle.Render(name)+"  "+p.subtle.Render(ph.note), p.faint.Render(dur(ph.took)), w)}
 	case pending:
 		return []string{p.faint.Render(style.IconCircle + " " + name)}
+	case skipped:
+		return []string{p.faint.Render("–" + " " + name)}
 	}
 	head := p.accent.Render(spinner[frame%len(spinner)]) + " " + p.bold.Render(name) + "  "
 	indent := strings.Repeat(" ", 2+nameW+2)
@@ -223,6 +227,7 @@ func view(s state, cols, rows int) string {
 	if cols < minCols || rows < 3 {
 		return ""
 	}
+	s.phases = markSkipped(s.phases)
 	p := newPalette()
 	cardW := max(0, min(cols-1, 78))
 	w := max(0, cardW-6) // border and two cells of padding each side
@@ -268,4 +273,20 @@ func view(s state, cols, rows int) string {
 	}
 	b.WriteString(ansi.Truncate(p.rule.Render("╰"+strings.Repeat("─", max(0, cardW-2))+"╯"), cols-1, ""))
 	return b.String()
+}
+
+// markSkipped returns phases with each pending one that has a started phase
+// after it marked skipped: it was never needed, and is not still to come.
+func markSkipped(phases []phase) []phase {
+	out := slices.Clone(phases)
+	started := false
+	for i := len(out) - 1; i >= 0; i-- {
+		switch {
+		case out[i].state != pending:
+			started = true
+		case started:
+			out[i] = phase{name: out[i].name, state: skipped}
+		}
+	}
+	return out
 }
