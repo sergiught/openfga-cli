@@ -283,8 +283,9 @@ code and the `Retry-After` header of each answer:
   429 in a row for one request); wait a minute and run it again`.
 
 Each wait is counted and shown in the report header as `N rate-limit waits`.
-While waiting, the progress line reads `waiting on Auth0's rate limit`. Ctrl-C
-interrupts a wait.
+While waiting, the progress line reads `waiting on Auth0's rate limit`. The live
+status card does not print that line; its RATE LIMITED tile counts the waits
+instead. Ctrl-C interrupts a wait.
 
 ### When the read fails
 
@@ -301,9 +302,87 @@ snapshot, because a tuple missing from the snapshot would look stale and
 | Anything else | `reading <what>: ...` | | `1` |
 | Ctrl-C | `canceled` | | `130` |
 
-### Progress lines
+### Live status and progress lines
 
-While reading, stderr shows where the read is: `reading connections`, `reading
+On a terminal, `drift` and `backfill` draw a live status card on stderr while
+they read and write. The card appears when all of these hold:
+
+- stderr and stdout are terminals.
+- The run is not `--quiet`, `--plain`, `-o json`, `-o yaml`, `--debug` or in
+  agent mode.
+- `TERM` is not `dumb`.
+
+With `NO_COLOR`, `--no-color` or the mono theme the card is drawn without color.
+Stdout is the same with or without the card.
+
+```text
+╭─ ofga mappings drift ───────────────────────────────────────────── 6m 31s ─╮
+│                                                                            │
+│  ✓ Store   1,204,300 tuples read · 412,118 kept                    1m 02s  │
+│  ⠹ Auth0   members of organizations                           620 / 2,000  │
+│            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━   31% · 2m 50s left  │
+│  ○ Replay                                                                  │
+│  ○ Write                                                                   │
+│                                                                            │
+│  ────────────────────────────────────────────────────────────────────────  │
+│                                                                            │
+│  REQUESTS                  RATE LIMITED                 MEMORY             │
+│  Auth0   2,655  8.1/s      Auth0  12×  1 per 120ms      1.1 GB             │
+│  store  12,043             store  0×                    peak 1.3 GB        │
+│                                                                            │
+│  DATA  3 connections · 48,210 users · 2,000 organizations ·                │
+│        1,874 organization connections · 6,480 organization members ·       │
+│        2,204 organization member roles                                     │
+│                                                                            │
+╰────────────────────────────────────────────────────────────────────────────╯
+```
+
+The card has one row per step, in the order the command runs them:
+
+| Command | Steps |
+| --- | --- |
+| `drift` | Store, Auth0, Replay, Write (not with `--dry-run`), Prune (with `--prune`, not with `--dry-run`) |
+| `drift --since`, when no shape is left to check for stale tuples | Auth0, Replay, Store, Write, Prune |
+| `backfill` | Auth0, Replay, Store, Write (not with `--dry-run`) |
+
+A step is `✓` when done, with a note and how long it took, a spinner while it
+runs, `○` while it waits, and `–` when a later step started without it. A
+running step shows a progress bar with the percent done and the time left when
+its size is known: the organizations, the user export, the narrowed store read,
+the replay and the writes. Otherwise it shows a running count and the rate.
+`drift` reads the whole store this way, because OpenFGA does not report how many
+tuples it holds.
+
+Below the steps, the card shows:
+
+- **REQUESTS**: requests sent to Auth0 and to the store, with the current rate.
+- **RATE LIMITED**: how many requests were answered `429`, and the pace Auth0
+  reads have slowed to, such as `1 per 120ms`.
+- **MEMORY**: memory in use and its peak. This is the Go runtime's figure for
+  the `ofga` process, not the machine's.
+- **DATA**: how many items of each type were read so far.
+
+The card is at most 78 cells wide. On a narrow terminal the tiles stack. On a
+short terminal only the running step's lines are drawn. Below 20 columns or 3
+rows there is no card.
+
+The card is erased before the report or a question is printed. One summary line
+stays behind, for example:
+
+```text
+● read in 9m 24s · Auth0 4,035 requests, 12 rate limited · store 12,043 requests · peak memory 1.3 GB
+```
+
+The write leaves `● wrote in ...` and a prune leaves `● pruned in ...`. A run
+that ends early, by an error or Ctrl-C, leaves `● stopped after ...`. The request
+counts on each line are those since the previous line.
+
+Without the card, stderr carries what it carried before the card existed. On a
+terminal with `-o json`, `-o yaml`, `--debug` or `TERM=dumb`, and when only
+stderr is sent to a file, that is a progress line per step. In a pipe, in CI,
+with stdout sent to a file, and with `--quiet`, `--plain` or agent mode, it is
+neither the card nor progress lines. Reading the provider prints `reading
+connections`, `reading
 users` (or `reading users changed since <time> UTC`), `exporting N users`,
 `exporting N users: waiting for Auth0's job (Ns)`, `exporting users: P%`,
 `reading organizations`, `reading connections of X/Y organizations`, `reading
@@ -327,8 +406,8 @@ user, relation and object:
 What is left is the desired set, sorted by shape, then user, relation and
 object. An event the mapping cannot evaluate ends the run with the event's type
 and subject, for example `snapshot.organization.member (organization org_acme
-member auth0|anne): ...`. From 50 events on, stderr shows `replaying event
-N/M`.
+member auth0|anne): ...`. From 50 events on, and when there is no live status
+card, stderr shows `replaying event N/M`.
 
 ## Reading the store
 
@@ -453,8 +532,9 @@ checked before each request, and the first failed request stops the rest.
 
 ### Missing tuples
 
-Both commands send missing tuples as plain writes. `backfill` shows `sent X/Y
-writes` when there are more than 100.
+Both commands send missing tuples as plain writes. With no live status card,
+`backfill` prints `sent X/Y writes` and `drift` prints `sent X/Y changes` when
+there is more than one request.
 
 ### Changed tuples
 
@@ -614,7 +694,7 @@ changed and nothing is desired, the store is not read at all.
 ### The report
 
 Human output goes to stdout; progress, notes, questions and results go to
-stderr.
+stderr, and so does the live status card.
 
 ```
 store read  15:02:41 UTC  9 tuples  mappings-demo

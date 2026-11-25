@@ -583,6 +583,51 @@ Under `-o json` or `-o yaml`, `backfill` needs `--dry-run` or `--force`. The
 schemas are published at `schemas/output/mappings-drift.v1.json` and
 `mappings-backfill.v1.json`.
 
+#### Live status
+
+On a terminal, both commands draw a live status card on stderr while they read
+and write, in place of the progress lines. It lists the steps, with a progress
+bar where the size is known, the requests sent to Auth0 and to the store, how
+many were answered `429`, the memory in use and what was read so far. This is a
+`drift` run in the middle of its read:
+
+```text
+╭─ ofga mappings drift ───────────────────────────────────────────── 6m 31s ─╮
+│                                                                            │
+│  ✓ Store   1,204,300 tuples read · 412,118 kept                    1m 02s  │
+│  ⠹ Auth0   members of organizations                           620 / 2,000  │
+│            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━   31% · 2m 50s left  │
+│  ○ Replay                                                                  │
+│  ○ Write                                                                   │
+│                                                                            │
+│  ────────────────────────────────────────────────────────────────────────  │
+│                                                                            │
+│  REQUESTS                  RATE LIMITED                 MEMORY             │
+│  Auth0   2,655  8.1/s      Auth0  12×  1 per 120ms      1.1 GB             │
+│  store  12,043             store  0×                    peak 1.3 GB        │
+│                                                                            │
+│  DATA  3 connections · 48,210 users · 2,000 organizations ·                │
+│        1,874 organization connections · 6,480 organization members ·       │
+│        2,204 organization member roles                                     │
+│                                                                            │
+╰────────────────────────────────────────────────────────────────────────────╯
+```
+
+Before the report or a question is printed, the card is erased and one line
+stays behind:
+
+```text
+● read in 9m 24s · Auth0 4,035 requests, 12 rate limited · store 12,043 requests · peak memory 1.3 GB
+```
+
+The writes leave a line of the same kind. The card needs stderr and stdout to be
+terminals, and is not drawn with `--quiet`, `--plain`, `-o json`, `-o yaml` or
+`--debug`. Without it, stderr carries what it carried before: a progress line
+per step on a terminal with `-o json`, `-o yaml` or `--debug`, and neither in a
+pipe, in CI or with `--quiet` or `--plain`. Stdout is the same in every case. [How drift and
+backfill work](../mappings-drift-backfill/#live-status-and-progress-lines) lists
+the steps of each command and everything the card shows.
+
 #### Things to know before you run it
 
 **Warning:** `drift --prune` deletes every tuple in the shapes your snapshot
