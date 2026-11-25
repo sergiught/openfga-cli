@@ -12,7 +12,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/openfga-cli/internal/cli"
+	"github.com/sergiught/openfga-cli/internal/client"
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/command/mapping/status"
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/mapping"
 	"github.com/sergiught/openfga-cli/internal/mapping/snapshot"
@@ -109,10 +111,13 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 	// than the store it is compared with. The desired tuples are not known yet,
 	// so only the tuples the mapping can write are kept. With nothing left to
 	// check for stale, the store is read after the provider instead.
-	run, err := c.runSnapshot(cmd, path, provider, sinceTime, func(f *mapping.File, types []snapshot.Type, windowed []string) error {
+	meter := new(client.Meter)
+	var live *status.Live
+	defer func() { live.Close() }()
+	run, err := c.runSnapshot(cmd, path, provider, sinceTime, func() *status.Live { return live }, func(f *mapping.File, types []snapshot.Type, windowed []string) error {
 		var r config.Resolved
 		var err error
-		if cl, r, err = c.cli.ClientWithStore(); err != nil {
+		if cl, r, err = c.cli.ClientWithStore(client.WithMeter(meter)); err != nil {
 			return err
 		}
 		storeID = r.StoreID
@@ -121,14 +126,35 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 		}
 		if !sinceTime.IsZero() {
 			owned, _ := snapshot.Coverage(f.Doc, types, windowed, sinceTime)
-			if usersOnly = len(owned) == 0; usersOnly {
-				return nil
+			usersOnly = len(owned) == 0
+		}
+		// The phases are named in the order they will run.
+		label := providers[provider].Label
+		phases := []string{"Store", label, "Replay"}
+		if usersOnly {
+			phases = []string{label, "Replay", "Store"}
+		}
+		if !dryRun {
+			phases = append(phases, "Write")
+			if prune {
+				phases = append(phases, "Prune")
 			}
 		}
-		output.Progressf(errw, "reading the store")
-		if stored, storedTotal, err = (storeClient{cl}).ReadKept(ctx, snapshot.Writes(f.Doc), nil); err != nil {
+		live = c.liveStatus(errw, machine, "ofga mappings drift", phases...)
+		if usersOnly {
+			return nil
+		}
+		live.Phase("Store")
+		live.Store(meter)
+		if live == nil {
+			output.Progressf(errw, "reading the store")
+		}
+		if stored, storedTotal, err = (storeClient{cl}).ReadKept(ctx, snapshot.Writes(f.Doc), func(read, _ int) {
+			live.Set("tuples", read, 0)
+		}); err != nil {
 			return err
 		}
+		live.Note(thousands(storedTotal) + " tuples read · " + thousands(len(stored)) + " kept")
 		storeReadAt = now()
 		return nil
 	})
@@ -137,17 +163,27 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 	}
 
 	if usersOnly && len(run.Desired) > 0 {
-		output.Progressf(errw, "reading the store")
+		live.Phase("Store")
+		live.Store(meter)
+		if live == nil {
+			output.Progressf(errw, "reading the store")
+		}
 		read, err = (storeClient{cl}).ReadMatching(ctx, run.Desired, func(mp matchProgress) {
-			if mp.Step == "objects" && mp.Done == 0 {
+			switch {
+			case live != nil:
+				matchStatus(live, mp)
+			case mp.Step == "objects" && mp.Done == 0:
 				output.Progressf(errw, "reading %s in the store", mapping.Plural(mp.Objects, "object"))
 			}
 		})
 		if err != nil {
 			return err
 		}
+		live.Note(matchNote(read))
 		stored, storedTotal, storeReadAt = read.Tuples, read.Read, now()
 	}
+	// Everything the reads have to say comes next, so the card gives way.
+	live.Suspend("read")
 
 	owned, notChecked := snapshot.Coverage(run.File.Doc, run.Types, run.Windowed, run.Since)
 	diff := snapshot.Compare(run.Desired, stored, owned)
@@ -215,8 +251,15 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 	// so a run of several steps reads as one.
 	send := func(deletes, writes []language.Tuple, pruning bool, prior, grand int) (snapshot.Sent, error) {
 		total := len(deletes) + len(writes)
+		verb := "wrote"
+		if pruning {
+			verb = "pruned"
+		}
 		sent, err := snapshot.Write(ctx, storeClient{cl}, deletes, writes, func(done, _ int) {
-			if grand > backfillRequestSize { // more than one request
+			switch {
+			case live != nil:
+				live.Set("changes", prior+done, grand)
+			case grand > backfillRequestSize: // more than one request
 				output.Progressf(errw, "sent %d/%d changes", prior+done, grand)
 			}
 		})
@@ -226,6 +269,8 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 			res.Pruned = sent.Deletes
 		}
 		if err != nil {
+			live.Note(thousands(sent.Writes+sent.Deletes) + " changes")
+			live.Suspend(verb)
 			text := fmt.Sprintf("sent %d of %s before the failure; run the command again to send the rest", sent.Writes+sent.Deletes, mapping.Plural(total, "change"))
 			return sent, finish(reportSnapshotFailure(ctx, errw, machine, text, snapshot.Sent(res.Sent), applyHints(err), err))
 		}
@@ -235,7 +280,10 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 	// store is left in when a batch fails.
 	replace := func(prior, grand int) error {
 		sent, lost, err := snapshot.Replace(ctx, storeClient{cl}, diff.Was, diff.Changed, func(done, _ int) {
-			if grand > backfillRequestSize {
+			switch {
+			case live != nil:
+				live.Set("changes", prior+done, grand)
+			case grand > backfillRequestSize:
 				output.Progressf(errw, "sent %d/%d changes", prior+done, grand)
 			}
 		})
@@ -244,6 +292,8 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 		if err == nil {
 			return nil
 		}
+		live.Note(thousands(sent.Writes+sent.Deletes) + " changes")
+		live.Suspend("wrote")
 		hints := applyHints(err)
 		var text string
 		switch {
@@ -275,6 +325,7 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 		}
 		switch {
 		case err == nil:
+			live.Phase("Write")
 			grand := missing + 2*changed
 			var sent snapshot.Sent
 			if missing > 0 {
@@ -291,6 +342,8 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 				sent.Writes += changed
 			}
 			writesDone = true
+			live.Note(thousands(res.Sent.Writes+res.Sent.Deletes) + " changes")
+			live.Suspend("wrote")
 			_, finishedAt := snapshotTimes(run.Result)
 			replaced := ""
 			if changed > 0 {
@@ -325,11 +378,14 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 		}
 		switch {
 		case err == nil:
+			live.Phase("Prune")
 			sent, err := send(diff.Stale, nil, true, 0, stale)
 			if err != nil {
 				return err
 			}
 			pruned = true
+			live.Note(thousands(sent.Deletes) + " changes")
+			live.Suspend("pruned")
 			output.Successf(errw, "deleted %s from store %s", mapping.Plural(sent.Deletes, "stale tuple"), output.SanitizeField(storeLbl))
 		case !errors.Is(err, prompt.ErrAborted):
 			return finish(err)

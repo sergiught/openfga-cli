@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/command/mapping/status"
 	"github.com/sergiught/openfga-cli/internal/mapping"
 	"github.com/sergiught/openfga-cli/internal/mapping/snapshot"
 	"github.com/sergiught/openfga-cli/internal/output"
@@ -43,7 +44,10 @@ type snapshotRun struct {
 // requested types read by window. Both commands resolve the store
 // there so a missing profile fails before the long provider read; drift also
 // reads the store there, keeping only the tuples the mapping writes.
-func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since time.Time, beforeRead func(f *mapping.File, types []snapshot.Type, windowed []string) error) (*snapshotRun, error) {
+// live returns the status card to draw the provider read and the replay on,
+// nil for none; it is asked after beforeRead, which may have created it. The
+// caller owns it and closes it.
+func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since time.Time, live func() *status.Live, beforeRead func(f *mapping.File, types []snapshot.Type, windowed []string) error) (*snapshotRun, error) {
 	machine := c.cli.JSON || c.cli.YAML
 	ctx, out, errw := cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr()
 	// Problem lines are not the machine payload: keep stdout clean for jq.
@@ -112,22 +116,40 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since t
 			return nil, err
 		}
 	}
+	lv := live()
+	lv.Phase(entry.Label)
+	lv.Provider(entry.Label, p.Stats)
 	res, err := p.Snapshot(ctx, snapshot.Request{Types: requested, Since: since}, func(pr snapshot.Progress) {
-		if pr.Message != "" {
+		switch {
+		case lv != nil:
+			if pr.Step != "" {
+				lv.Set(pr.Step, pr.Done, pr.Total)
+			}
+		case pr.Message != "":
 			output.Progressf(errw, "%s", pr.Message)
 		}
 	})
 	if err != nil {
 		return nil, err
 	}
+	items := 0
+	for _, n := range res.Counts {
+		items += n.N
+	}
+	lv.Note(thousands(items) + " items")
+	lv.Phase("Replay")
 	desired, err := snapshot.Desired(ctx, m, res.Events, func(done, total int) {
-		if total >= progressEvery && (done%progressEvery == 0 || done == total) {
+		switch {
+		case lv != nil:
+			lv.Set("events", done, total)
+		case total >= progressEvery && (done%progressEvery == 0 || done == total):
 			output.Progressf(errw, "replaying event %d/%d", done, total)
 		}
 	})
 	if err != nil {
 		return nil, err
 	}
+	lv.Note(thousands(len(desired)) + " tuples from " + thousands(len(res.Events)) + " events")
 	return &snapshotRun{File: f, Provider: p, Types: types, Result: res, Desired: desired, Since: since, Windowed: windowed}, nil
 }
 

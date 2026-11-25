@@ -162,6 +162,23 @@ func TestSummaryCountsAfterCounterReset(t *testing.T) {
 	}
 }
 
+func TestSummaryCountsAfterCounterResetPastTheOldBase(t *testing.T) {
+	l, w, _ := newTest(40)
+	reqs := 0
+	l.Provider("Auth0", func() snapshot.Stats { return snapshot.Stats{Requests: reqs} })
+	l.Phase("Store")
+	reqs = 100
+	l.Suspend("read")
+	reqs = 0 // a new read reset the provider's counters
+	l.Phase("Auth0")
+	l.frame() // a sample sees the reset
+	reqs = 150
+	l.Suspend("read")
+	if got := ansi.Strip(w.calls[len(w.calls)-1]); !strings.Contains(got, "Auth0 150 requests") {
+		t.Errorf("summary = %q, want the 150 requests of the new read", got)
+	}
+}
+
 func TestResumeResetsRates(t *testing.T) {
 	l, _, clk := newTest(40)
 	reqs := 0
@@ -388,4 +405,20 @@ func TestRealTickerStops(t *testing.T) {
 	if w.count() != n {
 		t.Error("the redraw goroutine kept writing after Close")
 	}
+}
+
+func TestNewAtDrawsAtOnceOnPhaseAndOnResume(t *testing.T) {
+	var buf bytes.Buffer
+	l := NewAt(&buf, 60, 20, "ofga mappings drift", "Store", "Write")
+	l.Phase("Store")
+	if !strings.Contains(ansi.Strip(buf.String()), "Store") {
+		t.Fatalf("no frame right after Phase:\n%q", buf.String())
+	}
+	l.Suspend("read")
+	buf.Reset()
+	l.Phase("Write")
+	if !strings.Contains(ansi.Strip(buf.String()), "Write") {
+		t.Fatalf("no frame right after resuming:\n%q", buf.String())
+	}
+	l.Close()
 }

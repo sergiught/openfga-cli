@@ -108,6 +108,16 @@ func target(w io.Writer) (f *os.File, frames io.Writer, plain, ok bool) {
 	return f, frames, false, true
 }
 
+// NewAt returns a live status drawing on w at a fixed size of cols by rows,
+// with the real clock and memory reading and the same redraw loop. It does not
+// check that w is a terminal and is never nil: for tests and for callers that
+// know the size.
+func NewAt(w io.Writer, cols, rows int, title string, phases ...string) *Live {
+	l := newLive(w, func() (int, int) { return cols, rows }, time.Now, heapInUse, title, phases...)
+	l.async = true
+	return l
+}
+
 // New returns a live status drawing on w, or nil when w is not a terminal or
 // output is quiet, plain, terse or not interactive. w may be the file itself
 // or a *colorprofile.Writer over it.
@@ -141,6 +151,16 @@ func heapInUse() uint64 {
 	return m.Sys - m.HeapReleased
 }
 
+// set records a reading of the counters. A reading below the previous one
+// means the counters were reset, so what was counted before no longer applies
+// to the summary, even when they have grown past the old base since.
+func (s *liveSource) set(req, lim int) {
+	if req < s.req || lim < s.lim {
+		s.base, s.baseLim = 0, 0
+	}
+	s.req, s.lim = req, lim
+}
+
 // Provider sets the identity provider whose requests and items are shown. The
 // stats function is polled each frame.
 func (l *Live) Provider(label string, stats func() snapshot.Stats) {
@@ -171,7 +191,6 @@ func (l *Live) Phase(name string) {
 		return
 	}
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	now := l.now()
 	l.finish(now)
 	var ph *livePhase
@@ -188,7 +207,8 @@ func (l *Live) Phase(name string) {
 	ph.state, ph.began, ph.stepBegan = running, now, now
 	ph.step, ph.done, ph.total, ph.items = "", 0, 0, nil
 	l.cur = ph
-	if !l.drawing {
+	begin := !l.drawing
+	if begin {
 		l.drawing, l.started = true, now
 		for _, s := range []*liveSource{l.prov, l.store} {
 			if s != nil {
@@ -199,6 +219,10 @@ func (l *Live) Phase(name string) {
 			l.stop, l.stopped = make(chan struct{}), make(chan struct{})
 			go l.loop(l.stop, l.stopped)
 		}
+	}
+	l.mu.Unlock()
+	if begin && l.async {
+		l.frame() // the card is there at once, not after the first tick
 	}
 }
 
@@ -360,10 +384,10 @@ func (l *Live) loop(stop <-chan struct{}, stopped chan<- struct{}) {
 func (l *Live) sample(now time.Time) {
 	if l.provFn != nil {
 		l.stats = l.provFn()
-		l.prov.req, l.prov.lim = l.stats.Requests, l.stats.RateLimited
+		l.prov.set(l.stats.Requests, l.stats.RateLimited)
 	}
 	if l.meter != nil {
-		l.store.req, l.store.lim = l.meter.Requests(), l.meter.RateLimited()
+		l.store.set(l.meter.Requests(), l.meter.RateLimited())
 	}
 	for _, s := range []*liveSource{l.prov, l.store} {
 		if s != nil {

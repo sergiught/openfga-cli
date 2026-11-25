@@ -15,7 +15,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sergiught/openfga-cli/internal/cli"
+	"github.com/sergiught/openfga-cli/internal/client"
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/command/mapping/status"
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/mapping"
 	"github.com/sergiught/openfga-cli/internal/mapping/snapshot"
@@ -104,10 +106,17 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, 
 	// The store is resolved before the provider, so a missing profile or an
 	// unreachable server does not cost a long read first. It is read after the
 	// provider, once the desired tuples say which objects are worth reading.
-	run, err := c.runSnapshot(cmd, path, provider, sinceTime, func(*mapping.File, []snapshot.Type, []string) error {
+	meter := new(client.Meter)
+	phases := []string{providers[provider].Label, "Replay", "Store"}
+	if !dryRun {
+		phases = append(phases, "Write")
+	}
+	live := c.liveStatus(errw, machine, "ofga mappings backfill", phases...)
+	defer live.Close()
+	run, err := c.runSnapshot(cmd, path, provider, sinceTime, func() *status.Live { return live }, func(*mapping.File, []snapshot.Type, []string) error {
 		var r config.Resolved
 		var err error
-		if cl, r, err = c.cli.ClientWithStore(); err != nil {
+		if cl, r, err = c.cli.ClientWithStore(client.WithMeter(meter)); err != nil {
 			return err
 		}
 		storeID = r.StoreID
@@ -125,17 +134,27 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, 
 		storeReadAt time.Time
 	)
 	if len(run.Desired) > 0 {
-		output.Progressf(errw, "reading the store")
+		live.Phase("Store")
+		live.Store(meter)
+		if live == nil {
+			output.Progressf(errw, "reading the store")
+		}
 		read, err = (storeClient{cl}).ReadMatching(ctx, run.Desired, func(mp matchProgress) {
-			if mp.Step == "objects" && mp.Done == 0 {
+			switch {
+			case live != nil:
+				matchStatus(live, mp)
+			case mp.Step == "objects" && mp.Done == 0:
 				output.Progressf(errw, "reading %s in the store", mapping.Plural(mp.Objects, "object"))
 			}
 		})
 		if err != nil {
 			return err
 		}
+		live.Note(matchNote(read))
 		storeReadAt = now()
 	}
+	// Everything the reads have to say comes next, so the card gives way.
+	live.Suspend("read")
 	stored := read.Tuples
 
 	// With no owned shapes nothing is stale: backfill never deletes.
@@ -217,11 +236,17 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, 
 		return err
 	}
 
+	live.Phase("Write")
 	sent, err := snapshot.Write(ctx, storeClient{cl}, nil, diff.Missing, func(done, total int) {
-		if total > backfillRequestSize { // more than one request
+		switch {
+		case live != nil:
+			live.Set("changes", done, total)
+		case total > backfillRequestSize: // more than one request
 			output.Progressf(errw, "sent %d/%d writes", done, total)
 		}
 	})
+	live.Note(thousands(sent.Writes+sent.Deletes) + " changes")
+	live.Suspend("wrote")
 	res.Sent = sentOut{Writes: sent.Writes, Deletes: sent.Deletes}
 	if err != nil {
 		if eerr := emitBackfill(out, c.cli, res); eerr != nil {

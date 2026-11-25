@@ -101,8 +101,8 @@ func emitNotices(notices []string) {
 	})
 }
 
-// tracing reports whether -d/--debug asked for a request trace.
-func (cli *CLI) tracing() bool {
+// Tracing reports whether -d/--debug asked for a request trace.
+func (cli *CLI) Tracing() bool {
 	return cli.Logger != nil && cli.Logger.GetLevel() <= log.DebugLevel
 }
 
@@ -112,7 +112,7 @@ func (cli *CLI) tracing() bool {
 // go on.
 func (cli *CLI) clientOptions() []client.Option {
 	opts := []client.Option{client.WithTimeout(cli.RequestTimeout)}
-	if cli.tracing() {
+	if cli.Tracing() {
 		w := cli.TraceWriter
 		if w == nil {
 			w = os.Stderr
@@ -127,7 +127,7 @@ func (cli *CLI) clientOptions() []client.Option {
 // flag, environment and profile layers won. Secrets are never printed — only
 // which auth method was selected.
 func (cli *CLI) traceResolved(r config.Resolved) {
-	if !cli.tracing() {
+	if !cli.Tracing() {
 		return
 	}
 	method := r.Auth.Method
