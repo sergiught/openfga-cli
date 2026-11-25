@@ -6,7 +6,6 @@ import (
 	"io"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
 	"github.com/openfga/mapper/language"
@@ -108,14 +107,14 @@ func writeReport(w io.Writer, rows []headerRow, sections []reportSection, notChe
 
 	width := 0
 	for _, r := range rows {
-		width = max(width, utf8.RuneCountInString(r.label))
+		width = max(width, lipgloss.Width(r.label))
 	}
 	indent := strings.Repeat(" ", 2+width+2)
 	for i, r := range rows {
 		if i == len(rows)-1 {
 			b.WriteString("\n") // the summary stands apart from the sources
 		}
-		b.WriteString("  " + style.Bold.Render(r.label) + strings.Repeat(" ", width-utf8.RuneCountInString(r.label)) + "  " + r.text + "\n")
+		b.WriteString("  " + style.Bold.Render(r.label) + strings.Repeat(" ", width-lipgloss.Width(r.label)) + "  " + r.text + "\n")
 		for _, e := range r.extra {
 			b.WriteString(indent + e + "\n")
 		}
@@ -174,12 +173,12 @@ func providerRow(label string, r *snapshot.Result, since time.Time) headerRow {
 	types, counts := make([]string, len(r.Counts)), make([]string, len(r.Counts))
 	for i, c := range r.Counts {
 		types[i], counts[i] = output.SanitizeField(c.Type), thousands(c.N)
-		typeWidth = max(typeWidth, utf8.RuneCountInString(types[i]))
+		typeWidth = max(typeWidth, lipgloss.Width(types[i]))
 		countWidth = max(countWidth, len(counts[i]))
 	}
 	var extra []string
 	for i, c := range r.Counts {
-		line := muted(types[i]) + strings.Repeat(" ", typeWidth-utf8.RuneCountInString(types[i])+2+countWidth-len(counts[i])) + fg(counts[i])
+		line := muted(types[i]) + strings.Repeat(" ", typeWidth-lipgloss.Width(types[i])+2+countWidth-len(counts[i])) + fg(counts[i])
 		if c.Windowed {
 			line += faint("  (changed since " + since.UTC().Format(dateClockLayout) + " UTC)")
 		}
@@ -223,11 +222,11 @@ func writeNotChecked(b *strings.Builder, notChecked []snapshot.NotChecked) {
 	b.WriteString(" " + style.Chip("NOT CHECKED", style.Fg, style.BgHighlight) + " " + fg(mapping.Plural(len(notChecked), "rule")) + "\n")
 	width := 0
 	for _, n := range notChecked {
-		width = max(width, utf8.RuneCountInString(output.SanitizeField(n.Rule)))
+		width = max(width, lipgloss.Width(output.SanitizeField(n.Rule)))
 	}
 	for _, n := range notChecked {
 		rule := output.SanitizeField(n.Rule)
-		b.WriteString("    " + fg(rule) + strings.Repeat(" ", width-utf8.RuneCountInString(rule)) + "  " + muted(output.SanitizeField(n.Reason)) + "\n")
+		b.WriteString("    " + fg(rule) + strings.Repeat(" ", width-lipgloss.Width(rule)) + "  " + muted(output.SanitizeField(n.Reason)) + "\n")
 	}
 }
 
@@ -253,9 +252,11 @@ func groupByShape(ts []language.Tuple) []shapeGroup {
 	return groups
 }
 
-// renderShapeLines prints how many tuples have each shape, one line each.
+// renderShapeLines prints what the prune question is about: how many stale
+// tuples there are, and how many of each shape.
 func renderShapeLines(w io.Writer, ts []language.Tuple) error {
 	var b strings.Builder
+	b.WriteString(" " + style.Chip("STALE", style.OnAccent, style.Red) + " " + fg(countNoun(len(ts), "tuple")) + muted(" to delete") + "\n")
 	for _, g := range groupByShape(ts) {
 		b.WriteString("  " + shapeHeading(g.shape, len(g.idx)) + "\n")
 	}
@@ -271,7 +272,11 @@ func shapeHeading(shape string, n int) string {
 // relation in the accent color, and the condition faint.
 func tupleBody(t language.Tuple) string {
 	head, cond := tupleParts(t)
-	return typed(head[0]) + " " + style.Key.Render(head[1]) + " " + typed(head[2]) + faint(cond)
+	body := typed(head[0]) + " " + style.Key.Render(head[1]) + " " + typed(head[2])
+	if cond != "" {
+		body += faint(cond)
+	}
+	return body
 }
 
 // wasText says what the store holds instead: its condition, or none.
@@ -287,8 +292,9 @@ func wasText(t language.Tuple) string {
 // condition suffix (" (cond: k=v)", or empty), all sanitized.
 func tupleParts(t language.Tuple) (head [3]string, cond string) {
 	head = [3]string{output.SanitizeField(t.User), output.SanitizeField(t.Relation), output.SanitizeField(t.Object)}
+	// ChangeLine opens with a one-character sign and a space, whatever the action.
 	line := mapping.ChangeLine(t, output.SanitizeField)
-	return head, strings.TrimPrefix(line, "+ "+strings.Join(head[:], " "))
+	return head, strings.TrimPrefix(line[2:], strings.Join(head[:], " "))
 }
 
 // typed renders "type:id" with the type muted and the id plain.

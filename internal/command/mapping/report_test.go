@@ -302,7 +302,7 @@ func TestRenderReportBlankLinesOnlyOnATerminal(t *testing.T) {
 func TestRenderShapeLines(t *testing.T) {
 	ts := []language.Tuple{tup("user:a", "member", "organization:o"), tup("user:b", "member", "organization:o"), tup("user:a", "viewer", "document:d")}
 	got := colorless(t, func(w *bytes.Buffer) error { return renderShapeLines(w, ts) })
-	if want := lines("  user member organization · 2", "  user viewer document · 1"); got != want {
+	if want := lines("  STALE  3 tuples to delete", "  user member organization · 2", "  user viewer document · 1"); got != want {
 		t.Errorf("got:\n%s", got)
 	}
 }
