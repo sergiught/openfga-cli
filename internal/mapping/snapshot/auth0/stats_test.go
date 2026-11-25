@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sergiught/openfga-cli/internal/mapping/snapshot"
 )
@@ -252,7 +253,12 @@ func TestStatsNeverMixTwoReads(t *testing.T) {
 		done <- err
 	}()
 
-	<-blocked
+	select {
+	case <-blocked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the second read never reached the server")
+	}
+
 	close(stop)
 	wg.Wait()
 
@@ -265,5 +271,10 @@ func TestStatsNeverMixTwoReads(t *testing.T) {
 	}
 
 	close(release)
-	noErr(t, <-done)
+	select {
+	case err := <-done:
+		noErr(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the second read never finished")
+	}
 }

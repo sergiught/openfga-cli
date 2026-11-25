@@ -292,3 +292,55 @@ func TestNoCardUnderTracing(t *testing.T) {
 		t.Error("liveStatus built a card under tracing")
 	}
 }
+
+func TestDriftSinceUsersOnlyDeclaresNoPruneStep(t *testing.T) {
+	configtest.Isolate(t)
+	interactiveProgress(t)
+	useCard(t)
+	pinNow(t, 0)
+	fs := newFakeStore(t, map[string]any{"user": "user:gone", "relation": "member", "object": "tenant:t1"})
+	useFakeProvider(t, fakeProvider{types: windowedTypes(), result: windowedResult()})
+	mp := writeFile(t, t.TempDir(), "m.yaml", userSnapshotMapping)
+	w, err := runTogether(t, fs.cli(), nil, "drift", mp, "--provider", "fake", "--since", "2h", "--prune", "--force")
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, w.text())
+	}
+	frames := 0
+	for _, ch := range w.list {
+		if !isCard(ch) {
+			continue
+		}
+		frames++
+		text := ansi.Strip(ch)
+		if strings.Contains(text, "Prune") {
+			t.Fatalf("a frame names Prune, which cannot run here:\n%s", text)
+		}
+		if strings.Contains(text, "Write") {
+			inOrder(t, text, "Fake", "Replay", "Store", "Write")
+		}
+	}
+	if frames == 0 {
+		t.Fatal("no frame drawn")
+	}
+}
+
+func TestDriftWriteFailureSummarisesBeforeTheFailureText(t *testing.T) {
+	configtest.Isolate(t)
+	interactiveProgress(t)
+	useCard(t)
+	fs := newFakeStore(t)
+	fs.failWrite = `{"code":"validation_error","message":"type not found"}`
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1")})
+	w, err := runTogether(t, fs.cli(), nil, "drift", driftArgs(t, driftMapping, "--force")...)
+	if err == nil {
+		t.Fatal("want a write failure")
+	}
+	read := w.indexOf(0, "read in ")
+	wrote := w.indexOf(read, "wrote in ")
+	failure := w.indexOf(wrote, "before the failure")
+	if read < 0 || wrote < 0 || failure < 0 {
+		t.Fatalf("want the read, wrote and failure lines in order:\n%s", w.text())
+	}
+	w.onlyCard(t, w.firstCard(read+1), wrote)
+	w.noCardAfter(t, wrote)
+}

@@ -342,7 +342,7 @@ The card has one row per step, in the order the command runs them:
 | Command | Steps |
 | --- | --- |
 | `drift` | Store, Auth0, Replay, Write (not with `--dry-run`), Prune (with `--prune`, not with `--dry-run`) |
-| `drift --since`, when no shape is left to check for stale tuples | Auth0, Replay, Store, Write, Prune |
+| `drift --since`, when no shape is left to check for stale tuples | Auth0, Replay, Store, Write (not with `--dry-run`) |
 | `backfill` | Auth0, Replay, Store, Write (not with `--dry-run`) |
 
 A step is `✓` when done, with a note and how long it took, a spinner while it

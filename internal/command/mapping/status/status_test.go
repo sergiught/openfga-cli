@@ -54,6 +54,18 @@ func (w *writes) count() int {
 	return len(w.calls)
 }
 
+func (w *writes) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return strings.Join(w.calls, "")
+}
+
+func (w *writes) reset() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.calls = nil
+}
+
 func newTest(rows int) (*Live, *writes, *fakeClock) {
 	w, clk := &writes{}, &fakeClock{t: time.Unix(1000, 0)}
 	l := newLive(w, func() (int, int) { return 100, rows }, clk.now, func() uint64 { return 1 << 30 }, "ofga mappings drift", "Store", "Auth0", "Replay")
@@ -228,6 +240,9 @@ func TestTarget(t *testing.T) {
 	t.Setenv("TERM", "dumb")
 	if _, _, _, ok := target(nt); ok {
 		t.Error("a NoTTY writer on a dumb terminal is a target")
+	}
+	if _, _, _, ok := target(cw); ok {
+		t.Error("a colored writer on a dumb terminal is a target")
 	}
 }
 
@@ -408,14 +423,14 @@ func TestRealTickerStops(t *testing.T) {
 }
 
 func TestNewAtDrawsAtOnceOnPhaseAndOnResume(t *testing.T) {
-	var buf bytes.Buffer
-	l := NewAt(&buf, 60, 20, "ofga mappings drift", "Store", "Write")
+	buf := &writes{}
+	l := NewAt(buf, 60, 20, "ofga mappings drift", "Store", "Write")
 	l.Phase("Store")
 	if !strings.Contains(ansi.Strip(buf.String()), "Store") {
 		t.Fatalf("no frame right after Phase:\n%q", buf.String())
 	}
 	l.Suspend("read")
-	buf.Reset()
+	buf.reset()
 	l.Phase("Write")
 	if !strings.Contains(ansi.Strip(buf.String()), "Write") {
 		t.Fatalf("no frame right after resuming:\n%q", buf.String())

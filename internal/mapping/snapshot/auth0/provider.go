@@ -138,17 +138,18 @@ func (t *tally) counts() []snapshot.Count {
 
 // Stats says what the read in progress, or the last one, has done so far.
 func (p *Provider) Stats() snapshot.Stats {
+	// Held throughout so a Snapshot starting meanwhile cannot pair the previous
+	// read's counts with the new read's request totals.
 	p.mu.Lock()
-	cur := p.cur
-	p.mu.Unlock()
+	defer p.mu.Unlock()
 
-	if cur == nil {
+	if p.cur == nil {
 		return snapshot.Stats{}
 	}
 
 	sent, limited, gap := p.limits.stats()
 
-	return snapshot.Stats{Requests: sent, RateLimited: limited, Pace: gap, Counts: cur.counts()}
+	return snapshot.Stats{Requests: sent, RateLimited: limited, Pace: gap, Counts: p.cur.counts()}
 }
 
 // read is one Snapshot call's state.

@@ -99,10 +99,10 @@ func target(w io.Writer) (f *os.File, frames io.Writer, plain, ok bool) {
 	if !isFile {
 		return nil, nil, false, false
 	}
+	if os.Getenv("TERM") == "dumb" {
+		return nil, nil, false, false
+	}
 	if wrapped && cw.Profile <= colorprofile.NoTTY {
-		if os.Getenv("TERM") == "dumb" {
-			return nil, nil, false, false
-		}
 		return f, f, true, true
 	}
 	return f, frames, false, true
@@ -113,7 +113,7 @@ func target(w io.Writer) (f *os.File, frames io.Writer, plain, ok bool) {
 // check that w is a terminal and is never nil: for tests and for callers that
 // know the size.
 func NewAt(w io.Writer, cols, rows int, title string, phases ...string) *Live {
-	l := newLive(w, func() (int, int) { return cols, rows }, time.Now, heapInUse, title, phases...)
+	l := newLive(w, func() (int, int) { return cols, rows }, time.Now, memInUse, title, phases...)
 	l.async = true
 	return l
 }
@@ -132,7 +132,7 @@ func New(w io.Writer, title string, phases ...string) *Live {
 			return fallbackCols, fallbackRows
 		}
 		return cols, rows
-	}, time.Now, heapInUse, title, phases...)
+	}, time.Now, memInUse, title, phases...)
 	l.frameW, l.plain, l.async = frames, plain, true
 	return l
 }
@@ -145,7 +145,9 @@ func newLive(w io.Writer, size func() (int, int), now func() time.Time, mem func
 	return l
 }
 
-func heapInUse() uint64 {
+// memInUse is the memory the Go runtime holds from the OS and has not given
+// back (Sys less HeapReleased), close to the process's resident size.
+func memInUse() uint64 {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 	return m.Sys - m.HeapReleased

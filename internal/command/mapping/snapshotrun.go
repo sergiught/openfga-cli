@@ -117,8 +117,8 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since t
 		}
 	}
 	lv := live()
-	lv.Phase(entry.Label)
 	lv.Provider(entry.Label, p.Stats)
+	lv.Phase(entry.Label)
 	res, err := p.Snapshot(ctx, snapshot.Request{Types: requested, Since: since}, func(pr snapshot.Progress) {
 		switch {
 		case lv != nil:

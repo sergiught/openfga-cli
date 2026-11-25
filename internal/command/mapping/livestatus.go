@@ -25,7 +25,7 @@ func matchStatus(live *status.Live, mp matchProgress) {
 	case "store":
 		live.Set("tuples", mp.Done, 0)
 	case "objects":
-		live.Set("objects", mp.Done, mp.Total)
+		live.Set("object relations", mp.Done, mp.Total)
 	case "keys":
 		live.Set("tuples by key", mp.Done, mp.Total)
 	}

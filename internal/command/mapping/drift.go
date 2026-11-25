@@ -128,7 +128,8 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 			owned, _ := snapshot.Coverage(f.Doc, types, windowed, sinceTime)
 			usersOnly = len(owned) == 0
 		}
-		// The phases are named in the order they will run.
+		// The phases are named in the order they will run. A users-only run
+		// has nothing stale, so Prune never runs.
 		label := providers[provider].Label
 		phases := []string{"Store", label, "Replay"}
 		if usersOnly {
@@ -136,7 +137,7 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 		}
 		if !dryRun {
 			phases = append(phases, "Write")
-			if prune {
+			if prune && !usersOnly {
 				phases = append(phases, "Prune")
 			}
 		}
