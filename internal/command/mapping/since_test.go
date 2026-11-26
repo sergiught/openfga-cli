@@ -390,3 +390,39 @@ func TestDriftSinceNothingChangedReadsNoTuples(t *testing.T) {
 		t.Errorf("stdout:\n%s\nstderr:\n%s", stdout, stderr)
 	}
 }
+
+func TestDriftSinceNoDriftSaysWhatWasNotChecked(t *testing.T) {
+	configtest.Isolate(t)
+	pinNow(t, 0)
+	fs := newFakeStore(t, map[string]any{"user": "user:u1", "relation": "member", "object": "organization:o1"})
+	useFakeProvider(t, fakeProvider{types: windowedTypes(), result: windowedResult()})
+	mp := writeFile(t, t.TempDir(), "m.yaml", userSnapshotMapping)
+
+	_, stderr, err := runDrift(t, fs.cli(), nil, mp, "--provider", "fake", "--since", "2h", "--dry-run")
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	want := "no drift found: 1 tuple matches Fake; --since read only the users changed since 2026-11-19 12:02:13 UTC, so tuples of other users were not checked"
+	if !strings.Contains(stderr, want) {
+		t.Errorf("stderr:\n%s", stderr)
+	}
+}
+
+func TestDriftSinceWithOtherTypesNoDriftSaysWhatWasNotChecked(t *testing.T) {
+	configtest.Isolate(t)
+	pinNow(t, 0)
+	fs := newFakeStore(t,
+		map[string]any{"user": "user:u1", "relation": "member", "object": "tenant:t1"},
+		map[string]any{"user": "user:u1", "relation": "member", "object": "organization:o1"})
+	useFakeProvider(t, fakeProvider{types: windowedTypes(), result: userAndMemberResult()})
+	mp := writeFile(t, t.TempDir(), "m.yaml", userAndMemberMapping)
+
+	_, stderr, err := runDrift(t, fs.cli(), nil, mp, "--provider", "fake", "--since", "2h", "--dry-run")
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	want := "no drift found: 2 tuples match Fake; --since read only the users changed since 2026-11-19 12:02:13 UTC, so tuples of other users were not checked"
+	if !strings.Contains(stderr, want) {
+		t.Errorf("stderr:\n%s", stderr)
+	}
+}

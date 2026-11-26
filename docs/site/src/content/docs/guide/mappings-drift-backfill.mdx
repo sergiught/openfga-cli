@@ -645,6 +645,7 @@ again and sends only what is still different.
 | Run | What happens |
 | --- | --- |
 | No difference | `no drift: N tuples match Auth0`, exit `0`. |
+| No difference, with `--since` | `no drift found: N tuples match Auth0; --since read only the users changed since T UTC, so tuples of other users were not checked`, exit `0`. |
 | `--dry-run` | Report, then `dry run: nothing written`, exit `3`. |
 | No terminal, `--no-input`, or machine output, without `--force` | Report, then `report only: pass --force to write`, exit `3`. When nothing is missing or changed and only stale tuples remain, the hint is `report only: pass --prune --force to delete N stale tuples`, or with `--prune`, `report only: pass --force to delete N stale tuples`. |
 | On a terminal | One question for the writes, then with `--prune` one for the deletes. |

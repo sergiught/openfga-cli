@@ -219,7 +219,12 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 		if len(run.Desired) == 1 {
 			verb = "matches"
 		}
-		output.Successf(errw, "no drift: %s %s %s", bold(mapping.Plural(len(run.Desired), "tuple")), verb, output.SanitizeField(label))
+		if run.Since.IsZero() {
+			output.Successf(errw, "no drift: %s %s %s", bold(mapping.Plural(len(run.Desired), "tuple")), verb, output.SanitizeField(label))
+		} else {
+			output.Successf(errw, "no drift found: %s %s %s; --since read only the users changed since %s UTC, so tuples of other users were not checked",
+				bold(mapping.Plural(len(run.Desired), "tuple")), verb, output.SanitizeField(label), run.Since.UTC().Format(dateClockLayout))
+		}
 		return finish(nil)
 	}
 	missing, changed, stale := len(diff.Missing), len(diff.Changed), len(diff.Stale)
