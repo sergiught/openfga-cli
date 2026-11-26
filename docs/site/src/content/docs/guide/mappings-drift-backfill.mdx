@@ -554,6 +554,7 @@ with the reason. The list never changes the exit code.
 | `read with --since: only <types> changed since <time> UTC; not compared: <shapes>` | A `--since` run cannot find stale tuples in these shapes. |
 | `removes tuples that other events write, and a snapshot does not say which happened last; not compared: <count> of <shapes>` | A rule removes tuples that events of a later type, or of its own type, write. Those tuples are set aside: nothing is written or deleted for them. In JSON the entry lists them under `tuples`. See [Replaying the events](#replaying-the-events). |
 | `read with --since: only <types> changed since <time> UTC, and the type or relation is templated, so no stale tuple can be told apart` | A `--since` run in which a rule that can fire on a user event has a templated shape. Nothing at all is owned in that run. |
+| `read with --since: could have removed these for a snapshot.user that was not read; not compared: <count> of <shapes>` | A rule on `snapshot.user` removes tuples, and the window did not read every user, so it may have removed these for one that was not read. They are written by other event types and set aside: nothing is written or deleted for them. In JSON the entry lists them under `tuples`. See [What it cannot find](#what-it-cannot-find). |
 
 ## Comparing
 
@@ -744,6 +745,17 @@ still finds missing, changed and stale tuples for shapes only the fully read
 types write. `--prune` never deletes a tuple in a shape a user event can write.
 A full run without `--since` is still needed to find those.
 
+A rule on `snapshot.user` that removes tuples (a `tuple_filters` entry, or a
+delete tuple) is not run for the users outside the window, so the commands do
+not know what it removed for them. Tuples that the other event types wrote and
+such a rule could remove are listed under `NOT CHECKED` and are not written,
+replaced or deleted. Tuples written by the users that were read are compared as
+usual. Say a rule deletes a blocked user's memberships, and `u1` was blocked
+before the window. `u1` is not read, so the rule never runs for them, and the
+membership that a `snapshot.organization.member` event writes for `u1` is set
+aside instead of written back. A run without `--since` reads `u1`, applies the
+rule and compares the memberships.
+
 ### The store read
 
 If no shape is left to own, nothing can be stale, and `drift --since` reads the
@@ -883,7 +895,8 @@ tuples deleted. `deletes` counts those and the tuples deleted to be replaced.
 - **A delete rule and the order of events.** A snapshot does not say which
   event happened last, so a tuple that one event writes and a rule on an earlier
   type, or on the same type, removes is set aside and listed under `NOT CHECKED`.
-  The commands neither write nor delete it. See
+  So is one that a rule on `snapshot.user` could have removed for a user that
+  `--since` did not read. The commands neither write nor delete it. See
   [Replaying the events](#replaying-the-events).
 - **A tuple removed between the two reads (`backfill`, and `drift --since`
   when no shape is left to check for stale tuples).** These read the store

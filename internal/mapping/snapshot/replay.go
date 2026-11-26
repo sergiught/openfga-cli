@@ -27,12 +27,17 @@ func (emptyStore) ReadTuples(context.Context, language.TupleFilter) ([]language.
 // Contested is a tuple the replay cannot vouch for, because a snapshot has
 // no order within an event type: an event wrote it after an earlier event
 // asked for it to be gone, or an event of the type that last wrote it removed
-// it.
+// it. Under a window it is also one that a rule on a windowed type could have
+// removed for an event that was not read.
 type Contested struct {
 	Tuple language.Tuple
 	// By is the type of the event that removes it: the earliest one in the
-	// first case, the type of both events in the second.
+	// first case, the type of both events in the second, the windowed type in
+	// the third.
 	By string
+	// Unread is true in the third case: no event removed it, but one that
+	// the window left out might have.
+	Unread bool
 }
 
 // stored is a tuple in the set, the index and type id of the event that last
@@ -79,11 +84,28 @@ type Replay struct {
 	// else nothing.
 	byUser, byObject, byPrefix map[string][]*removal
 	everything                 []*removal
+
+	// windowed and unread are set by Window.
+	windowed map[string]bool
+	unread   func(language.Tuple) (string, bool)
 }
 
 // NewReplay returns a Replay of events through m against an empty store.
 func NewReplay(m *mapper.Mapping) *Replay {
 	return &Replay{planner: mapping.NewPlanner(m, emptyStore{}), set: map[string]stored{}}
+}
+
+// Window tells r that events of the windowed types were read by window, so
+// users outside it sent none. unread says, for a tuple, the windowed type whose
+// unread events could have removed it. Done then sets aside a tuple that an
+// event of another type last wrote and unread reaches. A nil unread, or no call,
+// leaves r as it was.
+func (r *Replay) Window(windowed []string, unread func(language.Tuple) (string, bool)) {
+	r.windowed = make(map[string]bool, len(windowed))
+	for _, n := range windowed {
+		r.windowed[n] = true
+	}
+	r.unread = unread
 }
 
 // Add replays events, in order, after earlier calls.
@@ -189,12 +211,15 @@ func (r *Replay) Events() int { return r.events }
 func (r *Replay) Done() (desired []language.Tuple, contested []Contested) {
 	desired = make([]language.Tuple, 0, len(r.set))
 	by := map[string]string{}
+	unread := map[string]bool{}
 	var ts []language.Tuple
 	for k, s := range r.set {
 		if s.marked {
 			by[k] = r.types[s.typ]
 		} else if b, ok := r.contestedBy(s); ok {
 			by[k] = b
+		} else if b, ok := r.unreadBy(s); ok {
+			by[k], unread[k] = b, true
 		} else {
 			desired = append(desired, s.tuple)
 			continue
@@ -206,7 +231,8 @@ func (r *Replay) Done() (desired []language.Tuple, contested []Contested) {
 		sortTuples(ts)
 		contested = make([]Contested, len(ts))
 		for i, t := range ts {
-			contested[i] = Contested{Tuple: t, By: by[Identity(t)]}
+			k := Identity(t)
+			contested[i] = Contested{Tuple: t, By: by[k], Unread: unread[k]}
 		}
 	}
 	return desired, contested
@@ -241,6 +267,16 @@ func (r *Replay) contestedBy(s stored) (string, bool) {
 		return "", false
 	}
 	return best.by, true
+}
+
+// unreadBy returns the windowed type whose unread events could have removed s,
+// when the event type that last wrote s was not read by window. A tuple a
+// windowed type wrote is later than every user outside the window.
+func (r *Replay) unreadBy(s stored) (string, bool) {
+	if r.unread == nil || r.windowed[r.types[s.typ]] {
+		return "", false
+	}
+	return r.unread(s.tuple)
 }
 
 // Desired replays events through m against an empty store and returns the

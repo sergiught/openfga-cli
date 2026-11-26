@@ -125,6 +125,9 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since t
 	// A provider that streams hands the events to the replay while it reads, so
 	// a rule that fails on an event stops the read and no list of events is held.
 	replay := snapshot.NewReplay(m)
+	if len(windowed) > 0 {
+		replay.Window(windowed, snapshot.UnreadRemovals(f.Doc, windowed))
+	}
 	res, err := p.Snapshot(ctx, snapshot.Request{
 		Types: requested, Since: since,
 		Emit: func(events []map[string]any) error { return replay.Add(ctx, events) },

@@ -314,15 +314,16 @@ func removes(r mapping.Rule) bool {
 
 // Removers turns contested tuples into NOT CHECKED entries, one for each
 // rule that removes tuples and can fire on the event type that contested
-// them, whether a later event wrote the tuple after the removal or an event
-// of the type that wrote it removed it.
+// them, whether a later event wrote the tuple after the removal, an event of
+// the type that wrote it removed it, or a window left out events that might
+// have. A rule can have an entry of each kind.
 func Removers(doc *mapping.Document, contested []Contested) []NotChecked {
 	if len(contested) == 0 {
 		return nil
 	}
 	claimed := make([]bool, len(contested))
 	var out []NotChecked
-	entry := func(rule string, ts []language.Tuple) NotChecked {
+	entry := func(rule, reason string, ts []language.Tuple) NotChecked {
 		var shapes []mapping.Shape
 		var text []string
 		for _, t := range ts {
@@ -337,26 +338,42 @@ func Removers(doc *mapping.Document, contested []Contested) []NotChecked {
 			noun = "tuple"
 		}
 		return NotChecked{
-			Rule: rule,
-			Reason: fmt.Sprintf("removes tuples that other events write, and a snapshot does not say which happened last; not compared: %d %s of %s",
-				len(ts), noun, strings.Join(text, ", ")),
+			Rule:   rule,
+			Reason: fmt.Sprintf("%s: %d %s of %s", reason, len(ts), noun, strings.Join(text, ", ")),
 			Shapes: shapes,
 			Tuples: ts,
 		}
+	}
+	const reason = "removes tuples that other events write, and a snapshot does not say which happened last; not compared"
+	unreadReason := func(by string) string {
+		return "read with --since: could have removed these for a " + by + " that was not read; not compared"
 	}
 	for _, r := range doc.Rules {
 		if !removes(r) {
 			continue
 		}
 		var ts []language.Tuple
+		var unreadOrder []string
+		unread := map[string][]language.Tuple{}
 		for i, c := range contested {
-			if firesOn(r.When, c.By) {
-				claimed[i] = true
-				ts = append(ts, c.Tuple)
+			if !firesOn(r.When, c.By) {
+				continue
 			}
+			claimed[i] = true
+			if !c.Unread {
+				ts = append(ts, c.Tuple)
+				continue
+			}
+			if _, ok := unread[c.By]; !ok {
+				unreadOrder = append(unreadOrder, c.By)
+			}
+			unread[c.By] = append(unread[c.By], c.Tuple)
 		}
 		if len(ts) > 0 {
-			out = append(out, entry(r.Name, ts))
+			out = append(out, entry(r.Name, reason, ts))
+		}
+		for _, by := range unreadOrder {
+			out = append(out, entry(r.Name, unreadReason(by), unread[by]))
 		}
 	}
 	var order []string
@@ -370,9 +387,78 @@ func Removers(doc *mapping.Document, contested []Contested) []NotChecked {
 		}
 	}
 	for _, by := range order {
-		out = append(out, entry(by, rest[by]))
+		out = append(out, entry(by, reason, rest[by]))
 	}
 	return out
+}
+
+// unreadTemplate is a removal's user, relation and object as written in the
+// mapping, and the windowed type whose rule it belongs to. A field that is
+// empty reaches anything.
+type unreadTemplate struct {
+	by                     string
+	user, relation, object string
+}
+
+// reaches reports whether a value the template renders to can be v, judged from
+// the text alone. The mapper renders a field by joining its literal text with
+// the values of its expressions, so everything before the first "{{" starts the
+// result. A template without "{{" is exact, except an object that is a type
+// prefix, which is every object of the type, as a tuple filter reads it.
+func reaches(template, v string, object bool) bool {
+	if template == "" {
+		return true
+	}
+	if i := strings.Index(template, "{{"); i >= 0 {
+		return strings.HasPrefix(v, template[:i])
+	}
+	if i := strings.IndexByte(template, ':'); object && i > 0 && i == len(template)-1 {
+		return strings.HasPrefix(v, template)
+	}
+	return template == v
+}
+
+// UnreadRemovals returns, for the types read by window, a function that says
+// which of them has a rule whose removal can match a tuple, or false when none
+// can. Only the removals of templates an event of the type can fire count: the
+// rule's tuple filters of either action and its delete tuples. It returns nil
+// when no rule qualifies.
+func UnreadRemovals(doc *mapping.Document, windowed []string) func(language.Tuple) (string, bool) {
+	var removals []unreadTemplate
+	for _, n := range windowed {
+		for _, r := range doc.Rules {
+			if !removes(r) {
+				continue
+			}
+			fired, ok := firedTemplates(r, n)
+			if !ok {
+				continue
+			}
+			for _, f := range fired.Filters {
+				removals = append(removals, unreadTemplate{n, f.User, f.Relation, f.Object})
+			}
+			ts := slices.Clone(fired.Tuples)
+			if fired.Iterator != nil {
+				ts = append(ts, fired.Iterator.Tuples...)
+			}
+			for _, t := range ts {
+				if t.Action == "delete" || r.Action == "delete" {
+					removals = append(removals, unreadTemplate{n, t.User, t.Relation, t.Object})
+				}
+			}
+		}
+	}
+	if len(removals) == 0 {
+		return nil
+	}
+	return func(t language.Tuple) (string, bool) {
+		for _, x := range removals {
+			if reaches(x.user, t.User, false) && reaches(x.relation, t.Relation, false) && reaches(x.object, t.Object, true) {
+				return x.by, true
+			}
+		}
+		return "", false
+	}
 }
 
 // Coverage returns the shapes snapshot rules write, and the rules whose
