@@ -377,7 +377,7 @@ func TestCoverageWindowedEvents(t *testing.T) {
 }
 
 func TestRemovers(t *testing.T) {
-	const wantReason = "removes tuples that later events write again, and a snapshot does not say which happened last; not compared: "
+	const wantReason = "removes tuples that other events write, and a snapshot does not say which happened last; not compared: "
 	filter := []mapping.TupleFilter{{User: "user:{{ input.id }}", Object: "organization:", Action: "delete"}}
 	byUser := `input.type == "snapshot.user"`
 	member1 := tup("user:u1", "member", "organization:o1")

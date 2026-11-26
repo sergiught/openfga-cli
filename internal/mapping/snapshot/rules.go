@@ -314,7 +314,8 @@ func removes(r mapping.Rule) bool {
 
 // Removers turns contested tuples into NOT CHECKED entries, one for each
 // rule that removes tuples and can fire on the event type that contested
-// them.
+// them, whether a later event wrote the tuple after the removal or an event
+// of the type that wrote it removed it.
 func Removers(doc *mapping.Document, contested []Contested) []NotChecked {
 	if len(contested) == 0 {
 		return nil
@@ -337,7 +338,7 @@ func Removers(doc *mapping.Document, contested []Contested) []NotChecked {
 		}
 		return NotChecked{
 			Rule: rule,
-			Reason: fmt.Sprintf("removes tuples that later events write again, and a snapshot does not say which happened last; not compared: %d %s of %s",
+			Reason: fmt.Sprintf("removes tuples that other events write, and a snapshot does not say which happened last; not compared: %d %s of %s",
 				len(ts), noun, strings.Join(text, ", ")),
 			Shapes: shapes,
 			Tuples: ts,

@@ -65,9 +65,13 @@ func TestDesiredFoldsWritesAndFilters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Event 2's patch asked for role:B to be gone, and event 3 wrote it, so
-	// which came last is unknown.
-	wantContested := []Contested{{Tuple: tup("user:u1", "assignee", "role:B"), By: "snapshot.organization.member.role"}}
+	// The role events are of one type, so their order means nothing: event 3's
+	// patch removed role:A and event 2's patch asked for role:B to be gone.
+	const roleType = "snapshot.organization.member.role"
+	wantContested := []Contested{
+		{Tuple: tup("user:u1", "assignee", "role:A"), By: roleType},
+		{Tuple: tup("user:u1", "assignee", "role:B"), By: roleType},
+	}
 	if !reflect.DeepEqual(contested, wantContested) {
 		t.Errorf("contested = %+v, want %+v", contested, wantContested)
 	}
@@ -224,8 +228,8 @@ func TestReplayLaterCallFilterRemovesEarlierWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, contested := r.Done()
-	if len(got) != 0 || len(contested) != 1 || contested[0].Tuple.Object != "role:B" {
-		t.Errorf("Done() = %+v and %+v, want only role:B, contested", got, contested)
+	if len(got) != 0 || len(contested) != 2 || contested[0].Tuple.Object != "role:A" || contested[1].Tuple.Object != "role:B" {
+		t.Errorf("Done() = %+v and %+v, want role:A and role:B, contested", got, contested)
 	}
 }
 
@@ -264,11 +268,17 @@ rules:
         object: "organization:"
         action: delete
   - name: member
-    when: input.type == "snapshot.organization.member"
+    when: input.type == "snapshot.organization.member" && input.drop != true
     tuples:
       - user: "user:{{ input.user_id }}"
         relation: member
         object: "organization:{{ input.org }}"
+  - name: drop
+    when: input.type == "snapshot.organization.member" && input.drop == true
+    tuple_filters:
+      - user: "user:{{ input.user_id }}"
+        object: "organization:"
+        action: delete
   - name: removed
     when: input.type == "snapshot.removed"
     action: delete
@@ -412,5 +422,34 @@ func TestDesiredManyEventsWithTheSameFilter(t *testing.T) {
 	t.Logf("%d events in %s", len(events), time.Since(start))
 	if len(d) != n || len(c) != 5 || c[0].By != "snapshot.tick" {
 		t.Errorf("desired = %d, contested = %d", len(d), len(c))
+	}
+}
+
+func TestDesiredEventsOfOneTypeCannotVouchForEachOther(t *testing.T) {
+	const roleType = "snapshot.role"
+	d, c := desiredOf(t,
+		cev(roleType, "u1", "role", "A"), cev(roleType, "u1", "role", "B"), cev(roleType, "u1", "role", "C"),
+		cev(roleType, "u2", "role", "A"),
+	)
+	if want := []language.Tuple{tup("user:u2", "assignee", "role:A")}; !reflect.DeepEqual(d, want) {
+		t.Errorf("desired = %+v, want %+v", d, want)
+	}
+	if len(c) != 3 {
+		t.Fatalf("contested = %+v, want the three roles of u1", c)
+	}
+	for i, role := range []string{"A", "B", "C"} {
+		if want := (Contested{Tuple: tup("user:u1", "assignee", "role:"+role), By: roleType}); !reflect.DeepEqual(c[i], want) {
+			t.Errorf("contested[%d] = %+v, want %+v", i, c[i], want)
+		}
+	}
+}
+
+func TestDesiredLaterEventOfTheSameTypeRemovesWhatAnEarlierOneWrote(t *testing.T) {
+	d, c := desiredOf(t,
+		cev("snapshot.organization.member", "u1"),
+		cev("snapshot.organization.member", "u1", "drop", true),
+	)
+	if len(d) != 0 || len(c) != 1 || c[0].By != "snapshot.organization.member" {
+		t.Errorf("desired = %+v, contested = %+v, want none and one by the member type", d, c)
 	}
 }

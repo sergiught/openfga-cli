@@ -23,18 +23,24 @@ func (emptyStore) ReadTuples(context.Context, language.TupleFilter) ([]language.
 	return nil, nil
 }
 
-// Contested is a tuple the replay cannot vouch for: an event wrote it after
-// an earlier event asked for it to be gone, and a snapshot has no order.
+// Contested is a tuple the replay cannot vouch for, because a snapshot has
+// no order within an event type: an event wrote it after an earlier event
+// asked for it to be gone, or an event of the type that last wrote it removed
+// it.
 type Contested struct {
 	Tuple language.Tuple
-	// By is the type of the earliest event that asks for it to be gone.
+	// By is the type of the event that removes it: the earliest one in the
+	// first case, the type of both events in the second.
 	By string
 }
 
-// stored is a tuple in the set and the index of the event that last wrote it.
+// stored is a tuple in the set, the index and type id of the event that last
+// wrote it, and whether an event of that type removed it.
 type stored struct {
 	tuple  language.Tuple
 	writer int
+	typ    int32
+	marked bool
 }
 
 // removal is a Removal with the index and type of the event that asked.
@@ -45,14 +51,24 @@ type removal struct {
 }
 
 // Replay turns snapshot events into tuples that should exist. Events are
-// added in order and none is kept. It remembers each tuple in the set with
-// the index of the event that last wrote it, and each distinct removal with
-// the first event that asked for it, so memory does not grow with the number
-// of write-only events.
+// added in order and none is kept. The order between event types is
+// documented, so a later type's removal removes what an earlier type wrote.
+// The order within a type is only the order the provider listed events in,
+// so Replay sets such tuples aside as contested: those written after a
+// removal by an earlier event, and those removed by another event of the type
+// that wrote them. It remembers each tuple in the set with the index and type
+// id of the event that last wrote it, and each distinct removal with the
+// first event that asked for it, so memory does not grow with the number of
+// write-only events.
 type Replay struct {
 	planner *mapping.Planner
 	set     map[string]stored
 	events  int
+
+	// typeIDs gives each event type a small id, so a tuple stores an int
+	// rather than the type's name; types is the inverse.
+	typeIDs map[string]int32
+	types   []string
 
 	// seen collapses removals with an identical filter and nothing kept to
 	// the first, which has the lowest index.
@@ -87,20 +103,47 @@ func (r *Replay) Add(ctx context.Context, events []map[string]any) error {
 			}
 			return err
 		}
+		typ := r.typeID(ep.Type)
 		for _, c := range ep.Changes {
 			k := Identity(c)
+			prev, had := r.set[k]
 			if c.Action == language.ActionDelete {
-				delete(r.set, k)
+				// Another event of the writer's type removes it: their order
+				// means nothing, so keep it, marked. Conservative: a marked
+				// tuple that a later type's rule would also have removed
+				// stays contested, because the planner no longer sees it and
+				// plans no delete. Listing it costs a line in a report;
+				// dropping it could cost a tuple.
+				if had && prev.writer != r.events && prev.typ == typ {
+					prev.marked = true
+					r.set[k] = prev
+				} else {
+					delete(r.set, k)
+				}
 				continue
 			}
 			c.Action = ""
-			r.set[k] = stored{tuple: c, writer: r.events}
+			r.set[k] = stored{tuple: c, writer: r.events, typ: typ, marked: prev.marked}
 		}
 		for _, rm := range ep.Removals {
 			r.record(rm, ep)
 		}
 	}
 	return nil
+}
+
+// typeID returns the id of an event type, new when first seen.
+func (r *Replay) typeID(name string) int32 {
+	if id, ok := r.typeIDs[name]; ok {
+		return id
+	}
+	if r.typeIDs == nil {
+		r.typeIDs = map[string]int32{}
+	}
+	id := int32(len(r.types)) //nolint:gosec // event types are few
+	r.typeIDs[name] = id
+	r.types = append(r.types, name)
+	return id
 }
 
 // record keeps rm for Done, unless an earlier removal is the same.
@@ -135,11 +178,17 @@ func (r *Replay) record(rm mapping.Removal, ep mapping.EventPlan) {
 func (r *Replay) Events() int { return r.events }
 
 // Done returns the tuples that should exist and, apart from them, the
-// contested ones. Both are sorted by shape, then user, relation, object.
+// contested ones: those an event of their writer's type removed, and those an
+// earlier event removes. Each tuple is in one list. Both are sorted by shape, then user, relation, object.
 func (r *Replay) Done() (desired []language.Tuple, contested []Contested) {
 	desired = make([]language.Tuple, 0, len(r.set))
 	by := map[string]string{}
 	for k, s := range r.set {
+		if s.marked {
+			by[k] = r.types[s.typ]
+			contested = append(contested, Contested{Tuple: s.tuple})
+			continue
+		}
 		if by0, ok := r.contestedBy(s); ok {
 			by[k] = by0
 			contested = append(contested, Contested{Tuple: s.tuple})
@@ -193,7 +242,7 @@ func (r *Replay) contestedBy(s stored) (string, bool) {
 }
 
 // Desired replays events through m against an empty store and returns the
-// tuples that should exist and the contested ones, each sorted by shape,
+// tuples that should exist and the contested ones (see Replay), each sorted by shape,
 // user, relation, object.
 func Desired(ctx context.Context, m *mapper.Mapping, events []map[string]any, progress func(done, total int)) (desired []language.Tuple, contested []Contested, err error) {
 	r := NewReplay(m)
