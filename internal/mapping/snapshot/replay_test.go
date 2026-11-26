@@ -94,7 +94,7 @@ func TestDesiredFoldsWritesAndFilters(t *testing.T) {
 		{User: "user:u1", Relation: "viewer", Object: "organization:org_1"},
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Desired() = %+v, want %+v", got, want)
+		t.Errorf("Done() = %+v, want %+v", got, want)
 	}
 }
 
@@ -108,7 +108,7 @@ func TestDesiredDedupes(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(got) != 2 {
-		t.Errorf("len(Desired()) = %d, want 2", len(got))
+		t.Errorf("len(Done()) = %d, want 2", len(got))
 	}
 }
 
@@ -122,7 +122,7 @@ func TestDesiredErrorNamesEntity(t *testing.T) {
 	delete(ev, "user")
 	_, _, err = replayAll(m, []map[string]any{ev})
 	if err == nil {
-		t.Fatal("Desired() error = nil, want error")
+		t.Fatal("Add() error = nil, want error")
 	}
 	if want := "snapshot.organization.member (organization org_1 member auth0|x): "; !strings.Contains(err.Error(), want) {
 		t.Errorf("error %q does not contain %q", err, want)

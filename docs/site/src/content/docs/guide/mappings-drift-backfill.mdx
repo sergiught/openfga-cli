@@ -556,6 +556,10 @@ with the reason. The list never changes the exit code.
 | `read with --since: only <types> changed since <time> UTC, and the type or relation is templated, so no stale tuple can be told apart` | A `--since` run in which a rule that can fire on a user event has a templated shape. Nothing at all is owned in that run. |
 | `read with --since: could have removed these for a snapshot.user that was not read; not compared: <count> of <shapes>` | A rule on `snapshot.user` removes tuples, and the window did not read every user, so it may have removed these for one that was not read. They are written by other event types and set aside: nothing is written or deleted for them. In JSON the entry lists them under `tuples`. See [What it cannot find](#what-it-cannot-find). |
 
+The two reasons about removed tuples are listed under every rule that removes
+tuples and can fire on the event type involved. That can include a rule whose
+own filter does not reach the listed tuples.
+
 ## Comparing
 
 Two tuples are **the same tuple** when user, relation and object are equal.
@@ -753,8 +757,10 @@ replaced or deleted. Tuples written by the users that were read are compared as
 usual. Say a rule deletes a blocked user's memberships, and `u1` was blocked
 before the window. `u1` is not read, so the rule never runs for them, and the
 membership that a `snapshot.organization.member` event writes for `u1` is set
-aside instead of written back. A run without `--since` reads `u1`, applies the
-rule and compares the memberships.
+aside instead of written back. A run without `--since` reads `u1` and sees the
+rule remove their memberships, so it sets `u1`'s membership aside for the
+reason given in [Replaying the events](#replaying-the-events). It compares the
+memberships of the users the rule did not fire for.
 
 ### The store read
 
