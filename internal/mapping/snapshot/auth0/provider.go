@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/auth0/go-auth0/v2/management"
@@ -40,6 +41,7 @@ type Provider struct {
 	source, tenant string
 	limits         *pacer
 	wait           func(ctx context.Context, d time.Duration) error // between export job polls
+	stall          time.Duration                                    // longest an export download may send no data
 
 	mu  sync.Mutex
 	cur *tally // the read in progress, or the last one; nil before any
@@ -84,7 +86,7 @@ func New(ctx context.Context, cfg Config, opts ...option.RequestOption) (*Provid
 		return nil, err
 	}
 
-	return &Provider{m: m, source: host, tenant: tenant, limits: limits, wait: sleepContext}, nil
+	return &Provider{m: m, source: host, tenant: tenant, limits: limits, wait: sleepContext, stall: exportStallTimeout}, nil
 }
 
 // Name is the --provider value.
@@ -570,6 +572,9 @@ const exportPollEvery = 2 * time.Second
 // exportJobTimeout is how long the export job may stay pending or processing.
 const exportJobTimeout = 30 * time.Minute
 
+// exportStallTimeout is how long an export download may go without data.
+const exportStallTimeout = 60 * time.Second
+
 // exportUsers reads every user through an export job, for tenants the list
 // cannot serve. atLeast is the total the list reported: the tenant has that
 // many users or more.
@@ -660,19 +665,52 @@ func (s *streamReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
+// progressReader restarts the stall timer whenever data arrives.
+type progressReader struct {
+	r     io.Reader
+	timer *time.Timer
+	every time.Duration
+}
+
+func (p *progressReader) Read(b []byte) (int, error) {
+	n, err := p.r.Read(b)
+	if n > 0 {
+		p.timer.Reset(p.every)
+	}
+
+	return n, err
+}
+
 // downloadUsers streams the export file, one JSON user per line, into events.
 // The location is a signed URL on another host: it is fetched without the
 // Management client and never appears in an error.
 func (r *read) downloadUsers(location string, at time.Time) (int, error) {
+	// A download that sends no data for the stall limit is cancelled. There is
+	// no limit on the whole download: a large tenant's takes minutes.
+	ctx, cancel := context.WithCancel(r.ctx)
+	defer cancel()
+
+	var stalled atomic.Bool
+
+	timer := time.AfterFunc(r.stall, func() {
+		stalled.Store(true)
+		cancel()
+	})
+	defer timer.Stop()
+
 	fail := func(err error) (int, error) {
 		if ctxErr := r.ctx.Err(); ctxErr != nil {
 			return 0, ctxErr
 		}
 
+		if stalled.Load() {
+			err = fmt.Errorf("no data for %s", r.stall)
+		}
+
 		return 0, fmt.Errorf("downloading Auth0's user export failed: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(r.ctx, http.MethodGet, location, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, location, nil)
 	if err != nil {
 		return fail(errors.New("the job's location is not a URL"))
 	}
@@ -689,11 +727,13 @@ func (r *read) downloadUsers(location string, at time.Time) (int, error) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	timer.Reset(r.stall)
+
 	if resp.StatusCode != http.StatusOK {
 		return fail(fmt.Errorf("HTTP %d", resp.StatusCode))
 	}
 
-	gz, err := gzip.NewReader(resp.Body)
+	gz, err := gzip.NewReader(&progressReader{r: resp.Body, timer: timer, every: r.stall})
 	if err != nil {
 		return fail(err)
 	}

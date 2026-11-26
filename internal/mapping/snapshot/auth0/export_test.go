@@ -839,3 +839,92 @@ func TestExportJobFinishingAt29MinutesStillSucceeds(t *testing.T) {
 	noErr(t, err)
 	equal(t, 1500, len(res.Events))
 }
+
+// downloadProvider is an export provider whose stall limit is short.
+func downloadProvider(t *testing.T, f *exportFake) (*Provider, *atomic.Int64) {
+	t.Helper()
+
+	p, _ := newExportProvider(t, 1500, f)
+	p.stall = 300 * time.Millisecond
+
+	var users atomic.Int64
+
+	return p, &users
+}
+
+func readUsers(ctx context.Context, p *Provider, users *atomic.Int64) (*snapshot.Result, error) {
+	return p.Snapshot(ctx, snapshot.Request{Types: []string{"snapshot.user"}}, func(pr snapshot.Progress) {
+		if pr.Step == exportDownloadStep {
+			users.Add(1)
+		}
+	})
+}
+
+func assertStalled(t *testing.T, err error, took time.Duration, users *atomic.Int64) {
+	t.Helper()
+
+	isErr(t, err)
+	contains(t, err.Error(), "downloading Auth0's user export failed: no data for 300ms")
+	notContains(t, err.Error(), "127.0.0.1")
+	notContains(t, err.Error(), "secret123")
+
+	if took > time.Second {
+		t.Errorf("read took %s, want it to end soon after the stall limit", took)
+	}
+
+	equal(t, int64(0), users.Load())
+}
+
+func TestExportDownloadThatStopsHalfwayEnds(t *testing.T) {
+	t.Parallel()
+
+	whole := gzipped(filled(1500)...)
+	f := &exportFake{file: func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(whole[:len(whole)/2])
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}}
+	p, users := downloadProvider(t, f)
+
+	start := time.Now()
+	_, err := readUsers(context.Background(), p, users)
+	assertStalled(t, err, time.Since(start), users)
+}
+
+func TestExportDownloadThatNeverAnswersEnds(t *testing.T) {
+	t.Parallel()
+
+	f := &exportFake{file: func(_ http.ResponseWriter, r *http.Request) { <-r.Context().Done() }}
+	p, users := downloadProvider(t, f)
+
+	start := time.Now()
+	_, err := readUsers(context.Background(), p, users)
+	assertStalled(t, err, time.Since(start), users)
+}
+
+func TestExportSlowButSteadyDownloadSucceeds(t *testing.T) {
+	t.Parallel()
+
+	whole := gzipped(filled(1500)...)
+	f := &exportFake{file: func(w http.ResponseWriter, _ *http.Request) {
+		const chunk = 100
+
+		// Takes longer than the stall limit in all, never that long without data.
+		for i := 0; i < len(whole); i += chunk {
+			_, _ = w.Write(whole[i:min(i+chunk, len(whole))])
+			w.(http.Flusher).Flush()
+			time.Sleep(10 * time.Millisecond)
+		}
+	}}
+	p, users := downloadProvider(t, f)
+	p.stall = 400 * time.Millisecond
+
+	start := time.Now()
+	res, err := readUsers(context.Background(), p, users)
+	noErr(t, err)
+	equal(t, 1500, len(res.Events))
+
+	if time.Since(start) <= p.stall {
+		t.Fatalf("download took %s, want longer than the stall limit %s", time.Since(start), p.stall)
+	}
+}
