@@ -456,15 +456,18 @@ func TestDriftPartialFailure(t *testing.T) {
 	if k := clierr.NewEnvelope(err).Error.Code; k != clierr.KindPartialFailure {
 		t.Fatalf("kind = %v err = %v", k, err)
 	}
-	if msg := clierr.NewEnvelope(err).Error.Message; !strings.Contains(msg, "sent 100 of 250 changes before the failure; run the command again to send the rest") {
-		t.Errorf("message = %q", msg)
-	}
 	var got driftResult
 	if jerr := json.Unmarshal([]byte(stdout), &got); jerr != nil {
 		t.Fatalf("stdout is not one JSON document: %v\n%s", jerr, stdout)
 	}
-	if got.Sent.Writes != 100 {
+	// Requests go out side by side, so which one got through before the
+	// failure varies: the first to arrive succeeds, of 100 or 50 changes.
+	if got.Sent.Writes != 100 && got.Sent.Writes != 50 {
 		t.Fatalf("sent = %+v", got.Sent)
+	}
+	want := fmt.Sprintf("sent %d of 250 changes before the failure; run the command again to send the rest", got.Sent.Writes)
+	if msg := clierr.NewEnvelope(err).Error.Message; !strings.Contains(msg, want) {
+		t.Errorf("message = %q, want %q", msg, want)
 	}
 }
 
@@ -518,15 +521,18 @@ func TestDriftPartialPruneCountsDeletesSent(t *testing.T) {
 	c := fs.cli()
 	c.JSON = true
 	stdout, _, err := runDrift(t, c, nil, driftArgs(t, driftMapping, "--prune", "--force")...)
-	if msg := clierr.NewEnvelope(err).Error.Message; !strings.Contains(msg, "sent 100 of 250 changes before the failure; run the command again with --prune to send the rest") {
-		t.Errorf("message = %q", msg)
-	}
 	var got driftResult
 	if jerr := json.Unmarshal([]byte(stdout), &got); jerr != nil {
 		t.Fatalf("stdout is not one JSON document: %v\n%s", jerr, stdout)
 	}
-	if got.Sent.Deletes != 100 || got.Pruned != 100 {
-		t.Fatalf("sent = %+v pruned = %d, want 100 of each", got.Sent, got.Pruned)
+	// Requests go out side by side, so which one got through before the
+	// failure varies: the first to arrive succeeds, of 100, 100 or 50 changes.
+	if got.Sent.Deletes != 100 && got.Sent.Deletes != 50 || got.Pruned != got.Sent.Deletes {
+		t.Fatalf("sent = %+v pruned = %d, want 100 or 50 of each", got.Sent, got.Pruned)
+	}
+	want := fmt.Sprintf("sent %d of 250 changes before the failure; run the command again with --prune to send the rest", got.Sent.Deletes)
+	if msg := clierr.NewEnvelope(err).Error.Message; !strings.Contains(msg, want) {
+		t.Errorf("message = %q, want %q", msg, want)
 	}
 }
 
@@ -556,7 +562,8 @@ func TestDriftCanceledDuringWrite(t *testing.T) {
 	if clierr.Code(err) != clierr.CodeCanceled {
 		t.Fatalf("code = %d err = %v", clierr.Code(err), err)
 	}
-	if !strings.Contains(err.Error(), "sent 100 of 250 changes before the failure") {
+	// Which requests finished before the cancellation varies.
+	if !strings.Contains(err.Error(), " of 250 changes before the failure") {
 		t.Errorf("err = %v", err)
 	}
 }

@@ -572,6 +572,9 @@ tuples as `already there`.
 ### Requests
 
 A request carries at most 100 changes and is either all writes or all deletes.
+Requests go out four at a time, deletes first: every delete request has
+finished before the first write request starts. After a failure, the requests
+already in flight finish and are counted, and no new one starts.
 Writes ignore a tuple that is already there and deletes ignore one that is
 already gone, so sending the same change twice is harmless. A store set to
 accept fewer changes per request is detected from its refusal, and the command
@@ -588,7 +591,7 @@ there is more than one request.
 
 OpenFGA cannot overwrite a tuple's condition, and it rejects a request that
 deletes and writes the same tuple. So `drift` replaces changed tuples in batches
-of 100, each batch being two requests:
+of 100, one batch at a time, each batch being two requests:
 
 1. Delete the stored versions.
 2. Write the desired versions.
@@ -617,9 +620,9 @@ store could not be reached, `130` when you interrupted the run, `1` otherwise.
 
 | Message | What the store holds |
 | --- | --- |
-| `sent N of M writes before the failure; run the command again to send the rest` (`backfill`) | The first N missing tuples. |
-| `sent N of M changes before the failure; run the command again to send the rest` (`drift`) | The first N writes or deletes of that step. |
-| `sent N of M changes before the failure; run the command again with --prune to send the rest` (`drift --prune`, while deleting) | The first N deletes of that step. |
+| `sent N of M writes before the failure; run the command again to send the rest` (`backfill`) | N of the missing tuples, in whole requests. |
+| `sent N of M changes before the failure; run the command again to send the rest` (`drift`) | N writes or deletes of that step, in whole requests. |
+| `sent N of M changes before the failure; run the command again with --prune to send the rest` (`drift --prune`, while deleting) | N deletes of that step, in whole requests. |
 | `could not replace M changed tuples; the stored versions are in place, nothing was replaced` | What it held before, plus any missing tuples written first. |
 | `replaced N of M changed tuples; the next batch failed and its stored versions are in place` | N desired versions; the rest unchanged. |
 | `replaced N of M changed tuples before the interruption; run the command again to replace the rest` | N desired versions; the rest unchanged. |

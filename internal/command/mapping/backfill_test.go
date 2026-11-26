@@ -710,7 +710,8 @@ func TestBackfillFailureCountsMissingTuples(t *testing.T) {
 	if err == nil || fs.writeCount() != 2 {
 		t.Fatalf("err = %v writes = %d", err, fs.writeCount())
 	}
-	if !strings.Contains(stderr, "sent 100 of 180 writes before the failure") {
+	// The two requests run side by side; the one that did not fail is 100 or 80.
+	if !strings.Contains(stderr, "sent 100 of 180 writes before the failure") && !strings.Contains(stderr, "sent 80 of 180 writes before the failure") {
 		t.Errorf("stderr:\n%s", stderr)
 	}
 }

@@ -3,6 +3,7 @@ package snapshot
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/openfga/mapper/language"
@@ -49,57 +50,107 @@ const replaceTimeout = 30 * time.Second
 // Sent is how many tuples reached the store.
 type Sent struct{ Writes, Deletes int }
 
+// writeWorkers is how many requests Write keeps in flight.
+const writeWorkers = 4
+
 // Write sends deletes, then writes, in requests of at most 100 changes, each
-// request all deletes or all writes. When w is a BatchLimiter and the store
-// refuses a request as too large, the request is sent again in smaller ones,
-// and every later request keeps the smaller size. Otherwise it stops at the
-// first error or at cancellation (checked before each request) and returns
-// what was sent.
-// progress counts changes sent so far out of all of them; it may be nil.
+// request all deletes or all writes, up to writeWorkers at a time. Every
+// delete request has finished before the first write request starts. When w
+// is a BatchLimiter and the store refuses a request as too large, the size
+// shrinks for every request, the refused changes are sent again in smaller
+// ones, and the size does not grow back. On any other error, or at
+// cancellation (checked before each request), no new request starts; the
+// requests in flight are left to finish and counted, and Write returns the
+// first error with what was sent.
+// progress counts changes sent so far out of all of them; it may be nil and
+// is never called from two goroutines at once.
 func Write(ctx context.Context, w mapping.TupleWriter, deletes, writes []language.Tuple, progress func(done, total int)) (Sent, error) {
-	var sent Sent
+	var (
+		mu       sync.Mutex
+		sent     Sent
+		firstErr error
+		done     int
+		size     = maxChangesPerWrite
+	)
 	total := len(deletes) + len(writes)
-	done := 0
-	size := maxChangesPerWrite
-	send := func(ts []language.Tuple, isDelete bool) error {
-		for len(ts) > 0 {
-			if err := ctx.Err(); err != nil {
-				return err
+	phase := func(ts []language.Tuple, isDelete bool) {
+		var pending [][]language.Tuple // the front is the next to send
+		if len(ts) > 0 {
+			pending = append(pending, ts)
+		}
+		// next hands out the next request, or false when this worker is done.
+		next := func() ([]language.Tuple, bool) {
+			mu.Lock()
+			defer mu.Unlock()
+			if firstErr == nil {
+				firstErr = ctx.Err()
 			}
-			n := min(len(ts), size)
-			var err error
-			if isDelete {
-				err = w.Write(ctx, nil, ts[:n])
+			if firstErr != nil || len(pending) == 0 {
+				return nil, false
+			}
+			front := pending[0]
+			n := min(len(front), size)
+			if n < len(front) {
+				pending[0] = front[n:]
 			} else {
-				err = w.Write(ctx, ts[:n], nil)
+				pending = pending[1:]
 			}
-			if err != nil {
-				if smaller, ok := smallerBatch(w, err, n); ok {
-					size = smaller
+			return front[:n], true
+		}
+		worker := func() {
+			for {
+				chunk, ok := next()
+				if !ok {
+					return
+				}
+				var err error
+				if isDelete {
+					err = w.Write(ctx, nil, chunk)
+				} else {
+					err = w.Write(ctx, chunk, nil)
+				}
+				mu.Lock()
+				if err != nil {
+					if smaller, ok := smallerBatch(w, err, len(chunk)); ok {
+						size = min(size, smaller)
+						pending = append([][]language.Tuple{chunk}, pending...)
+					} else if firstErr == nil {
+						firstErr = err
+					}
+					mu.Unlock()
 					continue
 				}
-				return err
-			}
-			if isDelete {
-				sent.Deletes += n
-			} else {
-				sent.Writes += n
-			}
-			done += n
-			ts = ts[n:]
-			if progress != nil {
-				progress(done, total)
+				if isDelete {
+					sent.Deletes += len(chunk)
+				} else {
+					sent.Writes += len(chunk)
+				}
+				done += len(chunk)
+				if progress != nil {
+					progress(done, total)
+				}
+				mu.Unlock()
 			}
 		}
-		return nil
+		var wg sync.WaitGroup
+		for range writeWorkers {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				worker()
+			}()
+		}
+		wg.Wait()
 	}
-	if err := send(deletes, true); err != nil {
-		return sent, err
+	phase(deletes, true)
+	if firstErr == nil {
+		phase(writes, false)
 	}
-	return sent, send(writes, false)
+	return sent, firstErr
 }
 
 // Replace swaps each stored tuple for its desired version: was[i] for now[i].
+// It sends one batch at a time, so a failure leaves at most one batch half done.
 // OpenFGA cannot overwrite a condition and rejects a request that deletes and
 // writes the same tuple, so each batch is a delete request then a write
 // request. When w is a BatchLimiter and the store refuses a delete request as

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,11 +14,14 @@ import (
 )
 
 type recWriter struct {
+	mu     sync.Mutex
 	reqs   [][2]int // writes, deletes per request
 	failOn int      // 1-based request that fails; 0 never
 }
 
 func (r *recWriter) Write(_ context.Context, writes, deletes []language.Tuple) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.reqs = append(r.reqs, [2]int{len(writes), len(deletes)})
 	if r.failOn == len(r.reqs) {
 		return errors.New("boom")
@@ -39,8 +44,12 @@ func TestWriteChunks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Write() error = %v", err)
 	}
-	if want := [][2]int{{0, 100}, {0, 20}, {100, 0}, {100, 0}, {50, 0}}; !reflect.DeepEqual(w.reqs, want) {
-		t.Errorf("requests = %v, want %v", w.reqs, want)
+	// Requests of one kind run side by side, so only their sizes are fixed.
+	if got := sortedReqs(w.reqs); !reflect.DeepEqual(got, [][2]int{{50, 0}, {100, 0}, {100, 0}, {0, 20}, {0, 100}}) {
+		t.Errorf("requests = %v", w.reqs)
+	}
+	if w.reqs[0][1] == 0 || w.reqs[1][1] == 0 || w.reqs[2][1] != 0 {
+		t.Errorf("requests = %v, want the two deletes first", w.reqs)
 	}
 	if want := (Sent{Writes: 250, Deletes: 120}); sent != want {
 		t.Errorf("sent = %+v, want %+v", sent, want)
@@ -56,8 +65,10 @@ func TestWriteStopsAndCounts(t *testing.T) {
 	if err == nil {
 		t.Fatal("Write() error = nil, want error")
 	}
-	if want := (Sent{Writes: 100}); sent != want {
-		t.Errorf("sent = %+v, want %+v", sent, want)
+	// The requests are side by side, so how many went before the failure
+	// varies; the failed one is not counted.
+	if sent.Deletes != 0 || sent.Writes < 100 || sent.Writes >= 250 {
+		t.Errorf("sent = %+v, want the requests that did not fail", sent)
 	}
 }
 
@@ -83,11 +94,13 @@ func TestWriteStopsInDeletePhase(t *testing.T) {
 	if err == nil {
 		t.Fatal("Write() error = nil, want error")
 	}
-	if want := (Sent{Deletes: 100}); sent != want {
-		t.Errorf("sent = %+v, want %+v", sent, want)
+	if sent.Writes != 0 || sent.Deletes < 100 || sent.Deletes >= 250 {
+		t.Errorf("sent = %+v, want the two delete requests that did not fail", sent)
 	}
-	if want := [][2]int{{0, 100}, {0, 100}}; !reflect.DeepEqual(w.reqs, want) {
-		t.Errorf("requests = %v, want %v", w.reqs, want)
+	for _, r := range w.reqs {
+		if r[0] != 0 {
+			t.Errorf("requests = %v, want no write after a failed delete", w.reqs)
+		}
 	}
 }
 
@@ -304,6 +317,7 @@ var errTooMany = errors.New("too many changes")
 // negative) and implements BatchLimiter. named is the limit it reports, 0 for
 // none.
 type limitWriter struct {
+	mu           sync.Mutex
 	limit, named int
 	reqs         [][2]int // writes, deletes per request, refused ones too
 	accepted     [][2]int
@@ -311,6 +325,8 @@ type limitWriter struct {
 }
 
 func (l *limitWriter) Write(_ context.Context, writes, deletes []language.Tuple) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	r := [2]int{len(writes), len(deletes)}
 	l.reqs = append(l.reqs, r)
 	tooBig := l.limit < 0 || len(writes)+len(deletes) > l.limit
@@ -344,14 +360,14 @@ func TestWriteShrinksToTheStoresLimit(t *testing.T) {
 			t.Errorf("accepted request of %v changes", r)
 		}
 	}
-	if w.refused != 1 || w.reqs[0] != [2]int{0, 90} {
-		t.Errorf("refused = %d, first request = %v, want one refusal of the first", w.refused, w.reqs[0])
+	if w.refused < 1 || w.refused > 2 {
+		t.Errorf("refused = %d, want one or two (requests in flight at the first refusal)", w.refused)
 	}
 	if last := calls[len(calls)-1]; last != [2]int{290, 290} {
 		t.Errorf("last progress = %v, want {290 290}", last)
 	}
 	for _, c := range calls {
-		if c[0]%10 != 0 && c[0] != 290 || c[0] > 290 {
+		if c[0] > 290 {
 			t.Errorf("progress %v looks like a refused request", c)
 		}
 	}
@@ -369,8 +385,13 @@ func TestWriteHalvesWhenTheStoreNamesNoLimit(t *testing.T) {
 	if sent != (Sent{Writes: 100}) {
 		t.Errorf("sent = %+v", sent)
 	}
-	if want := [][2]int{{100, 0}, {50, 0}, {25, 0}, {25, 0}, {25, 0}, {25, 0}}; !reflect.DeepEqual(w.reqs, want) {
-		t.Errorf("requests = %v, want %v", w.reqs, want)
+	if w.refused != 2 || len(w.accepted) != 4 {
+		t.Errorf("refused = %d, accepted = %v, want 2 refusals (100, 50) then 4 requests of 25", w.refused, w.accepted)
+	}
+	for _, r := range w.accepted {
+		if r != [2]int{25, 0} {
+			t.Errorf("accepted = %v, want only 25s", w.accepted)
+		}
 	}
 }
 
@@ -383,8 +404,11 @@ func TestWriteGivesUpAtOneChange(t *testing.T) {
 	if sent != (Sent{}) {
 		t.Errorf("sent = %+v, want zero", sent)
 	}
-	if want := [][2]int{{100, 0}, {50, 0}, {25, 0}, {12, 0}, {6, 0}, {3, 0}, {1, 0}}; !reflect.DeepEqual(w.reqs, want) {
-		t.Errorf("requests = %v, want %v", w.reqs, want)
+	if w.reqs[0] != [2]int{100, 0} || w.refused != len(w.reqs) || len(w.accepted) != 0 {
+		t.Errorf("requests = %v, want every one refused", w.reqs)
+	}
+	if got := sortedReqs(w.reqs); got[0] != [2]int{1, 0} {
+		t.Errorf("requests = %v, want a request of one change, the last resort", w.reqs)
 	}
 }
 
@@ -460,3 +484,253 @@ func TestReplaceSizeRefusalOfTheWriteStillRestores(t *testing.T) {
 type limiterOf struct{ *tupleWriter }
 
 func (limiterOf) BatchLimit(err error) (int, bool) { return 0, errors.Is(err, errTooMany) }
+
+func sortedReqs(r [][2]int) [][2]int {
+	out := append([][2]int(nil), r...)
+	sort.Slice(out, func(i, j int) bool {
+		if out[i][1] != out[j][1] {
+			return out[i][1] < out[j][1]
+		}
+		return out[i][0] < out[j][0]
+	})
+	return out
+}
+
+// gateWriter blocks every request until the test releases it and reports
+// each arrival on arrived. The request numbered failNth (1-based, 0 for none)
+// fails with errBoom once the test closes failGo instead, and closes release when its failure
+// reaches BatchLimit, which Write calls before it records the failure. It is
+// safe for concurrent use.
+type gateWriter struct {
+	mu       sync.Mutex
+	inFlight int
+	peak     int
+	sizes    []int
+	kinds    []string // "w" or "d" per request, in arrival order
+	failNth  int
+	failGo   chan struct{} // the failing request waits for the test to close it
+	arrived  chan int      // request number on arrival
+	release  chan struct{}
+	once     sync.Once
+}
+
+var errBoom = errors.New("boom")
+
+func newGate() *gateWriter {
+	return &gateWriter{arrived: make(chan int, 1000), failGo: make(chan struct{}), release: make(chan struct{})}
+}
+
+func (g *gateWriter) BatchLimit(err error) (int, bool) {
+	if errors.Is(err, errBoom) {
+		g.once.Do(func() { close(g.release) })
+	}
+	return 0, false
+}
+
+func (g *gateWriter) Write(ctx context.Context, writes, deletes []language.Tuple) error {
+	g.mu.Lock()
+	g.inFlight++
+	g.peak = max(g.peak, g.inFlight)
+	g.sizes = append(g.sizes, len(writes)+len(deletes))
+	if len(writes) > 0 {
+		g.kinds = append(g.kinds, "w")
+	} else {
+		g.kinds = append(g.kinds, "d")
+	}
+	n := len(g.sizes)
+	g.mu.Unlock()
+	g.arrived <- n
+	var err error
+	if n == g.failNth {
+		<-g.failGo
+		err = errBoom
+	} else {
+		select {
+		case <-g.release:
+		case <-ctx.Done():
+			err = ctx.Err()
+		}
+	}
+	g.mu.Lock()
+	g.inFlight--
+	g.mu.Unlock()
+	return err
+}
+
+func waitArrivals(t *testing.T, g *gateWriter, n int) {
+	t.Helper()
+	for range n {
+		select {
+		case <-g.arrived:
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for requests")
+		}
+	}
+}
+
+func TestWriteKeepsFourRequestsInFlight(t *testing.T) {
+	g := newGate()
+	type result struct {
+		sent Sent
+		err  error
+	}
+	res := make(chan result)
+	go func() {
+		s, err := Write(context.Background(), g, nil, tuples(1000), nil)
+		res <- result{s, err}
+	}()
+	waitArrivals(t, g, writeWorkers)
+	time.Sleep(20 * time.Millisecond) // a fifth request would have arrived by now
+	g.mu.Lock()
+	inFlight := g.inFlight
+	g.mu.Unlock()
+	if inFlight != writeWorkers {
+		t.Fatalf("in flight = %d, want %d", inFlight, writeWorkers)
+	}
+	close(g.release)
+	r := <-res
+	if r.err != nil || r.sent != (Sent{Writes: 1000}) {
+		t.Fatalf("sent = %+v, err = %v", r.sent, r.err)
+	}
+	if g.peak != writeWorkers || len(g.sizes) != 10 {
+		t.Errorf("peak = %d, requests = %d, want %d and 10", g.peak, len(g.sizes), writeWorkers)
+	}
+}
+
+func TestWriteFinishesDeletesBeforeWrites(t *testing.T) {
+	g := newGate()
+	close(g.release)
+	if _, err := Write(context.Background(), g, tuples(250), tuples(250), nil); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"d", "d", "d", "w", "w", "w"}
+	if !reflect.DeepEqual(g.kinds, want) {
+		t.Errorf("kinds = %v, want %v", g.kinds, want)
+	}
+}
+
+func TestWriteDoesNotStartWritesWhileADeleteIsInFlight(t *testing.T) {
+	g := newGate()
+	res := make(chan error)
+	go func() {
+		_, err := Write(context.Background(), g, tuples(250), tuples(250), nil)
+		res <- err
+	}()
+	waitArrivals(t, g, 3)
+	time.Sleep(20 * time.Millisecond)
+	g.mu.Lock()
+	n := len(g.kinds)
+	g.mu.Unlock()
+	if n != 3 {
+		t.Fatalf("requests while deletes are unfinished = %d, want 3", n)
+	}
+	close(g.release)
+	if err := <-res; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWriteOneRequestForOneBatch(t *testing.T) {
+	g := newGate()
+	close(g.release)
+	sent, err := Write(context.Background(), g, nil, tuples(100), nil)
+	if err != nil || sent != (Sent{Writes: 100}) || len(g.sizes) != 1 {
+		t.Errorf("sent = %+v, err = %v, requests = %v", sent, err, g.sizes)
+	}
+}
+
+func TestWriteSharedSizeSendsEveryTupleOnce(t *testing.T) {
+	w := &limitWriter{limit: 40, named: 40}
+	sent, err := Write(context.Background(), w, nil, tuples(1000), nil)
+	if err != nil || sent != (Sent{Writes: 1000}) {
+		t.Fatalf("sent = %+v, err = %v", sent, err)
+	}
+	total := 0
+	for _, r := range w.accepted {
+		if r[0] > 40 {
+			t.Errorf("accepted request of %d", r[0])
+		}
+		total += r[0]
+	}
+	if total != 1000 {
+		t.Errorf("accepted changes = %d, want 1000", total)
+	}
+	if w.refused > writeWorkers {
+		t.Errorf("refused = %d, want at most %d (one per request in flight)", w.refused, writeWorkers)
+	}
+}
+
+func TestWriteLetsInFlightRequestsFinishAfterAnError(t *testing.T) {
+	g := newGate()
+	g.failNth = 2
+	type result struct {
+		sent Sent
+		err  error
+	}
+	res := make(chan result)
+	go func() {
+		s, err := Write(context.Background(), g, nil, tuples(500), nil)
+		res <- result{s, err}
+	}()
+	waitArrivals(t, g, writeWorkers)
+	close(g.failGo)
+	r := <-res
+	if !errors.Is(r.err, errBoom) {
+		t.Fatalf("err = %v, want boom", r.err)
+	}
+	if r.sent != (Sent{Writes: 300}) {
+		t.Errorf("sent = %+v, want the 3 requests that succeeded", r.sent)
+	}
+	if len(g.sizes) != writeWorkers {
+		t.Errorf("requests = %d, want %d (the fifth must not start after the failure)", len(g.sizes), writeWorkers)
+	}
+}
+
+func TestWriteCanceledWhileRequestsAreBlocked(t *testing.T) {
+	g := newGate()
+	ctx, cancel := context.WithCancel(context.Background())
+	type result struct {
+		sent Sent
+		err  error
+	}
+	res := make(chan result)
+	go func() {
+		s, err := Write(ctx, g, nil, tuples(1000), nil)
+		res <- result{s, err}
+	}()
+	waitArrivals(t, g, writeWorkers)
+	cancel()
+	r := <-res
+	if !errors.Is(r.err, context.Canceled) || r.sent != (Sent{}) {
+		t.Errorf("sent = %+v, err = %v", r.sent, r.err)
+	}
+	if len(g.sizes) != writeWorkers {
+		t.Errorf("requests = %d, want %d", len(g.sizes), writeWorkers)
+	}
+}
+
+func TestWriteProgressIsSerialAndIncreasing(t *testing.T) {
+	g := newGate()
+	close(g.release)
+	var calls []int // not synchronized on purpose: -race proves one at a time
+	count := 0
+	_, err := Write(context.Background(), g, tuples(250), tuples(1000), func(done, total int) {
+		count++
+		calls = append(calls, done)
+		if total != 1250 {
+			t.Errorf("total = %d", total)
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i < len(calls); i++ {
+		if calls[i] <= calls[i-1] {
+			t.Errorf("progress = %v, want strictly increasing", calls)
+			break
+		}
+	}
+	if count != 13 || calls[len(calls)-1] != 1250 {
+		t.Errorf("calls = %d, last = %d", count, calls[len(calls)-1])
+	}
+}
