@@ -199,9 +199,10 @@ far are discarded and the read asks Auth0 for a **user export job** instead:
 2. The job is polled every 2 seconds. `pending` and `processing` print progress.
    `completed` moves on. Any other status fails the read with `Auth0's user
    export job ended as "<status>"`.
-3. The file is downloaded. It is gzip-compressed with one JSON user per line.
-   The download address is a signed link on another host, so it is fetched with
-   a separate plain HTTP client and never appears in an error message.
+3. The file is downloaded. It is gzip-compressed with one JSON user per line,
+   and it is read the same whether or not the host sends it compressed. The
+   download address is a signed link on another host, so it is fetched with a
+   separate plain HTTP client and never appears in an error message.
 4. The number of users in the file is compared with the list's total. Fewer
    fails the read with `Auth0's user export has N users where the list reported
    M or more; users may have been deleted meanwhile, run the command again`.

@@ -928,3 +928,44 @@ func TestExportSlowButSteadyDownloadSucceeds(t *testing.T) {
 		t.Fatalf("download took %s, want longer than the stall limit %s", time.Since(start), p.stall)
 	}
 }
+
+func TestExportReadWhetherOrNotItArrivesCompressed(t *testing.T) {
+	t.Parallel()
+
+	plain := []byte(strings.Join(filled(1500), "\n") + "\n")
+	cases := map[string]func(w http.ResponseWriter, r *http.Request){
+		// Go's transport decompresses the body, so the client sees plain lines.
+		"content-encoding gzip": func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Encoding", "gzip")
+
+			zw := gzip.NewWriter(w)
+			_, _ = zw.Write(plain)
+			_ = zw.Close()
+		},
+		"plain body": serveBytes(plain),
+	}
+
+	for name, file := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			p, _ := newExportProvider(t, 1500, &exportFake{file: file})
+
+			res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
+			noErr(t, err)
+			equal(t, 1500, len(res.Events))
+		})
+	}
+}
+
+func TestExportHTMLBodyFailsAsNotJSON(t *testing.T) {
+	t.Parallel()
+
+	p, _ := newExportProvider(t, 1500, &exportFake{file: serveBytes([]byte("<html><body>Access Denied</body></html>"))})
+
+	_, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
+	isErr(t, err)
+	contains(t, err.Error(), "a line is not a JSON user")
+	notContains(t, err.Error(), "secret123")
+	notContains(t, err.Error(), "Access Denied")
+}

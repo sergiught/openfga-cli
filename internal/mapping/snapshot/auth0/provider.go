@@ -1,6 +1,7 @@
 package auth0
 
 import (
+	"bufio"
 	"compress/gzip"
 	"context"
 	"encoding/json"
@@ -733,12 +734,27 @@ func (r *read) downloadUsers(location string, at time.Time) (int, error) {
 		return fail(fmt.Errorf("HTTP %d", resp.StatusCode))
 	}
 
-	gz, err := gzip.NewReader(&progressReader{r: resp.Body, timer: timer, every: r.stall})
-	if err != nil {
+	// The file is gzip-compressed, unless the host serves it with Content-Encoding
+	// gzip (Go's transport has then decompressed it) or uncompressed.
+	body := bufio.NewReader(&progressReader{r: resp.Body, timer: timer, every: r.stall})
+
+	var file io.Reader = body
+
+	magic, err := body.Peek(2)
+	if err != nil && !errors.Is(err, io.EOF) {
 		return fail(err)
 	}
 
-	zr := &streamReader{r: gz}
+	if len(magic) == 2 && magic[0] == 0x1f && magic[1] == 0x8b {
+		gz, err := gzip.NewReader(body)
+		if err != nil {
+			return fail(err)
+		}
+
+		file = gz
+	}
+
+	zr := &streamReader{r: file}
 
 	seen := map[string]bool{}
 	dec := json.NewDecoder(zr)
