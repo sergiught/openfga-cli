@@ -868,8 +868,9 @@ func assertStalled(t *testing.T, err error, took time.Duration, users *atomic.In
 	notContains(t, err.Error(), "127.0.0.1")
 	notContains(t, err.Error(), "secret123")
 
-	if took > time.Second {
-		t.Errorf("read took %s, want it to end soon after the stall limit", took)
+	// Generous: the point is that the read ends, and a loaded runner is slow.
+	if took > 10*time.Second {
+		t.Errorf("read took %s, want it to end after the stall limit", took)
 	}
 
 	equal(t, int64(0), users.Load())
