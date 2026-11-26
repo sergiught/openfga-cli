@@ -3,6 +3,8 @@ package mapping
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -105,5 +107,33 @@ func TestReadKeptReportsProgressAtTheEnd(t *testing.T) {
 		func(read, kept int) { reports = append(reports, [2]int{read, kept}) })
 	if err != nil || len(reports) != 1 || reports[0] != [2]int{2, 1} {
 		t.Fatalf("reports=%v err=%v", reports, err)
+	}
+}
+
+func TestStoreClientRecognisesTheWriteLimit(t *testing.T) {
+	const msg = "The number of write operations exceeds the allowed limit of 40"
+	resp := func(status int) *http.Response { return &http.Response{StatusCode: status} }
+	tooMany := &openfga.ErrorResponse{Response: resp(http.StatusBadRequest), Code: "exceeded_entity_limit", Message: msg}
+	tests := []struct {
+		name      string
+		err       error
+		wantLimit int
+		wantOK    bool
+	}{
+		{"limit named", tooMany, 40, true},
+		{"wrapped", fmt.Errorf("write: %w", tooMany), 40, true},
+		{"no number", &openfga.ErrorResponse{Response: resp(http.StatusBadRequest), Code: "exceeded_entity_limit", Message: "too many"}, 0, true},
+		{"code dropped by a proxy", &openfga.ErrorResponse{Response: resp(http.StatusBadRequest), Message: msg}, 40, true},
+		{"condition conflict", &openfga.ErrorResponse{Response: resp(http.StatusConflict), Code: "write_failed_due_to_invalid_input", Message: "already exists with a different condition"}, 0, false},
+		{"plain error", errors.New("boom"), 0, false},
+		{"nil", nil, 0, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			limit, ok := storeClient{}.BatchLimit(tc.err)
+			if limit != tc.wantLimit || ok != tc.wantOK {
+				t.Errorf("BatchLimit() = (%d, %v), want (%d, %v)", limit, ok, tc.wantLimit, tc.wantOK)
+			}
+		})
 	}
 }

@@ -2,13 +2,20 @@ package mapping
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/openfga/mapper/language"
 	"github.com/sergiught/go-openfga/openfga"
 
 	"github.com/sergiught/openfga-cli/internal/fga"
+	"github.com/sergiught/openfga-cli/internal/mapping/snapshot"
 )
+
+var _ snapshot.BatchLimiter = storeClient{}
 
 // storeClient reads and writes the profile's store for apply. It is the only
 // place apply touches go-openfga, so the engine stays testable with fakes.
@@ -91,4 +98,23 @@ func tupleKeys(ts []language.Tuple, withCondition bool) []openfga.TupleKey {
 		keys = append(keys, k)
 	}
 	return keys
+}
+
+// BatchLimit reports the store refusing a write request for carrying more
+// changes than it allows, and the limit it names (0 when none parses). The
+// code decides; a 400 with the message alone counts too, in case a proxy
+// drops the code.
+func (s storeClient) BatchLimit(err error) (int, bool) {
+	const phrase = "exceeds the allowed limit of"
+	var er *openfga.ErrorResponse
+	if !errors.As(err, &er) {
+		return 0, false
+	}
+	if er.Code != "exceeded_entity_limit" &&
+		(er.StatusCode() != http.StatusBadRequest || !strings.Contains(er.Message, phrase)) {
+		return 0, false
+	}
+	i := strings.LastIndexByte(er.Message, ' ')
+	limit, _ := strconv.Atoi(strings.TrimRight(er.Message[i+1:], "."))
+	return max(limit, 0), true
 }

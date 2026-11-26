@@ -92,6 +92,9 @@ type fakeStore struct {
 	// failFrom, when > 0, makes the failFrom-th /write and every later one
 	// answer 400 with failWrite (or a generic body when that is empty).
 	failFrom int
+	// maxChanges, when > 0, makes a /write carrying more changes answer 400
+	// exceeded_entity_limit, as a store with a lower per-request limit does.
+	maxChanges int
 	// failAt makes only the listed (1-based) /write numbers answer 400.
 	failAt map[int]bool
 	// log, when non-nil, gets "store read" for each /read, in order with
@@ -192,6 +195,23 @@ func newFakeStore(t *testing.T, stored ...map[string]any) *fakeStore {
 				case <-time.After(5 * time.Second):
 				}
 				return
+			}
+			if fs.maxChanges > 0 {
+				var wr struct {
+					Writes struct {
+						TupleKeys []json.RawMessage `json:"tuple_keys"`
+					} `json:"writes"`
+					Deletes struct {
+						TupleKeys []json.RawMessage `json:"tuple_keys"`
+					} `json:"deletes"`
+				}
+				_ = json.Unmarshal(b, &wr)
+				if len(wr.Writes.TupleKeys)+len(wr.Deletes.TupleKeys) > fs.maxChanges {
+					fs.writes = fs.writes[:len(fs.writes)-1]
+					w.WriteHeader(http.StatusBadRequest)
+					_, _ = fmt.Fprintf(w, `{"code":"exceeded_entity_limit","message":"The number of write operations exceeds the allowed limit of %d"}`, fs.maxChanges)
+					return
+				}
 			}
 			if fs.failWrite != "" || fs.failAt[len(fs.writes)] || (fs.failFrom > 0 && len(fs.writes) >= fs.failFrom) {
 				body := fs.failWrite

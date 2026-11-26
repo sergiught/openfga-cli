@@ -139,6 +139,33 @@ func TestBackfillForceWrites(t *testing.T) {
 	}
 }
 
+func TestBackfillShrinksTheBatchToTheStoresLimit(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t)
+	fs.maxChanges = 40
+	res := fakeResult()
+	res.Events = nil
+	for i := range 50 {
+		res.Events = append(res.Events, map[string]any{"type": "snapshot.organization.member", "user": fmt.Sprintf("u%d", i), "org": "o1"})
+	}
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: res})
+	mp := writeFile(t, t.TempDir(), "m.yaml", memberSnapshotMapping)
+	_, stderr, err := runBackfill(t, fs.cli(), nil, mp, "--provider", "fake", "--force")
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	if !strings.Contains(stderr, "wrote 100 tuples") {
+		t.Errorf("stderr:\n%s", stderr)
+	}
+	total := 0
+	for _, w := range fs.writes {
+		total += strings.Count(w, `"user":"user:`)
+	}
+	if total != 100 || fs.writeCount() != 3 {
+		t.Errorf("accepted %d tuples in %d requests, want 100 in 3 (40, 40, 20)", total, fs.writeCount())
+	}
+}
+
 // storedTuple is a tuple of memberSnapshotMapping as the store holds it.
 func storedTuple(user, relation string) map[string]any {
 	return map[string]any{"user": "user:" + user, "relation": relation, "object": "organization:o1"}

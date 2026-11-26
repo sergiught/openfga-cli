@@ -297,3 +297,166 @@ func TestReplaceCanceledSendsNothing(t *testing.T) {
 		t.Errorf("Replace() = %+v, %v with %d requests, want canceled and nothing sent", sent, err, len(w.reqs))
 	}
 }
+
+var errTooMany = errors.New("too many changes")
+
+// limitWriter refuses any request over limit (or every request when limit is
+// negative) and implements BatchLimiter. named is the limit it reports, 0 for
+// none.
+type limitWriter struct {
+	limit, named int
+	reqs         [][2]int // writes, deletes per request, refused ones too
+	accepted     [][2]int
+	refused      int
+}
+
+func (l *limitWriter) Write(_ context.Context, writes, deletes []language.Tuple) error {
+	r := [2]int{len(writes), len(deletes)}
+	l.reqs = append(l.reqs, r)
+	tooBig := l.limit < 0 || len(writes)+len(deletes) > l.limit
+	if tooBig {
+		l.refused++
+		return errTooMany
+	}
+	l.accepted = append(l.accepted, r)
+	return nil
+}
+
+func (l *limitWriter) BatchLimit(err error) (int, bool) {
+	if errors.Is(err, errTooMany) {
+		return l.named, true
+	}
+	return 0, false
+}
+
+func TestWriteShrinksToTheStoresLimit(t *testing.T) {
+	w := &limitWriter{limit: 40, named: 40}
+	var calls [][2]int
+	sent, err := Write(context.Background(), w, tuples(90), tuples(200), func(d, tot int) { calls = append(calls, [2]int{d, tot}) })
+	if err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if want := (Sent{Writes: 200, Deletes: 90}); sent != want {
+		t.Errorf("sent = %+v, want %+v", sent, want)
+	}
+	for _, r := range w.accepted {
+		if r[0]+r[1] > 40 {
+			t.Errorf("accepted request of %v changes", r)
+		}
+	}
+	if w.refused != 1 || w.reqs[0] != [2]int{0, 90} {
+		t.Errorf("refused = %d, first request = %v, want one refusal of the first", w.refused, w.reqs[0])
+	}
+	if last := calls[len(calls)-1]; last != [2]int{290, 290} {
+		t.Errorf("last progress = %v, want {290 290}", last)
+	}
+	for _, c := range calls {
+		if c[0]%10 != 0 && c[0] != 290 || c[0] > 290 {
+			t.Errorf("progress %v looks like a refused request", c)
+		}
+	}
+	if len(calls) != len(w.accepted) {
+		t.Errorf("progress calls = %d, accepted requests = %d", len(calls), len(w.accepted))
+	}
+}
+
+func TestWriteHalvesWhenTheStoreNamesNoLimit(t *testing.T) {
+	w := &limitWriter{limit: 30}
+	sent, err := Write(context.Background(), w, nil, tuples(100), nil)
+	if err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if sent != (Sent{Writes: 100}) {
+		t.Errorf("sent = %+v", sent)
+	}
+	if want := [][2]int{{100, 0}, {50, 0}, {25, 0}, {25, 0}, {25, 0}, {25, 0}}; !reflect.DeepEqual(w.reqs, want) {
+		t.Errorf("requests = %v, want %v", w.reqs, want)
+	}
+}
+
+func TestWriteGivesUpAtOneChange(t *testing.T) {
+	w := &limitWriter{limit: -1}
+	sent, err := Write(context.Background(), w, nil, tuples(100), nil)
+	if !errors.Is(err, errTooMany) {
+		t.Fatalf("error = %v, want errTooMany", err)
+	}
+	if sent != (Sent{}) {
+		t.Errorf("sent = %+v, want zero", sent)
+	}
+	if want := [][2]int{{100, 0}, {50, 0}, {25, 0}, {12, 0}, {6, 0}, {3, 0}, {1, 0}}; !reflect.DeepEqual(w.reqs, want) {
+		t.Errorf("requests = %v, want %v", w.reqs, want)
+	}
+}
+
+func TestWriteDoesNotShrinkForOtherErrors(t *testing.T) {
+	// recWriter fails with boom, which the limiter does not recognise.
+	rw := &struct {
+		*recWriter
+		BatchLimiter
+	}{&recWriter{failOn: 1}, &limitWriter{limit: 40}}
+	_, err := Write(context.Background(), rw, nil, tuples(100), nil)
+	if err == nil || errors.Is(err, errTooMany) {
+		t.Fatalf("error = %v, want boom", err)
+	}
+	if len(rw.reqs) != 1 {
+		t.Errorf("requests = %v, want one", rw.reqs)
+	}
+}
+
+func TestWriteDoesNotShrinkWithoutALimiter(t *testing.T) {
+	w := &recWriter{failOn: 1}
+	_, err := Write(context.Background(), w, nil, tuples(100), nil)
+	if err == nil {
+		t.Fatal("error = nil, want error")
+	}
+	if len(w.reqs) != 1 {
+		t.Errorf("requests = %v, want one", w.reqs)
+	}
+}
+
+func TestReplaceShrinksWhenTheDeleteIsRefusedForSize(t *testing.T) {
+	was, now := storedAndDesired(100)
+	w := &limitWriter{limit: 40, named: 40}
+	sent, lost, err := Replace(context.Background(), w, was, now, nil)
+	if err != nil || lost != nil {
+		t.Fatalf("error = %v, lost = %v", err, lost)
+	}
+	if want := (Sent{Writes: 100, Deletes: 100}); sent != want {
+		t.Errorf("sent = %+v, want %+v", sent, want)
+	}
+	if w.refused != 1 {
+		t.Errorf("refused = %d, want 1 (no restore request after it)", w.refused)
+	}
+	if w.reqs[1] != [2]int{0, 40} {
+		t.Errorf("request after the refusal = %v, want a delete of 40, not a restore", w.reqs[1])
+	}
+	for _, r := range w.accepted {
+		if r[0]+r[1] > 40 {
+			t.Errorf("accepted request of %v changes", r)
+		}
+	}
+}
+
+func TestReplaceSizeRefusalOfTheWriteStillRestores(t *testing.T) {
+	was, now := storedAndDesired(10)
+	w := &tupleWriter{fail: map[int]error{2: errTooMany}}
+	lw := &limiterOf{tupleWriter: w}
+	sent, lost, err := Replace(context.Background(), lw, was, now, nil)
+	if !errors.Is(err, errTooMany) {
+		t.Fatalf("error = %v, want errTooMany", err)
+	}
+	if sent != (Sent{}) || lost != nil {
+		t.Errorf("sent = %+v, lost = %v, want zero and nil", sent, lost)
+	}
+	if want := [][2]int{{0, 10}, {10, 0}, {10, 0}}; !reflect.DeepEqual(w.shape(), want) {
+		t.Fatalf("requests = %v, want %v", w.shape(), want)
+	}
+	if !reflect.DeepEqual(w.reqs[2].writes, was) {
+		t.Errorf("restore did not write the stored versions")
+	}
+}
+
+// limiterOf makes a tupleWriter a BatchLimiter that knows errTooMany.
+type limiterOf struct{ *tupleWriter }
+
+func (limiterOf) BatchLimit(err error) (int, bool) { return 0, errors.Is(err, errTooMany) }
