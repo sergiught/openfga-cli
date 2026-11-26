@@ -2,7 +2,10 @@ package snapshot
 
 import (
 	"context"
+	"fmt"
+	"math/rand"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -98,5 +101,72 @@ func TestDesiredErrorNamesEntity(t *testing.T) {
 	}
 	if want := "snapshot.organization.member (organization org_1 member auth0|x): "; !strings.Contains(err.Error(), want) {
 		t.Errorf("error %q does not contain %q", err, want)
+	}
+}
+
+func TestSortTuplesOrder(t *testing.T) {
+	in := []language.Tuple{
+		tup("user:b", "member", "team:1"),
+		tup("team:x#member", "viewer", "doc:1"),
+		tup("user:a", "viewer", "doc:2"),
+		withCond(tup("user:a", "member", "team:1"), "second", nil),
+		tup("user:a", "viewer", "doc:1"),
+		tup("user:a", "member", "team:2"),
+		tup("team:x#member", "viewer", "doc:0"),
+		withCond(tup("user:a", "member", "team:1"), "first", nil),
+		tup("user:a", "member", "team:1"),
+		tup("user:b", "viewer", "doc:1"),
+		tup("user:a", "admin", "team:1"),
+		tup("user:b", "member", "team:0"),
+	}
+	// Shapes sort as strings: team#member viewer doc, then user admin team,
+	// user member team, user viewer doc. The three tuples equal in
+	// user, relation and object keep their input order.
+	want := []language.Tuple{
+		tup("team:x#member", "viewer", "doc:0"),
+		tup("team:x#member", "viewer", "doc:1"),
+		tup("user:a", "admin", "team:1"),
+		withCond(tup("user:a", "member", "team:1"), "second", nil),
+		withCond(tup("user:a", "member", "team:1"), "first", nil),
+		tup("user:a", "member", "team:1"),
+		tup("user:a", "member", "team:2"),
+		tup("user:b", "member", "team:0"),
+		tup("user:b", "member", "team:1"),
+		tup("user:a", "viewer", "doc:1"),
+		tup("user:a", "viewer", "doc:2"),
+		tup("user:b", "viewer", "doc:1"),
+	}
+	sortTuples(in)
+	if !reflect.DeepEqual(in, want) {
+		t.Errorf("order:\n got %+v\nwant %+v", in, want)
+	}
+}
+
+func TestSortTuplesMatchesTheNaiveOrder(t *testing.T) {
+	r := rand.New(rand.NewSource(7)) //nolint:gosec // a fixed seed makes the test repeatable
+	users := []string{"user:a", "user:b", "user:c", "team:x#member", "org:1#admin"}
+	rels := []string{"member", "viewer", "admin"}
+	objs := []string{"doc:1", "doc:2", "team:1", "team:2", "org:1"}
+	var in []language.Tuple
+	for range 2000 {
+		in = append(in, withCond(tup(users[r.Intn(len(users))], rels[r.Intn(len(rels))], objs[r.Intn(len(objs))]), fmt.Sprint(r.Intn(4)), nil))
+	}
+	want := append([]language.Tuple(nil), in...)
+	sort.SliceStable(want, func(i, j int) bool {
+		a, b := want[i], want[j]
+		if sa, sb := mapping.ShapeOf(a).String(), mapping.ShapeOf(b).String(); sa != sb {
+			return sa < sb
+		}
+		if a.User != b.User {
+			return a.User < b.User
+		}
+		if a.Relation != b.Relation {
+			return a.Relation < b.Relation
+		}
+		return a.Object < b.Object
+	})
+	sortTuples(in)
+	if !reflect.DeepEqual(in, want) {
+		t.Error("sortTuples order differs from the naive comparison")
 	}
 }

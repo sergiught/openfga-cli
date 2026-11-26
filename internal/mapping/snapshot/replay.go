@@ -59,19 +59,31 @@ func Identity(t language.Tuple) string {
 	return t.User + "\x00" + t.Relation + "\x00" + t.Object
 }
 
-// sortTuples orders by shape, then user, relation, object.
+// sortTuples orders by shape, then user, relation, object. Each tuple's shape
+// is rendered once, not on every comparison.
 func sortTuples(ts []language.Tuple) {
-	sort.SliceStable(ts, func(i, j int) bool {
-		a, b := ts[i], ts[j]
-		if sa, sb := mapping.ShapeOf(a).String(), mapping.ShapeOf(b).String(); sa != sb {
-			return sa < sb
+	type keyed struct {
+		shape string
+		t     language.Tuple
+	}
+	ks := make([]keyed, len(ts))
+	for i, t := range ts {
+		ks[i] = keyed{mapping.ShapeOf(t).String(), t}
+	}
+	sort.SliceStable(ks, func(i, j int) bool {
+		a, b := ks[i], ks[j]
+		if a.shape != b.shape {
+			return a.shape < b.shape
 		}
-		if a.User != b.User {
-			return a.User < b.User
+		if a.t.User != b.t.User {
+			return a.t.User < b.t.User
 		}
-		if a.Relation != b.Relation {
-			return a.Relation < b.Relation
+		if a.t.Relation != b.t.Relation {
+			return a.t.Relation < b.t.Relation
 		}
-		return a.Object < b.Object
+		return a.t.Object < b.t.Object
 	})
+	for i, k := range ks {
+		ts[i] = k.t
+	}
 }
