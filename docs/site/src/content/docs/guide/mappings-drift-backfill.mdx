@@ -802,7 +802,9 @@ schemas](../output-schemas/).
 
 `--plain` prints tab-separated key and value lines: `store`, `provider`,
 `dry_run`, `missing`, `changed`, `writes`, plus `tuples` and `existing` for
-`backfill` and `stale` and `deletes` for `drift`.
+`backfill` and `stale`, `not_checked`, `pruned` and `deletes` for `drift`.
+`not_checked` counts the entries the JSON lists, and `pruned` counts the stale
+tuples deleted, which `deletes` also includes the replaced tuples in.
 
 ## Exit codes
 

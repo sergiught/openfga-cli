@@ -466,6 +466,8 @@ func emitDrift(w io.Writer, c *cli.CLI, res driftResult) error {
 			{"missing", strconv.Itoa(len(res.Missing))},
 			{"changed", strconv.Itoa(len(res.Changed))},
 			{"stale", strconv.Itoa(len(res.Stale))},
+			{"not_checked", strconv.Itoa(len(res.NotChecked))},
+			{"pruned", strconv.Itoa(res.Pruned)},
 			{"writes", strconv.Itoa(res.Sent.Writes)},
 			{"deletes", strconv.Itoa(res.Sent.Deletes)},
 		})
