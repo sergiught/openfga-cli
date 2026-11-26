@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/openfga/mapper"
 	"github.com/openfga/mapper/language"
 
 	"github.com/sergiught/openfga-cli/internal/mapping"
@@ -56,12 +57,25 @@ func roleEvent(role string) map[string]any {
 	}
 }
 
+// replayAll replays events through m one call at a time and returns what Done
+// does.
+func replayAll(m *mapper.Mapping, events []map[string]any) (desired []language.Tuple, contested []Contested, err error) {
+	r := NewReplay(m)
+	for i := range events {
+		if err := r.Add(context.Background(), events[i:i+1]); err != nil {
+			return nil, nil, err
+		}
+	}
+	desired, contested = r.Done()
+	return desired, contested, nil
+}
+
 func TestDesiredFoldsWritesAndFilters(t *testing.T) {
 	m, _, err := mapping.CompileSource([]byte(replayMapping))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	got, contested, err := Desired(context.Background(), m, []map[string]any{memberEvent(), roleEvent("A"), roleEvent("B")}, nil)
+	got, contested, err := replayAll(m, []map[string]any{memberEvent(), roleEvent("A"), roleEvent("B")})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -89,7 +103,7 @@ func TestDesiredDedupes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	got, _, err := Desired(context.Background(), m, []map[string]any{memberEvent(), memberEvent()}, nil)
+	got, _, err := replayAll(m, []map[string]any{memberEvent(), memberEvent()})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -106,7 +120,7 @@ func TestDesiredErrorNamesEntity(t *testing.T) {
 	ev := memberEvent()
 	ev["subject"] = "organization org_1 member auth0|x"
 	delete(ev, "user")
-	_, _, err = Desired(context.Background(), m, []map[string]any{ev}, nil)
+	_, _, err = replayAll(m, []map[string]any{ev})
 	if err == nil {
 		t.Fatal("Desired() error = nil, want error")
 	}
@@ -352,7 +366,7 @@ func desiredOf(t *testing.T, events ...map[string]any) ([]language.Tuple, []Cont
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, c, err := Desired(context.Background(), m, events, nil)
+	d, c, err := replayAll(m, events)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -597,5 +611,43 @@ func TestDesiredMarkedTupleADeletedAgainBySameTypeStaysContested(t *testing.T) {
 	}
 	if got := contestedFor(t, c, tup("user:u1", "assignee", "role:A")); got.By != "snapshot.role" {
 		t.Errorf("By = %q, want snapshot.role", got.By)
+	}
+}
+
+func TestReplayEventNumbersContinueAcrossAddCalls(t *testing.T) {
+	m, _, err := mapping.CompileSource([]byte(contestMapping))
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocked := cev("snapshot.user", "u1", "blocked", true)
+	member := cev("snapshot.organization.member", "u1")
+	for name, events := range map[string][]map[string]any{
+		"removal first": {blocked, member},
+		"write first":   {member, blocked},
+	} {
+		one := NewReplay(m)
+		if err := one.Add(context.Background(), events); err != nil {
+			t.Fatal(err)
+		}
+		parts := NewReplay(m)
+		for _, e := range events {
+			if err := parts.Add(context.Background(), []map[string]any{e}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		oneD, oneC := one.Done()
+		partsD, partsC := parts.Done()
+		if !reflect.DeepEqual(oneD, partsD) || !reflect.DeepEqual(oneC, partsC) {
+			t.Errorf("%s: one call = %+v and %+v, one per call = %+v and %+v", name, oneD, oneC, partsD, partsC)
+		}
+		// The removal's index decides: before the write it contests it, after
+		// the write it removes it.
+		wantContested := 0
+		if name == "removal first" {
+			wantContested = 1
+		}
+		if len(oneD) != 0 || len(oneC) != wantContested {
+			t.Errorf("%s: desired = %+v, contested = %+v, want none and %d", name, oneD, oneC, wantContested)
+		}
 	}
 }

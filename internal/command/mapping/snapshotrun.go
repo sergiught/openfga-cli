@@ -30,8 +30,11 @@ type snapshotRun struct {
 	Types    []snapshot.Type
 	Result   *snapshot.Result
 	Desired  []language.Tuple
-	// Contested are tuples an earlier event removes and a later one writes,
-	// set aside from Desired.
+	// Contested are tuples set aside from Desired because the replay cannot
+	// vouch for them: an earlier event removed them and a later one wrote them,
+	// another event of their writer's type removed them, or, under --since, a
+	// rule on a windowed type could have removed them for a user that was not
+	// read.
 	Contested []snapshot.Contested
 	// Since is the --since time, zero without it. Windowed names the requested
 	// types read by window, empty without --since.

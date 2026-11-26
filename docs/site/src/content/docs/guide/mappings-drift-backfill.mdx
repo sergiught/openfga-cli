@@ -867,8 +867,6 @@ tuples deleted. `deletes` counts those and the tuples deleted to be replaced.
   been read. The tuples themselves are kept for the whole run.
 - **A full store read.** `drift` without `--since` reads every tuple in the
   store, one request per 100, one after another.
-- **The changed section shows the desired version only.** The condition being
-  replaced is not printed.
 - **Users created and deleted during the list.** If one user is deleted and
   another created while the user list is being read, the total stays the same
   and a user can be skipped without the read noticing.

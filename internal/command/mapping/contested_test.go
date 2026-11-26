@@ -256,3 +256,27 @@ func TestBackfillWritesNothingWhenEveryTupleIsContested(t *testing.T) {
 		t.Errorf("stdout:\n%s", stdout)
 	}
 }
+
+func TestDriftForceDoesNotReplaceAContestedTupleStoredWithAnotherCondition(t *testing.T) {
+	configtest.Isolate(t)
+	// u1's stored membership is unconditional, while the rule would write it
+	// with a condition. It is contested, so it is neither changed nor replaced.
+	fs := newFakeStore(t, member("u1"))
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: blockedResult()})
+	mapping := strings.Replace(blockedMapping, `object: "organization:{{ input.org }}"`, "object: \"organization:{{ input.org }}\"\n        condition: in_office", 1)
+	stdout, stderr, err := runDrift(t, fs.cli(), nil, driftArgs(t, mapping, "--force")...)
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	if fs.writeCount() != 1 || !strings.Contains(fs.writes[0], "user:u2") || strings.Contains(fs.writes[0], "user:u1") {
+		t.Fatalf("writes = %v", fs.writes)
+	}
+	for _, w := range fs.writes {
+		if strings.Contains(w, "deletes") {
+			t.Errorf("a delete was sent: %s", w)
+		}
+	}
+	if strings.Contains(stdout, "CHANGED") || !strings.Contains(stdout, "not compared: 1 tuple of user member organization") {
+		t.Errorf("stdout:\n%s", stdout)
+	}
+}

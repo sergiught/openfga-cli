@@ -165,7 +165,10 @@ func NewPlanner(m *mapper.Mapping, store TupleReader) *Planner {
 }
 
 // Add plans the next event. index is the event's 1-based number, kept in the
-// EventPlan and in errors.
+// EventPlan and in errors. When the error is not nil the EventPlan holds only
+// what was known when it failed: the Index and Type, Matched once the rules
+// were evaluated and, for a write that conflicts with an earlier one, the
+// Changes. Removals is nil and the Changes are not planned for later reads.
 func (p *Planner) Add(ctx context.Context, index int, event map[string]any) (EventPlan, error) {
 	ep := EventPlan{Index: index}
 	ep.Type, _ = event["type"].(string)

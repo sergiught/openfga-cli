@@ -279,23 +279,6 @@ func (r *Replay) unreadBy(s stored) (string, bool) {
 	return r.unread(s.tuple)
 }
 
-// Desired replays events through m against an empty store and returns the
-// tuples that should exist and the contested ones (see Replay), each sorted by
-// shape, user, relation, object.
-func Desired(ctx context.Context, m *mapper.Mapping, events []map[string]any, progress func(done, total int)) (desired []language.Tuple, contested []Contested, err error) {
-	r := NewReplay(m)
-	for i := range events {
-		if err := r.Add(ctx, events[i:i+1]); err != nil {
-			return nil, nil, err
-		}
-		if progress != nil {
-			progress(i+1, len(events))
-		}
-	}
-	desired, contested = r.Done()
-	return desired, contested, nil
-}
-
 // Identity is what OpenFGA keys a tuple by.
 func Identity(t language.Tuple) string {
 	return t.User + "\x00" + t.Relation + "\x00" + t.Object
