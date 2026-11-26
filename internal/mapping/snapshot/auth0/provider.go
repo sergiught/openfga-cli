@@ -567,6 +567,9 @@ const exportReportEvery = 1000
 // exportPollEvery is how long to wait between polls of the export job.
 const exportPollEvery = 2 * time.Second
 
+// exportJobTimeout is how long the export job may stay pending or processing.
+const exportJobTimeout = 30 * time.Minute
+
 // exportUsers reads every user through an export job, for tenants the list
 // cannot serve. atLeast is the total the list reported: the tenant has that
 // many users or more.
@@ -613,6 +616,10 @@ func (r *read) exportUsers(atLeast int) error {
 
 			return nil
 		case "pending", "processing":
+			if r.limits.now().Sub(created) >= exportJobTimeout {
+				return fmt.Errorf("Auth0's user export job was still %s after %s; run the command again", got.GetStatus(), exportJobTimeout)
+			}
+
 			switch pct := got.GetPercentageDone(); {
 			case got.PercentageDone == nil:
 				r.report(snapshot.Progress{

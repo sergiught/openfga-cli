@@ -768,3 +768,74 @@ func TestExportLineWithoutUserIDFails(t *testing.T) {
 	isErr(t, err)
 	equal(t, "downloading Auth0's user export failed: a line is not a JSON user", err.Error())
 }
+
+// jumpingClock makes the provider's clock move by each wait, and counts the waits.
+func jumpingClock(p *Provider, step time.Duration) *atomic.Int64 {
+	var (
+		mu      sync.Mutex
+		elapsed time.Duration
+		waits   atomic.Int64
+	)
+
+	base := time.Now()
+	p.limits.now = func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+
+		return base.Add(elapsed)
+	}
+	p.wait = func(ctx context.Context, _ time.Duration) error {
+		mu.Lock()
+		defer mu.Unlock()
+
+		elapsed += step
+		waits.Add(1)
+
+		return ctx.Err()
+	}
+
+	return &waits
+}
+
+func TestExportJobThatNeverFinishesTimesOut(t *testing.T) {
+	t.Parallel()
+
+	f := &exportFake{
+		statuses: []string{`{"status":"processing","type":"users_export","id":"job_1"}`},
+		file:     gzipLines(filled(1500)...),
+	}
+	p, _ := newExportProvider(t, 1500, f)
+	waits := jumpingClock(p, time.Minute)
+
+	var users int
+
+	_, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, func(pr snapshot.Progress) {
+		if pr.Step == exportDownloadStep {
+			users++
+		}
+	})
+	isErr(t, err)
+	equal(t, "Auth0's user export job was still processing after 30m0s; run the command again", err.Error())
+	equal(t, int64(30), waits.Load())
+	equal(t, int64(0), f.downloads.Load())
+	equal(t, 0, users)
+}
+
+func TestExportJobFinishingAt29MinutesStillSucceeds(t *testing.T) {
+	t.Parallel()
+
+	statuses := make([]string, 0, 30)
+	for range 29 {
+		statuses = append(statuses, `{"status":"pending","type":"users_export","id":"job_1"}`)
+	}
+
+	statuses = append(statuses, `{"status":"completed","type":"users_export","id":"job_1","location":"LOCATION"}`)
+
+	f := &exportFake{statuses: statuses, file: gzipLines(filled(1500)...)}
+	p, _ := newExportProvider(t, 1500, f)
+	jumpingClock(p, time.Minute)
+
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
+	noErr(t, err)
+	equal(t, 1500, len(res.Events))
+}

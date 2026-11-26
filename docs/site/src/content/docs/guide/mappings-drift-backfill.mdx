@@ -210,8 +210,11 @@ far are discarded and the read asks Auth0 for a **user export job** instead:
 
 A download that fails says `downloading Auth0's user export failed:` followed
 by `HTTP <status>`, the stream error, `a line is not a JSON user` or `the job's
-location is not a URL`. A line without a `user_id` fails the same way. Neither
-the polling nor the download has a time limit; Ctrl-C ends both.
+location is not a URL`. A line without a `user_id` fails the same way. A job
+still `pending` or `processing` after 30 minutes fails the read with `Auth0's
+user export job was still <status> after 30m0s; run the command again`, and
+running it again starts a new export. The download has no time limit yet;
+Ctrl-C ends it.
 
 The job needs no scope beyond `read:users`.
 
