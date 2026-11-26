@@ -62,8 +62,9 @@ const writeWorkers = 4
 // cancellation (checked before each request), no new request starts; the
 // requests in flight are left to finish and counted, and Write returns the
 // first error with what was sent.
-// progress counts changes sent so far out of all of them; it may be nil and
-// is never called from two goroutines at once.
+// w is called from up to writeWorkers goroutines at a time. progress counts
+// changes sent so far out of all of them; it may be nil, is called from one
+// goroutine at a time, and must not call back into Write.
 func Write(ctx context.Context, w mapping.TupleWriter, deletes, writes []language.Tuple, progress func(done, total int)) (Sent, error) {
 	var (
 		mu       sync.Mutex
@@ -82,10 +83,13 @@ func Write(ctx context.Context, w mapping.TupleWriter, deletes, writes []languag
 		next := func() ([]language.Tuple, bool) {
 			mu.Lock()
 			defer mu.Unlock()
+			if len(pending) == 0 {
+				return nil, false // nothing left, so a cancellation is no error
+			}
 			if firstErr == nil {
 				firstErr = ctx.Err()
 			}
-			if firstErr != nil || len(pending) == 0 {
+			if firstErr != nil {
 				return nil, false
 			}
 			front := pending[0]
@@ -145,6 +149,9 @@ func Write(ctx context.Context, w mapping.TupleWriter, deletes, writes []languag
 	phase(deletes, true)
 	if firstErr == nil {
 		phase(writes, false)
+	}
+	if err := ctx.Err(); err != nil && errors.Is(firstErr, err) {
+		firstErr = err // the bare error, as for an interrupt between requests
 	}
 	return sent, firstErr
 }

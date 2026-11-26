@@ -587,7 +587,8 @@ Writes ignore a tuple that is already there and deletes ignore one that is
 already gone, so sending the same change twice is harmless. A store set to
 accept fewer changes per request is detected from its refusal, and the command
 carries on with the smaller size. Cancellation is checked before each
-request, and the first failed request stops the rest.
+request. After a failure no new request starts, and the ones already sent
+finish and count.
 
 ### Missing tuples
 

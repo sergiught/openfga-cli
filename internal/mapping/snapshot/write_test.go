@@ -734,3 +734,64 @@ func TestWriteProgressIsSerialAndIncreasing(t *testing.T) {
 		t.Errorf("calls = %d, last = %d", count, calls[len(calls)-1])
 	}
 }
+
+// cancelOnLast cancels the context from inside its n-th request, after
+// recording it and before returning success.
+type cancelOnLast struct {
+	mu     sync.Mutex
+	n, cnt int
+	cancel context.CancelFunc
+}
+
+func (c *cancelOnLast) Write(context.Context, []language.Tuple, []language.Tuple) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cnt++
+	if c.cnt == c.n {
+		c.cancel()
+	}
+	return nil
+}
+
+func TestWriteFinishedRunIsNotAnErrorWhenCanceledDuringTheLastRequest(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sent, err := Write(ctx, &cancelOnLast{n: 1, cancel: cancel}, nil, tuples(100), nil)
+	if err != nil || sent != (Sent{Writes: 100}) {
+		t.Errorf("sent = %+v, err = %v, want everything and no error", sent, err)
+	}
+}
+
+func TestWriteDeletesOnlyIsNotAnErrorWhenCanceledDuringTheLastDelete(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sent, err := Write(ctx, &cancelOnLast{n: 1, cancel: cancel}, tuples(100), nil, nil)
+	if err != nil || sent != (Sent{Deletes: 100}) {
+		t.Errorf("sent = %+v, err = %v, want everything and no error", sent, err)
+	}
+}
+
+func TestWriteReturnsTheBareContextError(t *testing.T) {
+	g := newGate()
+	ctx, cancel := context.WithCancel(context.Background())
+	res := make(chan error)
+	go func() {
+		_, err := Write(ctx, wrapCtx{g}, nil, tuples(500), nil)
+		res <- err
+	}()
+	waitArrivals(t, g, writeWorkers)
+	cancel()
+	if err := <-res; err != context.Canceled {
+		t.Errorf("err = %#v, want context.Canceled itself", err)
+	}
+}
+
+// wrapCtx wraps the context error of its writer like an HTTP client does.
+type wrapCtx struct{ *gateWriter }
+
+func (w wrapCtx) Write(ctx context.Context, writes, deletes []language.Tuple) error {
+	if err := w.gateWriter.Write(ctx, writes, deletes); err != nil {
+		return fmt.Errorf("post: %w", err)
+	}
+	return nil
+}
