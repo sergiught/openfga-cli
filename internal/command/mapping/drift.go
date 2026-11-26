@@ -242,7 +242,14 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 	}
 	// --no-input never asks, like a missing terminal: report only.
 	if !force && (machine || c.cli.NoInput || !stdinIsTerminal(cmd)) {
-		output.Notef(errw, "report only: pass --force to write")
+		switch {
+		case missing+changed > 0 || stale == 0:
+			output.Notef(errw, "report only: pass --force to write")
+		case prune:
+			output.Notef(errw, "report only: pass --force to delete %s", mapping.Plural(stale, "stale tuple"))
+		default:
+			output.Notef(errw, "report only: pass --prune --force to delete %s", mapping.Plural(stale, "stale tuple"))
+		}
 		return finish(remains())
 	}
 
@@ -272,7 +279,11 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 		if err != nil {
 			live.Note(thousands(sent.Writes+sent.Deletes) + " changes")
 			live.Suspend(verb)
-			text := fmt.Sprintf("sent %d of %s before the failure; run the command again to send the rest", sent.Writes+sent.Deletes, mapping.Plural(total, "change"))
+			again := "run the command again"
+			if pruning {
+				again += " with --prune"
+			}
+			text := fmt.Sprintf("sent %d of %s before the failure; %s to send the rest", sent.Writes+sent.Deletes, mapping.Plural(total, "change"), again)
 			return sent, finish(reportSnapshotFailure(ctx, errw, machine, text, snapshot.Sent(res.Sent), applyHints(err), err))
 		}
 		return sent, nil
@@ -310,6 +321,9 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 			text = fmt.Sprintf("replaced %d of %s; the next batch failed and its stored versions are in place", sent.Writes, mapping.Plural(changed, "changed tuple"))
 		default:
 			text = fmt.Sprintf("could not replace %s; the stored versions are in place, nothing was replaced", mapping.Plural(changed, "changed tuple"))
+		}
+		if prior > 0 {
+			text = fmt.Sprintf("wrote %s, then %s", mapping.Plural(prior, "missing tuple"), text)
 		}
 		err = reportSnapshotFailure(ctx, errw, machine, text, snapshot.Sent(res.Sent), hints, err)
 		printLost(errw, lost)

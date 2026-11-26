@@ -518,7 +518,7 @@ func TestDriftPartialPruneCountsDeletesSent(t *testing.T) {
 	c := fs.cli()
 	c.JSON = true
 	stdout, _, err := runDrift(t, c, nil, driftArgs(t, driftMapping, "--prune", "--force")...)
-	if msg := clierr.NewEnvelope(err).Error.Message; !strings.Contains(msg, "sent 100 of 250 changes before the failure; run the command again to send the rest") {
+	if msg := clierr.NewEnvelope(err).Error.Message; !strings.Contains(msg, "sent 100 of 250 changes before the failure; run the command again with --prune to send the rest") {
 		t.Errorf("message = %q", msg)
 	}
 	var got driftResult
@@ -747,5 +747,51 @@ func TestDriftIgnoresStoredRelationsTheMappingDoesNotWrite(t *testing.T) {
 	strip := func(s string) string { return strings.NewReplacer("4 tuples", "N", "2 tuples", "N").Replace(s) }
 	if strip(with) != strip(without) {
 		t.Errorf("report differs:\n%s\n%s", with, without)
+	}
+}
+
+func TestDriftReportOnlyHintNamesPruneWhenOnlyStaleRemains(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		extra []string
+		want  string
+	}{
+		{"without prune", nil, "report only: pass --prune --force to delete 1 stale tuple"},
+		{"with prune", []string{"--prune"}, "report only: pass --force to delete 1 stale tuple"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			configtest.Isolate(t)
+			fs := newFakeStore(t, member("gone"), member("u1"))
+			useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1")})
+			_, stderr, err := runDrift(t, fs.cli(), strings.NewReader(""), driftArgs(t, driftMapping, tc.extra...)...)
+			if clierr.Code(err) != clierr.CodeTestFailed {
+				t.Fatalf("code = %d err = %v", clierr.Code(err), err)
+			}
+			if !strings.Contains(stderr, tc.want+"\n") || fs.writeCount() != 0 {
+				t.Errorf("writes = %d, want hint %q\n%s", fs.writeCount(), tc.want, stderr)
+			}
+		})
+	}
+}
+
+func TestDriftFailedPruneNamesPruneInTheAdvice(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, member("gone"))
+	fs.failAt = map[int]bool{1: true} // the delete
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult()})
+	_, stderr, err := runDrift(t, fs.cli(), nil, driftArgs(t, driftMapping, "--prune", "--force")...)
+	if err == nil || !strings.Contains(stderr, "run the command again with --prune to send the rest") {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+}
+
+func TestDriftFailedReplaceSaysTheMissingTuplesWereWritten(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, member("u1"))
+	fs.failAt = map[int]bool{3: true} // the rewrite, after the missing write and the delete
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1", "u2")})
+	_, stderr, err := runDrift(t, fs.cli(), nil, driftArgs(t, driftConditionMapping, "--force")...)
+	if err == nil || !strings.Contains(stderr, "wrote 1 missing tuple, then could not replace 1 changed tuple") {
+		t.Fatalf("err = %v\n%s", err, stderr)
 	}
 }
