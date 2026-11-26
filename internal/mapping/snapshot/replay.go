@@ -20,38 +20,77 @@ func (emptyStore) ReadTuples(context.Context, language.TupleFilter) ([]language.
 	return nil, nil
 }
 
-// Desired replays events through m against an empty store and returns the
-// tuples that should exist, sorted by shape, then user, relation, object.
-func Desired(ctx context.Context, m *mapper.Mapping, events []map[string]any, progress func(done, total int)) ([]language.Tuple, error) {
-	plan, err := mapping.PlanEvents(ctx, m, events, 1, emptyStore{}, progress)
-	if err != nil {
-		var ee *mapping.EventError
-		if errors.As(err, &ee) && ee.Index >= 1 && ee.Index <= len(events) {
-			if subject, _ := events[ee.Index-1]["subject"].(string); subject != "" {
-				return nil, fmt.Errorf("%s (%s): %w", ee.Type, subject, ee.Err)
-			}
-			return nil, fmt.Errorf("%s: %w", ee.Type, ee.Err)
+// Replay turns snapshot events into the tuples that should exist. Events are
+// added in order and none is kept.
+type Replay struct {
+	planner *mapping.Planner
+	set     map[string]language.Tuple
+	events  int
+}
+
+// NewReplay returns a Replay of events through m against an empty store.
+func NewReplay(m *mapper.Mapping) *Replay {
+	return &Replay{planner: mapping.NewPlanner(m, emptyStore{}), set: map[string]language.Tuple{}}
+}
+
+// Add replays events, in order, after those of earlier calls.
+func (r *Replay) Add(ctx context.Context, events []map[string]any) error {
+	for _, event := range events {
+		if err := ctx.Err(); err != nil {
+			return err
 		}
-		return nil, err
-	}
-	set := map[string]language.Tuple{}
-	for _, ep := range plan.Events {
+		r.events++
+		ep, err := r.planner.Add(ctx, r.events, event)
+		if err != nil {
+			var ee *mapping.EventError
+			if errors.As(err, &ee) {
+				if subject, _ := event["subject"].(string); subject != "" {
+					return fmt.Errorf("%s (%s): %w", ee.Type, subject, ee.Err)
+				}
+				return fmt.Errorf("%s: %w", ee.Type, ee.Err)
+			}
+			return err
+		}
 		for _, c := range ep.Changes {
 			k := Identity(c)
 			if c.Action == language.ActionDelete {
-				delete(set, k)
+				delete(r.set, k)
 				continue
 			}
 			c.Action = ""
-			set[k] = c
+			r.set[k] = c
 		}
 	}
-	out := make([]language.Tuple, 0, len(set))
-	for _, t := range set {
+	return nil
+}
+
+// Events is how many events have been replayed.
+func (r *Replay) Events() int { return r.events }
+
+// Done returns the tuples that should exist, sorted by shape, then user,
+// relation, object.
+func (r *Replay) Done() []language.Tuple {
+	out := make([]language.Tuple, 0, len(r.set))
+	for _, t := range r.set {
 		out = append(out, t)
 	}
 	sortTuples(out)
-	return out, nil
+	return out
+}
+
+// Desired replays events through m against an empty store and returns the
+// tuples that should exist, sorted by shape, then user, relation, object.
+func Desired(ctx context.Context, m *mapper.Mapping, events []map[string]any, progress func(done, total int)) ([]language.Tuple, error) {
+	r := NewReplay(m)
+	for i := range events {
+		if err := r.Add(ctx, events[i:i+1]); err != nil {
+			return nil, err
+		}
+		if progress != nil {
+			progress(i+1, len(events))
+		}
+	}
+	return r.Done(), nil
 }
 
 // Identity is what OpenFGA keys a tuple by.

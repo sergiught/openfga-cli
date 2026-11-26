@@ -2,6 +2,7 @@ package snapshot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"reflect"
@@ -168,5 +169,80 @@ func TestSortTuplesMatchesTheNaiveOrder(t *testing.T) {
 	sortTuples(in)
 	if !reflect.DeepEqual(in, want) {
 		t.Error("sortTuples order differs from the naive comparison")
+	}
+}
+
+func replayEvents() []map[string]any {
+	return []map[string]any{memberEvent(), roleEvent("A"), roleEvent("B")}
+}
+
+func newReplay(t *testing.T) *Replay {
+	t.Helper()
+	m, _, err := mapping.CompileSource([]byte(replayMapping))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NewReplay(m)
+}
+
+func TestReplayAddInPartsMatchesOneAdd(t *testing.T) {
+	ctx := context.Background()
+	events := replayEvents()
+	one := newReplay(t)
+	if err := one.Add(ctx, events); err != nil {
+		t.Fatal(err)
+	}
+	parts := newReplay(t)
+	for _, e := range events {
+		if err := parts.Add(ctx, []map[string]any{e}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !reflect.DeepEqual(one.Done(), parts.Done()) {
+		t.Errorf("parts = %+v, one = %+v", parts.Done(), one.Done())
+	}
+	if one.Events() != 3 || parts.Events() != 3 {
+		t.Errorf("Events() = %d and %d, want 3", one.Events(), parts.Events())
+	}
+}
+
+func TestReplayLaterCallFilterRemovesEarlierWrite(t *testing.T) {
+	ctx := context.Background()
+	r := newReplay(t)
+	if err := r.Add(ctx, []map[string]any{roleEvent("A")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Add(ctx, []map[string]any{roleEvent("B")}); err != nil {
+		t.Fatal(err)
+	}
+	got := r.Done()
+	if len(got) != 1 || got[0].Object != "role:B" {
+		t.Errorf("Done() = %+v, want only role:B", got)
+	}
+}
+
+func TestReplayErrorInLaterCallNamesEntity(t *testing.T) {
+	ctx := context.Background()
+	r := newReplay(t)
+	if err := r.Add(ctx, []map[string]any{memberEvent()}); err != nil {
+		t.Fatal(err)
+	}
+	bad := memberEvent()
+	bad["subject"] = "organization org_1 member auth0|x"
+	delete(bad, "user")
+	err := r.Add(ctx, []map[string]any{bad})
+	if err == nil {
+		t.Fatal("Add() error = nil, want error")
+	}
+	if want := "snapshot.organization.member (organization org_1 member auth0|x): "; !strings.Contains(err.Error(), want) {
+		t.Errorf("error %q does not contain %q", err, want)
+	}
+}
+
+func TestReplayCancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := newReplay(t).Add(ctx, replayEvents()); !errors.Is(err, context.Canceled) {
+		t.Errorf("Add() error = %v, want context.Canceled", err)
 	}
 }

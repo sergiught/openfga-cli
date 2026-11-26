@@ -71,36 +71,17 @@ type Plan struct {
 // are skipped entirely (a resumed apply), and every event keeps its number in
 // events.
 func PlanEvents(ctx context.Context, m *mapper.Mapping, events []map[string]any, from int, store TupleReader, progress func(done, total int)) (*Plan, error) {
-	rec := &recorder{store: store, cache: map[language.TupleFilter][]language.Tuple{},
-		planned: map[string]map[string]language.Tuple{}}
-	written := map[string]plannedWrite{}
+	planner := NewPlanner(m, store)
 	p := &Plan{}
 	from = max(from, 1)
 	for i := from - 1; i < len(events); i++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		event := events[i]
-		ep := EventPlan{Index: i + 1}
-		ep.Type, _ = event["type"].(string)
-		res, err := m.Evaluate(ctx, event)
+		ep, err := planner.Add(ctx, i+1, events[i])
 		if err != nil {
-			return nil, eventErr(ep, err)
-		}
-		if res.Trace != nil {
-			for _, rt := range res.Trace.Rules {
-				ep.Matched = ep.Matched || rt.Status == mapper.RuleMatched
-			}
-		}
-		rec.got = nil
-		if err := apply.New(rec).Execute(ctx, res); err != nil {
-			return nil, eventErr(ep, err)
-		}
-		ep.Changes, ep.Atomic = deletesFirst(rec.got)
-		if err := trackWrites(ep, written); err != nil {
 			return nil, err
 		}
-		rec.plan(ep.Changes)
 		for _, c := range ep.Changes {
 			if c.Action == language.ActionDelete {
 				p.Deletes++
@@ -117,6 +98,51 @@ func PlanEvents(ctx context.Context, m *mapper.Mapping, events []map[string]any,
 		}
 	}
 	return p, nil
+}
+
+// Planner plans events one at a time. Each event's reads see the store plus
+// the changes planned for the events before it.
+type Planner struct {
+	m       *mapper.Mapping
+	rec     *recorder
+	written map[string]plannedWrite
+}
+
+// NewPlanner returns a Planner for m against store. m must be compiled with
+// tracing, as for PlanEvents.
+func NewPlanner(m *mapper.Mapping, store TupleReader) *Planner {
+	return &Planner{
+		m: m,
+		rec: &recorder{store: store, cache: map[language.TupleFilter][]language.Tuple{},
+			planned: map[string]map[string]language.Tuple{}},
+		written: map[string]plannedWrite{},
+	}
+}
+
+// Add plans the next event. index is the event's 1-based number, kept in the
+// EventPlan and in errors.
+func (p *Planner) Add(ctx context.Context, index int, event map[string]any) (EventPlan, error) {
+	ep := EventPlan{Index: index}
+	ep.Type, _ = event["type"].(string)
+	res, err := p.m.Evaluate(ctx, event)
+	if err != nil {
+		return ep, eventErr(ep, err)
+	}
+	if res.Trace != nil {
+		for _, rt := range res.Trace.Rules {
+			ep.Matched = ep.Matched || rt.Status == mapper.RuleMatched
+		}
+	}
+	p.rec.got = nil
+	if err := apply.New(p.rec).Execute(ctx, res); err != nil {
+		return ep, eventErr(ep, err)
+	}
+	ep.Changes, ep.Atomic = deletesFirst(p.rec.got)
+	if err := trackWrites(ep, p.written); err != nil {
+		return ep, err
+	}
+	p.rec.plan(ep.Changes)
+	return ep, nil
 }
 
 // deletesFirst stably partitions changes into deletes then writes, and

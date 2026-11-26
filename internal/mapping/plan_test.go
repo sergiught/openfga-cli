@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -427,5 +428,45 @@ func TestRecorderReadsTheLastPlannedState(t *testing.T) {
 		if fmt.Sprint(got) != fmt.Sprint(tc.want) {
 			t.Errorf("ReadTuples(%+v) = %v, want %v", tc.filter, got, tc.want)
 		}
+	}
+}
+
+func TestPlannerMatchesPlanEvents(t *testing.T) {
+	m := compile(t, membership)
+	events := []map[string]any{
+		ev("type", "added", "user", "u1", "team", "t1"),
+		ev("type", "other"),
+		ev("type", "roster", "team", "t1", "users", []any{"u2"}),
+	}
+	want, err := PlanEvents(context.Background(), m, events, 1, &memStore{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := NewPlanner(m, &memStore{})
+	for i, e := range events {
+		got, err := p.Add(context.Background(), i+1, e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(got, want.Events[i]) {
+			t.Errorf("event %d = %+v, want %+v", i+1, got, want.Events[i])
+		}
+	}
+	if d := want.Events[2].Changes; len(d) != 2 || d[0].Action != language.ActionDelete || d[0].User != "user:u1" {
+		t.Fatalf("event 3 did not see event 1's write: %+v", d)
+	}
+}
+
+func TestPlannerConflictAcrossAddCalls(t *testing.T) {
+	p := NewPlanner(compile(t, direct), &memStore{})
+	if _, err := p.Add(context.Background(), 1, ev("type", "grant", "doc", "d", "user", "u", "limit", "1")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := p.Add(context.Background(), 3, ev("type", "grant", "doc", "d", "user", "u", "limit", "2"))
+	want := "event 3 (grant): writes user:u viewer doc:d with a different condition or context than event 1; " +
+		"OpenFGA keeps one tuple per user, relation and object and rejects the second write — " +
+		"give the rule a tuple_filter so it replaces the tuple"
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v\nwant  %s", err, want)
 	}
 }
