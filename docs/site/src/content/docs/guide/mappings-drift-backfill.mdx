@@ -419,7 +419,8 @@ tuple that a later type writes. Say a rule deletes a blocked user's
 organization memberships when it sees `snapshot.user`. It runs before any
 `snapshot.organization.member` event and removes nothing, so the memberships
 end up in the desired set. `drift --force` and `backfill --force` then write
-back the tuples the live rule removed, on every run. The mappings in
+back the tuples the live rule removed, whenever it has removed them since the
+last run. The mappings in
 `examples/` do not opt any delete rule in to a snapshot type.
 
 What is left is the desired set, sorted by shape, then user, relation and
@@ -597,13 +598,14 @@ store could not be reached, `130` when you interrupted the run, `1` otherwise.
 | `deleted N tuples and could not write the stored version back` | The N tuples listed below the message are gone. |
 | `deleting N tuples failed and so did writing the stored version back; the store may have lost what is listed below` | Unknown for the listed tuples. |
 
-When missing tuples were written before a replace failed, these messages start
-with `wrote N missing tuples, then`, and those tuples stay in the store.
-
 The last two happen only when a replace fails and writing the stored versions
 back fails too. The tuples are listed (50 at most), and the hint reads `run the
 command again once the cause is fixed: it reports them as missing or changed and
 writes the desired version`.
+
+When missing tuples were written before a replace failed, the replace messages
+(the rows from `could not replace M changed tuples` down) start with `wrote N
+missing tuples, then`, and those tuples stay in the store.
 
 When OpenFGA refuses a write because the tuple exists under another condition,
 `backfill` adds the hint `ofga mappings drift replaces tuples whose condition
@@ -836,12 +838,14 @@ schemas](../output-schemas/).
 - **A delete rule opted in to an earlier type.** Such a rule removes nothing
   during the replay, so the commands write back what it removed. See
   [Replaying the events](#replaying-the-events).
-- **A tuple removed between the two reads (`backfill` and `drift --since`).**
-  These read the store after Auth0. A tuple that a live event deletes after
-  Auth0 was read and before the store is read looks missing and is written
-  back. The next full `drift --prune` deletes it. Full `drift` reads the store
-  first and has no such window.
+- **A tuple removed between the two reads (`backfill`, and `drift --since`
+  when no shape is left to check for stale tuples).** These read the store
+  after Auth0. A tuple that a live event deletes after Auth0 was read and
+  before the store is read looks missing and is written back. The next full
+  `drift --prune` deletes it. Full `drift` and any other `drift --since` read
+  the store first and have no such window.
 - **A tuple granted again before the prune.** A stale tuple that becomes wanted
-  again after Auth0 was read, such as a member who is removed and then added
-  back, is still deleted by `--prune`, because the live event's write finds the
-  tuple already there. The next run reports it as missing.
+  again after Auth0 was read, such as a member whose removal never reached the
+  store and who is added back after Auth0 was read, is still deleted by
+  `--prune`, because the live event's write finds the tuple already there. The
+  next run reports it as missing.
