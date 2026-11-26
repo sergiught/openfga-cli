@@ -151,9 +151,9 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 		// The phases are named in the order they will run. A users-only run
 		// has nothing stale, so Prune never runs.
 		label := providers[provider].Label
-		phases := []string{"Store", label, "Replay"}
+		phases := []string{"Store", label}
 		if usersOnly {
-			phases = []string{label, "Replay", "Store"}
+			phases = []string{label, "Store"}
 		}
 		if !dryRun {
 			phases = append(phases, "Write")

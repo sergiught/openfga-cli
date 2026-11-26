@@ -316,7 +316,7 @@ func TestDriftSinceUsersOnlyDeclaresNoPruneStep(t *testing.T) {
 			t.Fatalf("a frame names Prune, which cannot run here:\n%s", text)
 		}
 		if strings.Contains(text, "Write") {
-			inOrder(t, text, "Fake", "Replay", "Store", "Write")
+			inOrder(t, text, "Fake", "Store", "Write")
 		}
 	}
 	if frames == 0 {

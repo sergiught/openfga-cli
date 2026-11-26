@@ -89,7 +89,29 @@ func TestStreamedBackfillDrawsTheCardWithoutAReplayStep(t *testing.T) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}
 	}
-	if !strings.Contains(ansi.Strip(out), "– Replay") {
-		t.Errorf("the Replay row should show as skipped:\n%s", out)
+	if strings.Contains(ansi.Strip(out), "Replay") {
+		t.Errorf("a Replay row is drawn:\n%s", out)
+	}
+}
+
+func TestCardHasNoReplayRowWhenEventsAreReturned(t *testing.T) {
+	for _, cmd := range []string{"drift", "backfill"} {
+		t.Run(cmd, func(t *testing.T) {
+			configtest.Isolate(t)
+			interactiveProgress(t)
+			useCard(t)
+			fs := newFakeStore(t)
+			useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1", "u2")})
+			mp := writeFile(t, t.TempDir(), "m.yaml", driftMapping)
+			args := []string{mp, "--provider", "fake", "--dry-run"}
+			if cmd == "backfill" {
+				args = []string{mp, "--provider", "fake", "--force"}
+			}
+			w, _ := runTogether(t, fs.cli(), nil, cmd, args...)
+			out := ansi.Strip(w.text())
+			if !strings.Contains(out, "╭─") || strings.Contains(out, "Replay") {
+				t.Errorf("output:\n%s", out)
+			}
+		})
 	}
 }

@@ -103,7 +103,7 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, 
 	// unreachable server does not cost a long read first. It is read after the
 	// provider, once the desired tuples say which objects are worth reading.
 	meter := new(client.Meter)
-	phases := []string{providers[provider].Label, "Replay", "Store"}
+	phases := []string{providers[provider].Label, "Store"}
 	if !dryRun {
 		phases = append(phases, "Write")
 	}

@@ -104,6 +104,69 @@ func TestEmitGivesTheEventsResultEventsWouldHold(t *testing.T) {
 	equal(t, want.Counts, got.Counts)
 }
 
+// sameEmitted reads the tenant twice, once with Emit, and checks that Emit got
+// what Result.Events holds in the other read.
+func sameEmitted(t *testing.T, h func() http.HandlerFunc, req snapshot.Request) {
+	t.Helper()
+
+	plain, _ := newProvider(t, h())
+	want, err := plain.Snapshot(context.Background(), req, nil)
+	noErr(t, err)
+
+	p, _ := newProvider(t, h())
+	c := &collector{t: t}
+	req.Emit = c.emit
+	got, err := p.Snapshot(context.Background(), req, nil)
+	noErr(t, err)
+
+	if got.Events != nil {
+		t.Errorf("Result.Events has %d events, want nil", len(got.Events))
+	}
+
+	if len(want.Events) == 0 {
+		t.Fatal("the read without Emit gave no events")
+	}
+
+	equal(t, withoutTimes(want.Events), withoutTimes(c.snapshot()))
+	equal(t, want.Counts, got.Counts)
+}
+
+func TestEmitOfATypeSubsetMatchesResultEvents(t *testing.T) {
+	t.Parallel()
+
+	sameEmitted(t, func() http.HandlerFunc { return emitTenant(6, nil) },
+		snapshot.Request{Types: []string{"snapshot.user", "snapshot.organization.member"}})
+	sameEmitted(t, func() http.HandlerFunc { return emitTenant(6, nil) },
+		snapshot.Request{Types: []string{"snapshot.organization.member.role"}})
+}
+
+func TestEmitWithAnOrganizationWithoutMembersMatchesResultEvents(t *testing.T) {
+	t.Parallel()
+
+	h := func() http.HandlerFunc {
+		base := emitTenant(5, nil)
+
+		return func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasSuffix(r.URL.Path, "/organizations/org_02/members") {
+				writeJSON(w, `{"members":[]}`)
+
+				return
+			}
+
+			base(w, r)
+		}
+	}
+
+	sameEmitted(t, h, snapshot.Request{Types: allTypes})
+}
+
+func TestEmitWithSinceMatchesResultEvents(t *testing.T) {
+	t.Parallel()
+
+	sameEmitted(t, func() http.HandlerFunc { return emitTenant(4, nil) },
+		snapshot.Request{Types: allTypes, Since: time.Now().Add(-time.Hour)})
+}
+
 func TestEmitKeepsOrganizationOrderAndEmitsPrefixes(t *testing.T) {
 	t.Parallel()
 

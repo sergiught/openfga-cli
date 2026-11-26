@@ -145,11 +145,10 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since t
 	for _, n := range res.Counts {
 		items += n.N
 	}
-	// A provider that ignored Emit gave its events in the result: replay them now.
+	// A provider that ignored Emit gave its events in the result: replay them now,
+	// on the provider's own row.
 	replayed := len(res.Events) > 0
 	if replayed {
-		lv.Note(thousands(items) + " items")
-		lv.Phase("Replay")
 		total := len(res.Events)
 		for i := range res.Events {
 			if err := replay.Add(ctx, res.Events[i:i+1]); err != nil {
@@ -169,11 +168,7 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since t
 		res = &done
 	}
 	desired, contested := replay.Done()
-	note := thousands(len(desired)) + " tuples from " + thousands(replay.Events()) + " events"
-	if !replayed {
-		note = thousands(items) + " items, " + note
-	}
-	lv.Note(note)
+	lv.Note(thousands(items) + " items, " + thousands(len(desired)) + " tuples from " + thousands(replay.Events()) + " events")
 	return &snapshotRun{File: f, Provider: p, Types: types, Result: res, Desired: desired, Contested: contested, Since: since, Windowed: windowed}, nil
 }
 

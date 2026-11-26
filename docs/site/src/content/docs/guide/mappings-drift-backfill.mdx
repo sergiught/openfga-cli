@@ -334,7 +334,6 @@ Stdout is the same with or without the card.
 │  ✓ Store   1,204,300 tuples read · 412,118 kept                    1m 02s  │
 │  ⠹ Auth0   members of organizations                           620 / 2,000  │
 │            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━   31% · 2m 50s left  │
-│  ○ Replay                                                                  │
 │  ○ Write                                                                   │
 │                                                                            │
 │  ────────────────────────────────────────────────────────────────────────  │
@@ -354,9 +353,9 @@ The card has one row per step, in the order the command runs them:
 
 | Command | Steps |
 | --- | --- |
-| `drift` | Store, Auth0, Replay, Write (not with `--dry-run`), Prune (with `--prune`, not with `--dry-run`) |
-| `drift --since`, when no shape is left to check for stale tuples | Auth0, Replay, Store, Write (not with `--dry-run`) |
-| `backfill` | Auth0, Replay, Store, Write (not with `--dry-run`) |
+| `drift` | Store, Auth0, Write (not with `--dry-run`), Prune (with `--prune`, not with `--dry-run`) |
+| `drift --since`, when no shape is left to check for stale tuples | Auth0, Store, Write (not with `--dry-run`) |
+| `backfill` | Auth0, Store, Write (not with `--dry-run`) |
 
 A step is `✓` when done, with a note and how long it took, a spinner while it
 runs, `○` while it waits, and `–` when a later step started without it. A
@@ -366,10 +365,8 @@ and the writes. Otherwise it shows a running count and the rate.
 `drift` reads the whole store this way, because OpenFGA does not report how many
 tuples it holds.
 
-Auth0 hands its events to the replay while it reads them, so the Replay row
-stays `–`: the note of the Auth0 step says how many tuples came from how many
-events. Replay runs as its own step only for a provider that returns its
-events at the end of its read.
+The events are replayed during the Auth0 step, and that step's note says how
+many tuples came from how many events.
 
 Below the steps, the card shows:
 
@@ -459,8 +456,7 @@ The mappings in `examples/` do not opt any delete rule in to a snapshot type.
 What is left is the desired set, sorted by shape, then user, relation and
 object. An event the mapping cannot evaluate ends the run with the event's type
 and subject, for example `snapshot.organization.member (organization org_acme
-member auth0|anne): ...`. From 50 events on, and when there is no live status
-card, stderr shows `replaying event N/M`.
+member auth0|anne): ...`.
 
 ## Reading the store
 
