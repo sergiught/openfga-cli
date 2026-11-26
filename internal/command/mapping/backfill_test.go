@@ -295,18 +295,85 @@ func TestBackfillDryRunDocumentReadsStore(t *testing.T) {
 	}
 }
 
-func TestBackfillMachineNeedsFlagEvenWhenNothingIsMissing(t *testing.T) {
+// machineVariants are the ways a run gets JSON machine output.
+func machineVariants() map[string]func(c *cli.CLI) {
+	return map[string]func(c *cli.CLI){
+		"json":  func(c *cli.CLI) { c.JSON = true },
+		"agent": func(c *cli.CLI) { c.JSON = true; c.Agent = agentmode.State{Enabled: true, Reason: "CLAUDECODE=1"} },
+	}
+}
+
+func TestBackfillMachineNothingMissingNeedsNoFlag(t *testing.T) {
+	all := []map[string]any{storedTuple("u1", "member"), storedTuple("u1", "reader"), storedTuple("u2", "member"), storedTuple("u2", "reader")}
+	for name, setup := range machineVariants() {
+		t.Run(name, func(t *testing.T) {
+			configtest.Isolate(t)
+			fs := newFakeStore(t, all...)
+			useFakeProvider(t, fakeProvider{types: fakeTypes(), result: fakeResult()})
+			mp := writeFile(t, t.TempDir(), "m.yaml", memberSnapshotMapping)
+			c := fs.cli()
+			setup(c)
+			stdout, stderr, err := runBackfill(t, c, nil, mp, "--provider", "fake")
+			if err != nil {
+				t.Fatalf("err = %v\n%s", err, stderr)
+			}
+			if fs.writeCount() != 0 {
+				t.Fatalf("wrote %d times with nothing missing", fs.writeCount())
+			}
+			var raw map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(stdout), &raw); err != nil {
+				t.Fatal(err)
+			}
+			var got backfillResult
+			_ = json.Unmarshal([]byte(stdout), &got)
+			if string(raw["missing"]) != "[]" || got.Existing != 4 || got.Sent.Writes != 0 {
+				t.Fatalf("document:\n%s", stdout)
+			}
+		})
+	}
+}
+
+func TestBackfillMachineMissingReportsThenNeedsAFlag(t *testing.T) {
+	for name, setup := range machineVariants() {
+		t.Run(name, func(t *testing.T) {
+			configtest.Isolate(t)
+			fs := newFakeStore(t, storedTuple("u1", "member"), storedTuple("u2", "member"))
+			useFakeProvider(t, fakeProvider{types: fakeTypes(), result: fakeResult()})
+			mp := writeFile(t, t.TempDir(), "m.yaml", memberSnapshotMapping)
+			c := fs.cli()
+			setup(c)
+			stdout, stderr, err := runBackfill(t, c, nil, mp, "--provider", "fake")
+			if clierr.Code(err) != clierr.CodeUsage || !strings.Contains(err.Error(), "non-interactive runs never prompt; pass --dry-run to preview or --force to write") ||
+				!strings.Contains(clierr.NewEnvelope(err).Error.Hint, "--force") {
+				t.Fatalf("code = %d err = %v", clierr.Code(err), err)
+			}
+			if fs.writeCount() != 0 {
+				t.Fatalf("wrote %d times", fs.writeCount())
+			}
+			var got backfillResult
+			if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+				t.Fatalf("stdout %q: %v", stdout, err)
+			}
+			if len(got.Missing) != 2 || got.Sent.Writes != 0 || got.DryRun || got.Existing != 2 {
+				t.Fatalf("document:\n%s", stdout)
+			}
+			if strings.Contains(stderr, "Snapshot is") || strings.Contains(stderr, "Write 2 tuples") {
+				t.Errorf("stderr:\n%s", stderr)
+			}
+		})
+	}
+}
+
+func TestBackfillMachineYAMLMissingReportsThenNeedsAFlag(t *testing.T) {
 	configtest.Isolate(t)
-	fs := newFakeStore(t, storedTuple("u1", "member"), storedTuple("u1", "reader"), storedTuple("u2", "member"), storedTuple("u2", "reader"))
-	log := []string{}
-	fs.log = &log
+	fs := newFakeStore(t, storedTuple("u1", "member"), storedTuple("u2", "member"))
 	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: fakeResult()})
 	mp := writeFile(t, t.TempDir(), "m.yaml", memberSnapshotMapping)
 	c := fs.cli()
 	c.YAML = true
-	_, _, err := runBackfill(t, c, nil, mp, "--provider", "fake")
-	if clierr.Code(err) != clierr.CodeUsage || len(log) != 0 {
-		t.Fatalf("code = %d err = %v reads = %v", clierr.Code(err), err, log)
+	stdout, _, err := runBackfill(t, c, nil, mp, "--provider", "fake")
+	if clierr.Code(err) != clierr.CodeUsage || fs.writeCount() != 0 || !strings.Contains(stdout, "missing:") {
+		t.Fatalf("code = %d err = %v writes = %d\n%s", clierr.Code(err), err, fs.writeCount(), stdout)
 	}
 }
 
@@ -320,23 +387,6 @@ func TestBackfillNoInputNeedsForce(t *testing.T) {
 	_, stderr, err := runBackfill(t, c, strings.NewReader(""), mp, "--provider", "fake")
 	if clierr.NewEnvelope(err).Error.Code != clierr.KindConfirmationRequired || fs.writeCount() != 0 || strings.Contains(stderr, "Snapshot is") {
 		t.Fatalf("err = %v writes = %d\n%s", err, fs.writeCount(), stderr)
-	}
-}
-
-func TestBackfillMachineNeedsFlag(t *testing.T) {
-	configtest.Isolate(t)
-	fs := newFakeStore(t)
-	calls := 0
-	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: fakeResult(), calls: &calls})
-	mp := writeFile(t, t.TempDir(), "m.yaml", memberSnapshotMapping)
-	c := fs.cli()
-	c.JSON = true
-	_, _, err := runBackfill(t, c, nil, mp, "--provider", "fake")
-	if clierr.Code(err) != clierr.CodeUsage || !strings.Contains(clierr.NewEnvelope(err).Error.Hint, "--force") {
-		t.Fatalf("code = %d err = %v", clierr.Code(err), err)
-	}
-	if calls != 0 {
-		t.Fatal("read the provider before refusing")
 	}
 }
 

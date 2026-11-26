@@ -87,11 +87,6 @@ ofga mappings backfill auth0.yaml --provider auth0 --auth0-client-secret-file ./
 
 func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, dryRun, force bool) error {
 	machine := c.cli.JSON || c.cli.YAML
-	if machine && !dryRun && !force {
-		// Machine output covers -o json/yaml/jsonl and agent mode, which has no -o.
-		return clierr.WithCode(clierr.CodeUsage, clierr.WithHint("pass --dry-run to preview or --force to write",
-			errors.New("non-interactive runs never prompt; pass --dry-run to preview or --force to write")))
-	}
 	sinceTime, err := parseSince(since)
 	if err != nil {
 		return err
@@ -212,6 +207,15 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, 
 		output.Successf(errw, "nothing to write: %s already in store %s%s (%s state as of %s UTC)", bold(mapping.Plural(existing, "tuple")),
 			output.SanitizeField(storeLbl), differ, output.SanitizeField(label), finish)
 		return nil
+	}
+	if machine && !force {
+		// Machine output covers -o json/yaml/jsonl and agent mode, which has no -o.
+		// It never prompts, so the result is printed and the write is declined.
+		if err := emitBackfill(out, c.cli, res); err != nil {
+			return err
+		}
+		return clierr.WithCode(clierr.CodeUsage, clierr.WithHint("pass --dry-run to preview or --force to write",
+			errors.New("non-interactive runs never prompt; pass --dry-run to preview or --force to write")))
 	}
 	// The age belongs above a question, so only a run that will ask prints it.
 	if !force && !c.cli.NoInput && stdinIsTerminal(cmd) {

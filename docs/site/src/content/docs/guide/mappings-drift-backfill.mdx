@@ -46,24 +46,23 @@ order tells you what has not happened yet when you see an error.
 
 | # | Step | Network | Fails with |
 | --- | --- | --- | --- |
-| 1 | `backfill` only: machine output without `--dry-run` or `--force` is refused | none | exit `2` |
-| 2 | `--since` is parsed | none | exit `2` |
-| 3 | `--provider` is checked | none | exit `2` |
-| 4 | The mapping file is loaded and compiled | none | exit `1` |
-| 5 | Snapshot type names in the mapping are checked | none | exit `1` |
-| 6 | The types to read are worked out; a mapping with none is refused | none | exit `1` |
-| 7 | `--since` is checked against those types | none | exit `2` |
-| 8 | The Auth0 settings are read | none | exit `2` |
-| 9 | The active profile's store is resolved and its name looked up | OpenFGA | exit `1` or `4` |
-| 10 | `drift` only: the store is read | OpenFGA | exit `1` or `4` |
-| 11 | Auth0 is read | Auth0 | exit `1` or `4` |
-| 12 | The snapshot events are replayed through the mapping | none | exit `1` |
-| 13 | `backfill`, and `drift --since` when nothing can be stale: the store is read | OpenFGA | exit `1` or `4` |
-| 14 | Desired and stored tuples are compared and the report is printed | none | |
-| 15 | Writes, after a question or with `--force` | OpenFGA | see [Writing](#writing) |
+| 1 | `--since` is parsed | none | exit `2` |
+| 2 | `--provider` is checked | none | exit `2` |
+| 3 | The mapping file is loaded and compiled | none | exit `1` |
+| 4 | Snapshot type names in the mapping are checked | none | exit `1` |
+| 5 | The types to read are worked out; a mapping with none is refused | none | exit `1` |
+| 6 | `--since` is checked against those types | none | exit `2` |
+| 7 | The Auth0 settings are read | none | exit `2` |
+| 8 | The active profile's store is resolved and its name looked up | OpenFGA | exit `1` or `4` |
+| 9 | `drift` only: the store is read | OpenFGA | exit `1` or `4` |
+| 10 | Auth0 is read | Auth0 | exit `1` or `4` |
+| 11 | The snapshot events are replayed through the mapping | none | exit `1` |
+| 12 | `backfill`, and `drift --since` when nothing can be stale: the store is read | OpenFGA | exit `1` or `4` |
+| 13 | Desired and stored tuples are compared and the report is printed | none | |
+| 14 | Writes, after a question or with `--force` | OpenFGA | see [Writing](#writing) |
 
-Steps 1 to 8 make no request at all, so a typo in a flag, a broken mapping or a
-missing credential costs nothing. Step 9 comes before the long Auth0 read so a
+Steps 1 to 7 make no request at all, so a typo in a flag, a broken mapping or a
+missing credential costs nothing. Step 8 comes before the long Auth0 read so a
 missing profile or an unreachable OpenFGA server fails first. Ctrl-C at any step
 ends the run with exit `130`.
 
@@ -144,7 +143,7 @@ AUTH0_DOMAIN is required`. A scheme and a trailing slash are stripped from the
 domain. `--auth0-tenant` defaults to the first label of the domain.
 
 Reading the settings contacts nobody. The access token is requested with the
-first Management API call, so wrong credentials show up at step 11.
+first Management API call, so wrong credentials show up at step 10.
 
 ### The six types
 
@@ -638,7 +637,7 @@ again and sends only what is still different.
 | On a terminal | `Snapshot is Ns old; changes since then are not reflected.`, then `Write N tuples to store name (id)? [y/N]`. Anything but `y` or `yes` ends with `aborted`, exit `1`. |
 | `--force` | Writes without asking. |
 | No terminal, or `--no-input`, without `--force` | `refusing to proceed without confirmation; pass --force to skip the prompt`, exit `1`. |
-| `-o json`, `-o yaml` or agent mode, without `--dry-run` or `--force` | `non-interactive runs never prompt; pass --dry-run to preview or --force to write`, exit `2`, before anything is read. |
+| `-o json`, `-o yaml` or agent mode, with tuples missing, without `--dry-run` or `--force` | The result is printed with the missing tuples and nothing is written, then `non-interactive runs never prompt; pass --dry-run to preview or --force to write`, exit `2`. With nothing missing the run succeeds as usual. |
 
 ### `drift`
 
@@ -810,7 +809,7 @@ schemas](../output-schemas/).
 | --- | --- | --- |
 | `0` | Done, or nothing to write | No drift, or all of it fixed |
 | `1` | Invalid mapping, Auth0 or OpenFGA refused, a write failed, the question was declined or could not be asked | Invalid mapping, Auth0 or OpenFGA refused, a write failed |
-| `2` | Usage: a flag, `--since`, a missing setting, machine output without `--dry-run` or `--force` | Usage: a flag, `--since`, a missing setting |
+| `2` | Usage: a flag, `--since`, a missing setting, machine output with tuples missing and without `--dry-run` or `--force` | Usage: a flag, `--since`, a missing setting |
 | `3` | never | Drift remains |
 | `4` | Auth0 or OpenFGA unreachable | Auth0 or OpenFGA unreachable |
 | `130` | Interrupted | Interrupted |
