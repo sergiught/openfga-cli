@@ -211,15 +211,17 @@ func (c *Command) runApply(cmd *cobra.Command, path, eventsPath string, fromEven
 // storeName looks up the store's name for display; label is the name, or the
 // id when the name is unavailable.
 //
-// The name is a courtesy, so a store we may not read (403/404) just shows
-// its id. An unreachable server or failed auth would fail every later
-// request, so stop before planning rather than offer a prompt we cannot honour.
+// The name is a courtesy: a credential may be allowed to read and write
+// tuples but not the store itself, so an API answer of 401, 403 or 404 to
+// this lookup just shows the id. Anything else (cancellation, an unreachable
+// server, a failed token exchange, any other status) is not explained by a
+// missing name and would likely fail the requests that follow, so stop before
+// planning rather than offer a prompt we cannot honour.
 func storeName(ctx context.Context, cl *openfga.Client, id string) (name, label string, err error) {
 	s, serr := cl.Stores.Get(ctx, id)
-	switch {
-	case serr == nil:
+	if serr == nil {
 		name = s.Name
-	case ctx.Err() != nil || clierr.IsConnErr(serr) || clierr.Friendly(serr) != serr.Error():
+	} else if ctx.Err() != nil || !nameUnavailable(serr) {
 		return "", "", serr
 	}
 	label = name
@@ -227,6 +229,20 @@ func storeName(ctx context.Context, cl *openfga.Client, id string) (name, label 
 		label = id
 	}
 	return name, label, nil
+}
+
+// nameUnavailable reports whether err is the server declining to show the
+// store: an API answer of 401, 403 or 404.
+func nameUnavailable(err error) bool {
+	var resp *openfga.ErrorResponse
+	if !errors.As(err, &resp) {
+		return false
+	}
+	switch resp.StatusCode() {
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound:
+		return true
+	}
+	return false
 }
 
 // resumeCommand is the command line that continues an interrupted apply at

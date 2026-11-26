@@ -116,6 +116,9 @@ type fakeStore struct {
 	failReadObject string
 	// failReadUser, when set, makes a /read whose tuple_key names that user answer 400.
 	failReadUser string
+	// getStoreStatus, when > 0, makes GET /stores/{id} answer with it, as a
+	// credential that may read and write tuples but not the store's metadata does.
+	getStoreStatus int
 }
 
 // readReq is one /read request as the fake saw it.
@@ -140,6 +143,11 @@ func newFakeStore(t *testing.T, stored ...map[string]any) *fakeStore {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/stores/"+applyStoreID):
+			if fs.getStoreStatus > 0 {
+				w.WriteHeader(fs.getStoreStatus)
+				_, _ = fmt.Fprintf(w, `{"code":"store_lookup_rejected","message":"answered %d"}`, fs.getStoreStatus)
+				return
+			}
 			_, _ = io.WriteString(w, `{"id":"`+applyStoreID+`","name":"acme"}`)
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/read"):
 			if fs.log != nil {
