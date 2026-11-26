@@ -15,8 +15,9 @@ import (
 
 // emptyStore is the store events are replayed against: nothing is in it, so
 // only what earlier events wrote is visible to tuple_filter. A removal of
-// something a later event writes is therefore never seen by the replay, which
-// is why Done sets such tuples aside.
+// something a later event writes is therefore never seen by the replay, and
+// neither is a removal of what another event of the same type wrote, which is
+// why Done sets such tuples aside.
 type emptyStore struct{}
 
 func (emptyStore) ReadTuples(context.Context, language.TupleFilter) ([]language.Tuple, error) {
@@ -108,13 +109,15 @@ func (r *Replay) Add(ctx context.Context, events []map[string]any) error {
 			k := Identity(c)
 			prev, had := r.set[k]
 			if c.Action == language.ActionDelete {
-				// Another event of the writer's type removes it: their order
-				// means nothing, so keep it, marked. Conservative: a marked
+				// Deletes come before writes within an event, so prev is from
+				// an earlier event. Another event of the writer's type
+				// removes it: their order means nothing, so keep it,
+				// marked. Conservative: a marked
 				// tuple that a later type's rule would also have removed
 				// stays contested, because the planner no longer sees it and
 				// plans no delete. Listing it costs a line in a report;
 				// dropping it could cost a tuple.
-				if had && prev.writer != r.events && prev.typ == typ {
+				if had && prev.typ == typ {
 					prev.marked = true
 					r.set[k] = prev
 				} else {
@@ -123,7 +126,9 @@ func (r *Replay) Add(ctx context.Context, events []map[string]any) error {
 				continue
 			}
 			c.Action = ""
-			r.set[k] = stored{tuple: c, writer: r.events, typ: typ, marked: prev.marked}
+			// A write by another type clears the mark: the tuple is judged by
+			// the removal rule, which names the type that asked for it to go.
+			r.set[k] = stored{tuple: c, writer: r.events, typ: typ, marked: prev.marked && prev.typ == typ}
 		}
 		for _, rm := range ep.Removals {
 			r.record(rm, ep)
@@ -179,30 +184,27 @@ func (r *Replay) Events() int { return r.events }
 
 // Done returns the tuples that should exist and, apart from them, the
 // contested ones: those an event of their writer's type removed, and those an
-// earlier event removes. Each tuple is in one list. Both are sorted by shape, then user, relation, object.
+// earlier event removes. Each tuple is in one list. Both are sorted by shape,
+// then user, relation, object.
 func (r *Replay) Done() (desired []language.Tuple, contested []Contested) {
 	desired = make([]language.Tuple, 0, len(r.set))
 	by := map[string]string{}
+	var ts []language.Tuple
 	for k, s := range r.set {
 		if s.marked {
 			by[k] = r.types[s.typ]
-			contested = append(contested, Contested{Tuple: s.tuple})
+		} else if b, ok := r.contestedBy(s); ok {
+			by[k] = b
+		} else {
+			desired = append(desired, s.tuple)
 			continue
 		}
-		if by0, ok := r.contestedBy(s); ok {
-			by[k] = by0
-			contested = append(contested, Contested{Tuple: s.tuple})
-			continue
-		}
-		desired = append(desired, s.tuple)
+		ts = append(ts, s.tuple)
 	}
 	sortTuples(desired)
-	if len(contested) > 0 {
-		ts := make([]language.Tuple, len(contested))
-		for i, c := range contested {
-			ts[i] = c.Tuple
-		}
+	if len(ts) > 0 {
 		sortTuples(ts)
+		contested = make([]Contested, len(ts))
 		for i, t := range ts {
 			contested[i] = Contested{Tuple: t, By: by[Identity(t)]}
 		}
@@ -242,8 +244,8 @@ func (r *Replay) contestedBy(s stored) (string, bool) {
 }
 
 // Desired replays events through m against an empty store and returns the
-// tuples that should exist and the contested ones (see Replay), each sorted by shape,
-// user, relation, object.
+// tuples that should exist and the contested ones (see Replay), each sorted by
+// shape, user, relation, object.
 func Desired(ctx context.Context, m *mapper.Mapping, events []map[string]any, progress func(done, total int)) (desired []language.Tuple, contested []Contested, err error) {
 	r := NewReplay(m)
 	for i := range events {

@@ -313,6 +313,17 @@ rules:
       - user: "user:{{ input.user_id }}"
         relation: member
         object: "organization:{{ input.org }}"
+  - name: pin
+    when: input.type == "snapshot.pin"
+    tuple_filters:
+      - object: "organization:{{ input.org }}"
+        action: delete
+  - name: revoke
+    when: input.type == "snapshot.revoke"
+    tuple_filters:
+      - user: "user:{{ input.user_id }}"
+        object: "role:"
+        action: delete
   - name: tick
     when: input.type == "snapshot.tick"
     tuple_filters:
@@ -451,5 +462,140 @@ func TestDesiredLaterEventOfTheSameTypeRemovesWhatAnEarlierOneWrote(t *testing.T
 	)
 	if len(d) != 0 || len(c) != 1 || c[0].By != "snapshot.organization.member" {
 		t.Errorf("desired = %+v, contested = %+v, want none and one by the member type", d, c)
+	}
+}
+
+// contestedFor returns the Contested entry for t, failing when there is none.
+func contestedFor(t *testing.T, c []Contested, tu language.Tuple) Contested {
+	t.Helper()
+	for _, x := range c {
+		if Identity(x.Tuple) == Identity(tu) {
+			return x
+		}
+	}
+	t.Fatalf("contested = %+v, want an entry for %+v", c, tu)
+	return Contested{}
+}
+
+func TestDesiredMarkedTupleWrittenByAnotherTypeNamesTheRemovingType(t *testing.T) {
+	// Event 2 (a role) removes role:A that event 1 (a role) wrote; event 3 (a
+	// grant) writes it again. The removal is before the write, so it stays
+	// contested, by the role type that asked for it to be gone.
+	d, c := desiredOf(t,
+		cev("snapshot.role", "u1", "role", "A"),
+		cev("snapshot.role", "u1", "role", "B"),
+		cev("snapshot.grant", "u1", "role", "A"),
+	)
+	if len(d) != 0 {
+		t.Errorf("desired = %+v, want none", d)
+	}
+	got := contestedFor(t, c, tup("user:u1", "assignee", "role:A"))
+	if got.By != "snapshot.role" {
+		t.Errorf("By = %q, want snapshot.role", got.By)
+	}
+}
+
+func TestReplayCollapsedFilterKeepsTheLowestIndex(t *testing.T) {
+	// A later tick would delete a tuple written between the ticks, so the
+	// planner never lets that reach Done through Desired; record the ticks
+	// directly around a write instead.
+	m, _, err := mapping.CompileSource([]byte(contestMapping))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewReplay(m)
+	f := mapping.Removal{Filter: language.TupleFilter{User: "user:u1", Object: "organization:", Action: language.FilterActionDelete}}
+	r.record(f, mapping.EventPlan{Index: 0, Type: "first"})
+	if err := r.Add(context.Background(), []map[string]any{cev("snapshot.organization.member", "u1")}); err != nil {
+		t.Fatal(err)
+	}
+	r.record(f, mapping.EventPlan{Index: 2, Type: "last"})
+	d, c := r.Done()
+	if len(d) != 0 || len(c) != 1 || c[0].By != "first" {
+		t.Errorf("desired = %+v, contested = %+v, want one contested by first", d, c)
+	}
+}
+
+func TestDesiredEarliestOfTwoRemovalsNamesTheType(t *testing.T) {
+	// The pin (event 1, found by object) is earlier than the block (event 2,
+	// found by user), which is scanned first.
+	d, c := desiredOf(t,
+		cev("snapshot.pin", "x"),
+		cev("snapshot.user", "u1", "blocked", true),
+		cev("snapshot.organization.member", "u1"),
+	)
+	if len(d) != 0 || len(c) != 1 || c[0].By != "snapshot.pin" {
+		t.Errorf("desired = %+v, contested = %+v, want one contested by snapshot.pin", d, c)
+	}
+	// And the other way round: the earlier one is found first.
+	d, c = desiredOf(t,
+		cev("snapshot.user", "u1", "blocked", true),
+		cev("snapshot.pin", "x"),
+		cev("snapshot.organization.member", "u1"),
+	)
+	if len(d) != 0 || len(c) != 1 || c[0].By != "snapshot.user" {
+		t.Errorf("desired = %+v, contested = %+v, want one contested by snapshot.user", d, c)
+	}
+}
+
+func TestDesiredRemovalByExactObjectContestsALaterWrite(t *testing.T) {
+	d, c := desiredOf(t, cev("snapshot.pin", "x"), cev("snapshot.organization.member", "u1"))
+	if len(d) != 0 || len(c) != 1 || c[0].By != "snapshot.pin" {
+		t.Errorf("desired = %+v, contested = %+v", d, c)
+	}
+	d, c = desiredOf(t, cev("snapshot.pin", "x", "org", "o2"), cev("snapshot.organization.member", "u1"))
+	if len(d) != 1 || len(c) != 0 {
+		t.Errorf("another object: desired = %+v, contested = %+v, want one and none", d, c)
+	}
+}
+
+func TestReplayRemovalOfEverythingContestsALaterWrite(t *testing.T) {
+	// The language requires an object in a filter, so no mapping renders an
+	// empty one; the list is still there for a Removal that has none.
+	m, _, err := mapping.CompileSource([]byte(contestMapping))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewReplay(m)
+	r.record(mapping.Removal{}, mapping.EventPlan{Index: 0, Type: "snapshot.wipe"})
+	if err := r.Add(context.Background(), []map[string]any{cev("snapshot.organization.member", "u1")}); err != nil {
+		t.Fatal(err)
+	}
+	d, c := r.Done()
+	if len(d) != 0 || len(c) != 1 || c[0].By != "snapshot.wipe" {
+		t.Errorf("desired = %+v, contested = %+v", d, c)
+	}
+}
+
+func TestDesiredMarkedTupleADifferentTypeDeletesIsGone(t *testing.T) {
+	// Event 2 removes role:A (marked), event 3 writes it again so the planner
+	// sees it, and the revoke of a later type deletes it. role:B, marked by
+	// event 3, stays contested.
+	d, c := desiredOf(t,
+		cev("snapshot.role", "u1", "role", "A"),
+		cev("snapshot.role", "u1", "role", "B"),
+		cev("snapshot.role", "u1", "role", "A"),
+		cev("snapshot.revoke", "u1"),
+	)
+	if len(d) != 0 {
+		t.Errorf("desired = %+v, want none", d)
+	}
+	if len(c) != 1 || c[0].Tuple.Object != "role:B" {
+		t.Errorf("contested = %+v, want only role:B", c)
+	}
+}
+
+func TestDesiredMarkedTupleADeletedAgainBySameTypeStaysContested(t *testing.T) {
+	d, c := desiredOf(t,
+		cev("snapshot.role", "u1", "role", "A"),
+		cev("snapshot.role", "u1", "role", "B"),
+		cev("snapshot.role", "u1", "role", "A"),
+		cev("snapshot.role", "u1", "role", "C"),
+	)
+	if len(d) != 0 {
+		t.Errorf("desired = %+v, want none", d)
+	}
+	if got := contestedFor(t, c, tup("user:u1", "assignee", "role:A")); got.By != "snapshot.role" {
+		t.Errorf("By = %q, want snapshot.role", got.By)
 	}
 }
