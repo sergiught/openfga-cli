@@ -126,6 +126,7 @@ type readReq struct {
 	TupleKey          map[string]string `json:"tuple_key"`
 	PageSize          int               `json:"page_size"`
 	ContinuationToken string            `json:"continuation_token"`
+	Consistency       string            `json:"consistency"`
 }
 
 func (fs *fakeStore) readRequests() []readReq {
@@ -156,6 +157,13 @@ func newFakeStore(t *testing.T, stored ...map[string]any) *fakeStore {
 			var req readReq
 			_ = json.NewDecoder(r.Body).Decode(&req)
 			fs.reads = append(fs.reads, req)
+			// Every mappings read must see the latest writes: a read served from
+			// a cache could miss a tuple and plan a duplicate or a wrong delete.
+			if req.Consistency != "HIGHER_CONSISTENCY" {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = fmt.Fprintf(w, `{"code":"validation_error","message":"read asked for consistency %q"}`, req.Consistency)
+				return
+			}
 			if (fs.failReadObject != "" && req.TupleKey["object"] == fs.failReadObject) ||
 				(fs.failReadUser != "" && req.TupleKey["user"] == fs.failReadUser) {
 				w.WriteHeader(http.StatusBadRequest)
