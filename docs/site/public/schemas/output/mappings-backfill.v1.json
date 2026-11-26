@@ -36,6 +36,15 @@
             "null"
           ]
         },
+        "not_checked": {
+          "items": {
+            "$ref": "#/$defs/notCheckedOut"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "provider": {
           "type": "string"
         },
@@ -87,7 +96,40 @@
         "missing",
         "changed",
         "existing",
+        "not_checked",
         "sent"
+      ],
+      "type": "object"
+    },
+    "notCheckedOut": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "rule": {
+          "type": "string"
+        },
+        "shapes": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "tuples": {
+          "items": {
+            "$ref": "#/$defs/tupleOut"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "rule",
+        "reason",
+        "shapes"
       ],
       "type": "object"
     },

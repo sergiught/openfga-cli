@@ -406,7 +406,7 @@ members of X/Y organizations`.
 The events are run through the compiled mapping one at a time, in the order
 they were read, exactly as `ofga mappings apply` would run them, with one
 difference: **the store the rules see is empty**. A `tuple_filter` therefore
-finds only tuples that earlier snapshot events wrote, never what the real store
+finds only tuples that snapshot events wrote, never what the real store
 holds.
 
 The changes each event produces are folded into one set of tuples, keyed by
@@ -422,15 +422,31 @@ user, relation and object:
 
 Events are replayed in the order the types are read: connections, users,
 organizations, organization connections, members, then member roles. A delete,
-or a `tuple_filter`, only removes a tuple that an earlier event already put in
-the set. So a rule opted in to a type that is read earlier cannot remove a
-tuple that a later type writes. Say a rule deletes a blocked user's
-organization memberships when it sees `snapshot.user`. It runs before any
-`snapshot.organization.member` event and removes nothing, so the memberships
-end up in the desired set. `drift --force` and `backfill --force` then write
-back the tuples the live rule removed, whenever it has removed them since the
-last run. The mappings in
-`examples/` do not opt any delete rule in to a snapshot type.
+or a `tuple_filter`, removes a tuple that an event of an earlier type wrote. So
+a rule opted in to a later type removes what an earlier type wrote, and the
+tuple is not desired.
+
+The other way round, a snapshot says nothing about what happened last, so the
+replay cannot tell whether the removal or the write is current. Say a rule
+deletes a blocked user's organization memberships when it sees `snapshot.user`.
+It runs before any `snapshot.organization.member` event, which writes the
+memberships again. Such a tuple is **set aside**: it is not desired, and a
+stored copy is neither stale nor missing, so `--force` writes nothing for it and
+`--prune` deletes nothing. The report lists it under `NOT CHECKED` with the rule
+that removes it. You can decide by hand, or make the rule that writes the tuple
+check the same condition. For example, a `member` rule cannot see `blocked`, so
+the block has to be applied by the live event.
+
+Events of one type have no order, only the order the provider listed them in.
+So when one event writes a tuple and another of the same type removes it, the
+tuple is set aside in the same way. A `patch` filter on
+`snapshot.organization.member.role` that covers all of a user's roles does this
+for a member with two roles: each event removes the other's role. To avoid it,
+scope the filter to what one event describes, for example by naming the role in
+the filter's object, or drop the filter from the snapshot rule, so the events do
+not remove each other's tuples.
+
+The mappings in `examples/` do not opt any delete rule in to a snapshot type.
 
 What is left is the desired set, sorted by shape, then user, relation and
 object. An event the mapping cannot evaluate ends the run with the event's type
@@ -532,6 +548,7 @@ with the reason. The list never changes the exit code.
 | `the type or relation is templated, so stale tuples cannot be told apart` | A snapshot rule has a template without a fixed shape. Its missing and changed tuples are still found. |
 | `a tuple's own when leaves out snapshot events; not compared: <shapes>` | A snapshot rule has templates that snapshot events cannot fire, and no other template owns their shapes. |
 | `read with --since: only <types> changed since <time> UTC; not compared: <shapes>` | A `--since` run cannot find stale tuples in these shapes. |
+| `removes tuples that other events write, and a snapshot does not say which happened last; not compared: <count> of <shapes>` | A rule removes tuples that events of a later type, or of its own type, write. Those tuples are set aside: nothing is written or deleted for them. In JSON the entry lists them under `tuples`. See [Replaying the events](#replaying-the-events). |
 | `read with --since: only <types> changed since <time> UTC, and the type or relation is templated, so no stale tuple can be told apart` | A `--since` run in which a rule that can fire on a user event has a templated shape. Nothing at all is owned in that run. |
 
 ## Comparing
@@ -769,7 +786,8 @@ stderr, and so does the live status card.
   them all. A longer one shows an equal share of each shape, at least one and
   about 50 lines in all, with `… N more` under a shape that has more, and ends
   with `-o json lists all N`.
-- **`NOT CHECKED`**: `drift` only, one line per rule with its reason.
+- **`NOT CHECKED`**: one line per rule with its reason. `backfill` prints it
+  only for rules that remove tuples other events write.
 - On a terminal the report is colored: green for missing, amber for changed, red
   for stale. A pipe, `NO_COLOR` or `--no-color` gives the same layout without
   color. `--plain` keeps its tab-separated lines, and ends each changed tuple
@@ -796,13 +814,13 @@ schemas](../output-schemas/).
 | `missing`, `changed` | both | Tuples, each with `user`, `relation`, `object` and, when set, `condition` and `context`. |
 | `existing` | `backfill` | How many desired tuples the store already holds unchanged. |
 | `stale` | `drift` | Stale tuples. |
-| `not_checked` | `drift` | `[{rule, reason, shapes}]`. |
+| `not_checked` | both | `[{rule, reason, shapes}]`, and `tuples` when the entry stands for set-aside tuples. Always an array. |
 | `sent` | both | `{writes, deletes}` that reached the store. |
 | `pruned` | `drift` | Stale tuples deleted, also when the prune failed part-way. |
 
 `--plain` prints tab-separated key and value lines: `store`, `provider`,
-`dry_run`, `missing`, `changed`, `writes`, plus `tuples` and `existing` for
-`backfill` and `stale`, `not_checked`, `pruned` and `deletes` for `drift`.
+`dry_run`, `missing`, `changed`, `writes` and `not_checked`, plus `tuples` and
+`existing` for `backfill` and `stale`, `pruned` and `deletes` for `drift`.
 `not_checked` counts the entries the JSON lists. `pruned` counts the stale
 tuples deleted. `deletes` counts those and the tuples deleted to be replaced.
 
@@ -850,8 +868,10 @@ tuples deleted. `deletes` counts those and the tuples deleted to be replaced.
   hosted store that rate-limits reads.
 - **Roles.** Only roles assigned to a member directly are read.
 - **Groups.** There is no snapshot type for them.
-- **A delete rule opted in to an earlier type.** Such a rule removes nothing
-  during the replay, so the commands write back what it removed. See
+- **A delete rule and the order of events.** A snapshot does not say which
+  event happened last, so a tuple that one event writes and a rule on an earlier
+  type, or on the same type, removes is set aside and listed under `NOT CHECKED`.
+  The commands neither write nor delete it. See
   [Replaying the events](#replaying-the-events).
 - **A tuple removed between the two reads (`backfill`, and `drift --since`
   when no shape is left to check for stale tuples).** These read the store

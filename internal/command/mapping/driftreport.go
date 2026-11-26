@@ -44,6 +44,11 @@ func renderDrift(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt t
 		return err
 	}
 
+	return renderNotChecked(w, notChecked)
+}
+
+// renderNotChecked prints the plain NOT CHECKED block, nothing when empty.
+func renderNotChecked(w io.Writer, notChecked []snapshot.NotChecked) error {
 	if len(notChecked) == 0 {
 		return nil
 	}

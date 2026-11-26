@@ -118,6 +118,12 @@
             "array",
             "null"
           ]
+        },
+        "tuples": {
+          "items": {
+            "$ref": "#/$defs/tupleOut"
+          },
+          "type": "array"
         }
       },
       "required": [

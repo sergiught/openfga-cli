@@ -73,12 +73,12 @@ func renderDriftReport(w io.Writer, run *snapshotRun, storeLabel string, storeRe
 
 // renderBackfillReport prints the backfill report. With nothing desired it is
 // the provider row and a line saying so; the store was not read.
-func renderBackfillReport(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt time.Time, stored, objects int, diff snapshot.Diff, existing int) error {
+func renderBackfillReport(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt time.Time, stored, objects int, diff snapshot.Diff, existing int, notChecked []snapshot.NotChecked) error {
 	label := output.SanitizeField(run.Provider.Label())
 	rows := []headerRow{providerRow(label, run.Result, run.Since)}
 	if len(run.Desired) == 0 {
 		rows = append(rows, headerRow{label: "Backfill", text: style.Bold.Render(countNoun(0, "tuple")) + muted(" from "+label)})
-		return writeReport(w, rows, nil, nil)
+		return writeReport(w, rows, nil, notChecked)
 	}
 	rows = append(rows, storeRow(run, storeLabel, storeReadAt, stored, objects))
 	parts := []string{countPart("+", len(diff.Missing), "missing", style.Green)}
@@ -93,7 +93,7 @@ func renderBackfillReport(w io.Writer, run *snapshotRun, storeLabel string, stor
 	return writeReport(w, rows, []reportSection{
 		{"MISSING", style.Green, "+", "in " + label + ", not in the store", diff.Missing, nil},
 		{"CHANGED", style.Amber, "~", "whose condition differs", diff.Changed, diff.Was},
-	}, nil)
+	}, notChecked)
 }
 
 // writeReport lays out the header rows, then the sections that have tuples,

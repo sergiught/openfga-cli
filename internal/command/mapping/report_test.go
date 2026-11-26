@@ -172,7 +172,7 @@ func TestRenderBackfillReport(t *testing.T) {
 		Was:     []language.Tuple{tup("user:b", "member", "organization:o1")},
 	}
 	got := colorless(t, func(w *bytes.Buffer) error {
-		return renderBackfillReport(w, run, "demo", storeAt, 3, 0, diff, 2)
+		return renderBackfillReport(w, run, "demo", storeAt, 3, 0, diff, 2, nil)
 	})
 	want := lines(
 		"  Fake      tenant.example · 14:02:13 → 14:05:40 UTC",
@@ -198,7 +198,7 @@ func TestRenderBackfillReportNothingDesired(t *testing.T) {
 	setInteractive(t, false)
 	run := reportRun(0, snapshot.Count{Type: "snapshot.user", N: 0})
 	got := colorless(t, func(w *bytes.Buffer) error {
-		return renderBackfillReport(w, run, "demo", time.Time{}, 0, 0, snapshot.Diff{}, 0)
+		return renderBackfillReport(w, run, "demo", time.Time{}, 0, 0, snapshot.Diff{}, 0, nil)
 	})
 	want := lines(
 		"  Fake      tenant.example · 14:02:13 → 14:05:40 UTC",

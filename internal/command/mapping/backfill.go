@@ -28,12 +28,13 @@ import (
 // backfillResult is the document `mappings backfill` prints under -o json/yaml.
 type backfillResult struct {
 	snapshotMeta
-	StoreReadAt time.Time  `json:"store_read_at"`
-	Tuples      []tupleOut `json:"tuples"`
-	Missing     []tupleOut `json:"missing"`
-	Changed     []tupleOut `json:"changed"`
-	Existing    int        `json:"existing"`
-	Sent        sentOut    `json:"sent"`
+	StoreReadAt time.Time       `json:"store_read_at"`
+	Tuples      []tupleOut      `json:"tuples"`
+	Missing     []tupleOut      `json:"missing"`
+	Changed     []tupleOut      `json:"changed"`
+	Existing    int             `json:"existing"`
+	NotChecked  []notCheckedOut `json:"not_checked"`
+	Sent        sentOut         `json:"sent"`
 }
 
 // sentOut is how many changes reached the store.
@@ -154,18 +155,20 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, 
 
 	// With no owned shapes nothing is stale: backfill never deletes.
 	diff := snapshot.Compare(run.Desired, stored, nil)
+	notChecked := snapshot.Removers(run.File.Doc, run.Contested)
 	existing := len(run.Desired) - len(diff.Missing) - len(diff.Changed)
 	label := run.Provider.Label()
 	res := backfillResult{
 		snapshotMeta: newSnapshotMeta(storeID, run, dryRun), StoreReadAt: storeReadAt.UTC(),
 		Tuples: tuplesOut(run.Desired), Missing: tuplesOut(diff.Missing), Changed: tuplesOut(diff.Changed), Existing: existing,
+		NotChecked: notCheckedOuts(notChecked),
 	}
 	if !machine {
 		report := func() error {
 			if output.Plain {
-				return renderBackfillPlain(out, run, label, storeLbl, storeReadAt, read, diff, existing)
+				return renderBackfillPlain(out, run, label, storeLbl, storeReadAt, read, diff, existing, notChecked)
 			}
-			return renderBackfillReport(out, run, storeLbl, storeReadAt, read.Read, read.Objects, diff, existing)
+			return renderBackfillReport(out, run, storeLbl, storeReadAt, read.Read, read.Objects, diff, existing, notChecked)
 		}
 		if err := report(); err != nil {
 			return err
@@ -270,7 +273,7 @@ func storeTarget(name, id string) string {
 }
 
 // renderBackfillPlain prints the backfill report for --plain.
-func renderBackfillPlain(out io.Writer, run *snapshotRun, label, storeLbl string, storeReadAt time.Time, read storeRead, diff snapshot.Diff, existing int) error {
+func renderBackfillPlain(out io.Writer, run *snapshotRun, label, storeLbl string, storeReadAt time.Time, read storeRead, diff snapshot.Diff, existing int, notChecked []snapshot.NotChecked) error {
 	snapshotHeader(out, label, run.Result, run.Since)
 	if len(run.Desired) > 0 {
 		storeReadLine(out, run, storeLbl, storeReadAt, read.Read, read.Objects)
@@ -295,7 +298,7 @@ func renderBackfillPlain(out io.Writer, run *snapshotRun, label, storeLbl string
 			return err
 		}
 	}
-	return nil
+	return renderNotChecked(out, notChecked)
 }
 
 // renderShapes prints how many tuples there are and how many of each shape.
@@ -361,6 +364,7 @@ func emitBackfill(w io.Writer, c *cli.CLI, res backfillResult) error {
 			{"changed", strconv.Itoa(len(res.Changed))},
 			{"existing", strconv.Itoa(res.Existing)},
 			{"writes", strconv.Itoa(res.Sent.Writes)},
+			{"not_checked", strconv.Itoa(len(res.NotChecked))},
 		})
 	}
 	return nil

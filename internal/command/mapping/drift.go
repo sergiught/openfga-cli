@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"time"
 
@@ -27,6 +28,25 @@ type notCheckedOut struct {
 	Rule   string   `json:"rule"`
 	Reason string   `json:"reason"`
 	Shapes []string `json:"shapes"`
+	// Tuples are the contested tuples a rule's entry stands for.
+	Tuples []tupleOut `json:"tuples,omitempty"`
+}
+
+// notCheckedOuts is the JSON form of the not-checked entries, never nil.
+func notCheckedOuts(ns []snapshot.NotChecked) []notCheckedOut {
+	out := make([]notCheckedOut, 0, len(ns))
+	for _, n := range ns {
+		shapes := make([]string, 0, len(n.Shapes))
+		for _, s := range n.Shapes {
+			shapes = append(shapes, s.String())
+		}
+		o := notCheckedOut{Rule: n.Rule, Reason: n.Reason, Shapes: shapes}
+		if len(n.Tuples) > 0 {
+			o.Tuples = tuplesOut(n.Tuples)
+		}
+		out = append(out, o)
+	}
+	return out
 }
 
 // driftResult is the document `mappings drift` prints under -o json/yaml.
@@ -187,19 +207,15 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 	live.Suspend("read")
 
 	owned, notChecked := snapshot.Coverage(run.File.Doc, run.Types, run.Windowed, run.Since)
-	diff := snapshot.Compare(run.Desired, stored, owned)
+	notChecked = append(notChecked, snapshot.Removers(run.File.Doc, run.Contested)...)
+	// A contested tuple is neither stale nor missing, so its stored copy is
+	// left out of the comparison.
+	diff := snapshot.Compare(run.Desired, withoutContested(stored, run.Contested), owned)
 	label := run.Provider.Label()
 	res := driftResult{
 		snapshotMeta: newSnapshotMeta(storeID, run, dryRun), StoreReadAt: storeReadAt.UTC(),
 		Missing: tuplesOut(diff.Missing), Changed: tuplesOut(diff.Changed), Stale: tuplesOut(diff.Stale),
-		NotChecked: make([]notCheckedOut, 0, len(notChecked)),
-	}
-	for _, n := range notChecked {
-		shapes := make([]string, 0, len(n.Shapes))
-		for _, s := range n.Shapes {
-			shapes = append(shapes, s.String())
-		}
-		res.NotChecked = append(res.NotChecked, notCheckedOut{Rule: n.Rule, Reason: n.Reason, Shapes: shapes})
+		NotChecked: notCheckedOuts(notChecked),
 	}
 	if !machine {
 		if err := renderDrift(out, run, storeLbl, storeReadAt, storedTotal, read.Objects, usersOnly, diff, notChecked); err != nil {
@@ -419,6 +435,18 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 		return finish(nil)
 	}
 	return finish(remains())
+}
+
+// withoutContested drops the stored tuples the replay set aside.
+func withoutContested(stored []language.Tuple, contested []snapshot.Contested) []language.Tuple {
+	if len(contested) == 0 {
+		return stored
+	}
+	set := make(map[string]bool, len(contested))
+	for _, c := range contested {
+		set[snapshot.Identity(c.Tuple)] = true
+	}
+	return slices.DeleteFunc(slices.Clone(stored), func(t language.Tuple) bool { return set[snapshot.Identity(t)] })
 }
 
 // driftQuestion is the write prompt; it names the delete a changed tuple costs.
