@@ -1217,7 +1217,10 @@ func TestSnapshotEmptyStringCursorEndsTheList(t *testing.T) {
 		writeJSON(w, `{"organizations":[{"id":"org_1","name":"acme-one"}],"next":""}`)
 	})
 
-	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.organization"}}, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	res, err := p.Snapshot(ctx, snapshot.Request{Types: []string{"snapshot.organization"}}, nil)
 	noErr(t, err)
 	equal(t, []snapshot.Count{{Type: "snapshot.organization", N: 1}}, res.Counts)
 	equal(t, 1, len(rec.find("/organizations")))
@@ -1264,4 +1267,27 @@ func TestSnapshotUsersWithoutATotalFails(t *testing.T) {
 	equal(t, "Auth0's user list reported no total, so the read cannot tell whether it is complete; "+
 		"run the command again", err.Error())
 	equal(t, 1, len(rec.find("/users")))
+}
+
+func TestSnapshotCursorCycleFails(t *testing.T) {
+	t.Parallel()
+
+	next := map[string]string{"": "c1", "c1": "c2", "c2": "c1"}
+	p, rec := newProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, fmt.Sprintf(`{"organizations":[{"id":"org_1","name":"acme-one"}],"next":%q}`,
+			next[r.URL.Query().Get("from")]))
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	res, err := p.Snapshot(ctx, snapshot.Request{Types: []string{"snapshot.organization"}}, nil)
+	isErr(t, err)
+	if res != nil {
+		t.Errorf("result = %+v, want nil", res)
+	}
+	contains(t, err.Error(), "same page of organizations twice")
+	if n := len(rec.find("/organizations")); n > 3 {
+		t.Errorf("%d requests to /organizations, want at most 3", n)
+	}
 }

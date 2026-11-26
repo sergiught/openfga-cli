@@ -347,7 +347,7 @@ func walk[C comparable, T, R any](
 func walkPages[C comparable, T, R any](
 	r *read, first *core.Page[C, T, R], err error, what, typ string, each func(p *core.Page[C, T, R], at time.Time) error,
 ) error {
-	page, prev := first, ""
+	page, seen := first, map[string]bool{}
 	for {
 		if err != nil {
 			return readError(r.ctx, err, what, r.scopes(typ))
@@ -365,12 +365,14 @@ func walkPages[C comparable, T, R any](
 			cursor, isCheckpoint = *c, true
 		}
 
-		if cursor != "" && cursor == prev {
+		if seen[cursor] {
 			return fmt.Errorf("Auth0 returned the same page of %s twice, so the list cannot be read to its end; "+
 				"run the command again", what)
 		}
 
-		prev = cursor
+		if cursor != "" {
+			seen[cursor] = true
+		}
 
 		// A checkpoint page may be empty and still lead to more results.
 		if len(page.Results) == 0 && cursor == "" {
