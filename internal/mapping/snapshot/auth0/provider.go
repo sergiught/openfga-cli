@@ -165,6 +165,54 @@ type read struct {
 	sayMu    *sync.Mutex // progress is called from several goroutines, one at a time
 	events   map[string][]event
 	tally    *tally // shared by every sub-read
+	out      *sink  // where events go instead of events, nil when Result.Events is wanted
+}
+
+// flushEvery is how many events one Emit call is given at most.
+const flushEvery = 1000
+
+// sink hands events to Request.Emit as they become final. Only the goroutine
+// that runs the read, or the one organization task holding each's lock,
+// calls it, so Emit is never called twice at once.
+type sink struct {
+	emit  func(events []map[string]any) error
+	seq   int            // events given so far, the last one's number
+	count map[string]int // events given so far, per type
+}
+
+// flush gives the events held for typ to Emit, in order, and forgets them.
+// With no Emit it keeps them for Result.Events.
+func (r *read) flush(typ string) error {
+	if r.out == nil {
+		return nil
+	}
+
+	events := r.events[typ]
+	delete(r.events, typ)
+
+	return r.give(typ, events)
+}
+
+// give wraps events of typ and hands them to Emit, flushEvery at a time.
+func (r *read) give(typ string, events []event) error {
+	for len(events) > 0 {
+		n := min(len(events), flushEvery)
+		batch := make([]map[string]any, n)
+
+		for i, e := range events[:n] {
+			r.out.seq++
+			batch[i] = r.envelope(e, r.out.seq)
+		}
+
+		r.out.count[typ] += n
+		events = events[n:]
+
+		if err := r.out.emit(batch); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (r *read) say(msg string) {
@@ -222,15 +270,51 @@ func parallel(ctx context.Context, n int, task func(ctx context.Context, i int) 
 // each runs task once per organization in parallel. A task adds its events to
 // the read it is given; they are merged in organization order afterwards, so
 // the result is the same as reading one organization after the other.
-func (r *read) each(orgs []map[string]any, step, progress string, task func(sub *read, org map[string]any) error) error {
+// With Emit, the events of the types in stream go to Emit instead, as soon as
+// every organization before theirs has finished, and are not kept.
+func (r *read) each(orgs []map[string]any, step, progress string, stream []string, task func(sub *read, org map[string]any) error) error {
 	subs := make([]*read, len(orgs))
+	finished := make([]bool, len(orgs))
+
+	var (
+		mu     sync.Mutex // one task at a time hands events over
+		next   int        // the first organization not handed over
+		failed error      // what Emit returned; nothing is handed over after it
+	)
 
 	err := parallel(r.ctx, len(orgs), func(ctx context.Context, i int) error {
 		sub := *r
 		sub.ctx, sub.events = ctx, map[string][]event{}
 		subs[i] = &sub
 
-		return task(&sub, orgs[i])
+		if err := task(&sub, orgs[i]); err != nil {
+			return err
+		}
+
+		if r.out == nil {
+			return nil
+		}
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		if failed != nil {
+			return failed
+		}
+
+		finished[i] = true
+
+		for ; next < len(orgs) && finished[next]; next++ {
+			for _, typ := range stream {
+				if failed = r.give(typ, subs[next].events[typ]); failed != nil {
+					return failed
+				}
+
+				delete(subs[next].events, typ)
+			}
+		}
+
+		return nil
 	}, func(done int) {
 		r.report(snapshot.Progress{Message: fmt.Sprintf(progress, done, len(orgs)), Step: step, Done: done, Total: len(orgs)})
 	})
@@ -255,6 +339,9 @@ func (r *read) add(e event) {
 // Snapshot reads the given types completely or returns an error.
 func (p *Provider) Snapshot(ctx context.Context, req snapshot.Request, progress func(snapshot.Progress)) (*snapshot.Result, error) {
 	r := &read{Provider: p, ctx: ctx, want: map[string]bool{}, since: req.Since, progress: progress, sayMu: &sync.Mutex{}, events: map[string][]event{}}
+	if req.Emit != nil {
+		r.out = &sink{emit: req.Emit, count: map[string]int{}}
+	}
 	r.tally = &tally{n: map[string]int{}, want: r.want, since: req.Since}
 
 	known := map[string]bool{}
@@ -292,6 +379,10 @@ func (p *Provider) Snapshot(ctx context.Context, req snapshot.Request, progress 
 			if err := s.read(); err != nil {
 				return nil, err
 			}
+
+			if err := r.flush(s.typ); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -308,12 +399,17 @@ func (p *Provider) Snapshot(ctx context.Context, req snapshot.Request, progress 
 			continue
 		}
 
+		n := len(r.events[t.Name])
+		if r.out != nil {
+			n = r.out.count[t.Name]
+		}
+
 		for _, e := range r.events[t.Name] {
 			seq++
 			res.Events = append(res.Events, p.envelope(e, seq))
 		}
 
-		res.Counts = append(res.Counts, snapshot.Count{Type: t.Name, N: len(r.events[t.Name]), Windowed: t.Windowed && !r.since.IsZero()})
+		res.Counts = append(res.Counts, snapshot.Count{Type: t.Name, N: n, Windowed: t.Windowed && !r.since.IsZero()})
 	}
 
 	res.FinishedAt = now()
@@ -796,6 +892,14 @@ func (r *read) downloadUsers(location string, at time.Time) (int, error) {
 
 		r.add(event{typ: typeUser, subject: "user " + u.GetUserID(), object: obj, at: at})
 
+		// Nothing after this point restarts the download: a failure from here on
+		// fails the whole read, which discards what Emit was given.
+		if len(r.events[typeUser]) >= flushEvery {
+			if err := r.flush(typeUser); err != nil {
+				return 0, err
+			}
+		}
+
 		if len(seen)%exportReportEvery == 0 {
 			r.report(snapshot.Progress{Step: exportDownloadStep, Done: len(seen)})
 		}
@@ -834,8 +938,12 @@ func (r *read) organizations() error {
 		delete(r.events, typeOrganization)
 	}
 
+	if err := r.flush(typeOrganization); err != nil {
+		return err
+	}
+
 	if r.want[typeOrgConnection] {
-		err := r.each(orgs, "connections of organizations", "reading connections of %d/%d organizations", func(sub *read, org map[string]any) error {
+		err := r.each(orgs, "connections of organizations", "reading connections of %d/%d organizations", []string{typeOrgConnection}, func(sub *read, org map[string]any) error {
 			return sub.orgConnections(org)
 		})
 		if err != nil {
@@ -844,10 +952,15 @@ func (r *read) organizations() error {
 	}
 
 	if r.want[typeOrgMember] || r.want[typeOrgMemberRole] {
-		err := r.each(orgs, "members of organizations", "reading members of %d/%d organizations", func(sub *read, org map[string]any) error {
+		err := r.each(orgs, "members of organizations", "reading members of %d/%d organizations", []string{typeOrgMember}, func(sub *read, org map[string]any) error {
 			return sub.orgMembers(org)
 		})
 		if err != nil {
+			return err
+		}
+
+		// Roles are read with the members but come after all of them.
+		if err := r.flush(typeOrgMemberRole); err != nil {
 			return err
 		}
 	}

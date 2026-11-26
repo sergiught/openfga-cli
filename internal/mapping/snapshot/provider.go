@@ -27,14 +27,19 @@ type Count struct {
 type Request struct {
 	Types []string
 	Since time.Time // zero: everything. Otherwise Windowed types return only entities changed at or after it.
+	// Emit, when set, is given the events instead of Result.Events: in the
+	// same order, each event once, never from two goroutines at once, as soon
+	// as that order allows. An error from Emit ends the read and is returned
+	// as it is. A provider may ignore Emit and fill Result.Events.
+	Emit func(events []map[string]any) error
 }
 
 // Result is a completed snapshot read.
 type Result struct {
-	Source                string // what was read, for display: the Auth0 domain
-	Events                []map[string]any
-	Counts                []Count // one per requested type, in the provider's order
-	RateLimited           int     // responses of this read that were HTTP 429
+	Source                string           // what was read, for display: the Auth0 domain
+	Events                []map[string]any // every event, in order; nil when the provider gave them to Request.Emit
+	Counts                []Count          // one per requested type, in the provider's order
+	RateLimited           int              // responses of this read that were HTTP 429
 	StartedAt, FinishedAt time.Time
 }
 

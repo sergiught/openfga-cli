@@ -122,7 +122,13 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since t
 	lv := live()
 	lv.Provider(entry.Label, p.Stats)
 	lv.Phase(entry.Label)
-	res, err := p.Snapshot(ctx, snapshot.Request{Types: requested, Since: since}, func(pr snapshot.Progress) {
+	// A provider that streams hands the events to the replay while it reads, so
+	// a rule that fails on an event stops the read and no list of events is held.
+	replay := snapshot.NewReplay(m)
+	res, err := p.Snapshot(ctx, snapshot.Request{
+		Types: requested, Since: since,
+		Emit: func(events []map[string]any) error { return replay.Add(ctx, events) },
+	}, func(pr snapshot.Progress) {
 		switch {
 		case lv != nil:
 			if pr.Step != "" {
@@ -139,20 +145,35 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since t
 	for _, n := range res.Counts {
 		items += n.N
 	}
-	lv.Note(thousands(items) + " items")
-	lv.Phase("Replay")
-	desired, contested, err := snapshot.Desired(ctx, m, res.Events, func(done, total int) {
-		switch {
-		case lv != nil:
-			lv.Set("events", done, total)
-		case total >= progressEvery && (done%progressEvery == 0 || done == total):
-			output.Progressf(errw, "replaying event %d/%d", done, total)
+	// A provider that ignored Emit gave its events in the result: replay them now.
+	replayed := len(res.Events) > 0
+	if replayed {
+		lv.Note(thousands(items) + " items")
+		lv.Phase("Replay")
+		total := len(res.Events)
+		for i := range res.Events {
+			if err := replay.Add(ctx, res.Events[i:i+1]); err != nil {
+				return nil, err
+			}
+			switch done := i + 1; {
+			case lv != nil:
+				lv.Set("events", done, total)
+			case total >= progressEvery && (done%progressEvery == 0 || done == total):
+				output.Progressf(errw, "replaying event %d/%d", done, total)
+			}
 		}
-	})
-	if err != nil {
-		return nil, err
+		// A copy, so the events are not kept by this run and the provider's own
+		// result is left as it gave it.
+		done := *res
+		done.Events = nil
+		res = &done
 	}
-	lv.Note(thousands(len(desired)) + " tuples from " + thousands(len(res.Events)) + " events")
+	desired, contested := replay.Done()
+	note := thousands(len(desired)) + " tuples from " + thousands(replay.Events()) + " events"
+	if !replayed {
+		note = thousands(items) + " items, " + note
+	}
+	lv.Note(note)
 	return &snapshotRun{File: f, Provider: p, Types: types, Result: res, Desired: desired, Contested: contested, Since: since, Windowed: windowed}, nil
 }
 

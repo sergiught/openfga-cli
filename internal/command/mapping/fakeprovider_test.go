@@ -2,6 +2,7 @@ package mapping
 
 import (
 	"context"
+	"fmt"
 	"github.com/spf13/cobra"
 	"testing"
 	"time"
@@ -20,6 +21,11 @@ type fakeProvider struct {
 	gotSince *time.Time
 	// log, when non-nil, gets "provider read" for each Snapshot.
 	log *[]string
+	// stream, when set, hands the result's events to Request.Emit one at a time
+	// instead of returning them, and records "emit <type>", then "read finished"
+	// or "stopped" in steps (which may be nil).
+	stream bool
+	steps  *[]string
 }
 
 func (fakeProvider) Name() string             { return "fake" }
@@ -43,6 +49,24 @@ func (p fakeProvider) Snapshot(_ context.Context, req snapshot.Request, progress
 	}
 	if progress != nil {
 		progress(snapshot.Progress{Message: "reading fake"})
+	}
+	if p.stream && req.Emit != nil && p.err == nil {
+		note := func(s string) {
+			if p.steps != nil {
+				*p.steps = append(*p.steps, s)
+			}
+		}
+		for _, e := range p.result.Events {
+			note(fmt.Sprintf("emit %v", e["type"]))
+			if err := req.Emit([]map[string]any{e}); err != nil {
+				note("stopped")
+				return nil, err
+			}
+		}
+		note("read finished")
+		res := *p.result
+		res.Events = nil
+		return &res, nil
 	}
 	return p.result, p.err
 }

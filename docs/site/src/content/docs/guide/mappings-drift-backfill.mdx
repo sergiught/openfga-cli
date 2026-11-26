@@ -56,7 +56,7 @@ order tells you what has not happened yet when you see an error.
 | 8 | The active profile's store is resolved and its name looked up | OpenFGA | exit `1` or `4` |
 | 9 | `drift` only: the store is read | OpenFGA | exit `1` or `4` |
 | 10 | Auth0 is read | Auth0 | exit `1` or `4` |
-| 11 | The snapshot events are replayed through the mapping | none | exit `1` |
+| 11 | The snapshot events are replayed through the mapping, while step 10 reads them | none | exit `1` |
 | 12 | `backfill`, and `drift --since` when nothing can be stale: the store is read | OpenFGA | exit `1` or `4` |
 | 13 | Desired and stored tuples are compared and the report is printed | none | |
 | 14 | Writes, after a question or with `--force` | OpenFGA | see [Writing](#writing) |
@@ -361,10 +361,15 @@ The card has one row per step, in the order the command runs them:
 A step is `✓` when done, with a note and how long it took, a spinner while it
 runs, `○` while it waits, and `–` when a later step started without it. A
 running step shows a progress bar with the percent done and the time left when
-its size is known: the organizations, the user export job, the narrowed store read,
-the replay and the writes. Otherwise it shows a running count and the rate.
+its size is known: the organizations, the user export job, the narrowed store read
+and the writes. Otherwise it shows a running count and the rate.
 `drift` reads the whole store this way, because OpenFGA does not report how many
 tuples it holds.
+
+Auth0 hands its events to the replay while it reads them, so the Replay row
+stays `–`: the note of the Auth0 step says how many tuples came from how many
+events. Replay runs as its own step only for a provider that returns its
+events at the end of its read.
 
 Below the steps, the card shows:
 
@@ -404,10 +409,13 @@ members of X/Y organizations`.
 ## Replaying the events
 
 The events are run through the compiled mapping one at a time, in the order
-they were read, exactly as `ofga mappings apply` would run them, with one
-difference: **the store the rules see is empty**. A `tuple_filter` therefore
-finds only tuples that snapshot events wrote, never what the real store
-holds.
+they were read, exactly as `ofga mappings apply` would run them. They are
+replayed while Auth0 is still being read, as soon as their order allows, so a
+rule that fails on an event stops the read at once instead of after it. The
+order of the replay is the one described below, the same as if the replay
+began after the read. There is one difference from `apply`: **the store the
+rules see is empty**. A `tuple_filter` therefore finds only tuples that
+snapshot events wrote, never what the real store holds.
 
 The changes each event produces are folded into one set of tuples, keyed by
 user, relation and object:
@@ -844,6 +852,11 @@ tuples deleted. `deletes` counts those and the tuples deleted to be replaced.
   A rule that is not a snapshot rule, another system or a second tenant writing
   a shape the snapshot rules own makes those tuples look stale, and `--prune`
   deletes them. Nothing warns about this before the question.
+- **Memory.** The events are not kept: each is replayed and dropped. Users from
+  the list are held until the user read ends, and from the export job a
+  thousand at a time. Organization events that finish out of order wait for the
+  organizations before them, and member roles are held until the members have
+  been read. The tuples themselves are kept for the whole run.
 - **A full store read.** `drift` without `--since` reads every tuple in the
   store, one request per 100, one after another.
 - **The changed section shows the desired version only.** The condition being
