@@ -274,16 +274,21 @@ Fields Auth0 returns that the client library has no name for are kept.
 
 ### Rate limits
 
-Every Management API request passes through a pacer that reads only the status
-code and the `Retry-After` header of each answer:
+Every Management API request passes through a pacer that reads the status code
+of each answer and its `Date`, `Retry-After` and `X-RateLimit-*` headers:
 
+- When an answer says no request is left in the current window
+  (`X-RateLimit-Remaining: 0`), all requests wait for the window to reset
+  (`X-RateLimit-Reset`), 60 seconds at most, so Auth0 does not have to refuse
+  them first. This is not counted as a rate-limit wait.
 - Until the first `429` there is no spacing: requests go out as fast as the 8
   workers send them.
 - On a `429` the gap between request starts doubles, starting at 100 ms and
   capped at 2 seconds. It widens once per rate-limit window, not once per
   worker that was refused.
-- All requests then wait for the seconds in `Retry-After`: 1 second when the
-  header is missing or not a positive number, 60 at most.
+- All requests then wait as long as `Retry-After` says, in seconds or as a
+  date, or until `X-RateLimit-Reset` when it is missing: 1 second when neither
+  is usable, 60 at most.
 - Every answer that is not a `429` shrinks the gap by 5 percent, down to no gap
   at all.
 - The refused request is sent again. One request answered `429` ten times in a

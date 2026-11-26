@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -674,4 +675,249 @@ func TestPacerAgainstATokenBucket(t *testing.T) {
 	if took > ideal*115/100 {
 		t.Errorf("%d requests took %v, want within 15%% of %v", requests, took, ideal)
 	}
+}
+
+// rateHeaders sets the headers of an Auth0 answer: its Date, and the window it
+// says is spent or not.
+func rateHeaders(s *script, date time.Time, remaining string, reset time.Time) {
+	if !date.IsZero() {
+		s.headers["Date"] = date.UTC().Format(http.TimeFormat)
+	}
+
+	if remaining != "" {
+		s.headers["X-RateLimit-Remaining"] = remaining
+	}
+
+	if !reset.IsZero() {
+		s.headers["X-RateLimit-Reset"] = strconv.FormatInt(reset.Unix(), 10)
+	}
+}
+
+func TestPacerHoldsBackWhenTheWindowIsSpent(t *testing.T) {
+	t.Parallel()
+
+	p, s, clock := newTestPacer(http.StatusOK)
+	server := clock.now()
+	rateHeaders(s, server, "0", server.Add(3*time.Second))
+
+	for range 2 {
+		_, err := get(t, p)
+		noErr(t, err)
+	}
+
+	equal(t, []time.Duration{3 * time.Second}, clock.waits)
+
+	sent, limited, gap := p.stats()
+	equal(t, 2, sent)
+	equal(t, 0, limited)
+	equal(t, time.Duration(0), gap)
+}
+
+func TestPacerHoldsBackByTheServerClock(t *testing.T) {
+	t.Parallel()
+
+	p, s, clock := newTestPacer(http.StatusOK)
+	server := clock.now().Add(10 * time.Minute) // the local clock is 10 minutes behind
+	rateHeaders(s, server, "0", server.Add(3*time.Second))
+
+	for range 2 {
+		_, err := get(t, p)
+		noErr(t, err)
+	}
+
+	equal(t, []time.Duration{3 * time.Second}, clock.waits)
+}
+
+func TestPacerHoldBackIsCapped(t *testing.T) {
+	t.Parallel()
+
+	p, s, clock := newTestPacer(http.StatusOK)
+	rateHeaders(s, clock.now(), "0", clock.now().Add(time.Hour))
+
+	for range 2 {
+		_, err := get(t, p)
+		noErr(t, err)
+	}
+
+	equal(t, []time.Duration{maxRetryWait}, clock.waits)
+}
+
+func TestPacerHoldBackUsesNowWithoutADate(t *testing.T) {
+	t.Parallel()
+
+	p, s, clock := newTestPacer(http.StatusOK)
+	rateHeaders(s, time.Time{}, "0", clock.now().Add(5*time.Second))
+
+	for range 2 {
+		_, err := get(t, p)
+		noErr(t, err)
+	}
+
+	equal(t, []time.Duration{5 * time.Second}, clock.waits)
+
+	// A Date that does not parse is as good as none.
+	p, s, clock = newTestPacer(http.StatusOK)
+	rateHeaders(s, time.Time{}, "0", clock.now().Add(5*time.Second))
+	s.headers["Date"] = "yesterday"
+
+	for range 2 {
+		_, err := get(t, p)
+		noErr(t, err)
+	}
+
+	equal(t, []time.Duration{5 * time.Second}, clock.waits)
+}
+
+func TestPacerHoldBackNeedsAUsableSpentWindow(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		remaining string
+		reset     func(now time.Time) string
+	}{
+		"reset in the past": {"0", func(now time.Time) string { return strconv.FormatInt(now.Add(-5*time.Second).Unix(), 10) }},
+		"reset now":         {"0", func(now time.Time) string { return strconv.FormatInt(now.Unix(), 10) }},
+		"requests left":     {"5", func(now time.Time) string { return strconv.FormatInt(now.Add(5*time.Second).Unix(), 10) }},
+		"remaining abc":     {"abc", func(now time.Time) string { return strconv.FormatInt(now.Add(5*time.Second).Unix(), 10) }},
+		"remaining negative": {"-1", func(now time.Time) string {
+			return strconv.FormatInt(now.Add(5*time.Second).Unix(), 10)
+		}},
+		"reset abc":      {"0", func(time.Time) string { return "abc" }},
+		"reset negative": {"0", func(time.Time) string { return "-3" }},
+		"no reset":       {"0", func(time.Time) string { return "" }},
+		"no headers":     {"", func(time.Time) string { return "" }},
+	} {
+		p, s, clock := newTestPacer(http.StatusOK)
+		s.headers["Date"] = clock.now().UTC().Format(http.TimeFormat)
+
+		if tc.remaining != "" {
+			s.headers["X-RateLimit-Remaining"] = tc.remaining
+		}
+
+		if r := tc.reset(clock.now()); r != "" {
+			s.headers["X-RateLimit-Reset"] = r
+		}
+
+		for range 2 {
+			_, err := get(t, p)
+			noErr(t, err)
+		}
+
+		if len(clock.waits) != 0 {
+			t.Errorf("%s: waited %v, want no wait", name, clock.waits)
+		}
+	}
+}
+
+func TestPacerHoldsOnceForTheSameReset(t *testing.T) {
+	t.Parallel()
+
+	p, s, clock := newTestPacer(http.StatusOK)
+	rateHeaders(s, clock.now(), "0", clock.now().Add(3*time.Second))
+	start := clock.now()
+
+	for range 2 {
+		resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}}
+		for k, v := range s.headers {
+			resp.Header.Set(k, v)
+		}
+
+		p.hold(resp)
+	}
+
+	equal(t, start.Add(3*time.Second), p.closed)
+	equal(t, start.Add(3*time.Second), p.next)
+}
+
+func TestPacerHoldBackIsNotARefusalAndStillNarrowsTheGap(t *testing.T) {
+	t.Parallel()
+
+	p, s, clock := newTestPacer(http.StatusOK)
+	rateHeaders(s, clock.now(), "0", clock.now().Add(3*time.Second))
+	p.gap = time.Second
+
+	_, err := get(t, p)
+	noErr(t, err)
+
+	_, _, gap := p.stats()
+	equal(t, time.Second*19/20, gap)
+}
+
+func TestPacerRetryAfterAsADate(t *testing.T) {
+	t.Parallel()
+
+	p, s, clock := newTestPacer(http.StatusTooManyRequests, http.StatusOK)
+	server := clock.now().Add(-10 * time.Minute)
+	s.headers["Date"] = server.UTC().Format(http.TimeFormat)
+	s.headers["Retry-After"] = server.Add(4 * time.Second).UTC().Format(http.TimeFormat)
+
+	_, err := get(t, p)
+	noErr(t, err)
+	equal(t, []time.Duration{4 * time.Second}, clock.waits)
+
+	// Without a Date the local clock is used.
+	p, s, clock = newTestPacer(http.StatusTooManyRequests, http.StatusOK)
+	s.headers["Retry-After"] = clock.now().Add(4 * time.Second).UTC().Format(http.TimeFormat)
+
+	_, err = get(t, p)
+	noErr(t, err)
+	equal(t, []time.Duration{4 * time.Second}, clock.waits)
+
+	// A date in the past is no wait at all.
+	p, s, clock = newTestPacer(http.StatusTooManyRequests, http.StatusOK)
+	s.headers["Retry-After"] = clock.now().Add(-time.Minute).UTC().Format(http.TimeFormat)
+
+	_, err = get(t, p)
+	noErr(t, err)
+	equal(t, []time.Duration{defaultWait}, clock.waits)
+}
+
+func TestPacerRefusalWithoutRetryAfterWaitsForTheReset(t *testing.T) {
+	t.Parallel()
+
+	p, s, clock := newTestPacer(http.StatusTooManyRequests, http.StatusOK)
+	rateHeaders(s, clock.now(), "0", clock.now().Add(2*time.Second))
+
+	_, err := get(t, p)
+	noErr(t, err)
+	equal(t, []time.Duration{2 * time.Second}, clock.waits)
+	equal(t, 1, p.count())
+}
+
+func TestPacerRetryAfterWinsOverTheReset(t *testing.T) {
+	t.Parallel()
+
+	p, s, clock := newTestPacer(http.StatusTooManyRequests, http.StatusOK)
+	rateHeaders(s, clock.now(), "0", clock.now().Add(2*time.Second))
+	s.headers["Retry-After"] = "7"
+
+	_, err := get(t, p)
+	noErr(t, err)
+	equal(t, []time.Duration{7 * time.Second}, clock.waits)
+}
+
+func TestPacerHoldsBackUnderConcurrency(t *testing.T) {
+	t.Parallel()
+
+	p, s, clock := newTestPacer(http.StatusOK)
+	rateHeaders(s, clock.now(), "0", clock.now().Add(3*time.Second))
+
+	var wg sync.WaitGroup
+
+	for range 8 {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			if _, err := get(t, p); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	equal(t, 8, s.sends)
+	equal(t, 0, p.count())
 }

@@ -30,8 +30,11 @@ var errKeptRateLimiting = errors.New(
 // pacer is the HTTP transport of every Management API request of a provider.
 // It spaces requests out, slows down when Auth0 answers 429 and speeds back up
 // on success, and counts every request sent and the 429 answers of the read in
-// progress. It reads the status code and Retry-After header of each response
-// and nothing else.
+// progress. It reads the status code of each response and these headers:
+// X-RateLimit-Remaining and X-RateLimit-Reset hold the pacer back until the
+// window resets once no request is left in it, Retry-After says how long to
+// wait after a 429 (X-RateLimit-Reset when it is missing), and Date is the
+// server's clock that those waits are measured against.
 type pacer struct {
 	base  http.RoundTripper
 	now   func() time.Time
@@ -149,7 +152,32 @@ func (p *pacer) limited(resp *http.Response, sentAt time.Time) func() {
 		p.widen = now
 	}
 
-	reopen := now.Add(retryAfter(resp))
+	p.closeUntil(now.Add(retryAfter(resp, now)))
+
+	return p.onWait
+}
+
+// hold closes the pacer until the window resets when an answer that is not a
+// 429 says no request is left in it. It is not a refusal: nothing is counted
+// and the gap is left alone.
+func (p *pacer) hold(resp *http.Response) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if left, err := strconv.Atoi(resp.Header.Get("X-RateLimit-Remaining")); err != nil || left != 0 {
+		return
+	}
+
+	now := p.now()
+
+	if wait, ok := resetWait(resp, now); ok && wait > 0 {
+		p.closeUntil(now.Add(min(wait, maxRetryWait)))
+	}
+}
+
+// closeUntil keeps requests from starting before reopen, never earlier than
+// they are already kept. The caller holds the lock.
+func (p *pacer) closeUntil(reopen time.Time) {
 	if reopen.After(p.closed) {
 		p.closed = reopen
 	}
@@ -157,23 +185,53 @@ func (p *pacer) limited(resp *http.Response, sentAt time.Time) func() {
 	if reopen.After(p.next) {
 		p.next = reopen
 	}
-
-	return p.onWait
 }
 
-// retryAfter is the Retry-After header as whole seconds, 1 s when it is
-// missing or not a positive integer, at most 60 s.
-func retryAfter(resp *http.Response) time.Duration {
-	secs, err := strconv.Atoi(resp.Header.Get("Retry-After"))
-	if err != nil || secs <= 0 {
+// serverNow is the Date header of the response, or now when it is missing or
+// does not parse.
+func serverNow(resp *http.Response, now time.Time) time.Time {
+	if date, err := http.ParseTime(resp.Header.Get("Date")); err == nil {
+		return date
+	}
+
+	return now
+}
+
+// resetWait is the time from the response's Date to its X-RateLimit-Reset, and
+// false when that header is not epoch seconds.
+func resetWait(resp *http.Response, now time.Time) (time.Duration, bool) {
+	reset, err := strconv.ParseInt(resp.Header.Get("X-RateLimit-Reset"), 10, 64)
+	if err != nil || reset < 0 {
+		return 0, false
+	}
+
+	return time.Unix(reset, 0).Sub(serverNow(resp, now)), true
+}
+
+// retryAfter is how long to wait after a 429, at most 60 s: the Retry-After
+// header as whole seconds or as an HTTP date, else the time to the
+// X-RateLimit-Reset header, else 1 s. Dates are measured from the response's
+// Date header, or from now when it is missing.
+func retryAfter(resp *http.Response, now time.Time) time.Duration {
+	var wait time.Duration
+
+	header := resp.Header.Get("Retry-After")
+
+	if secs, err := strconv.Atoi(header); err == nil {
+		wait = time.Duration(min(secs, int(maxRetryWait/time.Second))) * time.Second
+	} else if at, err := http.ParseTime(header); err == nil {
+		wait = at.Sub(serverNow(resp, now))
+	}
+
+	if wait <= 0 {
+		wait, _ = resetWait(resp, now)
+	}
+
+	if wait <= 0 {
 		return defaultWait
 	}
 
-	if secs > int(maxRetryWait/time.Second) {
-		return maxRetryWait
-	}
-
-	return time.Duration(secs) * time.Second
+	return min(wait, maxRetryWait)
 }
 
 func (p *pacer) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -212,6 +270,7 @@ func (p *pacer) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 
 		if resp.StatusCode != http.StatusTooManyRequests {
+			p.hold(resp)
 			p.succeeded()
 
 			return resp, nil
