@@ -347,7 +347,7 @@ func walk[C comparable, T, R any](
 func walkPages[C comparable, T, R any](
 	r *read, first *core.Page[C, T, R], err error, what, typ string, each func(p *core.Page[C, T, R], at time.Time) error,
 ) error {
-	page := first
+	page, prev := first, ""
 	for {
 		if err != nil {
 			return readError(r.ctx, err, what, r.scopes(typ))
@@ -357,16 +357,38 @@ func walkPages[C comparable, T, R any](
 			return ctxErr
 		}
 
-		if len(page.Results) == 0 {
+		// The SDK ends a checkpoint list only on a nil cursor. An empty cursor would
+		// be requested as the first page again, so it ends the list here, and a
+		// cursor that repeats would never end it.
+		cursor, isCheckpoint := "", false
+		if c, ok := any(page.RawResponse.Next).(*string); ok && c != nil {
+			cursor, isCheckpoint = *c, true
+		}
+
+		if cursor != "" && cursor == prev {
+			return fmt.Errorf("Auth0 returned the same page of %s twice, so the list cannot be read to its end; "+
+				"run the command again", what)
+		}
+
+		prev = cursor
+
+		// A checkpoint page may be empty and still lead to more results.
+		if len(page.Results) == 0 && cursor == "" {
 			return nil
 		}
 
-		if err := each(page, now()); err != nil {
-			if errors.Is(err, errStopWalk) {
-				return nil
-			}
+		if len(page.Results) > 0 {
+			if err := each(page, now()); err != nil {
+				if errors.Is(err, errStopWalk) {
+					return nil
+				}
 
-			return err
+				return err
+			}
+		}
+
+		if isCheckpoint && cursor == "" {
+			return nil
 		}
 
 		page, err = page.GetNextPage(r.ctx)
@@ -454,6 +476,11 @@ func (r *read) users() error {
 		"run the command again")
 
 	if err := walkPages(r, page, err, "users", typeUser, func(p *core.Page[*int, *management.UserResponseSchema, *management.ListUsersOffsetPaginatedResponseContent], at time.Time) error {
+		if p.Response.Total == nil {
+			return errors.New("Auth0's user list reported no total, so the read cannot tell whether it is complete; " +
+				"run the command again")
+		}
+
 		total := p.Response.GetTotal()
 		// The list serves no more than maxUsers users and reports no higher a total,
 		// so a total at the limit means that many or more. Auth0's export job has no such limit.

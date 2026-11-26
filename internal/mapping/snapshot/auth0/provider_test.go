@@ -1190,3 +1190,78 @@ func TestSnapshotSinceLeavesOtherTypesWhole(t *testing.T) {
 
 	equal(t, []snapshot.Count{{Type: "snapshot.organization", N: 2}}, res.Counts)
 }
+
+func TestSnapshotOrganizationsFollowAnEmptyPageWithACursor(t *testing.T) {
+	t.Parallel()
+
+	p, _ := newProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Query().Get("from") {
+		case "":
+			writeJSON(w, `{"organizations":[],"next":"c1"}`)
+		case "c1":
+			writeJSON(w, `{"organizations":[{"id":"org_1","name":"acme-one"}]}`)
+		default:
+			http.Error(w, "unexpected cursor", http.StatusNotFound)
+		}
+	})
+
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.organization"}}, nil)
+	noErr(t, err)
+	equal(t, []snapshot.Count{{Type: "snapshot.organization", N: 1}}, res.Counts)
+}
+
+func TestSnapshotEmptyStringCursorEndsTheList(t *testing.T) {
+	t.Parallel()
+
+	p, rec := newProvider(t, func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, `{"organizations":[{"id":"org_1","name":"acme-one"}],"next":""}`)
+	})
+
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.organization"}}, nil)
+	noErr(t, err)
+	equal(t, []snapshot.Count{{Type: "snapshot.organization", N: 1}}, res.Counts)
+	equal(t, 1, len(rec.find("/organizations")))
+}
+
+func TestSnapshotRepeatedCursorFails(t *testing.T) {
+	t.Parallel()
+
+	p, rec := newProvider(t, func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, `{"organizations":[{"id":"org_1","name":"acme-one"}],"next":"c1"}`)
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	res, err := p.Snapshot(ctx, snapshot.Request{Types: []string{"snapshot.organization"}}, nil)
+	isErr(t, err)
+	if res != nil {
+		t.Errorf("result = %+v, want nil", res)
+	}
+	contains(t, err.Error(), "same page of organizations twice")
+	if n := len(rec.find("/organizations")); n > 2 {
+		t.Errorf("%d requests to /organizations, want at most 2", n)
+	}
+}
+
+func TestSnapshotUsersWithoutATotalFails(t *testing.T) {
+	t.Parallel()
+
+	p, rec := newProvider(t, func(w http.ResponseWriter, _ *http.Request) {
+		users := make([]string, pageSize)
+		for i := range users {
+			users[i] = fmt.Sprintf(`{"user_id":"auth0|%04d"}`, i)
+		}
+
+		writeJSON(w, fmt.Sprintf(`{"start":0,"limit":%d,"users":[%s]}`, pageSize, strings.Join(users, ",")))
+	})
+
+	res, err := p.Snapshot(context.Background(), snapshot.Request{Types: []string{"snapshot.user"}}, nil)
+	isErr(t, err)
+	if res != nil {
+		t.Errorf("result = %+v, want nil", res)
+	}
+	equal(t, "Auth0's user list reported no total, so the read cannot tell whether it is complete; "+
+		"run the command again", err.Error())
+	equal(t, 1, len(rec.find("/users")))
+}
