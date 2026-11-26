@@ -404,8 +404,23 @@ The changes each event produces are folded into one set of tuples, keyed by
 user, relation and object:
 
 - A write puts the tuple in the set. A later write of the same user, relation
-  and object replaces it, so the last event decides the condition.
+  and object with the same condition and context changes nothing. With a
+  different condition or context the run ends with exit `1` and `writes <user>
+  <relation> <object> with a different condition or context than event N; ...`.
+  The exception is a delete in between, which is what a rule with a
+  `tuple_filter` plans: it reads the earlier write and replaces it.
 - A delete takes the tuple out of the set.
+
+Events are replayed in the order the types are read: connections, users,
+organizations, organization connections, members, then member roles. A delete,
+or a `tuple_filter`, only removes a tuple that an earlier event already put in
+the set. So a rule opted in to a type that is read earlier cannot remove a
+tuple that a later type writes. Say a rule deletes a blocked user's
+organization memberships when it sees `snapshot.user`. It runs before any
+`snapshot.organization.member` event and removes nothing, so the memberships
+end up in the desired set. `drift --force` and `backfill --force` then write
+back the tuples the live rule removed, on every run. The mappings in
+`examples/` do not opt any delete rule in to a snapshot type.
 
 What is left is the desired set, sorted by shape, then user, relation and
 object. An event the mapping cannot evaluate ends the run with the event's type
@@ -575,11 +590,15 @@ store could not be reached, `130` when you interrupted the run, `1` otherwise.
 | --- | --- |
 | `sent N of M writes before the failure; run the command again to send the rest` (`backfill`) | The first N missing tuples. |
 | `sent N of M changes before the failure; run the command again to send the rest` (`drift`) | The first N writes or deletes of that step. |
-| `could not replace M changed tuples; the stored versions are in place, nothing was replaced` | What it held before. |
+| `sent N of M changes before the failure; run the command again with --prune to send the rest` (`drift --prune`, while deleting) | The first N deletes of that step. |
+| `could not replace M changed tuples; the stored versions are in place, nothing was replaced` | What it held before, plus any missing tuples written first. |
 | `replaced N of M changed tuples; the next batch failed and its stored versions are in place` | N desired versions; the rest unchanged. |
 | `replaced N of M changed tuples before the interruption; run the command again to replace the rest` | N desired versions; the rest unchanged. |
 | `deleted N tuples and could not write the stored version back` | The N tuples listed below the message are gone. |
 | `deleting N tuples failed and so did writing the stored version back; the store may have lost what is listed below` | Unknown for the listed tuples. |
+
+When missing tuples were written before a replace failed, these messages start
+with `wrote N missing tuples, then`, and those tuples stay in the store.
 
 The last two happen only when a replace fails and writing the stored versions
 back fails too. The tuples are listed (50 at most), and the hint reads `run the
@@ -613,7 +632,7 @@ again and sends only what is still different.
 | --- | --- |
 | No difference | `no drift: N tuples match Auth0`, exit `0`. |
 | `--dry-run` | Report, then `dry run: nothing written`, exit `3`. |
-| No terminal, `--no-input`, or machine output, without `--force` | Report, then `report only: pass --force to write`, exit `3`. |
+| No terminal, `--no-input`, or machine output, without `--force` | Report, then `report only: pass --force to write`, exit `3`. When nothing is missing or changed and only stale tuples remain, the hint is `report only: pass --prune --force to delete N stale tuples`, or with `--prune`, `report only: pass --force to delete N stale tuples`. |
 | On a terminal | One question for the writes, then with `--prune` one for the deletes. |
 | `--force` | Writes without asking; with `--prune` also deletes without asking. |
 
@@ -814,3 +833,15 @@ schemas](../output-schemas/).
   hosted store that rate-limits reads.
 - **Roles.** Only roles assigned to a member directly are read.
 - **Groups.** There is no snapshot type for them.
+- **A delete rule opted in to an earlier type.** Such a rule removes nothing
+  during the replay, so the commands write back what it removed. See
+  [Replaying the events](#replaying-the-events).
+- **A tuple removed between the two reads (`backfill` and `drift --since`).**
+  These read the store after Auth0. A tuple that a live event deletes after
+  Auth0 was read and before the store is read looks missing and is written
+  back. The next full `drift --prune` deletes it. Full `drift` reads the store
+  first and has no such window.
+- **A tuple granted again before the prune.** A stale tuple that becomes wanted
+  again after Auth0 was read, such as a member who is removed and then added
+  back, is still deleted by `--prune`, because the live event's write finds the
+  tuple already there. The next run reports it as missing.
