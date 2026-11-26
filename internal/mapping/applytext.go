@@ -29,8 +29,17 @@ func ChangeLine(t language.Tuple, field func(string) string) string {
 		sign = "-"
 	}
 	line := fmt.Sprintf("%s %s %s %s", sign, field(t.User), field(t.Relation), field(t.Object))
+	if cond := ConditionText(t, field); cond != "" {
+		return line + " " + cond
+	}
+	return line
+}
+
+// ConditionText is the condition of t as ChangeLine prints it, "(cond: k=json,
+// k2=json)" with sorted context keys, or "" when t has no condition.
+func ConditionText(t language.Tuple, field func(string) string) string {
 	if t.Condition == "" {
-		return line
+		return ""
 	}
 	cond := field(t.Condition)
 	if len(t.Context) > 0 {
@@ -40,7 +49,7 @@ func ChangeLine(t language.Tuple, field func(string) string) string {
 		}
 		cond += ": " + strings.Join(pairs, ", ")
 	}
-	return line + " (" + cond + ")"
+	return "(" + cond + ")"
 }
 
 func compactJSON(v any) string {

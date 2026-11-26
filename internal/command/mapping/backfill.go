@@ -276,7 +276,7 @@ func renderBackfillPlain(out io.Writer, run *snapshotRun, label, storeLbl string
 		storeReadLine(out, run, storeLbl, storeReadAt, read.Read, read.Objects)
 	}
 	if len(run.Desired) == 0 {
-		if err := renderTuples(out, run.Desired); err != nil {
+		if err := renderTuples(out, run.Desired, nil); err != nil {
 			return err
 		}
 	} else {
@@ -289,8 +289,8 @@ func renderBackfillPlain(out io.Writer, run *snapshotRun, label, storeLbl string
 			return err
 		}
 		if err := renderSections(out, []tupleSection{
-			{"missing", "in " + output.SanitizeField(label) + ", not in the store", diff.Missing},
-			{"changed", "condition differs", diff.Changed},
+			{"missing", "in " + output.SanitizeField(label) + ", not in the store", diff.Missing, nil},
+			{"changed", "condition differs", diff.Changed, diff.Was},
 		}); err != nil {
 			return err
 		}
@@ -311,8 +311,9 @@ func renderShapes(w io.Writer, ts []language.Tuple) error {
 }
 
 // renderTuples prints the shape counts and the tuples themselves, at most
-// maxPlanLines of them.
-func renderTuples(w io.Writer, ts []language.Tuple) error {
+// maxPlanLines of them. When was is set, each line ends with the stored
+// version's condition.
+func renderTuples(w io.Writer, ts, was []language.Tuple) error {
 	if err := renderShapes(w, ts); err != nil || len(ts) == 0 {
 		return err
 	}
@@ -320,8 +321,12 @@ func renderTuples(w io.Writer, ts []language.Tuple) error {
 	if output.Plain {
 		field = output.PlainField
 	}
-	for _, t := range ts[:min(len(ts), maxPlanLines)] {
-		if _, err := fmt.Fprintln(w, mapping.ChangeLine(t, field)); err != nil {
+	for i, t := range ts[:min(len(ts), maxPlanLines)] {
+		line := mapping.ChangeLine(t, field)
+		if was != nil {
+			line += " was " + storedCondition(was[i], field)
+		}
+		if _, err := fmt.Fprintln(w, line); err != nil {
 			return err
 		}
 	}
@@ -330,6 +335,14 @@ func renderTuples(w io.Writer, ts []language.Tuple) error {
 		return err
 	}
 	return nil
+}
+
+// storedCondition is the condition of a stored tuple, or "no condition".
+func storedCondition(t language.Tuple, field func(string) string) string {
+	if c := mapping.ConditionText(t, field); c != "" {
+		return c
+	}
+	return "no condition"
 }
 
 // emitBackfill prints the machine payload for -o json/yaml, or key/values in

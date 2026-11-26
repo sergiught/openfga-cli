@@ -37,9 +37,9 @@ func renderDrift(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt t
 		stale[i] = t
 	}
 	if err := renderSections(w, []tupleSection{
-		{"missing", "in " + label + ", not in the store", diff.Missing},
-		{"changed", "condition differs", diff.Changed},
-		{"stale", "in the store, not in " + label, stale},
+		{"missing", "in " + label + ", not in the store", diff.Missing, nil},
+		{"changed", "condition differs", diff.Changed, diff.Was},
+		{"stale", "in the store, not in " + label, stale, nil},
 	}); err != nil {
 		return err
 	}
@@ -79,6 +79,8 @@ func storeReadLine(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt
 type tupleSection struct {
 	name, what string
 	tuples     []language.Tuple
+	// was, when set, is the stored version of each tuple, parallel to tuples.
+	was []language.Tuple
 }
 
 // renderSections prints each non-empty section after a blank line.
@@ -90,7 +92,7 @@ func renderSections(w io.Writer, sections []tupleSection) error {
 		if _, err := fmt.Fprintf(w, "\n%-7s  %s\n", s.name, s.what); err != nil {
 			return err
 		}
-		if err := renderTuples(w, s.tuples); err != nil {
+		if err := renderTuples(w, s.tuples, s.was); err != nil {
 			return err
 		}
 	}

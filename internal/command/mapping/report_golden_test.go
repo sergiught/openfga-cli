@@ -1,9 +1,12 @@
 package mapping
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/openfga/mapper/language"
 
 	"github.com/sergiught/openfga-cli/internal/configtest"
 	"github.com/sergiught/openfga-cli/internal/output"
@@ -60,5 +63,35 @@ func TestBackfillPlainReportGolden(t *testing.T) {
 	}
 }
 
-const driftPlainGolden = "store read  14:05:13 UTC  4 tuples  acme\nFake read  14:02:13 → 14:05:40 UTC  tenant.example\n  snapshot.organization.member  2\n\nmissing  in Fake, not in the store\n1 tuple\nuser member organization\t1\n+ user:u2 member organization:o1 (in_office)\n\nchanged  condition differs\n2 tuples\nuser member organization\t2\n+ user:u1 member organization:o1 (in_office)\n+ user:u3 member organization:o1 (in_office)\n\nstale    in the store, not in Fake\n1 tuple\nuser member organization\t1\n- user:gone member organization:o1\n\nnot checked\n  user.updated  no snapshot rule writes user identity connection\nstore\t01ARZ3NDEKTSV4RRFFQ69G5FAV\nprovider\tfake\ndry_run\ttrue\nmissing\t1\nchanged\t2\nstale\t1\nwrites\t0\ndeletes\t0\n"
-const backfillPlainGolden = "Fake read  14:02:13 → 14:05:40 UTC  tenant.example\n  snapshot.organization.member  2\nstore read  14:05:13 UTC  2 tuples  acme\n3 tuples from Fake: 1 missing from the store, 0 already there, 2 there with a different condition\n\nmissing  in Fake, not in the store\n1 tuple\nuser member organization\t1\n+ user:u2 member organization:o1 (in_office)\n\nchanged  condition differs\n2 tuples\nuser member organization\t2\n+ user:u1 member organization:o1 (in_office)\n+ user:u3 member organization:o1 (in_office)\nstore\t01ARZ3NDEKTSV4RRFFQ69G5FAV\nprovider\tfake\ndry_run\ttrue\ntuples\t3\nmissing\t1\nchanged\t2\nexisting\t0\nwrites\t0\n"
+const driftPlainGolden = "store read  14:05:13 UTC  4 tuples  acme\nFake read  14:02:13 → 14:05:40 UTC  tenant.example\n  snapshot.organization.member  2\n\nmissing  in Fake, not in the store\n1 tuple\nuser member organization\t1\n+ user:u2 member organization:o1 (in_office)\n\nchanged  condition differs\n2 tuples\nuser member organization\t2\n+ user:u1 member organization:o1 (in_office) was (in_region)\n+ user:u3 member organization:o1 (in_office) was no condition\n\nstale    in the store, not in Fake\n1 tuple\nuser member organization\t1\n- user:gone member organization:o1\n\nnot checked\n  user.updated  no snapshot rule writes user identity connection\nstore\t01ARZ3NDEKTSV4RRFFQ69G5FAV\nprovider\tfake\ndry_run\ttrue\nmissing\t1\nchanged\t2\nstale\t1\nwrites\t0\ndeletes\t0\n"
+const backfillPlainGolden = "Fake read  14:02:13 → 14:05:40 UTC  tenant.example\n  snapshot.organization.member  2\nstore read  14:05:13 UTC  2 tuples  acme\n3 tuples from Fake: 1 missing from the store, 0 already there, 2 there with a different condition\n\nmissing  in Fake, not in the store\n1 tuple\nuser member organization\t1\n+ user:u2 member organization:o1 (in_office)\n\nchanged  condition differs\n2 tuples\nuser member organization\t2\n+ user:u1 member organization:o1 (in_office) was (in_region)\n+ user:u3 member organization:o1 (in_office) was no condition\nstore\t01ARZ3NDEKTSV4RRFFQ69G5FAV\nprovider\tfake\ndry_run\ttrue\ntuples\t3\nmissing\t1\nchanged\t2\nexisting\t0\nwrites\t0\n"
+
+func TestRenderTuplesShowsTheStoredCondition(t *testing.T) {
+	plainReport(t)
+	tuple := func(user, cond string, ctx map[string]any) language.Tuple {
+		return language.Tuple{Action: language.ActionWrite, User: user, Relation: "member", Object: "organization:acme", Condition: cond, Context: ctx}
+	}
+	desired := []language.Tuple{
+		tuple("user:anne", "new_cond", map[string]any{"k": "v"}),
+		tuple("user:bob", "", nil),
+		tuple("user:cy", "new_cond", nil),
+	}
+	was := []language.Tuple{
+		tuple("user:anne", "old_cond", map[string]any{"k": "w"}),
+		tuple("user:bob", "old_cond", nil),
+		tuple("user:cy", "", nil),
+	}
+	var b bytes.Buffer
+	if err := renderTuples(&b, desired, was); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`+ user:anne member organization:acme (new_cond: k="v") was (old_cond: k="w")` + "\n",
+		"+ user:bob member organization:acme was (old_cond)\n",
+		"+ user:cy member organization:acme (new_cond) was no condition\n",
+	} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("missing %q in\n%s", want, b.String())
+		}
+	}
+}

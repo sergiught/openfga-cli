@@ -772,7 +772,8 @@ stderr, and so does the live status card.
 - **`NOT CHECKED`**: `drift` only, one line per rule with its reason.
 - On a terminal the report is colored: green for missing, amber for changed, red
   for stale. A pipe, `NO_COLOR` or `--no-color` gives the same layout without
-  color. `--plain` keeps its tab-separated lines.
+  color. `--plain` keeps its tab-separated lines, and ends each changed tuple
+  with `was (...)` or `was no condition`.
 
 ### JSON and YAML
 
