@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/openfga/mapper/language"
 
@@ -60,12 +61,17 @@ func TestDesiredFoldsWritesAndFilters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	got, err := Desired(context.Background(), m, []map[string]any{memberEvent(), roleEvent("A"), roleEvent("B")}, nil)
+	got, contested, err := Desired(context.Background(), m, []map[string]any{memberEvent(), roleEvent("A"), roleEvent("B")}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	// Event 2's patch asked for role:B to be gone, and event 3 wrote it, so
+	// which came last is unknown.
+	wantContested := []Contested{{Tuple: tup("user:u1", "assignee", "role:B"), By: "snapshot.organization.member.role"}}
+	if !reflect.DeepEqual(contested, wantContested) {
+		t.Errorf("contested = %+v, want %+v", contested, wantContested)
+	}
 	want := []language.Tuple{
-		{User: "user:u1", Relation: "assignee", Object: "role:B"},
 		{User: "user:u1", Relation: "member", Object: "organization:org_1"},
 		{User: "user:u1", Relation: "viewer", Object: "organization:org_1"},
 	}
@@ -79,7 +85,7 @@ func TestDesiredDedupes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	got, err := Desired(context.Background(), m, []map[string]any{memberEvent(), memberEvent()}, nil)
+	got, _, err := Desired(context.Background(), m, []map[string]any{memberEvent(), memberEvent()}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -96,7 +102,7 @@ func TestDesiredErrorNamesEntity(t *testing.T) {
 	ev := memberEvent()
 	ev["subject"] = "organization org_1 member auth0|x"
 	delete(ev, "user")
-	_, err = Desired(context.Background(), m, []map[string]any{ev}, nil)
+	_, _, err = Desired(context.Background(), m, []map[string]any{ev}, nil)
 	if err == nil {
 		t.Fatal("Desired() error = nil, want error")
 	}
@@ -198,8 +204,10 @@ func TestReplayAddInPartsMatchesOneAdd(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if !reflect.DeepEqual(one.Done(), parts.Done()) {
-		t.Errorf("parts = %+v, one = %+v", parts.Done(), one.Done())
+	oneDone, _ := one.Done()
+	partsDone, _ := parts.Done()
+	if !reflect.DeepEqual(oneDone, partsDone) {
+		t.Errorf("parts = %+v, one = %+v", partsDone, oneDone)
 	}
 	if one.Events() != 3 || parts.Events() != 3 {
 		t.Errorf("Events() = %d and %d, want 3", one.Events(), parts.Events())
@@ -215,9 +223,9 @@ func TestReplayLaterCallFilterRemovesEarlierWrite(t *testing.T) {
 	if err := r.Add(ctx, []map[string]any{roleEvent("B")}); err != nil {
 		t.Fatal(err)
 	}
-	got := r.Done()
-	if len(got) != 1 || got[0].Object != "role:B" {
-		t.Errorf("Done() = %+v, want only role:B", got)
+	got, contested := r.Done()
+	if len(got) != 0 || len(contested) != 1 || contested[0].Tuple.Object != "role:B" {
+		t.Errorf("Done() = %+v and %+v, want only role:B, contested", got, contested)
 	}
 }
 
@@ -244,5 +252,165 @@ func TestReplayCancelledContext(t *testing.T) {
 	cancel()
 	if err := newReplay(t).Add(ctx, replayEvents()); !errors.Is(err, context.Canceled) {
 		t.Errorf("Add() error = %v, want context.Canceled", err)
+	}
+}
+
+const contestMapping = `version: "1"
+rules:
+  - name: blocked
+    when: input.type in ["user.blocked", "snapshot.user"] && input.blocked == true
+    tuple_filters:
+      - user: "user:{{ input.user_id }}"
+        object: "organization:"
+        action: delete
+  - name: member
+    when: input.type == "snapshot.organization.member"
+    tuples:
+      - user: "user:{{ input.user_id }}"
+        relation: member
+        object: "organization:{{ input.org }}"
+  - name: removed
+    when: input.type == "snapshot.removed"
+    action: delete
+    tuples:
+      - user: "user:{{ input.user_id }}"
+        relation: member
+        object: "organization:{{ input.org }}"
+  - name: role
+    when: input.type == "snapshot.role"
+    tuple_filters:
+      - user: "user:{{ input.user_id }}"
+        object: "role:"
+    tuples:
+      - user: "user:{{ input.user_id }}"
+        relation: assignee
+        object: "role:{{ input.role }}"
+  - name: grant
+    when: input.type == "snapshot.grant"
+    tuples:
+      - user: "user:{{ input.user_id }}"
+        relation: assignee
+        object: "role:{{ input.role }}"
+  - name: swap-out
+    when: input.type == "snapshot.swap"
+    tuple_filters:
+      - user: "user:{{ input.user_id }}"
+        object: "organization:"
+        action: delete
+  - name: swap-in
+    when: input.type == "snapshot.swap"
+    tuples:
+      - user: "user:{{ input.user_id }}"
+        relation: member
+        object: "organization:{{ input.org }}"
+  - name: tick
+    when: input.type == "snapshot.tick"
+    tuple_filters:
+      - relation: owner
+        object: "organization:"
+        action: delete
+  - name: owner
+    when: input.type == "snapshot.owner"
+    tuples:
+      - user: "user:{{ input.user_id }}"
+        relation: owner
+        object: "organization:{{ input.org }}"
+`
+
+func cev(typ, user string, kv ...any) map[string]any {
+	e := map[string]any{"type": typ, "user_id": user, "org": "o1", "blocked": false}
+	for i := 0; i+1 < len(kv); i += 2 {
+		e[kv[i].(string)] = kv[i+1]
+	}
+	return e
+}
+
+func desiredOf(t *testing.T, events ...map[string]any) ([]language.Tuple, []Contested) {
+	t.Helper()
+	m, _, err := mapping.CompileSource([]byte(contestMapping))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, c, err := Desired(context.Background(), m, events, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d, c
+}
+
+func TestDesiredContestsAWriteAfterAnEarlierDeleteFilter(t *testing.T) {
+	blocked := cev("snapshot.user", "u1", "blocked", true)
+	member := cev("snapshot.organization.member", "u1")
+	other := cev("snapshot.organization.member", "u2")
+
+	d, c := desiredOf(t, blocked, member, other)
+	if want := []language.Tuple{tup("user:u2", "member", "organization:o1")}; !reflect.DeepEqual(d, want) {
+		t.Errorf("desired = %+v, want %+v", d, want)
+	}
+	if want := []Contested{{Tuple: tup("user:u1", "member", "organization:o1"), By: "snapshot.user"}}; !reflect.DeepEqual(c, want) {
+		t.Errorf("contested = %+v, want %+v", c, want)
+	}
+
+	d, c = desiredOf(t, blocked, member)
+	if len(d) != 0 || len(c) != 1 {
+		t.Errorf("desired = %+v, contested = %+v, want none and one", d, c)
+	}
+
+	d, c = desiredOf(t, member, blocked)
+	if len(d) != 0 || len(c) != 0 {
+		t.Errorf("later removal: desired = %+v, contested = %+v, want both empty", d, c)
+	}
+
+	d, c = desiredOf(t, cev("snapshot.user", "u1"), member)
+	if len(d) != 1 || len(c) != 0 {
+		t.Errorf("not blocked: desired = %+v, contested = %+v, want one and none", d, c)
+	}
+}
+
+func TestDesiredContestsAWriteAfterAnEarlierDeleteTuple(t *testing.T) {
+	d, c := desiredOf(t, cev("snapshot.removed", "u1"), cev("snapshot.organization.member", "u1"))
+	if len(d) != 0 || len(c) != 1 || c[0].By != "snapshot.removed" {
+		t.Errorf("desired = %+v, contested = %+v", d, c)
+	}
+}
+
+func TestDesiredPatchFilterKeepsItsOwnTuples(t *testing.T) {
+	d, c := desiredOf(t,
+		cev("snapshot.role", "u1", "role", "r1"),
+		cev("snapshot.grant", "u1", "role", "r1"),
+		cev("snapshot.grant", "u1", "role", "r2"),
+	)
+	if want := []language.Tuple{tup("user:u1", "assignee", "role:r1")}; !reflect.DeepEqual(d, want) {
+		t.Errorf("desired = %+v, want %+v", d, want)
+	}
+	if want := []Contested{{Tuple: tup("user:u1", "assignee", "role:r2"), By: "snapshot.role"}}; !reflect.DeepEqual(c, want) {
+		t.Errorf("contested = %+v, want %+v", c, want)
+	}
+}
+
+func TestDesiredSameEventRemovalAndWriteIsNotContested(t *testing.T) {
+	d, c := desiredOf(t, cev("snapshot.swap", "u1"))
+	if len(d) != 1 || len(c) != 0 {
+		t.Errorf("desired = %+v, contested = %+v, want one and none", d, c)
+	}
+}
+
+func TestDesiredManyEventsWithTheSameFilter(t *testing.T) {
+	const n = 20000
+	events := make([]map[string]any, 0, 2*n+5)
+	for range n {
+		events = append(events, cev("snapshot.tick", "x"))
+	}
+	for i := range n {
+		events = append(events, cev("snapshot.organization.member", fmt.Sprintf("u%d", i)))
+	}
+	for i := range 5 {
+		events = append(events, cev("snapshot.owner", fmt.Sprintf("o%d", i)))
+	}
+	start := time.Now()
+	d, c := desiredOf(t, events...)
+	t.Logf("%d events in %s", len(events), time.Since(start))
+	if len(d) != n || len(c) != 5 || c[0].By != "snapshot.tick" {
+		t.Errorf("desired = %d, contested = %d", len(d), len(c))
 	}
 }

@@ -470,3 +470,67 @@ func TestPlannerConflictAcrossAddCalls(t *testing.T) {
 		t.Fatalf("err = %v\nwant  %s", err, want)
 	}
 }
+
+func TestPlanRecordsRemovals(t *testing.T) {
+	src := membership + `  - name: purge
+    when: input.type == "purge"
+    tuple_filters:
+      - user: "user:{{ input.user }}"
+        object: "team:"
+        action: delete
+`
+	p, err := PlanEvents(context.Background(), compile(t, src), []map[string]any{
+		ev("type", "added", "user", "u1", "team", "t1"),
+		ev("type", "removed", "user", "u1", "team", "t1"),
+		ev("type", "purge", "user", "u2"),
+		ev("type", "roster", "team", "t1", "users", []any{"u1"}),
+	}, 1, &memStore{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p.Events[0].Removals; got != nil {
+		t.Errorf("a write-only event has Removals %+v, want none", got)
+	}
+	del := language.Tuple{User: "user:u1", Relation: "member", Object: "team:t1"}
+	want1 := []Removal{{Filter: language.TupleFilter{User: del.User, Relation: del.Relation, Object: del.Object, Action: language.FilterActionDelete}}}
+	if got := p.Events[1].Removals; !reflect.DeepEqual(got, want1) {
+		t.Errorf("delete tuple Removals = %+v, want %+v", got, want1)
+	}
+	want2 := []Removal{{Filter: language.TupleFilter{User: "user:u2", Object: "team:", Action: language.FilterActionDelete}}}
+	if got := p.Events[2].Removals; !reflect.DeepEqual(got, want2) {
+		t.Errorf("delete filter Removals = %+v, want %+v", got, want2)
+	}
+	got := p.Events[3].Removals
+	if len(got) != 1 || got[0].Filter.Action != language.FilterActionPatch || got[0].Filter.Object != "team:t1" ||
+		len(got[0].Keep) != 1 || got[0].Keep[0].User != "user:u1" {
+		t.Errorf("patch filter Removals = %+v", got)
+	}
+}
+
+func TestRemovalRemoves(t *testing.T) {
+	tu := func(u, r, o string) language.Tuple { return language.Tuple{User: u, Relation: r, Object: o} }
+	target := tu("user:a", "member", "org:1")
+	tests := []struct {
+		name string
+		r    Removal
+		t    language.Tuple
+		want bool
+	}{
+		{"exact", Removal{Filter: language.TupleFilter{User: "user:a", Relation: "member", Object: "org:1"}}, target, true},
+		{"other object", Removal{Filter: language.TupleFilter{User: "user:a", Relation: "member", Object: "org:2"}}, target, false},
+		{"user and type prefix", Removal{Filter: language.TupleFilter{User: "user:a", Object: "org:"}}, target, true},
+		{"other user with prefix", Removal{Filter: language.TupleFilter{User: "user:b", Object: "org:"}}, target, false},
+		{"other type prefix", Removal{Filter: language.TupleFilter{Object: "team:"}}, target, false},
+		{"empty filter", Removal{}, target, true},
+		{"relation only", Removal{Filter: language.TupleFilter{Relation: "viewer"}}, target, false},
+		{"kept tuple", Removal{Filter: language.TupleFilter{User: "user:a", Object: "org:"}, Keep: []language.Tuple{target}}, target, false},
+		{"other tuple than kept", Removal{Filter: language.TupleFilter{User: "user:a", Object: "org:"}, Keep: []language.Tuple{tu("user:a", "member", "org:2")}}, target, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.r.Removes(tt.t); got != tt.want {
+				t.Errorf("Removes() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

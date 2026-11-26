@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/openfga/mapper/language"
+
 	"github.com/sergiught/openfga-cli/internal/mapping"
 )
 
@@ -372,4 +374,75 @@ func TestCoverageWindowedEvents(t *testing.T) {
 	if !reflect.DeepEqual(notChecked, wantNC) {
 		t.Errorf("no window: notChecked = %+v, want %+v", notChecked, wantNC)
 	}
+}
+
+func TestRemovers(t *testing.T) {
+	const wantReason = "removes tuples that later events write again, and a snapshot does not say which happened last; not compared: "
+	filter := []mapping.TupleFilter{{User: "user:{{ input.id }}", Object: "organization:", Action: "delete"}}
+	byUser := `input.type == "snapshot.user"`
+	member1 := tup("user:u1", "member", "organization:o1")
+	member2 := tup("user:u2", "member", "organization:o1")
+	viewer := tup("user:u1", "viewer", "organization:o1")
+	team := tup("team:t1#member", "viewer", "organization:o2")
+
+	t.Run("only the rule that fires on the type", func(t *testing.T) {
+		doc := &mapping.Document{Rules: []mapping.Rule{
+			{Name: "blocked", When: byUser, Filters: filter},
+			{Name: "other", When: `input.type == "snapshot.organization"`, Action: "delete"},
+			{Name: "plain", When: byUser, Tuples: []mapping.Tuple{{User: "a", Relation: "b", Object: "c:d"}}},
+		}}
+		got := Removers(doc, []Contested{{Tuple: member1, By: "snapshot.user"}})
+		want := []NotChecked{{
+			Rule:   "blocked",
+			Reason: wantReason + "1 tuple of user member organization",
+			Shapes: []mapping.Shape{mapping.ShapeOf(member1)},
+			Tuples: []language.Tuple{member1},
+		}}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("Removers() = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("a delete template inside an iterator", func(t *testing.T) {
+		doc := &mapping.Document{Rules: []mapping.Rule{{
+			Name: "each", When: byUser,
+			Iterator: &mapping.Iterator{Source: "input.xs", As: "x", Tuples: []mapping.Tuple{{User: "a", Relation: "b", Object: "c:d", Action: "delete"}}},
+		}}}
+		got := Removers(doc, []Contested{{Tuple: member1, By: "snapshot.user"}})
+		if len(got) != 1 || got[0].Rule != "each" {
+			t.Errorf("Removers() = %+v, want one entry for each", got)
+		}
+	})
+
+	t.Run("three tuples over two shapes", func(t *testing.T) {
+		doc := &mapping.Document{Rules: []mapping.Rule{{Name: "blocked", When: byUser, Filters: filter}}}
+		got := Removers(doc, []Contested{
+			{Tuple: member1, By: "snapshot.user"}, {Tuple: viewer, By: "snapshot.user"}, {Tuple: member2, By: "snapshot.user"},
+		})
+		want := wantReason + "3 tuples of user member organization, user viewer organization"
+		if len(got) != 1 || got[0].Reason != want || len(got[0].Tuples) != 3 || len(got[0].Shapes) != 2 {
+			t.Errorf("Removers() = %+v, want reason %q", got, want)
+		}
+	})
+
+	t.Run("none", func(t *testing.T) {
+		doc := &mapping.Document{Rules: []mapping.Rule{{Name: "blocked", When: byUser, Filters: filter}}}
+		if got := Removers(doc, nil); got != nil {
+			t.Errorf("Removers() = %+v, want nil", got)
+		}
+	})
+
+	t.Run("unclaimed", func(t *testing.T) {
+		doc := &mapping.Document{Rules: []mapping.Rule{{Name: "blocked", When: `input.type == "snapshot.other"`, Filters: filter}}}
+		got := Removers(doc, []Contested{{Tuple: team, By: "snapshot.user"}})
+		want := []NotChecked{{
+			Rule:   "snapshot.user",
+			Reason: wantReason + "1 tuple of team#member viewer organization",
+			Shapes: []mapping.Shape{mapping.ShapeOf(team)},
+			Tuples: []language.Tuple{team},
+		}}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("Removers() = %+v, want %+v", got, want)
+		}
+	})
 }

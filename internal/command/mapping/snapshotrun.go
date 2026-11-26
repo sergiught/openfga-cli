@@ -30,6 +30,9 @@ type snapshotRun struct {
 	Types    []snapshot.Type
 	Result   *snapshot.Result
 	Desired  []language.Tuple
+	// Contested are tuples an earlier event removes and a later one writes,
+	// set aside from Desired.
+	Contested []snapshot.Contested
 	// Since is the --since time, zero without it. Windowed names the requested
 	// types read by window, empty without --since.
 	Since    time.Time
@@ -138,7 +141,7 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since t
 	}
 	lv.Note(thousands(items) + " items")
 	lv.Phase("Replay")
-	desired, err := snapshot.Desired(ctx, m, res.Events, func(done, total int) {
+	desired, contested, err := snapshot.Desired(ctx, m, res.Events, func(done, total int) {
 		switch {
 		case lv != nil:
 			lv.Set("events", done, total)
@@ -150,7 +153,7 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since t
 		return nil, err
 	}
 	lv.Note(thousands(len(desired)) + " tuples from " + thousands(len(res.Events)) + " events")
-	return &snapshotRun{File: f, Provider: p, Types: types, Result: res, Desired: desired, Since: since, Windowed: windowed}, nil
+	return &snapshotRun{File: f, Provider: p, Types: types, Result: res, Desired: desired, Contested: contested, Since: since, Windowed: windowed}, nil
 }
 
 // windowedRequested returns the requested types the provider can read by

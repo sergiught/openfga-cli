@@ -3,6 +3,7 @@ package mapping
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -30,6 +31,50 @@ type EventPlan struct {
 	// Atomic means the event goes out as one Write request: it fits in one
 	// request and no tuple is both deleted and written (OpenFGA rejects that).
 	Atomic bool
+	// Removals are what the event asked to be gone from the store; nil when
+	// it asked for nothing.
+	Removals []Removal
+}
+
+// Removal is something an event asked to be gone from the store, whether or
+// not it was there: a delete tuple, or a tuple filter with the tuples its
+// own rule keeps.
+type Removal struct {
+	// Filter is the tuple filter; a delete tuple is one naming its user,
+	// relation and object.
+	Filter language.TupleFilter
+	// Keep holds a patch filter's own tuples, which it does not remove.
+	Keep []language.Tuple
+}
+
+// Removes reports whether r asks for t to be gone.
+func (r Removal) Removes(t language.Tuple) bool {
+	if !matchesFilter(t, r.Filter) {
+		return false
+	}
+	return !slices.ContainsFunc(r.Keep, func(k language.Tuple) bool { return uro(k) == uro(t) })
+}
+
+// removalsOf lists what res asks to be gone.
+func removalsOf(res *mapper.Result) []Removal {
+	var out []Removal
+	for _, t := range res.Tuples {
+		if t.Action == language.ActionDelete {
+			out = append(out, Removal{Filter: language.TupleFilter{User: t.User, Relation: t.Relation, Object: t.Object, Action: language.FilterActionDelete}})
+		}
+	}
+	for _, op := range res.TupleFilterOperations {
+		for _, f := range op.Filters {
+			r := Removal{Filter: f}
+			if f.Action == language.FilterActionPatch {
+				r.Keep = op.Tuples
+			}
+			if f.Action == language.FilterActionDelete || f.Action == language.FilterActionPatch {
+				out = append(out, r)
+			}
+		}
+	}
+	return out
 }
 
 // Requests is how many Write requests Execute sends for the event: one when
@@ -142,6 +187,7 @@ func (p *Planner) Add(ctx context.Context, index int, event map[string]any) (Eve
 		return ep, err
 	}
 	p.rec.plan(ep.Changes)
+	ep.Removals = removalsOf(res)
 	return ep, nil
 }
 

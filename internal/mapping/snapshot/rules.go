@@ -180,6 +180,9 @@ type NotChecked struct {
 	Rule   string
 	Reason string
 	Shapes []mapping.Shape
+	// Tuples are the contested tuples a rule's entry stands for, nil for
+	// every other entry.
+	Tuples []language.Tuple
 }
 
 // ownsTuple reports whether a template's own "when" lets it fire on snapshot
@@ -299,6 +302,76 @@ func firedTemplates(r mapping.Rule, name string) (mapping.Rule, bool) {
 		fired.Iterator = &it
 	}
 	return fired, true
+}
+
+// removes reports whether r removes tuples: it has tuple filters, or its
+// action is delete, or one of its templates is.
+func removes(r mapping.Rule) bool {
+	del := func(t mapping.Tuple) bool { return t.Action == "delete" }
+	return len(r.Filters) > 0 || r.Action == "delete" || slices.ContainsFunc(r.Tuples, del) ||
+		(r.Iterator != nil && slices.ContainsFunc(r.Iterator.Tuples, del))
+}
+
+// Removers turns contested tuples into NOT CHECKED entries, one for each
+// rule that removes tuples and can fire on the event type that contested
+// them.
+func Removers(doc *mapping.Document, contested []Contested) []NotChecked {
+	if len(contested) == 0 {
+		return nil
+	}
+	claimed := make([]bool, len(contested))
+	var out []NotChecked
+	entry := func(rule string, ts []language.Tuple) NotChecked {
+		var shapes []mapping.Shape
+		var text []string
+		for _, t := range ts {
+			s := mapping.ShapeOf(t)
+			if !slices.Contains(shapes, s) {
+				shapes = append(shapes, s)
+				text = append(text, s.String())
+			}
+		}
+		noun := "tuples"
+		if len(ts) == 1 {
+			noun = "tuple"
+		}
+		return NotChecked{
+			Rule: rule,
+			Reason: fmt.Sprintf("removes tuples that later events write again, and a snapshot does not say which happened last; not compared: %d %s of %s",
+				len(ts), noun, strings.Join(text, ", ")),
+			Shapes: shapes,
+			Tuples: ts,
+		}
+	}
+	for _, r := range doc.Rules {
+		if !removes(r) {
+			continue
+		}
+		var ts []language.Tuple
+		for i, c := range contested {
+			if firesOn(r.When, c.By) {
+				claimed[i] = true
+				ts = append(ts, c.Tuple)
+			}
+		}
+		if len(ts) > 0 {
+			out = append(out, entry(r.Name, ts))
+		}
+	}
+	var order []string
+	rest := map[string][]language.Tuple{}
+	for i, c := range contested {
+		if !claimed[i] {
+			if _, ok := rest[c.By]; !ok {
+				order = append(order, c.By)
+			}
+			rest[c.By] = append(rest[c.By], c.Tuple)
+		}
+	}
+	for _, by := range order {
+		out = append(out, entry(by, rest[by]))
+	}
+	return out
 }
 
 // Coverage returns the shapes snapshot rules write, and the rules whose
