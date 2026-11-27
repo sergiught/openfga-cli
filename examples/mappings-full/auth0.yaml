@@ -1,0 +1,505 @@
+version: "1"
+rules:
+  - name: connection.created
+    when: input.type == "connection.created" || input.type == "snapshot.connection"
+    iterator:
+      source: input.data.object.enabled_clients
+      as: client
+      tuples:
+        - user: "client:{{ fga_escape(client) }}"
+          relation: "enabled_client"
+          object: "connection:{{ input.data.object.id }}"
+    tuples:
+      - user: "tenant:{{ fga_escape(input.a0tenant) }}"
+        relation: "tenant"
+        object: "connection:{{ input.data.object.id }}"
+  - name: user.created
+    when: input.type == "user.created" || input.type == "snapshot.user"
+    tuples:
+      - user: "user:{{ fga_escape(input.data.object.user_id) }}"
+        relation: "member"
+        object: "tenant:{{ fga_escape(input.a0tenant) }}"
+      - user: "user:{{ fga_escape(input.data.object.user_id) }}"
+        relation: "assignee"
+        object: "plan:{{ fga_escape(input.data.object.app_metadata.plan) }}"
+        when: '"plan" in input.data.object.app_metadata'
+  - name: organization.created
+    when: input.type == "organization.created" || input.type == "snapshot.organization"
+    tuples:
+      - user: "tenant:{{ fga_escape(input.a0tenant) }}"
+        relation: "tenant"
+        object: "organization:{{ input.data.object.id }}"
+  - name: organization.connection.added
+    when: input.type == "organization.connection.added" || input.type == "snapshot.organization.connection"
+    tuples:
+      - user: "connection:{{ input.data.object.connection.id }}"
+        relation: "connection"
+        object: "organization:{{ input.data.object.organization.id }}"
+        when: input.data.object.is_enabled
+  - name: organization.member.added
+    when: input.type == "organization.member.added" || input.type == "snapshot.organization.member"
+    tuples:
+      - user: "user:{{ fga_escape(input.data.object.user.user_id) }}"
+        relation: "member"
+        object: "organization:{{ input.data.object.organization.id }}"
+      - user: "user:{{ fga_escape(input.data.object.user.user_id) }}"
+        relation: "holder"
+        object: "membership:{{ input.data.object.organization.id }}|{{ fga_escape(input.data.object.user.user_id) }}"
+  - name: organization.member.role.assigned
+    when: input.type == "organization.member.role.assigned" || input.type == "snapshot.organization.member.role"
+    tuples:
+      - user: "membership:{{ input.data.object.organization.id }}|{{ fga_escape(input.data.object.user.user_id) }}#holder"
+        relation: "assignee"
+        object: "role:{{ input.data.object.organization.id }}|{{ input.data.object.role.id }}"
+tests:
+  - name: connection.created
+    input:
+      a0stream: est_vjFVP5pVdfvsfRKatshkVV
+      a0tenant: my-tenant
+      data:
+        context:
+          tenant:
+            id: my-tenant
+        object:
+          authentication:
+            active: false
+          connected_accounts:
+            active: false
+            cross_app_access: false
+          display_name: My Enterprise Connection
+          enabled_clients:
+            - QG4F6eABIgDzPvcKCMKUjo8c9iet2Skc
+            - Zt7mKpR3sVnQx9LdYcHb2EwAj6UfG4Ns
+          id: con_kFOHQUeaCSC1Kjqz
+          is_domain_connection: false
+          metadata: {}
+          name: Username-Password-Authentication
+          options:
+            client_id: abc123def456ghi789
+            discovery_url: https://provider.example.com/.well-known/openid-configuration
+            domain_aliases:
+              - example.com
+            issuer: https://accounts.example.com
+            scope: openid profile email
+            type: back_channel
+          realms:
+            - example.com
+          show_as_button: false
+          strategy: oidc
+      id: evt_vjFVP5pVdfvsfRKatshkVV
+      source: urn:auth0:example.auth0app.com
+      specversion: "1.0"
+      time: "2025-02-01T12:34:56Z"
+      type: connection.created
+    expect_tuples:
+      - user: "client:QG4F6eABIgDzPvcKCMKUjo8c9iet2Skc"
+        relation: "enabled_client"
+        object: "connection:con_kFOHQUeaCSC1Kjqz"
+        action: write
+      - user: "client:Zt7mKpR3sVnQx9LdYcHb2EwAj6UfG4Ns"
+        relation: "enabled_client"
+        object: "connection:con_kFOHQUeaCSC1Kjqz"
+        action: write
+      - user: "tenant:my-tenant"
+        relation: "tenant"
+        object: "connection:con_kFOHQUeaCSC1Kjqz"
+        action: write
+  - name: user.created
+    input:
+      a0stream: est_vjFVP5pVdfvsfRKatshkVV
+      a0tenant: my-tenant
+      data:
+        context:
+          tenant:
+            id: my-tenant
+        object:
+          app_metadata:
+            plan: pro
+          blocked: false
+          created_at: "2025-02-01T12:34:56Z"
+          email: john.doe@example.com
+          email_verified: false
+          family_name: Doe
+          given_name: John
+          identities:
+            - connection: Username-Password-Authentication
+              isSocial: false
+              profileData:
+                email: john.doe@example.com
+                email_verified: false
+                family_name: Doe
+                given_name: John
+                name: John Doe
+                phone_number: "+15555555555"
+                phone_verified: false
+                username: johndoe
+              provider: custom
+              user_id: 507f1f77bcf86cd799439020
+          last_ip: 10.0.0.1
+          last_login: "2025-02-01T12:34:56Z"
+          logins_count: 42
+          multifactor:
+            - multifactor
+          name: John Doe
+          nickname: John Doe
+          phone_number: "+15555555555"
+          phone_verified: false
+          picture: https://secure.gravatar.com/avatar/15626c5e0c749cb912f9d1ad48dba440?s=480&r=pg&d=https%3A%2F%2Fssl.gstatic.com%2Fs2%2Fprofiles%2Fimages%2Fsilhouette80.png
+          updated_at: "2025-02-01T12:34:56Z"
+          user_id: auth0|507f1f77bcf86cd799439020
+          user_metadata:
+            hobby: skydiving
+          username: johndoe
+      id: evt_vjFVP5pVdfvsfRKatshkVV
+      source: urn:auth0:example.auth0app.com
+      specversion: "1.0"
+      time: "2025-02-01T12:34:56Z"
+      type: user.created
+    expect_tuples:
+      - user: "user:auth0|507f1f77bcf86cd799439020"
+        relation: "member"
+        object: "tenant:my-tenant"
+        action: write
+      - user: "user:auth0|507f1f77bcf86cd799439020"
+        relation: "assignee"
+        object: "plan:pro"
+        action: write
+  - name: organization.created
+    input:
+      a0stream: est_vjFVP5pVdfvsfRKatshkVV
+      a0tenant: my-tenant
+      data:
+        context:
+          tenant:
+            id: my-tenant
+        object:
+          branding:
+            colors:
+              page_background: '#000000'
+              primary: '#0059d6'
+            logo_url: logo_url
+          display_name: My Organization
+          id: org_1234567890abcdef
+          metadata: {}
+          name: my-organization
+      id: evt_vjFVP5pVdfvsfRKatshkVV
+      source: urn:auth0:example.auth0app.com
+      specversion: "1.0"
+      time: "2025-02-01T12:34:56Z"
+      type: organization.created
+    expect_tuples:
+      - user: "tenant:my-tenant"
+        relation: "tenant"
+        object: "organization:org_1234567890abcdef"
+        action: write
+  - name: organization.connection.added
+    input:
+      a0stream: est_vjFVP5pVdfvsfRKatshkVV
+      a0tenant: my-tenant
+      data:
+        context:
+          tenant:
+            id: my-tenant
+        object:
+          assign_membership_on_login: false
+          connection:
+            id: con_kFOHQUeaCSC1Kjqz
+          is_enabled: true
+          is_signup_enabled: false
+          organization:
+            id: org_1234567890abcdef
+            name: my-organization
+          organization_access_level: none
+          show_as_button: false
+      id: evt_vjFVP5pVdfvsfRKatshkVV
+      source: urn:auth0:example.auth0app.com
+      specversion: "1.0"
+      time: "2025-02-01T12:34:56Z"
+      type: organization.connection.added
+    expect_tuples:
+      - user: "connection:con_kFOHQUeaCSC1Kjqz"
+        relation: "connection"
+        object: "organization:org_1234567890abcdef"
+        action: write
+  - name: organization.member.added
+    input:
+      a0stream: est_vjFVP5pVdfvsfRKatshkVV
+      a0tenant: my-tenant
+      data:
+        context:
+          tenant:
+            id: my-tenant
+        object:
+          organization:
+            id: org_1234567890abcdef
+            name: my-organization
+          user:
+            user_id: auth0|507f1f77bcf86cd799439020
+      id: evt_vjFVP5pVdfvsfRKatshkVV
+      source: urn:auth0:example.auth0app.com
+      specversion: "1.0"
+      time: "2025-02-01T12:34:56Z"
+      type: organization.member.added
+    expect_tuples:
+      - user: "user:auth0|507f1f77bcf86cd799439020"
+        relation: "member"
+        object: "organization:org_1234567890abcdef"
+        action: write
+      - user: "user:auth0|507f1f77bcf86cd799439020"
+        relation: "holder"
+        object: "membership:org_1234567890abcdef|auth0|507f1f77bcf86cd799439020"
+        action: write
+  - name: organization.member.role.assigned
+    input:
+      a0stream: est_vjFVP5pVdfvsfRKatshkVV
+      a0tenant: my-tenant
+      data:
+        context:
+          tenant:
+            id: my-tenant
+        object:
+          organization:
+            id: org_1234567890abcdef
+          role:
+            id: rol_1234567890abcdef
+            name: role-name
+          user:
+            user_id: auth0|507f1f77bcf86cd799439020
+      id: evt_vjFVP5pVdfvsfRKatshkVV
+      source: urn:auth0:example.auth0app.com
+      specversion: "1.0"
+      time: "2025-02-01T12:34:56Z"
+      type: organization.member.role.assigned
+    expect_tuples:
+      - user: "membership:org_1234567890abcdef|auth0|507f1f77bcf86cd799439020#holder"
+        relation: "assignee"
+        object: "role:org_1234567890abcdef|rol_1234567890abcdef"
+        action: write
+  - name: snapshot.connection
+    input:
+      a0tenant: my-tenant
+      data:
+        context:
+          tenant:
+            id: my-tenant
+        object:
+          authentication:
+            active: false
+          connected_accounts:
+            active: false
+            cross_app_access: false
+          display_name: My Enterprise Connection
+          enabled_clients:
+            - QG4F6eABIgDzPvcKCMKUjo8c9iet2Skc
+            - Zt7mKpR3sVnQx9LdYcHb2EwAj6UfG4Ns
+          id: con_kFOHQUeaCSC1Kjqz
+          is_domain_connection: false
+          metadata: {}
+          name: Username-Password-Authentication
+          options:
+            client_id: abc123def456ghi789
+            discovery_url: https://provider.example.com/.well-known/openid-configuration
+            domain_aliases:
+              - example.com
+            issuer: https://accounts.example.com
+            scope: openid profile email
+            type: back_channel
+          realms:
+            - example.com
+          show_as_button: false
+          strategy: oidc
+      id: snap_000001
+      source: urn:auth0:example.auth0app.com
+      specversion: "1.0"
+      subject: connection con_kFOHQUeaCSC1Kjqz
+      time: "2025-02-01T12:34:56Z"
+      type: snapshot.connection
+    expect_tuples:
+      - user: "client:QG4F6eABIgDzPvcKCMKUjo8c9iet2Skc"
+        relation: "enabled_client"
+        object: "connection:con_kFOHQUeaCSC1Kjqz"
+        action: write
+      - user: "client:Zt7mKpR3sVnQx9LdYcHb2EwAj6UfG4Ns"
+        relation: "enabled_client"
+        object: "connection:con_kFOHQUeaCSC1Kjqz"
+        action: write
+      - user: "tenant:my-tenant"
+        relation: "tenant"
+        object: "connection:con_kFOHQUeaCSC1Kjqz"
+        action: write
+  - name: snapshot.user
+    input:
+      a0tenant: my-tenant
+      data:
+        context:
+          tenant:
+            id: my-tenant
+        object:
+          app_metadata:
+            plan: pro
+          blocked: false
+          created_at: "2025-02-01T12:34:56Z"
+          email: john.doe@example.com
+          email_verified: false
+          family_name: Doe
+          given_name: John
+          identities:
+            - connection: Username-Password-Authentication
+              isSocial: false
+              profileData:
+                email: john.doe@example.com
+                email_verified: false
+                family_name: Doe
+                given_name: John
+                name: John Doe
+                phone_number: "+15555555555"
+                phone_verified: false
+                username: johndoe
+              provider: custom
+              user_id: 507f1f77bcf86cd799439020
+          last_ip: 10.0.0.1
+          last_login: "2025-02-01T12:34:56Z"
+          logins_count: 42
+          multifactor:
+            - multifactor
+          name: John Doe
+          nickname: John Doe
+          phone_number: "+15555555555"
+          phone_verified: false
+          picture: https://secure.gravatar.com/avatar/15626c5e0c749cb912f9d1ad48dba440?s=480&r=pg&d=https%3A%2F%2Fssl.gstatic.com%2Fs2%2Fprofiles%2Fimages%2Fsilhouette80.png
+          updated_at: "2025-02-01T12:34:56Z"
+          user_id: auth0|507f1f77bcf86cd799439020
+          user_metadata:
+            hobby: skydiving
+          username: johndoe
+      id: snap_000001
+      source: urn:auth0:example.auth0app.com
+      specversion: "1.0"
+      subject: user auth0|507f1f77bcf86cd799439020
+      time: "2025-02-01T12:34:56Z"
+      type: snapshot.user
+    expect_tuples:
+      - user: "user:auth0|507f1f77bcf86cd799439020"
+        relation: "member"
+        object: "tenant:my-tenant"
+        action: write
+      - user: "user:auth0|507f1f77bcf86cd799439020"
+        relation: "assignee"
+        object: "plan:pro"
+        action: write
+  - name: snapshot.organization
+    input:
+      a0tenant: my-tenant
+      data:
+        context:
+          tenant:
+            id: my-tenant
+        object:
+          branding:
+            colors:
+              page_background: '#000000'
+              primary: '#0059d6'
+            logo_url: logo_url
+          display_name: My Organization
+          id: org_1234567890abcdef
+          metadata: {}
+          name: my-organization
+      id: snap_000001
+      source: urn:auth0:example.auth0app.com
+      specversion: "1.0"
+      subject: organization org_1234567890abcdef
+      time: "2025-02-01T12:34:56Z"
+      type: snapshot.organization
+    expect_tuples:
+      - user: "tenant:my-tenant"
+        relation: "tenant"
+        object: "organization:org_1234567890abcdef"
+        action: write
+  - name: snapshot.organization.connection
+    input:
+      a0tenant: my-tenant
+      data:
+        context:
+          tenant:
+            id: my-tenant
+        object:
+          assign_membership_on_login: false
+          connection:
+            id: con_kFOHQUeaCSC1Kjqz
+            name: Username-Password-Authentication
+            strategy: oidc
+          is_enabled: true
+          is_signup_enabled: false
+          organization:
+            id: org_1234567890abcdef
+            name: my-organization
+          show_as_button: false
+      id: snap_000001
+      source: urn:auth0:example.auth0app.com
+      specversion: "1.0"
+      subject: organization org_1234567890abcdef connection con_kFOHQUeaCSC1Kjqz
+      time: "2025-02-01T12:34:56Z"
+      type: snapshot.organization.connection
+    expect_tuples:
+      - user: "connection:con_kFOHQUeaCSC1Kjqz"
+        relation: "connection"
+        object: "organization:org_1234567890abcdef"
+        action: write
+  - name: snapshot.organization.member
+    input:
+      a0tenant: my-tenant
+      data:
+        context:
+          tenant:
+            id: my-tenant
+        object:
+          organization:
+            id: org_1234567890abcdef
+            name: my-organization
+          user:
+            email: john.doe@example.com
+            name: John Doe
+            picture: https://secure.gravatar.com/avatar/15626c5e0c749cb912f9d1ad48dba440?s=480&r=pg&d=https%3A%2F%2Fssl.gstatic.com%2Fs2%2Fprofiles%2Fimages%2Fsilhouette80.png
+            user_id: auth0|507f1f77bcf86cd799439020
+      id: snap_000001
+      source: urn:auth0:example.auth0app.com
+      specversion: "1.0"
+      subject: organization org_1234567890abcdef member auth0|507f1f77bcf86cd799439020
+      time: "2025-02-01T12:34:56Z"
+      type: snapshot.organization.member
+    expect_tuples:
+      - user: "user:auth0|507f1f77bcf86cd799439020"
+        relation: "member"
+        object: "organization:org_1234567890abcdef"
+        action: write
+      - user: "user:auth0|507f1f77bcf86cd799439020"
+        relation: "holder"
+        object: "membership:org_1234567890abcdef|auth0|507f1f77bcf86cd799439020"
+        action: write
+  - name: snapshot.organization.member.role
+    input:
+      a0tenant: my-tenant
+      data:
+        context:
+          tenant:
+            id: my-tenant
+        object:
+          organization:
+            id: org_1234567890abcdef
+            name: my-organization
+          role:
+            id: rol_1234567890abcdef
+            name: role-name
+          user:
+            user_id: auth0|507f1f77bcf86cd799439020
+      id: snap_000001
+      source: urn:auth0:example.auth0app.com
+      specversion: "1.0"
+      subject: organization org_1234567890abcdef member auth0|507f1f77bcf86cd799439020 role rol_1234567890abcdef
+      time: "2025-02-01T12:34:56Z"
+      type: snapshot.organization.member.role
+    expect_tuples:
+      - user: "membership:org_1234567890abcdef|auth0|507f1f77bcf86cd799439020#holder"
+        relation: "assignee"
+        object: "role:org_1234567890abcdef|rol_1234567890abcdef"
+        action: write

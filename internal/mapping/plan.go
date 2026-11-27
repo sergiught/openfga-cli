@@ -3,8 +3,8 @@ package mapping
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
-	"strings"
 
 	"github.com/openfga/mapper"
 	"github.com/openfga/mapper/apply"
@@ -30,6 +30,50 @@ type EventPlan struct {
 	// Atomic means the event goes out as one Write request: it fits in one
 	// request and no tuple is both deleted and written (OpenFGA rejects that).
 	Atomic bool
+	// Removals are what the event asked to be gone from the store; nil when
+	// it asked for nothing.
+	Removals []Removal
+}
+
+// Removal is something an event asked to be gone from the store, whether or
+// not it was there: a delete tuple, or a tuple filter with the tuples its
+// own rule keeps.
+type Removal struct {
+	// Filter is the tuple filter; a delete tuple is one naming its user,
+	// relation and object.
+	Filter language.TupleFilter
+	// Keep holds a patch filter's own tuples, which it does not remove.
+	Keep []language.Tuple
+}
+
+// Removes reports whether r asks for t to be gone.
+func (r Removal) Removes(t language.Tuple) bool {
+	if !matchesFilter(t, r.Filter) {
+		return false
+	}
+	return !slices.ContainsFunc(r.Keep, func(k language.Tuple) bool { return URO(k) == URO(t) })
+}
+
+// removalsOf lists what res asks to be gone.
+func removalsOf(res *mapper.Result) []Removal {
+	var out []Removal
+	for _, t := range res.Tuples {
+		if t.Action == language.ActionDelete {
+			out = append(out, Removal{Filter: language.TupleFilter{User: t.User, Relation: t.Relation, Object: t.Object, Action: language.FilterActionDelete}})
+		}
+	}
+	for _, op := range res.TupleFilterOperations {
+		for _, f := range op.Filters {
+			r := Removal{Filter: f}
+			if f.Action == language.FilterActionPatch {
+				r.Keep = op.Tuples
+			}
+			if f.Action == language.FilterActionDelete || f.Action == language.FilterActionPatch {
+				out = append(out, r)
+			}
+		}
+	}
+	return out
 }
 
 // Requests is how many Write requests Execute sends for the event: one when
@@ -71,36 +115,17 @@ type Plan struct {
 // are skipped entirely (a resumed apply), and every event keeps its number in
 // events.
 func PlanEvents(ctx context.Context, m *mapper.Mapping, events []map[string]any, from int, store TupleReader, progress func(done, total int)) (*Plan, error) {
-	rec := &recorder{store: store, cache: map[language.TupleFilter][]language.Tuple{},
-		planned: map[string]map[string]language.Tuple{}}
-	written := map[string]plannedWrite{}
+	planner := NewPlanner(m, store)
 	p := &Plan{}
 	from = max(from, 1)
 	for i := from - 1; i < len(events); i++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		event := events[i]
-		ep := EventPlan{Index: i + 1}
-		ep.Type, _ = event["type"].(string)
-		res, err := m.Evaluate(ctx, event)
+		ep, err := planner.Add(ctx, i+1, events[i])
 		if err != nil {
-			return nil, eventErr(ep, err)
-		}
-		if res.Trace != nil {
-			for _, rt := range res.Trace.Rules {
-				ep.Matched = ep.Matched || rt.Status == mapper.RuleMatched
-			}
-		}
-		rec.got = nil
-		if err := apply.New(rec).Execute(ctx, res); err != nil {
-			return nil, eventErr(ep, err)
-		}
-		ep.Changes, ep.Atomic = deletesFirst(rec.got)
-		if err := trackWrites(ep, written); err != nil {
 			return nil, err
 		}
-		rec.plan(ep.Changes)
 		for _, c := range ep.Changes {
 			if c.Action == language.ActionDelete {
 				p.Deletes++
@@ -119,6 +144,58 @@ func PlanEvents(ctx context.Context, m *mapper.Mapping, events []map[string]any,
 	return p, nil
 }
 
+// Planner plans events one at a time. Each event's reads see the store plus
+// the changes planned for the events before it.
+type Planner struct {
+	m     *mapper.Mapping
+	rec   *recorder
+	state PlanState
+}
+
+// NewPlanner returns a Planner for m against store. m must be compiled with
+// tracing, as for PlanEvents.
+func NewPlanner(m *mapper.Mapping, store TupleReader) *Planner {
+	return NewPlannerWith(m, store, NewMapState())
+}
+
+// NewPlannerWith is NewPlanner with the planned changes kept in state.
+func NewPlannerWith(m *mapper.Mapping, store TupleReader, state PlanState) *Planner {
+	return &Planner{
+		m:     m,
+		rec:   &recorder{store: store, cache: map[language.TupleFilter][]language.Tuple{}, state: state},
+		state: state,
+	}
+}
+
+// Add plans the next event. index is the event's 1-based number, kept in the
+// EventPlan and in errors. When the error is not nil the EventPlan holds only
+// what was known when it failed: the Index and Type, Matched once the rules
+// were evaluated and, for a write that conflicts with an earlier one, the
+// Changes. Removals is nil and the Changes are not planned for later reads.
+func (p *Planner) Add(ctx context.Context, index int, event map[string]any) (EventPlan, error) {
+	ep := EventPlan{Index: index}
+	ep.Type, _ = event["type"].(string)
+	res, err := p.m.Evaluate(ctx, event)
+	if err != nil {
+		return ep, eventErr(ep, err)
+	}
+	if res.Trace != nil {
+		for _, rt := range res.Trace.Rules {
+			ep.Matched = ep.Matched || rt.Status == mapper.RuleMatched
+		}
+	}
+	p.rec.got = nil
+	if err := apply.New(p.rec).Execute(ctx, res); err != nil {
+		return ep, eventErr(ep, err)
+	}
+	ep.Changes, ep.Atomic = deletesFirst(p.rec.got)
+	if err := trackWrites(ctx, ep, p.state); err != nil {
+		return ep, err
+	}
+	ep.Removals = removalsOf(res)
+	return ep, nil
+}
+
 // deletesFirst stably partitions changes into deletes then writes, and
 // reports whether they can go out as one Write request.
 func deletesFirst(changes []language.Tuple) ([]language.Tuple, bool) {
@@ -127,14 +204,14 @@ func deletesFirst(changes []language.Tuple) ([]language.Tuple, bool) {
 	for _, c := range changes {
 		if c.Action == language.ActionDelete {
 			out = append(out, c)
-			deleted[uro(c)] = true
+			deleted[URO(c)] = true
 		}
 	}
 	atomic := true
 	for _, c := range changes {
 		if c.Action != language.ActionDelete {
 			out = append(out, c)
-			if deleted[uro(c)] {
+			if deleted[URO(c)] {
 				atomic = false
 			}
 		}
@@ -142,57 +219,56 @@ func deletesFirst(changes []language.Tuple) ([]language.Tuple, bool) {
 	return out, atomic && len(out) <= maxChangesPerWrite
 }
 
-// plannedWrite is the last write planned for a user, relation and object.
-type plannedWrite struct {
-	event int
-	key   string // the tuple with its condition and context
-}
-
-// trackWrites records ep's changes in written, failing an event that writes a
+// trackWrites records ep's changes in state, failing an event that writes a
 // tuple an earlier event wrote with a different condition or context when no
 // delete came in between. OpenFGA keeps one tuple per user, relation and
 // object, so that second write would fail at apply on every run. Only a rule
 // without a tuple_filter plans it: a filter reads the earlier write and
-// replaces it.
-func trackWrites(ep EventPlan, written map[string]plannedWrite) error {
+// replaces it. A planned delete counts as no write. Nothing is recorded when
+// the event fails.
+func trackWrites(ctx context.Context, ep EventPlan, state PlanState) error {
+	own := map[string]PlannedChange{} // the event's own earlier changes
+	planned := make([]PlannedChange, 0, len(ep.Changes))
 	for _, c := range ep.Changes {
-		k := uro(c)
+		k := URO(c)
+		pc := PlannedChange{Tuple: c, Event: ep.Index}
+		planned = append(planned, pc)
 		if c.Action == language.ActionDelete {
-			delete(written, k)
+			own[k] = pc
 			continue
 		}
 		c.Action = ""
-		if prev, ok := written[k]; ok && prev.event != ep.Index && prev.key != c.Key() {
+		prev, ok := own[k]
+		if !ok {
+			var err error
+			if prev, ok, err = state.Last(ctx, k); err != nil {
+				return err
+			}
+		}
+		if ok && prev.Tuple.Action != language.ActionDelete && prev.Event != ep.Index && keyOf(prev.Tuple) != c.Key() {
 			return eventErr(ep, fmt.Errorf("writes %s %s %s with a different condition or context than event %d; "+
 				"OpenFGA keeps one tuple per user, relation and object and rejects the second write — "+
-				"give the rule a tuple_filter so it replaces the tuple", c.User, c.Relation, c.Object, prev.event))
+				"give the rule a tuple_filter so it replaces the tuple", c.User, c.Relation, c.Object, prev.Event))
 		}
-		written[k] = plannedWrite{event: ep.Index, key: c.Key()}
+		own[k] = pc
 	}
-	return nil
+	return state.Plan(ctx, planned)
+}
+
+// keyOf is t.Key() without the action, the way a write is compared.
+func keyOf(t language.Tuple) string {
+	t.Action = ""
+	return t.Key()
 }
 
 // recorder is the apply.TupleClient the plan runs mapper's reconciliation
 // against: reads see the store as it will be after the events planned so far,
 // writes are recorded instead of sent.
 type recorder struct {
-	store   TupleReader
-	cache   map[language.TupleFilter][]language.Tuple // store reads; the store does not change while planning
-	planned map[string]map[string]language.Tuple      // the last change planned for each tuple, by object type
-	got     []language.Tuple
-}
-
-// plan records changes as the state the tuples they touch will have. A read
-// needs only that state, not every change that led to it, and only for the
-// object type it names.
-func (r *recorder) plan(changes []language.Tuple) {
-	for _, c := range changes {
-		typ, _, _ := strings.Cut(c.Object, ":")
-		if r.planned[typ] == nil {
-			r.planned[typ] = map[string]language.Tuple{}
-		}
-		r.planned[typ][uro(c)] = c
-	}
+	store TupleReader
+	cache map[language.TupleFilter][]language.Tuple // store reads; the store does not change while planning
+	state PlanState                                 // the changes planned so far
+	got   []language.Tuple
 }
 
 func (r *recorder) ReadTuples(ctx context.Context, f language.TupleFilter) ([]language.Tuple, error) {
@@ -207,34 +283,26 @@ func (r *recorder) ReadTuples(ctx context.Context, f language.TupleFilter) ([]la
 	}
 	byURO := map[string]language.Tuple{}
 	for _, t := range base {
-		byURO[uro(t)] = t
+		byURO[URO(t)] = t
 	}
-	overlay := func(planned map[string]language.Tuple) {
-		for k, t := range planned {
-			if !matchesFilter(t, key) {
-				continue
-			}
-			if t.Action == language.ActionDelete {
-				delete(byURO, k)
-			} else {
-				t.Action = ""
-				byURO[k] = t
-			}
-		}
+	planned, err := r.state.Matching(ctx, key)
+	if err != nil {
+		return nil, err
 	}
-	if key.Object != "" {
-		typ, _, _ := strings.Cut(key.Object, ":")
-		overlay(r.planned[typ])
-	} else {
-		for _, planned := range r.planned {
-			overlay(planned)
+	for _, pc := range planned {
+		t := pc.Tuple
+		if t.Action == language.ActionDelete {
+			delete(byURO, URO(t))
+		} else {
+			t.Action = ""
+			byURO[URO(t)] = t
 		}
 	}
 	out := make([]language.Tuple, 0, len(byURO))
 	for _, t := range byURO {
 		out = append(out, t)
 	}
-	sort.Slice(out, func(i, j int) bool { return uro(out[i]) < uro(out[j]) })
+	sort.Slice(out, func(i, j int) bool { return URO(out[i]) < URO(out[j]) })
 	return out, nil
 }
 
@@ -243,11 +311,26 @@ func (r *recorder) WriteTuples(_ context.Context, ts []language.Tuple) error {
 	return nil
 }
 
-func uro(t language.Tuple) string { return t.User + "\x00" + t.Relation + "\x00" + t.Object }
+// URO is the key of a tuple's user, relation and object.
+func URO(t language.Tuple) string { return t.User + "\x00" + t.Relation + "\x00" + t.Object }
+
+// EventError is a failure to plan one event: its 1-based number, its type when
+// it has one, and the cause.
+type EventError struct {
+	Index int
+	Type  string
+	Err   error
+}
+
+func (e *EventError) Error() string {
+	if e.Type == "" {
+		return fmt.Sprintf("event %d: %v", e.Index, e.Err)
+	}
+	return fmt.Sprintf("event %d (%s): %v", e.Index, e.Type, e.Err)
+}
+
+func (e *EventError) Unwrap() error { return e.Err }
 
 func eventErr(ep EventPlan, err error) error {
-	if ep.Type == "" {
-		return fmt.Errorf("event %d: %w", ep.Index, err)
-	}
-	return fmt.Errorf("event %d (%s): %w", ep.Index, ep.Type, err)
+	return &EventError{Index: ep.Index, Type: ep.Type, Err: err}
 }

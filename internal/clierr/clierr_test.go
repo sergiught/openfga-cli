@@ -283,3 +283,17 @@ func TestFriendlyShowsAHintTheMessageLacks(t *testing.T) {
 		t.Errorf("Friendly repeated a hint already in the message: %q", got)
 	}
 }
+
+func TestAddHintKeepsTheHintTheErrorHas(t *testing.T) {
+	err := AddHint("second", WithHint("first", errors.New("boom")))
+	var he *hintError
+	if !errors.As(err, &he) || he.hint != "first; second" {
+		t.Fatalf("hint = %+v", he)
+	}
+	if got := AddHint("only", errors.New("boom")); !errors.As(got, &he) || he.hint != "only" {
+		t.Fatalf("hint = %+v", he)
+	}
+	if AddHint("x", nil) != nil {
+		t.Fatal("nil error gained a hint")
+	}
+}

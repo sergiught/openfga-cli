@@ -21,7 +21,7 @@ func New(c *cli.CLI) *Command {
 	cmd := &cobra.Command{
 		Use:     "mappings [file]",
 		Aliases: []string{"mapping"},
-		Short:   "Open the mapping workspace, or validate, test and apply mapping files",
+		Short:   "Open the mapping workspace, or validate, test, apply, backfill and drift-check mapping files",
 		Long: "Work with openfga/mapper mapping files: YAML rules that turn events from an " +
 			"identity provider into OpenFGA relationship tuples.\n\n" +
 			"With no subcommand this opens the interactive workspace, which needs a terminal. " +
@@ -30,7 +30,9 @@ func New(c *cli.CLI) *Command {
 			"Give it a mapping file to edit that file, or a path that does not exist yet to start a " +
 			"new mapping there; without one it shows a start screen " +
 			"with the mapping files in this directory, the ones you opened recently, and two ways " +
-			"to start a new one: from Auth0 events, or blank. In scripts use the subcommands.",
+			"to start a new one: from Auth0 events, or blank. In scripts use the subcommands.\n\n" +
+			"`backfill` and `drift` read an identity provider's current state through the same rules, " +
+			"to write the tuples it maps to and to find where the store has drifted from it.",
 		Example: `# Pick a file from the start screen
 ofga mappings
 
@@ -61,6 +63,8 @@ func (c *Command) RegisterSubCommands() {
 		cmdmeta.Set(c.newValidateCmd(), cmdmeta.Meta{}),
 		cmdmeta.Set(c.newTestCmd(), cmdmeta.Meta{}),
 		cmdmeta.Set(c.newApplyCmd(), cmdmeta.Meta{RequiresStore: true, Mutates: true}),
+		cmdmeta.Set(c.newBackfillCmd(), cmdmeta.Meta{RequiresStore: true, Mutates: true}),
+		cmdmeta.Set(c.newDriftCmd(), cmdmeta.Meta{RequiresStore: true, Mutates: true}),
 	)
 }
 

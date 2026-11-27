@@ -1,0 +1,198 @@
+{
+  "$defs": {
+    "backfillResult": {
+      "additionalProperties": false,
+      "properties": {
+        "changed": {
+          "items": {
+            "$ref": "#/$defs/tupleOut"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "counts": {
+          "items": {
+            "$ref": "#/$defs/snapshotCount"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "existing": {
+          "type": "integer"
+        },
+        "missing": {
+          "items": {
+            "$ref": "#/$defs/tupleOut"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "not_checked": {
+          "items": {
+            "$ref": "#/$defs/notCheckedOut"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "provider": {
+          "type": "string"
+        },
+        "sent": {
+          "$ref": "#/$defs/sentOut"
+        },
+        "since": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "snapshot_finished_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "snapshot_started_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "store": {
+          "type": "string"
+        },
+        "store_read_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "tuples": {
+          "items": {
+            "$ref": "#/$defs/tupleOut"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "store",
+        "provider",
+        "source",
+        "snapshot_started_at",
+        "snapshot_finished_at",
+        "counts",
+        "dry_run",
+        "store_read_at",
+        "tuples",
+        "missing",
+        "changed",
+        "existing",
+        "not_checked",
+        "sent"
+      ],
+      "type": "object"
+    },
+    "notCheckedOut": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "rule": {
+          "type": "string"
+        },
+        "shapes": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "tuples": {
+          "items": {
+            "$ref": "#/$defs/tupleOut"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "rule",
+        "reason",
+        "shapes"
+      ],
+      "type": "object"
+    },
+    "sentOut": {
+      "additionalProperties": false,
+      "properties": {
+        "deletes": {
+          "type": "integer"
+        },
+        "writes": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "writes",
+        "deletes"
+      ],
+      "type": "object"
+    },
+    "snapshotCount": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "type": "integer"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "count"
+      ],
+      "type": "object"
+    },
+    "tupleOut": {
+      "additionalProperties": false,
+      "properties": {
+        "condition": {
+          "type": "string"
+        },
+        "context": {
+          "type": "object"
+        },
+        "object": {
+          "type": "string"
+        },
+        "relation": {
+          "type": "string"
+        },
+        "user": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "user",
+        "relation",
+        "object"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://sergiught.github.io/openfga-cli/schemas/output/mappings-backfill.v1.json",
+  "$ref": "#/$defs/backfillResult",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

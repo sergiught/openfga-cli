@@ -14,6 +14,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/configtest"
 	"github.com/sergiught/openfga-cli/internal/mapping"
+	"github.com/sergiught/openfga-cli/internal/mapping/snapshot"
 )
 
 // exampleDir is the mapping the docs guide walks through. These tests keep the
@@ -46,7 +47,7 @@ func TestExampleMappingValidatesAgainstItsModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err=%v out=%s", err, out)
 	}
-	if !strings.Contains(out, "4 rules, 4 tests; checked against ../../../examples/mappings/model.fga (4 types)") {
+	if !strings.Contains(out, "4 rules, 6 tests; checked against ../../../examples/mappings/model.fga (4 types)") {
 		t.Fatalf("the guide quotes a different summary: %s", out)
 	}
 }
@@ -58,8 +59,49 @@ func TestExampleMappingTestsPass(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err=%v out=%s", err, out)
 	}
-	if !strings.Contains(out, "4 passed, 0 failed") {
+	if !strings.Contains(out, "6 passed, 0 failed") {
 		t.Fatalf("want every test to pass: %s", out)
+	}
+}
+
+// fullExampleDir is the second example: one rule for each snapshot type Auth0
+// has, answering the live event and the snapshot.
+const fullExampleDir = "../../../examples/mappings-full"
+
+func TestFullExampleValidatesAgainstItsModel(t *testing.T) {
+	configtest.Isolate(t)
+	out, err := run(t, cli.New(log.New(io.Discard), config.New(), "test"),
+		"validate", fullExampleDir+"/auth0.yaml", "--model-file", fullExampleDir+"/model.fga")
+	if err != nil {
+		t.Fatalf("err=%v out=%s", err, out)
+	}
+	if !strings.Contains(out, "6 rules, 12 tests; checked against ../../../examples/mappings-full/model.fga (8 types)") {
+		t.Fatalf("the example's README quotes a different summary: %s", out)
+	}
+}
+
+func TestFullExampleTestsPass(t *testing.T) {
+	configtest.Isolate(t)
+	out, err := run(t, cli.New(log.New(io.Discard), config.New(), "test"),
+		"test", fullExampleDir+"/auth0.yaml")
+	if err != nil {
+		t.Fatalf("err=%v out=%s", err, out)
+	}
+	if !strings.Contains(out, "12 passed, 0 failed") {
+		t.Fatalf("want every test to pass: %s", out)
+	}
+}
+
+// A snapshot type added to the provider fails here until the example gains a
+// rule for it.
+func TestFullExampleNamesEverySnapshotType(t *testing.T) {
+	f, err := mapping.Load(fullExampleDir + "/auth0.yaml")
+	if err != nil {
+		t.Fatalf("load auth0.yaml: %v", err)
+	}
+	types := providers["auth0"].Types()
+	if got := snapshot.Requested(f.Doc, types); len(got) != len(types) {
+		t.Fatalf("the example names %d of Auth0's %d snapshot types: %v", len(got), len(types), got)
 	}
 }
 

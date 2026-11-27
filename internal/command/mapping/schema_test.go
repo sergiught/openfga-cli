@@ -85,4 +85,57 @@ rules:
 			outputschematest.Validate(t, "ofga mappings apply", runJSON(t, c, "apply", m, "--events", ev, flag))
 		}
 	})
+
+	t.Run("backfill", func(t *testing.T) {
+		ws, err := modeltest.LoadWorkspace("../../modeltest/testdata/docs")
+		if err != nil {
+			t.Fatal(err)
+		}
+		endpoint, storeID, modelID, stop, err := modeltest.Seed(context.Background(), ws, "documents/owner-is-viewer", modeltest.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer stop()
+		cfg := config.New()
+		cfg.Set("default", config.Profile{APIURL: endpoint, StoreID: storeID, ModelID: modelID})
+		m := writeFile(t, dir, "backfill.yaml", `version: "1"
+rules:
+  - name: member
+    when: input.type == "snapshot.organization.member"
+    tuples:
+      - user: "user:{{ input.user }}"
+        relation: viewer
+        object: "folder:{{ input.org }}"
+`)
+		useFakeProvider(t, fakeProvider{types: fakeTypes(), result: fakeResult()})
+		for _, flag := range []string{"--dry-run", "--force"} {
+			c := cli.New(log.New(io.Discard), cfg, "test")
+			outputschematest.Validate(t, "ofga mappings backfill", runJSON(t, c, "backfill", m, "--provider", "fake", flag))
+		}
+	})
+	t.Run("drift", func(t *testing.T) {
+		ws, err := modeltest.LoadWorkspace("../../modeltest/testdata/docs")
+		if err != nil {
+			t.Fatal(err)
+		}
+		endpoint, storeID, modelID, stop, err := modeltest.Seed(context.Background(), ws, "documents/owner-is-viewer", modeltest.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer stop()
+		cfg := config.New()
+		cfg.Set("default", config.Profile{APIURL: endpoint, StoreID: storeID, ModelID: modelID})
+		m := writeFile(t, dir, "drift.yaml", `version: "1"
+rules:
+  - name: member
+    when: input.type == "snapshot.organization.member"
+    tuples:
+      - user: "user:{{ input.user }}"
+        relation: viewer
+        object: "folder:{{ input.org }}"
+`)
+		useFakeProvider(t, fakeProvider{types: fakeTypes(), result: fakeResult()})
+		c := cli.New(log.New(io.Discard), cfg, "test")
+		outputschematest.Validate(t, "ofga mappings drift", runJSON(t, c, "drift", m, "--provider", "fake", "--dry-run"))
+	})
 }

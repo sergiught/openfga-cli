@@ -160,6 +160,12 @@ const (
 
 func when(typ string) string { return `input.type == "` + typ + `"` }
 
+// whenWithSnapshot also answers snap, the snapshot event that mirrors typ, so
+// drift and backfill replay the provider's current state through the rule.
+func whenWithSnapshot(typ, snap string) string {
+	return when(typ) + " || " + when(snap)
+}
+
 // membership builds one of the single-tuple relationship recipes. write says
 // whether the event grants a relationship or removes it: granting needs no
 // action at all, removing sets "delete" once at the rule level rather than on
@@ -254,6 +260,9 @@ var lifecycleWarnings = map[string]string{
 
 func recipeFor(typ string) Recipe {
 	r := recipeBody(typ)
+	if snap, ok := snapshotMirrors[typ]; ok && r.Maps() {
+		r.Rule.When = whenWithSnapshot(typ, snap)
+	}
 	r.Warn = lifecycleWarnings[typ]
 	return r
 }
@@ -569,4 +578,17 @@ func recipeBody(typ string) Recipe {
 	default:
 		return Recipe{Note: "attributes only", Explain: "Nothing to write. This event carries only attributes (name, display name, branding), not relationships. If your model treats one as a relationship, write a rule that compares data.object with data.previous_object, as the other update recipes do."}
 	}
+}
+
+// snapshotMirrors maps each creation event a snapshot type mirrors to that
+// type, so its recipe can answer both. It is data here, not read from the
+// provider, so this package stays free of the Auth0 SDK; snapshot_test.go
+// holds it equal to what the provider declares.
+var snapshotMirrors = map[string]string{
+	"connection.created":                "snapshot.connection",
+	"user.created":                      "snapshot.user",
+	"organization.created":              "snapshot.organization",
+	"organization.connection.added":     "snapshot.organization.connection",
+	"organization.member.added":         "snapshot.organization.member",
+	"organization.member.role.assigned": "snapshot.organization.member.role",
 }

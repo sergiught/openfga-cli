@@ -1,7 +1,7 @@
 version: "1"
 rules:
   - name: organization.member.added
-    when: input.type == "organization.member.added"
+    when: input.type == "organization.member.added" || input.type == "snapshot.organization.member"
     tuples:
       - user: "user:{{ fga_escape(input.data.object.user.user_id) }}"
         relation: "member"
@@ -25,7 +25,7 @@ rules:
         relation: "assignee"
         action: delete
   - name: organization.member.role.assigned
-    when: input.type == "organization.member.role.assigned"
+    when: input.type == "organization.member.role.assigned" || input.type == "snapshot.organization.member.role"
     tuples:
       - user: "membership:{{ input.data.object.organization.id }}|{{ fga_escape(input.data.object.user.user_id) }}#holder"
         relation: "assignee"
@@ -152,3 +152,58 @@ tests:
         relation: "assignee"
         object: "role:org_1234567890abcdef|rol_1234567890abcdef"
         action: delete
+  - name: snapshot.organization.member
+    input:
+      a0tenant: my-tenant
+      data:
+        context:
+          tenant:
+            id: my-tenant
+        object:
+          organization:
+            id: org_acme
+            name: acme
+          user:
+            user_id: user_anne
+      id: snap_000001
+      source: urn:auth0:example.auth0app.com
+      specversion: "1.0"
+      subject: organization org_acme member user_anne
+      time: "2025-02-01T12:34:56Z"
+      type: snapshot.organization.member
+    expect_tuples:
+      - user: "user:user_anne"
+        relation: "member"
+        object: "organization:org_acme"
+        action: write
+      - user: "user:user_anne"
+        relation: "holder"
+        object: "membership:org_acme|user_anne"
+        action: write
+  - name: snapshot.organization.member.role
+    input:
+      a0tenant: my-tenant
+      data:
+        context:
+          tenant:
+            id: my-tenant
+        object:
+          organization:
+            id: org_acme
+            name: acme
+          role:
+            id: rol_admin
+            name: admin
+          user:
+            user_id: user_anne
+      id: snap_000002
+      source: urn:auth0:example.auth0app.com
+      specversion: "1.0"
+      subject: organization org_acme member user_anne role rol_admin
+      time: "2025-02-01T12:34:56Z"
+      type: snapshot.organization.member.role
+    expect_tuples:
+      - user: "membership:org_acme|user_anne#holder"
+        relation: "assignee"
+        object: "role:org_acme|rol_admin"
+        action: write

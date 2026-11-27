@@ -2,17 +2,41 @@ package mapping
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/openfga/mapper/language"
 	"github.com/sergiught/go-openfga/openfga"
 
 	"github.com/sergiught/openfga-cli/internal/fga"
+	"github.com/sergiught/openfga-cli/internal/mapping/snapshot"
 )
+
+var _ snapshot.BatchLimiter = storeClient{}
 
 // storeClient reads and writes the profile's store for apply. It is the only
 // place apply touches go-openfga, so the engine stays testable with fakes.
 type storeClient struct{ cl *openfga.Client }
+
+// readPageSize is the most tuples OpenFGA returns for one read request. The
+// server's default is 50, so asking for the maximum halves the requests.
+const readPageSize = 100
+
+// readConsistency is set on every tuple read rather than left to the client's
+// default: a read served from a cache could miss a tuple, and the plan would
+// then write a duplicate or delete what it should keep.
+const readConsistency = openfga.ConsistencyHigherConsistency
+
+func toTuple(t openfga.Tuple) language.Tuple {
+	lt := language.Tuple{User: t.Key.User, Relation: t.Key.Relation, Object: t.Key.Object}
+	if c := t.Key.Condition; c != nil {
+		lt.Condition, lt.Context = c.Name, c.Context
+	}
+	return lt
+}
 
 func (s storeClient) ReadTuples(ctx context.Context, f language.TupleFilter) ([]language.Tuple, error) {
 	rf := fga.ReadFilter{User: f.User, Relation: f.Relation, Object: f.Object}
@@ -20,17 +44,65 @@ func (s storeClient) ReadTuples(ctx context.Context, f language.TupleFilter) ([]
 		return nil, fmt.Errorf("tuple filter %s %s %s: %w", f.User, f.Relation, f.Object, err)
 	}
 	var out []language.Tuple
-	for t, err := range s.cl.Tuples.ReadAll(ctx, &openfga.ReadRequest{TupleKey: rf.TupleKey()}) {
+	for t, err := range s.cl.Tuples.ReadAll(ctx, &openfga.ReadRequest{TupleKey: rf.TupleKey(), PageSize: readPageSize, Consistency: readConsistency}) {
 		if err != nil {
 			return nil, err
 		}
-		lt := language.Tuple{User: t.Key.User, Relation: t.Key.Relation, Object: t.Key.Object}
-		if c := t.Key.Condition; c != nil {
-			lt.Condition, lt.Context = c.Name, c.Context
-		}
-		out = append(out, lt)
+		out = append(out, toTuple(t))
 	}
 	return out, nil
+}
+
+// ReadAll reads every tuple in the store.
+func (s storeClient) ReadAll(ctx context.Context) ([]language.Tuple, error) {
+	return s.ReadTuples(ctx, language.TupleFilter{})
+}
+
+// ReadKept reads the whole store and keeps only the tuples keep accepts, so a
+// large store is not held in memory. It also returns how many tuples it read.
+// With a nil sink it returns the kept tuples. With a sink it hands them over in
+// batches of at most readPageSize, each tuple once, and returns none.
+// progress may be nil; it is called after every readPageSize tuples read and
+// once at the end.
+func (s storeClient) ReadKept(ctx context.Context, keep func(language.Tuple) bool, sink func([]language.Tuple) error, progress func(read, kept int)) (kept []language.Tuple, total int, err error) {
+	var batch []language.Tuple
+	nkept := 0
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		err := sink(batch)
+		batch = nil
+		return err
+	}
+	for t, err := range s.cl.Tuples.ReadAll(ctx, &openfga.ReadRequest{PageSize: readPageSize, Consistency: readConsistency}) {
+		if err != nil {
+			return nil, 0, err
+		}
+		total++
+		if lt := toTuple(t); keep(lt) {
+			nkept++
+			if sink == nil {
+				kept = append(kept, lt)
+			} else if batch = append(batch, lt); len(batch) >= readPageSize {
+				if err := flush(); err != nil {
+					return nil, 0, err
+				}
+			}
+		}
+		if progress != nil && total%readPageSize == 0 {
+			progress(total, nkept)
+		}
+	}
+	if sink != nil {
+		if err := flush(); err != nil {
+			return nil, 0, err
+		}
+	}
+	if progress != nil {
+		progress(total, nkept)
+	}
+	return kept, total, nil
 }
 
 func (s storeClient) Write(ctx context.Context, writes, deletes []language.Tuple) error {
@@ -55,4 +127,23 @@ func tupleKeys(ts []language.Tuple, withCondition bool) []openfga.TupleKey {
 		keys = append(keys, k)
 	}
 	return keys
+}
+
+// BatchLimit reports the store refusing a write request for carrying more
+// changes than it allows, and the limit it names (0 when none parses). The
+// code decides; a 400 with the message alone counts too, in case a proxy
+// drops the code.
+func (s storeClient) BatchLimit(err error) (int, bool) {
+	const phrase = "exceeds the allowed limit of"
+	var er *openfga.ErrorResponse
+	if !errors.As(err, &er) {
+		return 0, false
+	}
+	if er.Code != "exceeded_entity_limit" &&
+		(er.StatusCode() != http.StatusBadRequest || !strings.Contains(er.Message, phrase)) {
+		return 0, false
+	}
+	i := strings.LastIndexByte(er.Message, ' ')
+	limit, _ := strconv.Atoi(strings.TrimRight(er.Message[i+1:], "."))
+	return max(limit, 0), true
 }

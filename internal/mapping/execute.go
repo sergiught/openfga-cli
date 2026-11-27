@@ -7,7 +7,8 @@ import (
 	"github.com/openfga/mapper/language"
 )
 
-// TupleWriter writes tuples to a store in one request.
+// TupleWriter writes tuples to a store in one request. An implementation must
+// be safe for concurrent use: snapshot.Write calls it from several goroutines.
 type TupleWriter interface {
 	Write(ctx context.Context, writes, deletes []language.Tuple) error
 }

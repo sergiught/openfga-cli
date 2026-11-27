@@ -1,0 +1,272 @@
+---
+title: Backfill and drift for Relationship Sync
+description: Fill a new Relationship Sync pipeline's store from Auth0, and check it by hand for drift, with ofga mappings backfill and ofga mappings drift.
+sidebar:
+  order: 7.6
+---
+
+[Relationship Sync](https://docs.fga.dev/relationship-sync/overview) is the
+Auth0 FGA feature that turns Auth0 events into tuples, through a mapping file,
+as they happen. It leaves two jobs to you:
+
+- **The data that existed before the pipeline started.** A pipeline starts at
+  the current time, or up to 7 days back. Nothing older is imported.
+- **Drift.** A lost or reordered event leaves the store out of step with Auth0,
+  and nothing checks for that.
+
+Relationship Sync's own instructions for both start from an export of the Auth0
+Management API that you write yourself. `ofga mappings backfill` and
+`ofga mappings drift` read Auth0 directly instead, so there is no export script.
+This page shows how to use them next to a pipeline.
+
+`ofga` is not part of Auth0 FGA and is not affiliated with Auth0 or Okta. For the
+pipeline itself, follow [Relationship Sync's documentation](https://docs.fga.dev/relationship-sync/getting-started).
+
+:::caution[Not yet tried against a hosted store]
+Both commands have been run against a real Auth0 tenant, and against a local
+OpenFGA set to Auth0 FGA's published limits, but not yet against an Auth0 FGA
+store. Try them on a test store first.
+:::
+
+## Two mapping files
+
+The pipeline and `ofga` use the same rules, but the Auth0 FGA dashboard refuses a
+mapping that names a `snapshot.*` type. Keep two files:
+
+- `mapping.yaml`, the one you paste into the dashboard, with live event types
+  only.
+- `mapping.cli.yaml`, the same rules, where each rule you want checked also
+  answers the snapshot type that mirrors its event.
+
+The only difference between them is the extra clause in `when`. In
+`mapping.yaml`:
+
+```yaml
+- name: organization.member.added
+  when: input.type == "organization.member.added"
+```
+
+In `mapping.cli.yaml`:
+
+```yaml
+- name: organization.member.added
+  when: input.type == "organization.member.added" || input.type == "snapshot.organization.member"
+```
+
+Snapshot events carry the same envelope and the same `data.object` as the live
+event they mirror, so the rest of the rule works unchanged. The six types and
+the events they mirror are listed in
+[Checking for drift and backfilling](../mappings/#checking-for-drift-and-backfilling).
+
+When you change a rule, change it in both files. A rule that is in
+`mapping.yaml` but missing from `mapping.cli.yaml` is never checked, and no
+report mentions it. A rule left without a snapshot clause is listed under
+`NOT CHECKED` when no snapshot rule writes its shapes, which makes that list
+the place to look when the two files drift apart.
+
+## Two Auth0 applications
+
+The pipeline and `ofga` sign in to Auth0 differently, so give each its own
+machine-to-machine application:
+
+| | Relationship Sync pipeline | `ofga` |
+| --- | --- | --- |
+| Credential | Private Key JWT, with the certificate the pipeline gives you | Client secret |
+| Management API scopes | `read:events` | The read scopes of the snapshot types `mapping.cli.yaml` names, listed in [Checking for drift and backfilling](../mappings/#checking-for-drift-and-backfilling) |
+
+`ofga` reads the secret from `AUTH0_CLIENT_SECRET` or a file, never from a flag;
+see [Credentials](../mappings/#credentials).
+
+Both commands write to the active profile's store, so add a profile for the
+pipeline's store with an Auth0 FGA API client that can read, write and delete
+tuples. The API URL, token issuer and audience are on the store's settings page
+in the dashboard:
+
+```bash
+ofga profiles add rsync --api-url https://api.us1.fga.dev \
+  --auth-method client_credentials --client-id "$FGA_CLIENT_ID" \
+  --client-secret-file fga-client-secret.txt \
+  --token-url https://auth.fga.dev/oauth/token \
+  --audience https://api.us1.fga.dev/ \
+  --store-id 01H... --use
+```
+
+Replace `us1` with your store's region, and copy the exact API URL, token URL
+and audience from the Auth0 FGA dashboard.
+
+This is a different client from the two Auth0 applications above: it signs in
+to Auth0 FGA, not to your Auth0 tenant.
+
+## Starting a pipeline on existing data
+
+The backfill reads Auth0 as it is while it runs. A change made after it has read
+that part of Auth0 is not in the store when it finishes. Starting the pipeline
+from a time before the backfill began replays those changes as events, so none
+is lost.
+
+1. Create the pipeline and add `mapping.yaml`, but do not start it.
+2. Note the current time in UTC. This is the pipeline's start time.
+3. Preview the backfill:
+
+   ```bash
+   ofga mappings backfill mapping.cli.yaml --provider auth0 --dry-run
+   ```
+
+4. Run it. It asks before writing:
+
+   ```bash
+   ofga mappings backfill mapping.cli.yaml --provider auth0
+   ```
+
+5. Start the pipeline from the time you noted in step 2.
+
+The pipeline can start at most 7 days back, so step 5 has to happen within 7
+days of step 2. [How long a run takes](#how-long-a-run-takes) says what fits.
+
+Some events between the noted time and the start are already in the store by
+then. Relationship Sync
+[ignores a write of a tuple that is there and a delete of one that is not](https://docs.fga.dev/relationship-sync/mapping-language#idempotent-writes-and-deletes),
+so replaying them changes nothing.
+
+If the backfill fails partway, run it again: it writes only what is still
+missing.
+
+## Checking for drift
+
+Run the check whenever you want to know whether the store matches Auth0:
+
+```bash
+ofga mappings drift mapping.cli.yaml --provider auth0 --dry-run
+```
+
+It writes nothing. It exits `0` when the store matches Auth0 and `3` when
+something differs, and lists each tuple that is missing, changed or stale. See
+[Drift](../mappings/#drift) for the report.
+
+With the pipeline running, a change made during the check can show up as drift:
+the event is still on its way. Run the check again a few minutes later. What is
+still reported then is real.
+
+`--since` checks only the users changed in a recent window, which is much
+faster on a large tenant:
+
+```bash
+ofga mappings drift mapping.cli.yaml --provider auth0 --since 2h --dry-run
+```
+
+It cannot find everything a full check finds; see
+[Checking only recent changes](../mappings-drift-backfill/#checking-only-recent-changes).
+
+## Repairing drift
+
+Pause the pipeline before you repair, as Relationship Sync's
+[reconciling steps](https://docs.fga.dev/relationship-sync/managing#reconciling)
+also advise. While it runs, a tuple the pipeline has just written can look
+stale, and `--prune` would delete it.
+
+1. Pause the pipeline. Auth0 holds the events that arrive while it is paused
+   for a time it does not publish, so keep the pause short.
+2. Write the missing tuples and replace the changed ones. It asks first:
+
+   ```bash
+   ofga mappings drift mapping.cli.yaml --provider auth0
+   ```
+
+3. Read the stale tuples in the report. If they should go, delete them. It asks
+   first:
+
+   ```bash
+   ofga mappings drift mapping.cli.yaml --provider auth0 --prune
+   ```
+
+4. Check again. It should exit `0`:
+
+   ```bash
+   ofga mappings drift mapping.cli.yaml --provider auth0 --dry-run
+   ```
+
+5. Resume the pipeline. It delivers the events held during the pause, so a
+   change made in Auth0 while you repaired still reaches the store.
+
+If the pause outlasts Auth0's hold on the events, the pipeline resumes from the
+current time and the events in between are gone. Run steps 2 to 4 again after
+it resumes.
+
+## What it cannot check
+
+- **Groups.** Relationship Sync handles SCIM group events and group role
+  assignments. Auth0 has no snapshot type for them, so their tuples cannot be
+  backfilled or checked. They are never reported as stale either: their shapes
+  are not written by a snapshot rule.
+- **Tuples another system writes.** If something other than the pipeline writes
+  a shape that a snapshot rule also writes, `drift` reports those tuples as
+  stale and `--prune` deletes them.
+- **Other limits** are listed in
+  [Known limits](../mappings-drift-backfill/#known-limits).
+
+## How long a run takes
+
+Most of a run is spent waiting on Auth0's rate limits. The number of requests
+depends on the tenant's shape, and only the snapshot types `mapping.cli.yaml`
+names are read:
+
+| Snapshot type | Requests |
+| --- | --- |
+| `snapshot.organization` (and the list every organization type needs) | 1 per 100 organizations |
+| `snapshot.organization.connection` | 1 per organization |
+| `snapshot.organization.member`, `.role` | 1 per 100 members of each organization, at least 1 per organization; roles come with the members |
+| `snapshot.user` | 1 per 100 users under 1,000; from 1,000 users, one export job |
+| `snapshot.connection` | 1 per 100 connections, plus 1 per connection |
+
+On Auth0's Enterprise plan, organizations and organization connections are
+limited to 100 requests a minute (50 on self-service plans), and members to 500
+a minute. A tenant with many small organizations is therefore slow: each
+organization costs at least two requests, and organization connections take
+most of the run. With 10,000 organizations of 10 members they take 1.7 h of
+2.1 h, so leave `snapshot.organization.connection` out of `mapping.cli.yaml`
+when you do not need it.
+
+These times are calculated from those limits for a first backfill, with one role
+per member, one connection per organization, a round trip of 100 ms to Auth0
+and 50 ms to Auth0 FGA:
+
+| Organizations × members | Memberships | Auth0 requests | Enterprise Auth0, FGA Enterprise | Self-service Auth0, FGA Enterprise | Work file |
+| --- | --- | --- | --- | --- | --- |
+| 10 × 100 | 1,000 | 35 | 10 s | 17 s | about 7 MB |
+| 100 × 100 | 10,000 | 215 | 90 s | 2 min | about 67 MB |
+| 100 × 1,000 | 100,000 | 1,115 | 6 min | 7 min | about 670 MB |
+| 1,000 × 100 | 100,000 | 2,024 | 15 min | 25 min | about 670 MB |
+| 10,000 × 10 | 100,000 | 20,114 | 2.1 h | 3.7 h | about 670 MB |
+| 1,000 × 1,000 | 1 million | 11,024 | 57 min | 67 min | about 6.7 GB |
+| 10,000 × 100 | 1 million | 20,114 | 2.5 h | 4.1 h | about 6.7 GB |
+| 100,000 × 10 | 1 million | 201,014 | 21 h | 37 h | about 6.7 GB |
+
+A full `drift` also reads the whole store, one request per 100 tuples, one at a
+time: about 4 minutes per 500,000 tuples with a 50 ms round trip.
+
+What was measured:
+
+- **Auth0 requests.** The request counts above match the command's counts
+  exactly. Against a Free tenant, 343 requests took 2 min 33 s, a little faster
+  than the 2 requests a second Free allows.
+- **The command's own time.** With 100,000 memberships (502,030 tuples) and no
+  rate limits, the whole run took 56 s. Replaying, planning and comparing took
+  about 30 s, and writing into a local OpenFGA about 17 s.
+- **Disk.** About 6.7 KB of disk per membership, in a work file in the user
+  cache directory or at `--state`. Peak memory was measured near 110 MB at
+  100,000 memberships.
+
+Where it stops being practical:
+
+- **Store size.** An Auth0 FGA trial store holds 50,000 tuples, about 10,000
+  memberships with a mapping like the example. Enterprise holds 10 million by
+  default, about 2 million memberships.
+- **Disk**, about 7 GB of free disk per million memberships.
+- **The 7-day start window.** A first backfill that takes longer than 7 days
+  cannot be followed by a pipeline start that covers it. Long before that, a
+  run of many hours is easier to replace with `--since` checks between full
+  ones.
+- **Write limits.** Auth0 FGA takes 40 tuples per write. The command starts
+  with 100 and drops to the limit the store names. On a trial store (20 writes
+  a second), a rate-limited write that comes without a `Retry-After` header can
+  stop a long backfill partway; run it again to send the rest.

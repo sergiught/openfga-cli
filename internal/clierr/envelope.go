@@ -92,6 +92,16 @@ func WithHint(hint string, err error) error {
 	return &hintError{hint: hint, err: err}
 }
 
+// AddHint is WithHint for an error that may already carry a hint: the new hint
+// follows the old one instead of replacing it.
+func AddHint(hint string, err error) error {
+	var he *hintError
+	if errors.As(err, &he) && he.hint != "" {
+		hint = he.hint + "; " + hint
+	}
+	return WithHint(hint, err)
+}
+
 // WithDetails appends structured detail objects to err. Returns nil for a nil
 // error.
 func WithDetails(err error, details ...map[string]any) error {
