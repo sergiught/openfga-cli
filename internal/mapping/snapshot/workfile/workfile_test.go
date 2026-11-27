@@ -353,3 +353,30 @@ func TestReplayPageIsOneTransaction(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 }
+
+// A page callback that panics rolls its transaction back and clears the
+// page's state, so the file still answers afterwards instead of hanging on
+// the single connection.
+func TestReplayPagePanicLeavesTheFileUsable(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	f, _ := newFile(t)
+	require.NoError(t, f.Save(snapshot.Unit{Key: "u"}, []map[string]any{ev(tUser, "1")}, true))
+	require.True(t, func() (recovered bool) {
+		defer func() { recovered = recover() != nil }()
+		_, _ = f.Replay(ctx, 10, func([]map[string]any) error { panic("boom") })
+		return false
+	}())
+	require.True(t, f.tx == nil)
+	require.NoError(t, f.inTx(ctx, func(q dbtx) error {
+		var n int
+		return q.QueryRowContext(ctx, `SELECT COUNT(*) FROM events`).Scan(&n)
+	}))
+}
+
+// The scratch database belongs to the one connection, so the pool must keep
+// exactly one connection open for the life of the file.
+func TestPoolIsOneLongLivedConnection(t *testing.T) {
+	f, _ := newFile(t)
+	require.Equal(t, 1, f.db.Stats().MaxOpenConnections)
+}

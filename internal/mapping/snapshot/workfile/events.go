@@ -219,10 +219,10 @@ func (f *File) inPage(ctx context.Context, fn func() error) error {
 	if err != nil {
 		return fmt.Errorf("replay page: %w", err)
 	}
+	defer func() { _ = tx.Rollback() }() // no-op after Commit; covers a panic in fn
 	f.tx = tx
 	defer func() { f.tx = nil }()
 	if err := fn(); err != nil {
-		_ = tx.Rollback()
 		return err
 	}
 	if err := tx.Commit(); err != nil {

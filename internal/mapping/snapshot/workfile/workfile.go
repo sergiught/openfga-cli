@@ -66,8 +66,8 @@ func (f *File) inTx(ctx context.Context, fn func(q dbtx) error) error {
 	if err != nil {
 		return err
 	}
+	defer func() { _ = tx.Rollback() }() // no-op after Commit; covers a panic in fn
 	if err := fn(tx); err != nil {
-		_ = tx.Rollback()
 		return err
 	}
 	return tx.Commit()
@@ -201,7 +201,7 @@ func removeFiles(path string) error {
 func openDB(path string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", dsn(path, "",
 		"journal_mode(WAL)", "synchronous(NORMAL)", "locking_mode(EXCLUSIVE)",
-		"busy_timeout(0)", "foreign_keys(ON)", "cache_size(-65536)"))
+		"busy_timeout(0)", "foreign_keys(ON)"))
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
@@ -220,7 +220,7 @@ func openDB(path string) (*sql.DB, error) {
 		}
 		// temp_store stays at its default (a file): MEMORY would keep the
 		// scratch database in RAM.
-		for _, stmt := range []string{`ATTACH DATABASE '' AS scratch`, `PRAGMA scratch.cache_size=-65536`, scratchSchema} {
+		for _, stmt := range []string{`ATTACH DATABASE '' AS scratch`, scratchSchema} {
 			if _, err := db.Exec(stmt); err != nil {
 				_ = db.Close()
 				return nil, fmt.Errorf("prepare %s: %w", path, err)
