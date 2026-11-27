@@ -91,6 +91,9 @@ ofga profiles add rsync --api-url https://api.us1.fga.dev \
   --store-id 01H... --use
 ```
 
+Replace `us1` with your store's region, and copy the exact API URL, token URL
+and audience from the Auth0 FGA dashboard.
+
 This is a different client from the two Auth0 applications above: it signs in
 to Auth0 FGA, not to your Auth0 tenant.
 
@@ -227,16 +230,16 @@ These times are calculated from those limits for a first backfill, with one role
 per member, one connection per organization, a round trip of 100 ms to Auth0
 and 50 ms to Auth0 FGA:
 
-| Organizations × members | Memberships | Auth0 requests | Enterprise Auth0, FGA Enterprise | Self-service Auth0, FGA Enterprise | Memory |
+| Organizations × members | Memberships | Auth0 requests | Enterprise Auth0, FGA Enterprise | Self-service Auth0, FGA Enterprise | Work file |
 | --- | --- | --- | --- | --- | --- |
-| 10 × 100 | 1,000 | 35 | 10 s | 17 s | 73 MB |
-| 100 × 100 | 10,000 | 215 | 90 s | 2 min | 206 MB |
-| 100 × 1,000 | 100,000 | 1,115 | 6 min | 7 min | 1.5 GB |
-| 1,000 × 100 | 100,000 | 2,024 | 15 min | 25 min | 1.5 GB |
-| 10,000 × 10 | 100,000 | 20,114 | 2.1 h | 3.7 h | 1.5 GB |
-| 1,000 × 1,000 | 1 million | 11,024 | 57 min | 67 min | 15 GB |
-| 10,000 × 100 | 1 million | 20,114 | 2.5 h | 4.1 h | 15 GB |
-| 100,000 × 10 | 1 million | 201,014 | 21 h | 37 h | 15 GB |
+| 10 × 100 | 1,000 | 35 | 10 s | 17 s | about 7 MB |
+| 100 × 100 | 10,000 | 215 | 90 s | 2 min | about 67 MB |
+| 100 × 1,000 | 100,000 | 1,115 | 6 min | 7 min | about 670 MB |
+| 1,000 × 100 | 100,000 | 2,024 | 15 min | 25 min | about 670 MB |
+| 10,000 × 10 | 100,000 | 20,114 | 2.1 h | 3.7 h | about 670 MB |
+| 1,000 × 1,000 | 1 million | 11,024 | 57 min | 67 min | about 6.7 GB |
+| 10,000 × 100 | 1 million | 20,114 | 2.5 h | 4.1 h | about 6.7 GB |
+| 100,000 × 10 | 1 million | 201,014 | 21 h | 37 h | about 6.7 GB |
 
 A full `drift` also reads the whole store, one request per 100 tuples, one at a
 time: about 4 minutes per 500,000 tuples with a 50 ms round trip.
@@ -247,17 +250,18 @@ What was measured:
   exactly. Against a Free tenant, 343 requests took 2 min 33 s, a little faster
   than the 2 requests a second Free allows.
 - **The command's own time.** With 100,000 memberships (502,030 tuples) and no
-  rate limits, replaying and comparing took about 2.5 s, and writing into a
-  local OpenFGA about 25 s.
-- **Memory.** About 15 KB per membership, plus 58 MB. A machine with 8 GB runs
-  out near 500,000 memberships.
+  rate limits, the whole run took 56 s. Replaying, planning and comparing took
+  about 30 s, and writing into a local OpenFGA about 17 s.
+- **Disk.** About 6.7 KB of disk per membership, in a work file in the user
+  cache directory or at `--state`. Peak memory was measured near 110 MB at
+  100,000 memberships.
 
 Where it stops being practical:
 
 - **Store size.** An Auth0 FGA trial store holds 50,000 tuples, about 10,000
   memberships with a mapping like the example. Enterprise holds 10 million by
   default, about 2 million memberships.
-- **Memory**, from about a million memberships.
+- **Disk**, about 7 GB of free disk per million memberships.
 - **The 7-day start window.** A first backfill that takes longer than 7 days
   cannot be followed by a pipeline start that covers it. Long before that, a
   run of many hours is easier to replace with `--since` checks between full

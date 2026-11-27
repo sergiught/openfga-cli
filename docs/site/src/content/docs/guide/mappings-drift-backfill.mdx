@@ -342,8 +342,8 @@ Stdout is the same with or without the card.
 │  ────────────────────────────────────────────────────────────────────────  │
 │                                                                            │
 │  REQUESTS                  RATE LIMITED                 MEMORY             │
-│  Auth0   2,655  8.1/s      Auth0  12×  1 per 120ms      1.1 GB             │
-│  store  12,043             store  0×                    peak 1.3 GB        │
+│  Auth0   2,655  8.1/s      Auth0  12×  1 per 120ms      96 MB              │
+│  store  12,043             store  0×                    peak 118 MB        │
 │                                                                            │
 │  DATA  3 connections · 48,210 users · 2,000 organizations ·                │
 │        1,874 organization connections · 6,480 organization members ·       │
@@ -771,15 +771,26 @@ not slide forward, and the `--since` text you pass must match the first run's.
 
 What a resumed run does with the store depends on the command:
 
-- `drift` reuses the store read the first run made before it read Auth0, as
-  long as that read was taken before the provider read. It compares against the
-  store as it was then. If the first run never finished that read, or the read
-  came after the provider, `drift` reads the store again.
+- `drift` reuses the store read the first run made before reading Auth0, and
+  compares against the store as it was then. If the first run stopped before
+  that read finished, `drift` reads the store again. If the earlier run read
+  the store after the provider (a `drift --since` that covered only users) and
+  this run must read it first, `--resume` refuses. It also refuses if the
+  edited mapping now writes a kind of tuple the earlier store read did not
+  cover.
 - `backfill`, and `drift --since` when it covers only users, read the store
   again after the provider, as a fresh run does. Tuples an earlier run sent
   that are missing from the store now are sent again.
 
-The counts of what was sent in the report include what earlier runs sent.
+Tuples sent by an earlier run are counted as already in the store, and the
+counts of what was sent in the report include them.
+
+An organization created in Auth0 between the failed run and the resume may have
+its members read, but if the earlier run had already finished reading
+organizations, the organization itself is not read. For `backfill`, that
+organization's own tuples are not written until the next run without
+`--resume`. `drift` does not report them as missing either; a run without
+`--resume` does.
 
 #### When `--resume` refuses
 
@@ -799,22 +810,27 @@ These are the reasons:
 | It was made with another `--since` | `it was made with --since "24h", not ""` |
 | The mapping reads a snapshot type the file does not hold | `it did not read <type>` |
 | The file holds a type the mapping no longer reads | `it read <type>, which this run does not request` |
+| The earlier run read the store after the provider | `the earlier run read the store after the provider; this run must read it before` |
+| The mapping writes a shape the earlier store read did not cover | `the mapping now writes <shape> that the earlier store read did not cover` |
 | It is older than 24 hours | `it is older than 24 hours` |
 | It has no schema version, or another one | `it has no schema version`, `it has schema version N, not 1` |
 
 You may edit the mapping file between the failed run and the resume, as long as
-the set of snapshot types it reads does not change. The saved events replay
-through the edited mapping.
+the set of snapshot types it reads does not change and, for `drift`, it does not
+start writing a kind of tuple the earlier store read did not cover. The saved
+events replay through the edited mapping.
 
 ### Disk cost
 
 The file is as large as the tuples the mapping produces. A run with 100,000
 users in 1,000 organizations of 100 members, using the example mapping in
 `examples/mappings-full/auth0.yaml`, produced about 500,000 tuples and a work
-file of about 1.1 GB, with peak memory near 110 MB. Plan for about 1.1 GB per
+file of about 666 MB, with peak memory near 110 MB. Plan for about 670 MB per
 100,000 memberships with that mapping, and more if your mapping produces more
 tuples. Put the file on a disk with room with `--state`, and delete it once you
-no longer need it.
+no longer need it. While it runs, replay also uses a temporary file in the
+system temp directory, deleted when the run ends, so that directory needs free
+space of a similar order.
 
 ## Checking only recent changes
 
