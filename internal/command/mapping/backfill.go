@@ -21,6 +21,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/mapping"
 	"github.com/sergiught/openfga-cli/internal/mapping/snapshot"
+	"github.com/sergiught/openfga-cli/internal/mapping/snapshot/workfile"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/prompt"
 )
@@ -48,6 +49,7 @@ func (c *Command) newBackfillCmd() *cobra.Command {
 		provider      string
 		since         string
 		dryRun, force bool
+		state         stateFlags
 	)
 	cmd := &cobra.Command{
 		Use:   "backfill [file] --provider <name>",
@@ -76,17 +78,25 @@ ofga mappings backfill auth0.yaml --provider auth0 --auth0-client-secret-file ./
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return c.runBackfill(cmd, targetPath(args), provider, since, dryRun, force)
+			return c.runBackfill(cmd, targetPath(args), provider, since, dryRun, force, &state)
 		},
 	}
 	addProviderFlags(cmd, &provider)
 	cmd.Flags().StringVar(&since, "since", "", "read only what changed since a duration ago (2h) or an RFC 3339 time; users only")
 	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "show the tuples without writing anything")
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "write without asking")
+	state.register(cmd.Flags())
 	return cmd
 }
 
-func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, dryRun, force bool) error {
+// runBackfill runs backfill and then settles the work file by how it ended.
+func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, dryRun, force bool, state *stateFlags) error {
+	ws := &workState{}
+	err := c.backfill(cmd, path, provider, since, dryRun, force, state, ws)
+	return ws.end(c, cmd, state, err, force, c.cli.JSON || c.cli.YAML)
+}
+
+func (c *Command) backfill(cmd *cobra.Command, path, provider, since string, dryRun, force bool, state *stateFlags, ws *workState) error {
 	machine := c.cli.JSON || c.cli.YAML
 	sinceTime, err := parseSince(since)
 	if err != nil {
@@ -109,19 +119,21 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, 
 	}
 	live := c.liveStatus(errw, machine, "ofga mappings backfill", phases...)
 	defer live.Close()
-	run, err := c.runSnapshot(cmd, path, provider, sinceTime, func() *status.Live { return live }, func(*mapping.File, []snapshot.Type, []string) error {
+	run, err := c.runSnapshot(cmd, path, provider, sinceTime, snapshotOpts{command: "backfill", sinceText: since, state: state, ws: ws}, func() *status.Live { return live }, func(*mapping.File, []snapshot.Type, []string) (string, error) {
 		var r config.Resolved
 		var err error
 		if cl, r, err = c.cli.ClientWithStore(client.WithMeter(meter)); err != nil {
-			return err
+			return "", err
 		}
 		storeID = r.StoreID
 		storeNm, storeLbl, err = storeName(ctx, cl, storeID)
-		return err
-	})
+		return storeID, err
+	}, nil)
 	if err != nil {
 		return err
 	}
+	wf := run.Work
+	workPath := wf.Path()
 
 	// With nothing desired there is nothing to look up, so the store is not
 	// read and store_read_at stays the zero time.
@@ -129,13 +141,18 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, 
 		read        storeRead
 		storeReadAt time.Time
 	)
-	if len(run.Desired) > 0 {
+	nDesired := count(run.Desired)
+	if nDesired > 0 {
 		live.Phase("Store")
 		live.Store(meter)
 		if live == nil {
 			output.Progressf(errw, "reading the store")
 		}
-		read, err = (storeClient{cl}).ReadMatching(ctx, run.Desired, func(mp matchProgress) {
+		// The sink keeps every tuple the read sees, not only the wanted ones:
+		// backfill owns no shapes, so the extra rows never become stale.
+		total, objects, err := (storeClient{cl}).ReadMatchingFrom(ctx, wf.Wanted(), func(ts []language.Tuple) error {
+			return workErr(workPath, wf.AddStore(ctx, ts))
+		}, func(mp matchProgress) {
 			switch {
 			case live != nil:
 				matchStatus(live, mp)
@@ -146,24 +163,33 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, 
 		if err != nil {
 			return err
 		}
+		// total counts every read, crowded pairs included: it feeds the report's
+		// "read" line and is not a row count.
+		read = storeRead{Read: total, Objects: objects}
+		if err := wf.MarkStoreRead(now(), total, objects); err != nil {
+			return workErr(workPath, err)
+		}
 		live.Note(matchNote(read))
 		storeReadAt = now()
 	}
 	// Everything the reads have to say comes next, so the card gives way.
 	live.Suspend("read")
-	stored := read.Tuples
 
 	// With no owned shapes nothing is stale: backfill never deletes.
-	diff := snapshot.Compare(run.Desired, stored, nil)
+	counts, err := wf.Compare(ctx, nil, nil)
+	if err != nil {
+		return workErr(workPath, err)
+	}
+	nMissing, nChanged := counts.Missing, counts.Changed
 	notChecked := snapshot.Removers(run.File.Doc, run.Contested)
-	existing := len(run.Desired) - len(diff.Missing) - len(diff.Changed)
+	existing := counts.Desired - nMissing - nChanged
 	label := run.Provider.Label()
 	res := backfillResult{
 		snapshotMeta: newSnapshotMeta(storeID, run, dryRun), StoreReadAt: storeReadAt.UTC(),
 		Existing:   existing,
 		NotChecked: notCheckedOuts(notChecked),
 	}
-	desired, dl := snapshot.Slice(run.Desired), diff.Lists()
+	desired, dl := run.Desired, diffLists(wf, counts)
 	lists := map[string]snapshot.Tuples{"tuples": desired, "missing": dl.Missing, "changed": dl.Changed}
 	if !machine {
 		report := func() error {
@@ -175,20 +201,21 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, 
 		if err := report(); err != nil {
 			return err
 		}
-		if len(diff.Changed) > 0 {
+		if nChanged > 0 {
 			verb, pronoun := "is", "it"
-			if len(diff.Changed) > 1 {
+			if nChanged > 1 {
 				verb, pronoun = "are", "them"
 			}
 			output.Notef(errw, "%s %s in the store with a different condition; backfill leaves %s, \"ofga mappings drift\" replaces %s",
-				mapping.Plural(len(diff.Changed), "tuple"), verb, pronoun, pronoun)
+				mapping.Plural(nChanged, "tuple"), verb, pronoun, pronoun)
 		}
 	}
-	if len(run.Desired) == 0 {
+	if nDesired == 0 {
 		if err := emitBackfill(out, c.cli, res, lists); err != nil {
 			return err
 		}
 		output.Successf(errw, "nothing to write")
+		ws.finished = true
 		return nil
 	}
 	if dryRun {
@@ -198,19 +225,21 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, 
 		if !machine {
 			output.Notef(errw, "dry run: nothing written")
 		}
+		ws.finished = true
 		return nil
 	}
-	if len(diff.Missing) == 0 {
+	if nMissing == 0 {
 		if err := emitBackfill(out, c.cli, res, lists); err != nil {
 			return err
 		}
 		_, finish := snapshotTimes(run.Result)
 		differ := ""
-		if len(diff.Changed) > 0 {
-			differ = fmt.Sprintf(", %d there with a different condition", len(diff.Changed))
+		if nChanged > 0 {
+			differ = fmt.Sprintf(", %d there with a different condition", nChanged)
 		}
 		output.Successf(errw, "nothing to write: %s already in store %s%s (%s state as of %s UTC)", bold(mapping.Plural(existing, "tuple")),
 			output.SanitizeField(storeLbl), differ, output.SanitizeField(label), finish)
+		ws.finished = true
 		return nil
 	}
 	if machine && !force {
@@ -219,6 +248,7 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, 
 		if err := emitBackfill(out, c.cli, res, lists); err != nil {
 			return err
 		}
+		ws.finished = true
 		return clierr.WithCode(clierr.CodeUsage, clierr.WithHint("pass --dry-run to preview or --force to write",
 			errors.New("non-interactive runs never prompt; pass --dry-run to preview or --force to write")))
 	}
@@ -226,18 +256,23 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, 
 	if !force && !c.cli.NoInput && stdinIsTerminal(cmd) {
 		output.Notef(errw, "%s", snapshotAge(run.Result))
 	}
-	if err := prompt.Confirm(cmd, backfillQuestion(len(diff.Missing), storeNm, storeID), force); err != nil {
+	if err := prompt.Confirm(cmd, backfillQuestion(nMissing, storeNm, storeID), force); err != nil {
+		// A declined question and a missing terminal end the run; an interrupted
+		// one does not.
+		ws.finished = ctx.Err() == nil
 		return err
 	}
 
 	live.Phase("Write")
-	sent, err := snapshot.Write(ctx, storeClient{cl}, nil, diff.Missing, func(done, total int) {
-		switch {
-		case live != nil:
-			live.Set("changes", done, total)
-		case total > backfillRequestSize: // more than one request
-			output.Progressf(errw, "sent %d/%d writes", done, total)
-		}
+	sent, err := sendPages(wf, workfile.Missing, func(page, _ []language.Tuple, prior int) (snapshot.Sent, error) {
+		return snapshot.Write(ctx, storeClient{cl}, nil, page, func(done, _ int) {
+			switch {
+			case live != nil:
+				live.Set("changes", prior+done, nMissing)
+			case nMissing > backfillRequestSize: // more than one request
+				output.Progressf(errw, "sent %d/%d writes", prior+done, nMissing)
+			}
+		})
 	})
 	live.Note(thousands(sent.Writes+sent.Deletes) + " changes")
 	live.Suspend("wrote")
@@ -246,7 +281,7 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, 
 		if eerr := emitBackfill(out, c.cli, res, lists); eerr != nil {
 			return eerr
 		}
-		return reportBackfillFailure(ctx, errw, machine, sent, len(diff.Missing), err)
+		return reportBackfillFailure(ctx, errw, machine, sent, nMissing, wf.Named(err))
 	}
 	if err := emitBackfill(out, c.cli, res, lists); err != nil {
 		return err
@@ -254,6 +289,7 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, 
 	_, finish := snapshotTimes(run.Result)
 	output.Successf(errw, "wrote %s to store %s; %d already there (%s state as of %s UTC)", bold(mapping.Plural(sent.Writes, "tuple")),
 		output.SanitizeField(storeLbl), existing, output.SanitizeField(label), finish)
+	ws.finished = true
 	return nil
 }
 

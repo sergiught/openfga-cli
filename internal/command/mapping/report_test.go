@@ -29,7 +29,7 @@ func withCond(t language.Tuple, cond string, ctx map[string]any) language.Tuple 
 func reportRun(desired int, counts ...snapshot.Count) *snapshotRun {
 	res := fakeResult()
 	res.Counts = counts
-	return &snapshotRun{Provider: fakeProvider{}, Result: res, Desired: make([]language.Tuple, desired)}
+	return &snapshotRun{Provider: fakeProvider{}, Result: res, Desired: snapshot.Slice(make([]language.Tuple, desired))}
 }
 
 // colorless renders with fn and strips the styling, as a pipe would.
@@ -72,7 +72,7 @@ func TestRenderDriftReportAllSections(t *testing.T) {
 	}
 	notChecked := []snapshot.NotChecked{{Rule: "user.updated", Reason: "no snapshot rule"}, {Rule: "a", Reason: "other"}}
 	got := colorless(t, func(w *bytes.Buffer) error {
-		return renderDriftReport(w, run, "demo", storeAt, 912, 0, false, snapshot.Slice(run.Desired), diff.Lists(), notChecked)
+		return renderDriftReport(w, run, "demo", storeAt, 912, 0, false, run.Desired, diff.Lists(), notChecked)
 	})
 	want := lines(
 		"  Store  demo · 14:03:13 UTC · 912 tuples",
@@ -115,7 +115,7 @@ func TestRenderDriftReportSingularAndUnconditionalWas(t *testing.T) {
 		Was:     []language.Tuple{tup("user:a", "viewer", "document:1")},
 	}
 	got := colorless(t, func(w *bytes.Buffer) error {
-		return renderDriftReport(w, run, "demo", storeAt, 1, 0, false, snapshot.Slice(run.Desired), diff.Lists(), nil)
+		return renderDriftReport(w, run, "demo", storeAt, 1, 0, false, run.Desired, diff.Lists(), nil)
 	})
 	for _, want := range []string{"CHANGED  1 tuple whose condition differs", "~ user:a viewer document:1 (c)  was unconditional", "Drift  + 0 missing · ~ 1 changed · - 0 stale · 0 in sync"} {
 		if !strings.Contains(got, want) {
@@ -129,7 +129,7 @@ func TestRenderDriftReportHeaderOrder(t *testing.T) {
 	run := reportRun(0, snapshot.Count{Type: "snapshot.user", N: 3})
 	render := func(after bool, at time.Time) string {
 		return colorless(t, func(w *bytes.Buffer) error {
-			return renderDriftReport(w, run, "demo", at, 5, 2, after, snapshot.Slice(run.Desired), snapshot.Diff{}.Lists(), nil)
+			return renderDriftReport(w, run, "demo", at, 5, 2, after, run.Desired, snapshot.Diff{}.Lists(), nil)
 		})
 	}
 	before := lines(
@@ -172,7 +172,7 @@ func TestRenderBackfillReport(t *testing.T) {
 		Was:     []language.Tuple{tup("user:b", "member", "organization:o1")},
 	}
 	got := colorless(t, func(w *bytes.Buffer) error {
-		return renderBackfillReport(w, run, "demo", storeAt, 3, 0, snapshot.Slice(run.Desired), diff.Lists(), 2, nil)
+		return renderBackfillReport(w, run, "demo", storeAt, 3, 0, run.Desired, diff.Lists(), 2, nil)
 	})
 	want := lines(
 		"  Fake      tenant.example · 14:02:13 → 14:05:40 UTC",
@@ -198,7 +198,7 @@ func TestRenderBackfillReportNothingDesired(t *testing.T) {
 	setInteractive(t, false)
 	run := reportRun(0, snapshot.Count{Type: "snapshot.user", N: 0})
 	got := colorless(t, func(w *bytes.Buffer) error {
-		return renderBackfillReport(w, run, "demo", time.Time{}, 0, 0, snapshot.Slice(run.Desired), snapshot.Diff{}.Lists(), 0, nil)
+		return renderBackfillReport(w, run, "demo", time.Time{}, 0, 0, run.Desired, snapshot.Diff{}.Lists(), 0, nil)
 	})
 	want := lines(
 		"  Fake      tenant.example · 14:02:13 → 14:05:40 UTC",

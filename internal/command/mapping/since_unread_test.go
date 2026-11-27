@@ -141,7 +141,7 @@ func TestDriftSinceStillWritesTheTuplesOfTheUsersItRead(t *testing.T) {
 func TestDriftWithoutSinceStillSetsAsideTheBlockedUserOnly(t *testing.T) {
 	configtest.Isolate(t)
 	fs := newFakeStore(t)
-	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: blockedResult()})
+	useFakeProvider(t, fakeProvider{types: userFirstTypes(), result: blockedResult()})
 	stdout, stderr, err := runDrift(t, fs.cli(), nil, driftArgs(t, blockedMapping, "--force")...)
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, stderr)

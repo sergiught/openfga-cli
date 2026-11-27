@@ -261,6 +261,19 @@ func Open(path string) (*File, error) {
 	return &File{db: db, path: path, meta: m, items: map[string]int{}}, nil
 }
 
+// Named names the work file in err when the database produced it. Any other
+// error, such as one a callback returned or a cancellation, passes through.
+func (f *File) Named(err error) error {
+	var se *sqlite.Error
+	if err == nil || strings.Contains(err.Error(), f.path) {
+		return err
+	}
+	if errors.As(err, &se) || errors.Is(err, sql.ErrConnDone) || errors.Is(err, sql.ErrTxDone) {
+		return fmt.Errorf("work file %s: %w", f.path, err)
+	}
+	return err
+}
+
 // Path returns where the file lives.
 func (f *File) Path() string { return f.path }
 

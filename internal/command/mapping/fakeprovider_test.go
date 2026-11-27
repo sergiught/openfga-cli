@@ -21,11 +21,13 @@ type fakeProvider struct {
 	gotSince *time.Time
 	// log, when non-nil, gets "provider read" for each Snapshot.
 	log *[]string
-	// stream, when set, hands the result's events to Request.Emit one at a time
+	// stream, when set, hands the result's events to Request.Save one at a time
 	// instead of returning them, and records "emit <type>", then "read finished"
 	// or "stopped" in steps (which may be nil).
 	stream bool
 	steps  *[]string
+	// hook, when set, runs first in Snapshot; an error from it ends the read.
+	hook func(req snapshot.Request) error
 }
 
 func (fakeProvider) Name() string             { return "fake" }
@@ -51,15 +53,20 @@ func (p fakeProvider) Snapshot(_ context.Context, req snapshot.Request, progress
 	if progress != nil {
 		progress(snapshot.Progress{Message: "reading fake"})
 	}
-	if p.stream && req.Emit != nil && p.err == nil {
+	if p.hook != nil {
+		if err := p.hook(req); err != nil {
+			return nil, err
+		}
+	}
+	if p.stream && req.Save != nil && p.err == nil {
 		note := func(s string) {
 			if p.steps != nil {
 				*p.steps = append(*p.steps, s)
 			}
 		}
-		for _, e := range p.result.Events {
+		for i, e := range p.result.Events {
 			note(fmt.Sprintf("emit %v", e["type"]))
-			if err := req.Emit([]map[string]any{e}); err != nil {
+			if err := req.Save(snapshot.Unit{Key: "all"}, []map[string]any{e}, i == len(p.result.Events)-1); err != nil {
 				note("stopped")
 				return nil, err
 			}

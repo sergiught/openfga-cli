@@ -28,7 +28,7 @@ func TestStreamedReadGivesTheSameResultsAsAReturnedOne(t *testing.T) {
 			type outcome struct{ stdout, stderr, writes string }
 			run := func(stream bool) outcome {
 				fs := newFakeStore(t)
-				useFakeProvider(t, fakeProvider{types: fakeTypes(), result: blockedResult(), stream: stream})
+				useFakeProvider(t, fakeProvider{types: userFirstTypes(), result: blockedResult(), stream: stream})
 				args := []string{writeFile(t, t.TempDir(), "m.yaml", blockedMapping), "--provider", "fake", "--force"}
 				stdout, stderr, err := runSnapshotCmd(t, fs.cli(), nil, cmd, args...)
 				if err != nil {
@@ -48,13 +48,14 @@ func TestStreamedReadGivesTheSameResultsAsAReturnedOne(t *testing.T) {
 	}
 }
 
-func TestStreamedReadStopsWhenARuleFailsOnAnEvent(t *testing.T) {
+// A rule that fails on an event is reported once the read has saved its events:
+// the replay runs from the work file after the read.
+func TestStreamedReadReportsARuleFailingOnAnEventAfterTheRead(t *testing.T) {
 	configtest.Isolate(t)
 	fs := newFakeStore(t)
 	res := fakeResult()
 	res.Events = []map[string]any{
 		{"type": "snapshot.user", "subject": "user auth0|anne", "user_id": "u1"},
-		{"type": "snapshot.organization.member", "user_id": "u1", "org": "o1"},
 	}
 	var steps []string
 	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: res, stream: true, steps: &steps})
@@ -65,7 +66,7 @@ func TestStreamedReadStopsWhenARuleFailsOnAnEvent(t *testing.T) {
 	if !strings.Contains(err.Error(), "snapshot.user (user auth0|anne)") {
 		t.Errorf("err = %v", err)
 	}
-	if got := strings.Join(steps, ","); got != "emit snapshot.user,stopped" {
+	if got := strings.Join(steps, ","); got != "emit snapshot.user,read finished" {
 		t.Errorf("steps = %s", got)
 	}
 }

@@ -45,7 +45,7 @@ func TestBackfillAsksAndDeclines(t *testing.T) {
 	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: fakeResult()})
 	mp := writeFile(t, t.TempDir(), "m.yaml", memberSnapshotMapping)
 	master, tty := openPTY(t)
-	if _, err := master.WriteString("n\n"); err != nil {
+	if _, err := master.WriteString("n\n\n"); err != nil {
 		t.Fatal(err)
 	}
 	_, stderr, err := runBackfill(t, fs.cli(), tty, mp, "--provider", "fake")

@@ -17,6 +17,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/command/mapping/status"
 	"github.com/sergiught/openfga-cli/internal/mapping"
 	"github.com/sergiught/openfga-cli/internal/mapping/snapshot"
+	"github.com/sergiught/openfga-cli/internal/mapping/snapshot/workfile"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/style"
 )
@@ -30,7 +31,9 @@ type snapshotRun struct {
 	Provider snapshot.Provider
 	Types    []snapshot.Type
 	Result   *snapshot.Result
-	Desired  []language.Tuple
+	Desired  snapshot.Tuples
+	// Work is the run's work file; it holds Desired, the store read and the diff.
+	Work *workfile.File
 	// Contested are tuples set aside from Desired because the replay cannot
 	// vouch for them: an earlier event removed them and a later one wrote them,
 	// another event of their writer's type removed them, or, under --since, a
@@ -54,7 +57,7 @@ type snapshotRun struct {
 // live returns the status card to draw the provider read and the replay on,
 // nil for none; it is asked after beforeRead, which may have created it. The
 // caller owns it and closes it.
-func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since time.Time, live func() *status.Live, beforeRead func(f *mapping.File, types []snapshot.Type, windowed []string) error) (*snapshotRun, error) {
+func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since time.Time, opts snapshotOpts, live func() *status.Live, beforeRead func(f *mapping.File, types []snapshot.Type, windowed []string) (storeID string, err error), afterOpen func(wf *workfile.File) error) (*snapshotRun, error) {
 	machine := c.cli.JSON || c.cli.YAML
 	ctx, out, errw := cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr()
 	// Problem lines are not the machine payload: keep stdout clean for jq.
@@ -63,6 +66,9 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since t
 		problemsOut = errw
 	}
 
+	if opts.state.resume {
+		return nil, errResumeLater
+	}
 	if provider == "" {
 		return nil, clierr.WithCode(clierr.CodeUsage, clierr.WithHint(
 			"--provider takes one of: "+strings.Join(providerNames(), ", "),
@@ -118,23 +124,43 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since t
 	if err != nil {
 		return nil, err
 	}
-	if beforeRead != nil {
-		if err := beforeRead(f, types, windowed); err != nil {
+	// Nor does it cost a request to learn that there is nowhere to keep the work
+	// file.
+	if opts.state.path == "" {
+		if _, err := cacheDir(); err != nil {
+			return nil, noCacheDir(err)
+		}
+	}
+	storeID, err := beforeRead(f, types, windowed)
+	if err != nil {
+		return nil, err
+	}
+
+	// From here a failure keeps the work file.
+	workPath, err := workPath(opts.state, path, storeID, opts.command)
+	if err != nil {
+		return nil, err
+	}
+	wf, err := createWork(cmd, workPath, workMeta(opts.command, p.Name(), p.Source(), storeID, opts.sinceText, since, requested, f.Src))
+	if err != nil {
+		return nil, err
+	}
+	opts.ws.f = wf
+	if afterOpen != nil {
+		if err := afterOpen(wf); err != nil {
 			return nil, err
 		}
 	}
+
 	lv := live()
 	lv.Provider(entry.Label, p.Stats)
 	lv.Phase(entry.Label)
-	// A provider that streams hands the events to the replay while it reads, so
-	// a rule that fails on an event stops the read and no list of events is held.
-	replay := snapshot.NewReplay(m)
-	if len(windowed) > 0 {
-		replay.Window(windowed, snapshot.UnreadRemovals(f.Doc, windowed))
+	save := func(u snapshot.Unit, events []map[string]any, finished bool) error {
+		return workErr(workPath, wf.Save(u, events, finished))
 	}
 	res, err := p.Snapshot(ctx, snapshot.Request{
 		Types: requested, Since: since,
-		Emit: func(events []map[string]any) error { return replay.Add(ctx, events) },
+		Save: save, Done: wf.UnitDone, Remember: wf.Remember, Recall: wf.Recall,
 	}, func(pr snapshot.Progress) {
 		switch {
 		case lv != nil:
@@ -152,21 +178,15 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since t
 	for _, n := range res.Counts {
 		items += n.N
 	}
-	// A provider that ignored Emit gave its events in the result: replay them now,
-	// on the provider's own row.
-	replayed := len(res.Events) > 0
-	if replayed {
-		total := len(res.Events)
-		for i := range res.Events {
-			if err := replay.Add(ctx, res.Events[i:i+1]); err != nil {
+	// A provider that ignored Save gave its events in the result: keep them in
+	// the work file as one unit, so the replay below reads one place.
+	if len(res.Events) > 0 {
+		for events := res.Events; len(events) > 0; {
+			n := min(len(events), saveChunk)
+			if err := save(snapshot.Unit{Key: "all"}, events[:n], n == len(events)); err != nil {
 				return nil, err
 			}
-			switch done := i + 1; {
-			case lv != nil:
-				lv.Set("events", done, total)
-			case total >= progressEvery && (done%progressEvery == 0 || done == total):
-				output.Progressf(errw, "replaying event %d/%d", done, total)
-			}
+			events = events[n:]
 		}
 		// A copy, so the events are not kept by this run and the provider's own
 		// result is left as it gave it.
@@ -174,9 +194,60 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since t
 		done.Events = nil
 		res = &done
 	}
-	desired, contested := replay.Done()
-	lv.Note(thousands(items) + " items, " + thousands(len(desired)) + " tuples from " + thousands(replay.Events()) + " events")
-	return &snapshotRun{File: f, Provider: p, Types: types, Result: res, Desired: desired, Contested: contested, Since: since, Windowed: windowed}, nil
+
+	replay := snapshot.NewReplayWith(m, wf.TupleSet(), wf.PlanState())
+	if len(windowed) > 0 {
+		replay.Window(windowed, snapshot.UnreadRemovals(f.Doc, windowed))
+	}
+	var addErr error
+	replayed := 0
+	_, err = wf.Replay(ctx, replayPage, func(events []map[string]any) error {
+		if addErr = replay.Add(ctx, events); addErr != nil {
+			return addErr
+		}
+		replayed += len(events)
+		if lv != nil {
+			lv.Set("events", replayed, 0)
+		}
+		return nil
+	})
+	if err != nil {
+		if err == addErr {
+			return nil, wf.Named(err)
+		}
+		return nil, workErr(workPath, err)
+	}
+	contested, err := replay.DoneEach(ctx, func(t language.Tuple) error { return wf.AddDesired(ctx, t) })
+	if err == nil {
+		err = wf.FlushDesired(ctx)
+	}
+	if err != nil {
+		return nil, wf.Named(err)
+	}
+	n, err := wf.DesiredCount()
+	if err != nil {
+		return nil, workErr(workPath, err)
+	}
+	// The count is known now, so reports never ask the work file for it.
+	desired := counted{wf.Desired(), n}
+	lv.Note(thousands(items) + " items, " + thousands(n) + " tuples from " + thousands(replay.Events()) + " events")
+	return &snapshotRun{File: f, Provider: p, Types: types, Result: res, Desired: desired, Work: wf, Contested: contested, Since: since, Windowed: windowed}, nil
+}
+
+// replayPage is how many saved events the replay reads at a time; saveChunk is
+// how many of a provider's returned events go into the work file in one
+// transaction.
+const (
+	replayPage = 1000
+	saveChunk  = 5000
+)
+
+// snapshotOpts is what runSnapshot needs to keep the work file.
+type snapshotOpts struct {
+	command   string // "backfill" or "drift"
+	sinceText string // --since as given
+	state     *stateFlags
+	ws        *workState
 }
 
 // windowedRequested returns the requested types the provider can read by

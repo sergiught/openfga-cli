@@ -16,7 +16,7 @@ import (
 func driftAnswering(t *testing.T, fs *fakeStore, answers string, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
 	master, tty := openPTY(t)
-	if _, werr := master.WriteString(answers); werr != nil {
+	if _, werr := master.WriteString(answers + "\n"); werr != nil {
 		t.Fatal(werr)
 	}
 	return runDrift(t, fs.cli(), tty, args...)
@@ -158,7 +158,8 @@ func TestDriftPruneDryRunAsksNothing(t *testing.T) {
 	fs := newFakeStore(t, member("gone"))
 	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1")})
 	_, stderr, err := driftAnswering(t, fs, "y\ny\n", driftArgs(t, driftMapping, "--prune", "--dry-run")...)
-	if clierr.Code(err) != clierr.CodeTestFailed || fs.writeCount() != 0 || strings.Contains(stderr, "[y/N]") {
+	// The only question is whether to keep the work file.
+	if clierr.Code(err) != clierr.CodeTestFailed || fs.writeCount() != 0 || strings.Count(stderr, "[y/N]") != 1 || !strings.Contains(stderr, "Keep the work file") {
 		t.Fatalf("code = %d writes = %d err = %v\n%s", clierr.Code(err), fs.writeCount(), err, stderr)
 	}
 }
@@ -171,7 +172,7 @@ func TestDriftPruneOnlyAsksTheDeleteQuestion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, stderr)
 	}
-	if strings.Count(stderr, "[y/N]") != 1 || !strings.Contains(stderr, "Delete 1 stale tuple from store acme (") || strings.Contains(stderr, "Write ") {
+	if strings.Count(stderr, "[y/N]") != 2 || !strings.Contains(stderr, "Delete 1 stale tuple from store acme (") || !strings.Contains(stderr, "Keep the work file") || strings.Contains(stderr, "Write ") {
 		t.Errorf("stderr:\n%s", stderr)
 	}
 }
@@ -236,7 +237,7 @@ func TestDriftNoInputOnTerminalReportsOnly(t *testing.T) {
 	fs := newFakeStore(t, member("gone"))
 	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1")})
 	master, tty := openPTY(t)
-	if _, err := master.WriteString("y\n"); err != nil {
+	if _, err := master.WriteString("y\n\n"); err != nil {
 		t.Fatal(err)
 	}
 	c := fs.cli()

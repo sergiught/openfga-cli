@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"slices"
 	"strconv"
 	"time"
 
@@ -19,6 +18,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/mapping"
 	"github.com/sergiught/openfga-cli/internal/mapping/snapshot"
+	"github.com/sergiught/openfga-cli/internal/mapping/snapshot/workfile"
 	"github.com/sergiught/openfga-cli/internal/output"
 	"github.com/sergiught/openfga-cli/internal/prompt"
 )
@@ -66,6 +66,7 @@ func (c *Command) newDriftCmd() *cobra.Command {
 		provider             string
 		since                string
 		prune, dryRun, force bool
+		state                stateFlags
 	)
 	cmd := &cobra.Command{
 		Use:   "drift [file] --provider <name>",
@@ -94,7 +95,7 @@ ofga mappings drift auth0.yaml --provider auth0 --auth0-client-secret-file ./sec
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return c.runDrift(cmd, targetPath(args), provider, since, prune, dryRun, force)
+			return c.runDrift(cmd, targetPath(args), provider, since, prune, dryRun, force, &state)
 		},
 	}
 	addProviderFlags(cmd, &provider)
@@ -102,10 +103,18 @@ ofga mappings drift auth0.yaml --provider auth0 --auth0-client-secret-file ./sec
 	cmd.Flags().BoolVar(&prune, "prune", false, "also delete stale tuples the provider no longer backs")
 	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "show the drift without writing anything")
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "write without asking")
+	state.register(cmd.Flags())
 	return cmd
 }
 
-func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, prune, dryRun, force bool) error {
+// runDrift runs drift and then settles the work file by how it ended.
+func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, prune, dryRun, force bool, state *stateFlags) error {
+	ws := &workState{}
+	err := c.drift(cmd, path, provider, since, prune, dryRun, force, state, ws)
+	return ws.end(c, cmd, state, err, force, c.cli.JSON || c.cli.YAML)
+}
+
+func (c *Command) drift(cmd *cobra.Command, path, provider, since string, prune, dryRun, force bool, state *stateFlags, ws *workState) error {
 	sinceTime, err := parseSince(since)
 	if err != nil {
 		return err
@@ -117,7 +126,6 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 		cl                *openfga.Client
 		storeID           string
 		storeNm, storeLbl string
-		stored            []language.Tuple
 		storeReadAt       time.Time
 	)
 	var (
@@ -126,6 +134,7 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 		// nothing can be stale and the store is read for the desired tuples only.
 		usersOnly bool
 		read      storeRead
+		afterOpen func(wf *workfile.File) error
 	)
 	// The store is read before the provider, so the snapshot is never older
 	// than the store it is compared with. The desired tuples are not known yet,
@@ -134,15 +143,15 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 	meter := new(client.Meter)
 	var live *status.Live
 	defer func() { live.Close() }()
-	run, err := c.runSnapshot(cmd, path, provider, sinceTime, func() *status.Live { return live }, func(f *mapping.File, types []snapshot.Type, windowed []string) error {
+	run, err := c.runSnapshot(cmd, path, provider, sinceTime, snapshotOpts{command: "drift", sinceText: since, state: state, ws: ws}, func() *status.Live { return live }, func(f *mapping.File, types []snapshot.Type, windowed []string) (string, error) {
 		var r config.Resolved
 		var err error
 		if cl, r, err = c.cli.ClientWithStore(client.WithMeter(meter)); err != nil {
-			return err
+			return "", err
 		}
 		storeID = r.StoreID
 		if storeNm, storeLbl, err = storeName(ctx, cl, storeID); err != nil {
-			return err
+			return "", err
 		}
 		if !sinceTime.IsZero() {
 			owned, _ := snapshot.Coverage(f.Doc, types, windowed, sinceTime)
@@ -162,34 +171,56 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 			}
 		}
 		live = c.liveStatus(errw, machine, "ofga mappings drift", phases...)
-		if usersOnly {
+		if !usersOnly {
+			doc := f.Doc
+			afterOpen = func(wf *workfile.File) error {
+				live.Phase("Store")
+				live.Store(meter)
+				if live == nil {
+					output.Progressf(errw, "reading the store")
+				}
+				var kept int
+				var err error
+				_, storedTotal, err = (storeClient{cl}).ReadKept(ctx, snapshot.Writes(doc), func(ts []language.Tuple) error {
+					kept += len(ts)
+					return workErr(wf.Path(), wf.AddStore(ctx, ts))
+				}, func(read, _ int) {
+					live.Set("tuples", read, 0)
+				})
+				if err != nil {
+					return err
+				}
+				if err := wf.MarkStoreRead(now(), storedTotal, 0); err != nil {
+					return workErr(wf.Path(), err)
+				}
+				live.Note(thousands(storedTotal) + " tuples read · " + thousands(kept) + " kept")
+				storeReadAt = now()
+				return nil
+			}
+		}
+		return storeID, nil
+	}, func(wf *workfile.File) error {
+		if afterOpen == nil {
 			return nil
 		}
-		live.Phase("Store")
-		live.Store(meter)
-		if live == nil {
-			output.Progressf(errw, "reading the store")
-		}
-		if stored, storedTotal, err = (storeClient{cl}).ReadKept(ctx, snapshot.Writes(f.Doc), nil, func(read, _ int) {
-			live.Set("tuples", read, 0)
-		}); err != nil {
-			return err
-		}
-		live.Note(thousands(storedTotal) + " tuples read · " + thousands(len(stored)) + " kept")
-		storeReadAt = now()
-		return nil
+		return afterOpen(wf)
 	})
 	if err != nil {
 		return err
 	}
+	wf := run.Work
+	workPath := wf.Path()
+	nDesired := count(run.Desired)
 
-	if usersOnly && len(run.Desired) > 0 {
+	if usersOnly && nDesired > 0 {
 		live.Phase("Store")
 		live.Store(meter)
 		if live == nil {
 			output.Progressf(errw, "reading the store")
 		}
-		read, err = (storeClient{cl}).ReadMatching(ctx, run.Desired, func(mp matchProgress) {
+		total, objects, err := (storeClient{cl}).ReadMatchingFrom(ctx, wf.Wanted(), func(ts []language.Tuple) error {
+			return workErr(workPath, wf.AddStore(ctx, ts))
+		}, func(mp matchProgress) {
 			switch {
 			case live != nil:
 				matchStatus(live, mp)
@@ -200,23 +231,30 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 		if err != nil {
 			return err
 		}
+		// total counts every read, crowded pairs included; it is not a row count.
+		read = storeRead{Read: total, Objects: objects}
+		if err := wf.MarkStoreRead(now(), total, objects); err != nil {
+			return workErr(workPath, err)
+		}
 		live.Note(matchNote(read))
-		stored, storedTotal, storeReadAt = read.Tuples, read.Read, now()
+		storedTotal, storeReadAt = total, now()
 	}
 	// Everything the reads have to say comes next, so the card gives way.
 	live.Suspend("read")
 
 	owned, notChecked := snapshot.Coverage(run.File.Doc, run.Types, run.Windowed, run.Since)
 	notChecked = append(notChecked, snapshot.Removers(run.File.Doc, run.Contested)...)
-	// A contested tuple is neither stale nor missing, so its stored copy is
-	// left out of the comparison.
-	diff := snapshot.Compare(run.Desired, withoutContested(stored, run.Contested), owned)
+	// A contested tuple is neither stale nor missing, so Compare leaves it out.
+	counts, err := wf.Compare(ctx, owned, run.Contested)
+	if err != nil {
+		return workErr(workPath, err)
+	}
 	label := run.Provider.Label()
 	res := driftResult{
 		snapshotMeta: newSnapshotMeta(storeID, run, dryRun), StoreReadAt: storeReadAt.UTC(),
 		NotChecked: notCheckedOuts(notChecked),
 	}
-	desired, dl := snapshot.Slice(run.Desired), diff.Lists()
+	desired, dl := run.Desired, diffLists(wf, counts)
 	lists := map[string]snapshot.Tuples{"missing": dl.Missing, "changed": dl.Changed, "stale": dl.Stale}
 	if !machine {
 		if err := renderDrift(out, run, storeLbl, storeReadAt, storedTotal, read.Objects, usersOnly, desired, dl, notChecked); err != nil {
@@ -231,20 +269,26 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 		return err
 	}
 
-	if diff.Empty() {
+	// done is finish for the ends that are not failures: the work file is then
+	// settled by the keep step instead of kept for a resume.
+	done := func(err error) error {
+		ws.finished = true
+		return finish(err)
+	}
+	if counts.Missing+counts.Changed+counts.Stale == 0 {
 		verb := "match"
-		if len(run.Desired) == 1 {
+		if nDesired == 1 {
 			verb = "matches"
 		}
 		if run.Since.IsZero() {
-			output.Successf(errw, "no drift: %s %s %s", bold(mapping.Plural(len(run.Desired), "tuple")), verb, output.SanitizeField(label))
+			output.Successf(errw, "no drift: %s %s %s", bold(mapping.Plural(nDesired, "tuple")), verb, output.SanitizeField(label))
 		} else {
 			output.Successf(errw, "no drift found: %s %s %s; --since read only the users changed since %s UTC, so tuples of other users were not checked",
-				bold(mapping.Plural(len(run.Desired), "tuple")), verb, output.SanitizeField(label), run.Since.UTC().Format(dateClockLayout))
+				bold(mapping.Plural(nDesired, "tuple")), verb, output.SanitizeField(label), run.Since.UTC().Format(dateClockLayout))
 		}
-		return finish(nil)
+		return done(nil)
 	}
-	missing, changed, stale := len(diff.Missing), len(diff.Changed), len(diff.Stale)
+	missing, changed, stale := counts.Missing, counts.Changed, counts.Stale
 	writesDone, pruned := missing+changed == 0, false
 	remains := func() error {
 		m, ch, s := missing, changed, stale
@@ -260,7 +304,7 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 		if !machine {
 			output.Notef(errw, "dry run: nothing written")
 		}
-		return finish(remains())
+		return done(remains())
 	}
 	// --no-input never asks, like a missing terminal: report only.
 	if !force && (machine || c.cli.NoInput || !stdinIsTerminal(cmd)) {
@@ -272,27 +316,33 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 		default:
 			output.Notef(errw, "report only: pass --prune --force to delete %s", mapping.Plural(stale, "stale tuple"))
 		}
-		return finish(remains())
+		return done(remains())
 	}
 
 	// send runs one Write and folds what it sent into the document.
 	// pruning marks the stale deletes, which res.Pruned counts even when the
 	// request fails part-way. Progress counts from prior out of grand changes
 	// so a run of several steps reads as one.
-	send := func(deletes, writes []language.Tuple, pruning bool, prior, grand int) (snapshot.Sent, error) {
-		total := len(deletes) + len(writes)
-		verb := "wrote"
+	send := func(pruning bool, total, prior, grand int) (snapshot.Sent, error) {
+		verb, kind := "wrote", workfile.Missing
 		if pruning {
-			verb = "pruned"
+			verb, kind = "pruned", workfile.Stale
 		}
-		sent, err := snapshot.Write(ctx, storeClient{cl}, deletes, writes, func(done, _ int) {
-			switch {
-			case live != nil:
-				live.Set("changes", prior+done, grand)
-			case grand > backfillRequestSize: // more than one request
-				output.Progressf(errw, "sent %d/%d changes", prior+done, grand)
+		sent, err := sendPages(wf, kind, func(page, _ []language.Tuple, before int) (snapshot.Sent, error) {
+			progress := func(done, _ int) {
+				switch {
+				case live != nil:
+					live.Set("changes", prior+before+done, grand)
+				case grand > backfillRequestSize: // more than one request
+					output.Progressf(errw, "sent %d/%d changes", prior+before+done, grand)
+				}
 			}
+			if pruning {
+				return snapshot.Write(ctx, storeClient{cl}, page, nil, progress)
+			}
+			return snapshot.Write(ctx, storeClient{cl}, nil, page, progress)
 		})
+		err = wf.Named(err)
 		res.Sent.Writes += sent.Writes
 		res.Sent.Deletes += sent.Deletes
 		if pruning {
@@ -313,14 +363,20 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 	// replace swaps the changed tuples batch by batch and says what state the
 	// store is left in when a batch fails.
 	replace := func(prior, grand int) error {
-		sent, lost, err := snapshot.Replace(ctx, storeClient{cl}, diff.Was, diff.Changed, func(done, _ int) {
-			switch {
-			case live != nil:
-				live.Set("changes", prior+done, grand)
-			case grand > backfillRequestSize:
-				output.Progressf(errw, "sent %d/%d changes", prior+done, grand)
-			}
+		var lost []language.Tuple
+		sent, err := sendPages(wf, workfile.Changed, func(page, was []language.Tuple, before int) (snapshot.Sent, error) {
+			s, l, err := snapshot.Replace(ctx, storeClient{cl}, was, page, func(done, _ int) {
+				switch {
+				case live != nil:
+					live.Set("changes", prior+2*before+done, grand)
+				case grand > backfillRequestSize:
+					output.Progressf(errw, "sent %d/%d changes", prior+2*before+done, grand)
+				}
+			})
+			lost = l
+			return s, err
 		})
+		err = wf.Named(err)
 		res.Sent.Writes += sent.Writes
 		res.Sent.Deletes += sent.Deletes
 		if err == nil {
@@ -366,7 +422,7 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 			grand := missing + 2*changed
 			var sent snapshot.Sent
 			if missing > 0 {
-				s, err := send(nil, diff.Missing, false, 0, grand)
+				s, err := send(false, missing, 0, grand)
 				if err != nil {
 					return err
 				}
@@ -389,7 +445,7 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 			output.Successf(errw, "sent %s to store %s%s (%s state as of %s UTC)", bold(mapping.Plural(sent.Writes, "write")),
 				output.SanitizeField(storeLbl), replaced, output.SanitizeField(label), finishedAt)
 		case !errors.Is(err, prompt.ErrAborted):
-			return finish(err)
+			return done(err)
 		}
 	}
 
@@ -420,7 +476,7 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 		switch {
 		case err == nil:
 			live.Phase("Prune")
-			sent, err := send(diff.Stale, nil, true, 0, stale)
+			sent, err := send(true, stale, 0, stale)
 			if err != nil {
 				return err
 			}
@@ -429,25 +485,13 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 			live.Suspend("pruned")
 			output.Successf(errw, "deleted %s from store %s", bold(mapping.Plural(sent.Deletes, "stale tuple")), output.SanitizeField(storeLbl))
 		case !errors.Is(err, prompt.ErrAborted):
-			return finish(err)
+			return done(err)
 		}
 	}
 	if writesDone && (stale == 0 || pruned) {
-		return finish(nil)
+		return done(nil)
 	}
-	return finish(remains())
-}
-
-// withoutContested drops the stored tuples the replay set aside.
-func withoutContested(stored []language.Tuple, contested []snapshot.Contested) []language.Tuple {
-	if len(contested) == 0 {
-		return stored
-	}
-	set := make(map[string]bool, len(contested))
-	for _, c := range contested {
-		set[snapshot.Identity(c.Tuple)] = true
-	}
-	return slices.DeleteFunc(slices.Clone(stored), func(t language.Tuple) bool { return set[snapshot.Identity(t)] })
+	return done(remains())
 }
 
 // driftQuestion is the write prompt; it names the delete a changed tuple costs.

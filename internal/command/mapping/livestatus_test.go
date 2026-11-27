@@ -193,8 +193,9 @@ func TestBackfillProviderFailureStopsTheCardFirst(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 	stopped := w.indexOf(0, "stopped after ")
-	if stopped < 0 || stopped != len(w.list)-1 {
-		t.Fatalf("want the stopped line last, nothing about the error before or after it:\n%s", w.text())
+	// Only the work file hint comes after it: the file is kept for a resume.
+	if stopped < 0 || stopped != len(w.list)-2 || !strings.Contains(w.list[len(w.list)-1], "work file kept at") {
+		t.Fatalf("want the stopped line last, then the work file hint, nothing about the error before or after it:\n%s", w.text())
 	}
 	w.onlyCard(t, w.firstCard(0), stopped)
 	noLegacy(t, w.text())

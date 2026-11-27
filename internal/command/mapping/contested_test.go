@@ -77,7 +77,7 @@ func roleTypes() []snapshot.Type {
 func TestDriftForceWritesOnlyTheTupleReplayCanVouchFor(t *testing.T) {
 	configtest.Isolate(t)
 	fs := newFakeStore(t)
-	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: blockedResult()})
+	useFakeProvider(t, fakeProvider{types: userFirstTypes(), result: blockedResult()})
 	stdout, stderr, err := runDrift(t, fs.cli(), nil, driftArgs(t, blockedMapping, "--force")...)
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, stderr)
@@ -96,7 +96,7 @@ func TestDriftForceWritesOnlyTheTupleReplayCanVouchFor(t *testing.T) {
 func TestDriftPruneForceLeavesTheContestedStoredTupleAlone(t *testing.T) {
 	configtest.Isolate(t)
 	fs := newFakeStore(t, member("u1"), member("u2"))
-	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: blockedResult()})
+	useFakeProvider(t, fakeProvider{types: userFirstTypes(), result: blockedResult()})
 	stdout, stderr, err := runDrift(t, fs.cli(), nil, driftArgs(t, blockedMapping, "--prune", "--force")...)
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, stderr)
@@ -115,7 +115,7 @@ func TestDriftPruneForceLeavesTheContestedStoredTupleAlone(t *testing.T) {
 func TestDriftJSONListsTheContestedTuples(t *testing.T) {
 	configtest.Isolate(t)
 	fs := newFakeStore(t)
-	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: blockedResult()})
+	useFakeProvider(t, fakeProvider{types: userFirstTypes(), result: blockedResult()})
 	got, stderr, err := jsonDrift(t, fs.cli(), driftArgs(t, blockedMapping, "--dry-run")...)
 	if clierr.Code(err) != clierr.CodeTestFailed {
 		t.Fatalf("err = %v\n%s", err, stderr)
@@ -153,7 +153,7 @@ func TestDriftPlainCountsContestedRules(t *testing.T) {
 	configtest.Isolate(t)
 	plainReport(t)
 	fs := newFakeStore(t)
-	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: blockedResult()})
+	useFakeProvider(t, fakeProvider{types: userFirstTypes(), result: blockedResult()})
 	stdout, stderr, err := runDrift(t, fs.cli(), nil, driftArgs(t, blockedMapping, "--dry-run")...)
 	if clierr.Code(err) != clierr.CodeTestFailed {
 		t.Fatalf("err = %v\n%s", err, stderr)
@@ -184,7 +184,7 @@ func TestDriftPruneForceLeavesTuplesOfEventsThatRemoveEachOther(t *testing.T) {
 func TestBackfillForceWritesOnlyTheTupleReplayCanVouchFor(t *testing.T) {
 	configtest.Isolate(t)
 	fs := newFakeStore(t)
-	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: blockedResult()})
+	useFakeProvider(t, fakeProvider{types: userFirstTypes(), result: blockedResult()})
 	stdout, stderr, err := runBackfill(t, fs.cli(), nil, writeFile(t, t.TempDir(), "m.yaml", blockedMapping), "--provider", "fake", "--force")
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, stderr)
@@ -200,7 +200,7 @@ func TestBackfillForceWritesOnlyTheTupleReplayCanVouchFor(t *testing.T) {
 func TestBackfillJSONListsNotChecked(t *testing.T) {
 	configtest.Isolate(t)
 	fs := newFakeStore(t)
-	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: blockedResult()})
+	useFakeProvider(t, fakeProvider{types: userFirstTypes(), result: blockedResult()})
 	c := fs.cli()
 	c.JSON = true
 	stdout, stderr, err := runBackfill(t, c, nil, writeFile(t, t.TempDir(), "m.yaml", blockedMapping), "--provider", "fake", "--dry-run")
@@ -229,7 +229,7 @@ func TestBackfillPlainCountsNotChecked(t *testing.T) {
 	configtest.Isolate(t)
 	plainReport(t)
 	fs := newFakeStore(t)
-	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: blockedResult()})
+	useFakeProvider(t, fakeProvider{types: userFirstTypes(), result: blockedResult()})
 	stdout, stderr, err := runBackfill(t, fs.cli(), nil, writeFile(t, t.TempDir(), "m.yaml", blockedMapping), "--provider", "fake", "--dry-run")
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, stderr)
@@ -244,7 +244,7 @@ func TestBackfillPlainCountsNotChecked(t *testing.T) {
 func TestBackfillWritesNothingWhenEveryTupleIsContested(t *testing.T) {
 	configtest.Isolate(t)
 	fs := newFakeStore(t)
-	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: blockedResult(true)})
+	useFakeProvider(t, fakeProvider{types: userFirstTypes(), result: blockedResult(true)})
 	stdout, stderr, err := runBackfill(t, fs.cli(), nil, writeFile(t, t.TempDir(), "m.yaml", blockedMapping), "--provider", "fake", "--force")
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, stderr)
@@ -262,7 +262,7 @@ func TestDriftForceDoesNotReplaceAContestedTupleStoredWithAnotherCondition(t *te
 	// u1's stored membership is unconditional, while the rule would write it
 	// with a condition. It is contested, so it is neither changed nor replaced.
 	fs := newFakeStore(t, member("u1"))
-	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: blockedResult()})
+	useFakeProvider(t, fakeProvider{types: userFirstTypes(), result: blockedResult()})
 	mapping := strings.Replace(blockedMapping, `object: "organization:{{ input.org }}"`, "object: \"organization:{{ input.org }}\"\n        condition: in_office", 1)
 	stdout, stderr, err := runDrift(t, fs.cli(), nil, driftArgs(t, mapping, "--force")...)
 	if err != nil {
@@ -279,4 +279,12 @@ func TestDriftForceDoesNotReplaceAContestedTupleStoredWithAnotherCondition(t *te
 	if strings.Contains(stdout, "CHANGED") || !strings.Contains(stdout, "not compared: 1 tuple of user member organization") {
 		t.Errorf("stdout:\n%s", stdout)
 	}
+}
+
+// userFirstTypes is fakeTypes with the users first, as a real provider lists
+// them. The work file replays events by type in this order, so blockedMapping's
+// user event runs before the member events it must be able to contest.
+func userFirstTypes() []snapshot.Type {
+	ts := fakeTypes()
+	return append(ts[2:], ts[:2]...)
 }
