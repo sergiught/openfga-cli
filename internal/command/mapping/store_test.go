@@ -88,7 +88,7 @@ func TestReadKeptKeepsOnlyWhatIsAskedForAndCountsEverything(t *testing.T) {
 	}))
 	defer srv.Close()
 	cl, _ := openfga.NewClient(srv.URL, openfga.WithStoreID("01ARZ3NDEKTSV4RRFFQ69G5FAV"))
-	kept, total, err := storeClient{cl}.ReadKept(context.Background(), func(t language.Tuple) bool { return t.Relation == "member" }, nil)
+	kept, total, err := storeClient{cl}.ReadKept(context.Background(), func(t language.Tuple) bool { return t.Relation == "member" }, nil, nil)
 	if err != nil || total != 2 || len(kept) != 1 || kept[0].Object != "team:1" {
 		t.Fatalf("kept=%+v total=%d err=%v", kept, total, err)
 	}
@@ -103,7 +103,7 @@ func TestReadKeptReportsProgressAtTheEnd(t *testing.T) {
 	defer srv.Close()
 	cl, _ := openfga.NewClient(srv.URL, openfga.WithStoreID("01ARZ3NDEKTSV4RRFFQ69G5FAV"))
 	var reports [][2]int
-	_, _, err := storeClient{cl}.ReadKept(context.Background(), func(t language.Tuple) bool { return t.Relation == "member" },
+	_, _, err := storeClient{cl}.ReadKept(context.Background(), func(t language.Tuple) bool { return t.Relation == "member" }, nil,
 		func(read, kept int) { reports = append(reports, [2]int{read, kept}) })
 	if err != nil || len(reports) != 1 || reports[0] != [2]int{2, 1} {
 		t.Fatalf("reports=%v err=%v", reports, err)
@@ -135,5 +135,22 @@ func TestStoreClientRecognisesTheWriteLimit(t *testing.T) {
 				t.Errorf("BatchLimit() = (%d, %v), want (%d, %v)", limit, ok, tc.wantLimit, tc.wantOK)
 			}
 		})
+	}
+}
+
+func TestReadKeptSink(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"tuples":[`+
+			`{"key":{"user":"user:1","relation":"member","object":"team:1"}},`+
+			`{"key":{"user":"user:1","relation":"viewer","object":"doc:1"}},`+
+			`{"key":{"user":"user:2","relation":"member","object":"team:1"}}],"continuation_token":""}`)
+	}))
+	defer srv.Close()
+	cl, _ := openfga.NewClient(srv.URL, openfga.WithStoreID("01ARZ3NDEKTSV4RRFFQ69G5FAV"))
+	var got []language.Tuple
+	kept, total, err := storeClient{cl}.ReadKept(context.Background(), func(t language.Tuple) bool { return t.Relation == "member" },
+		func(ts []language.Tuple) error { got = append(got, ts...); return nil }, nil)
+	if err != nil || total != 3 || kept != nil || len(got) != 2 || got[0].User != "user:1" || got[1].User != "user:2" {
+		t.Fatalf("kept=%+v got=%+v total=%d err=%v", kept, got, total, err)
 	}
 }

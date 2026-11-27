@@ -170,7 +170,7 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 		if live == nil {
 			output.Progressf(errw, "reading the store")
 		}
-		if stored, storedTotal, err = (storeClient{cl}).ReadKept(ctx, snapshot.Writes(f.Doc), func(read, _ int) {
+		if stored, storedTotal, err = (storeClient{cl}).ReadKept(ctx, snapshot.Writes(f.Doc), nil, func(read, _ int) {
 			live.Set("tuples", read, 0)
 		}); err != nil {
 			return err

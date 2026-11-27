@@ -265,3 +265,92 @@ func TestReadMatchingReportsProgress(t *testing.T) {
 		t.Errorf("final Done: objects %d keys %d, want 2 and 3", last["objects"], last["keys"])
 	}
 }
+
+// TestReadMatchingFromParity runs the ReadMatching fixtures through
+// ReadMatchingFrom: the same counts, and the tuples the sink got that are
+// wanted equal what ReadMatching returns, as a set.
+func TestReadMatchingFromParity(t *testing.T) {
+	cases := map[string]struct {
+		stored  []map[string]any
+		big     bool
+		want    []language.Tuple
+		crowded bool
+	}{
+		"small store": {
+			stored: []map[string]any{tenantTuple("user:u1"), tenantTuple("user:n1"), tenantTuple("user:u2")},
+			want:   wantMember("user:u1", "user:u2", "user:u3"),
+		},
+		"big store": {
+			stored: []map[string]any{tenantTuple("user:u1"), tenantTuple("user:n1"), tenantTuple("user:u2"), tenantTuple("user:n2"),
+				{"user": "user:u1", "relation": "reader", "object": "doc:d1"}},
+			big: true,
+			want: append(wantMember("user:u1", "user:u2"),
+				language.Tuple{User: "user:u1", Relation: "reader", Object: "doc:d1"}),
+		},
+		"crowded object": {
+			stored: []map[string]any{tenantTuple("user:u1"), tenantTuple("user:n1"), tenantTuple("user:n2"), tenantTuple("user:u2"),
+				{"user": "user:u1", "relation": "reader", "object": "doc:d1"}},
+			big: true,
+			want: append(wantMember("user:u1", "user:u2", "user:u3"),
+				language.Tuple{User: "user:u1", Relation: "reader", Object: "doc:d1"}),
+			crowded: true,
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			configtest.Isolate(t)
+			ids := func(ts []language.Tuple) []string {
+				var out []string
+				for _, tu := range ts {
+					out = append(out, snapshot.Identity(tu))
+				}
+				slices.Sort(out)
+				return slices.Compact(out)
+			}
+			newStore := func() (*fakeStore, storeClient) {
+				fs := newFakeStore(t, c.stored...)
+				if c.big {
+					fs.bigStore, fs.pageSize = true, 1
+				}
+				cl, _, err := fs.cli().ClientWithStore()
+				if err != nil {
+					t.Fatal(err)
+				}
+				return fs, storeClient{cl}
+			}
+			_, s1 := newStore()
+			base, err := s1.ReadMatching(context.Background(), c.want, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fs2, s2 := newStore()
+			var got []language.Tuple
+			read, objects, err := s2.ReadMatchingFrom(context.Background(), snapshot.SliceWanted(c.want), func(ts []language.Tuple) error {
+				got = append(got, ts...)
+				return nil
+			}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if read != base.Read || objects != base.Objects {
+				t.Errorf("read, objects = %d, %d; ReadMatching gave %d, %d", read, objects, base.Read, base.Objects)
+			}
+			wantedIDs := map[string]bool{}
+			for _, w := range c.want {
+				wantedIDs[snapshot.Identity(w)] = true
+			}
+			var wanted []language.Tuple
+			for _, tu := range got {
+				if wantedIDs[snapshot.Identity(tu)] {
+					wanted = append(wanted, tu)
+				}
+			}
+			if !slices.Equal(ids(wanted), ids(base.Tuples)) {
+				t.Errorf("sink's wanted tuples = %v, ReadMatching = %v", ids(wanted), ids(base.Tuples))
+			}
+			if c.crowded && len(keyReads(fs2.readRequests())) == 0 {
+				t.Error("no key reads: the fixture no longer reaches the last phase")
+			}
+		})
+	}
+}

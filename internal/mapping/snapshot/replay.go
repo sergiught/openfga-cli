@@ -380,3 +380,63 @@ func sortTuples(ts []language.Tuple) {
 		ts[i] = k.t
 	}
 }
+
+// Pair is one object and relation a store read looks at; N is how many wanted
+// tuples share it.
+type Pair struct {
+	Object, Relation string
+	N                int
+}
+
+// Wanted is what a store read looks for, so the wanted tuples need not be in
+// memory.
+type Wanted interface {
+	// Pairs lists the distinct object and relation pairs, in a stable order.
+	Pairs(ctx context.Context) ([]Pair, error)
+	// Keys calls fn for each wanted tuple of one pair.
+	Keys(ctx context.Context, object, relation string, fn func(language.Tuple) error) error
+}
+
+type sliceWanted struct {
+	pairs []Pair
+	byKey map[[2]string][]language.Tuple
+}
+
+// SliceWanted holds ts as a Wanted. Like ReadMatching, it keeps the first tuple
+// of each identity.
+func SliceWanted(ts []language.Tuple) Wanted {
+	w := sliceWanted{byKey: map[[2]string][]language.Tuple{}}
+	ids := make(map[string]bool, len(ts))
+	idx := map[[2]string]int{}
+	for _, t := range ts {
+		id := Identity(t)
+		if ids[id] {
+			continue
+		}
+		ids[id] = true
+		k := [2]string{t.Object, t.Relation}
+		i, ok := idx[k]
+		if !ok {
+			i = len(w.pairs)
+			idx[k] = i
+			w.pairs = append(w.pairs, Pair{Object: t.Object, Relation: t.Relation})
+		}
+		w.pairs[i].N++
+		w.byKey[k] = append(w.byKey[k], t)
+	}
+	return w
+}
+
+func (w sliceWanted) Pairs(context.Context) ([]Pair, error) { return w.pairs, nil }
+
+func (w sliceWanted) Keys(ctx context.Context, object, relation string, fn func(language.Tuple) error) error {
+	for _, t := range w.byKey[[2]string{object, relation}] {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := fn(t); err != nil {
+			return err
+		}
+	}
+	return nil
+}

@@ -60,23 +60,47 @@ func (s storeClient) ReadAll(ctx context.Context) ([]language.Tuple, error) {
 
 // ReadKept reads the whole store and keeps only the tuples keep accepts, so a
 // large store is not held in memory. It also returns how many tuples it read.
+// With a nil sink it returns the kept tuples. With a sink it hands them over in
+// batches of at most readPageSize, each tuple once, and returns none.
 // progress may be nil; it is called after every readPageSize tuples read and
 // once at the end.
-func (s storeClient) ReadKept(ctx context.Context, keep func(language.Tuple) bool, progress func(read, kept int)) (kept []language.Tuple, total int, err error) {
+func (s storeClient) ReadKept(ctx context.Context, keep func(language.Tuple) bool, sink func([]language.Tuple) error, progress func(read, kept int)) (kept []language.Tuple, total int, err error) {
+	var batch []language.Tuple
+	nkept := 0
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		err := sink(batch)
+		batch = nil
+		return err
+	}
 	for t, err := range s.cl.Tuples.ReadAll(ctx, &openfga.ReadRequest{PageSize: readPageSize, Consistency: readConsistency}) {
 		if err != nil {
 			return nil, 0, err
 		}
 		total++
 		if lt := toTuple(t); keep(lt) {
-			kept = append(kept, lt)
+			nkept++
+			if sink == nil {
+				kept = append(kept, lt)
+			} else if batch = append(batch, lt); len(batch) >= readPageSize {
+				if err := flush(); err != nil {
+					return nil, 0, err
+				}
+			}
 		}
 		if progress != nil && total%readPageSize == 0 {
-			progress(total, len(kept))
+			progress(total, nkept)
+		}
+	}
+	if sink != nil {
+		if err := flush(); err != nil {
+			return nil, 0, err
 		}
 	}
 	if progress != nil {
-		progress(total, len(kept))
+		progress(total, nkept)
 	}
 	return kept, total, nil
 }

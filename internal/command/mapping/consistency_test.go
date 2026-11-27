@@ -6,6 +6,8 @@ import (
 
 	"github.com/openfga/mapper/language"
 	"github.com/sergiught/go-openfga/openfga"
+
+	"github.com/sergiught/openfga-cli/internal/mapping/snapshot"
 )
 
 // Backfill and drift ask for higher consistency on every tuple read
@@ -28,7 +30,7 @@ func TestStoreReadsAskForHigherConsistency(t *testing.T) {
 		},
 		"ReadAll": func() error { _, err := s.ReadAll(ctx); return err },
 		"ReadKept": func() error {
-			_, _, err := s.ReadKept(ctx, func(language.Tuple) bool { return true }, nil)
+			_, _, err := s.ReadKept(ctx, func(language.Tuple) bool { return true }, nil, nil)
 			return err
 		},
 		"ReadMatching": func() error {
@@ -43,6 +45,12 @@ func TestStoreReadsAskForHigherConsistency(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("ReadMatchingFrom", func(t *testing.T) {
+		if _, _, err := s.ReadMatchingFrom(ctx, snapshot.SliceWanted(wantMember("user:anne", "user:bob")), nil, nil); err != nil {
+			t.Fatalf("read without higher consistency: %v", err)
+		}
+	})
 
 	// A store too large to read whole, with one object crowded past its page
 	// budget, takes ReadMatching through all three of its reads: the first

@@ -34,54 +34,89 @@ type storeRead struct {
 }
 
 // ReadMatching returns the stored tuples that share an identity (user,
-// relation, object) with a wanted one. It pages through the whole store, which
-// costs one request when the store is small. When the store is still not
-// exhausted after a budget of pages, it reads each distinct (object, relation)
-// of the wanted tuples instead, storeWorkers at a time, so a store far larger
-// than the mapping's data is not read whole. The budget keeps the pages wasted
-// on the first attempt to about the cost of the pair reads. A pair read stops
-// after a few pages too: when an object holds far more tuples than are wanted
-// from it, each wanted tuple is read by its full key instead. progress may be
-// nil; it is never called concurrently.
+// relation, object) with a wanted one. It wraps ReadMatchingFrom with a
+// slice-backed Wanted and a sink that keeps the tuples whose identity is
+// wanted, once each; see ReadMatchingFrom for how the store is read.
 func (s storeClient) ReadMatching(ctx context.Context, want []language.Tuple, progress func(matchProgress)) (storeRead, error) {
 	ids := make(map[string]bool, len(want))
-	type pair struct{ object, relation string }
-	var pairs []pair
-	wanted := map[pair][]language.Tuple{}
-	objects := map[string]bool{}
 	for _, t := range want {
-		id := snapshot.Identity(t)
-		if ids[id] {
-			continue
-		}
-		ids[id] = true
-		p := pair{t.Object, t.Relation}
-		if _, ok := wanted[p]; !ok {
-			pairs = append(pairs, p)
-		}
-		wanted[p] = append(wanted[p], t)
-		objects[t.Object] = true
+		ids[snapshot.Identity(t)] = false
 	}
+	var res storeRead
+	read, objects, err := s.ReadMatchingFrom(ctx, snapshot.SliceWanted(want), func(ts []language.Tuple) error {
+		for _, t := range ts {
+			if id := snapshot.Identity(t); seenWanted(ids, id) {
+				res.Tuples = append(res.Tuples, t)
+			}
+		}
+		return nil
+	}, progress)
+	if err != nil {
+		return storeRead{}, err
+	}
+	res.Read, res.Objects = read, objects
+	return res, nil
+}
+
+// seenWanted reports whether id is wanted and not yet taken, and marks it
+// taken: the same tuple can reach the sink twice.
+func seenWanted(ids map[string]bool, id string) bool {
+	taken, wanted := ids[id]
+	if !wanted || taken {
+		return false
+	}
+	ids[id] = true
+	return true
+}
+
+// ReadMatchingFrom reads the stored tuples that may share an identity (user,
+// relation, object) with a wanted one and hands what it reads to sink, which
+// may be nil. It pages through the whole store, which costs one request when
+// the store is small. When the store is still not exhausted after a budget of
+// pages, it reads each distinct (object, relation) of the wanted tuples
+// instead, storeWorkers at a time, so a store far larger than the mapping's
+// data is not read whole. The budget keeps the pages wasted on the first
+// attempt to about the cost of the pair reads. A pair read stops after a few
+// pages too: when an object holds far more tuples than are wanted from it, each
+// wanted tuple is read by its full key instead, walking want.Keys for that
+// pair.
+//
+// The sink gets every tuple read, wanted or not, in batches, and is never
+// called concurrently. A tuple can reach it twice (a page of the whole store,
+// then the pair read that covers it), so it must accept repeats. read is how
+// many tuples the final strategy read; objects is zero when the whole store
+// was read, otherwise how many distinct objects were read one by one. progress
+// may be nil; it is never called concurrently.
+func (s storeClient) ReadMatchingFrom(ctx context.Context, want snapshot.Wanted, sink func([]language.Tuple) error, progress func(matchProgress)) (read, objects int, err error) {
+	if sink == nil {
+		sink = func([]language.Tuple) error { return nil }
+	}
+	pairs, err := want.Pairs(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+	distinct := map[string]bool{}
+	for _, p := range pairs {
+		distinct[p.Object] = true
+	}
+	nobjects := len(distinct)
 	budget := max(1, (len(pairs)+storeWorkers-1)/storeWorkers)
 
-	var res storeRead
 	req := &openfga.ReadRequest{PageSize: readPageSize, Consistency: readConsistency}
 	for page := 1; ; page++ {
 		resp, err := s.cl.Tuples.Read(ctx, req)
 		if err != nil {
-			return storeRead{}, err
+			return 0, 0, err
 		}
-		res.Read += len(resp.Tuples)
-		for _, t := range resp.Tuples {
-			if lt := toTuple(t); ids[snapshot.Identity(lt)] {
-				res.Tuples = append(res.Tuples, lt)
-			}
+		read += len(resp.Tuples)
+		if err := sink(toTuples(resp.Tuples)); err != nil {
+			return 0, 0, err
 		}
 		if progress != nil {
-			progress(matchProgress{Step: "store", Done: res.Read})
+			progress(matchProgress{Step: "store", Done: read})
 		}
 		if resp.ContinuationToken == "" {
-			return res, nil
+			return read, 0, nil
 		}
 		if page >= budget {
 			break
@@ -90,12 +125,12 @@ func (s storeClient) ReadMatching(ctx context.Context, want []language.Tuple, pr
 	}
 
 	if progress != nil {
-		progress(matchProgress{Step: "objects", Total: len(pairs), Objects: len(objects)})
+		progress(matchProgress{Step: "objects", Total: len(pairs), Objects: nobjects})
 	}
-	res = storeRead{Objects: len(objects)}
+	read = 0
 	var (
-		mu        sync.Mutex // also orders the progress reports
-		crowded   []language.Tuple
+		mu        sync.Mutex // also orders the sink and the progress reports
+		crowded   []snapshot.Pair
 		pairsDone int
 	)
 	g, gctx := errgroup.WithContext(ctx)
@@ -108,12 +143,11 @@ func (s storeClient) ReadMatching(ctx context.Context, want []language.Tuple, pr
 			// A pair wanted by few tuples is read for few pages. When the
 			// last of them still continues, the object holds far more than
 			// is wanted and each wanted tuple is read by its full key later.
-			pages := max(1, (len(wanted[p])+storeWorkers-1)/storeWorkers)
+			pages := max(1, (p.N+storeWorkers-1)/storeWorkers)
 			req := &openfga.ReadRequest{
-				TupleKey: &openfga.ReadRequestTupleKey{Object: p.object, Relation: p.relation}, PageSize: readPageSize,
+				TupleKey: &openfga.ReadRequestTupleKey{Object: p.Object, Relation: p.Relation}, PageSize: readPageSize,
 				Consistency: readConsistency,
 			}
-			var got []language.Tuple
 			n := 0
 			for page := 1; ; page++ {
 				resp, err := s.cl.Tuples.Read(gctx, req)
@@ -121,89 +155,104 @@ func (s storeClient) ReadMatching(ctx context.Context, want []language.Tuple, pr
 					return err
 				}
 				n += len(resp.Tuples)
-				for _, t := range resp.Tuples {
-					if lt := toTuple(t); ids[snapshot.Identity(lt)] {
-						got = append(got, lt)
-					}
+				mu.Lock()
+				err = sink(toTuples(resp.Tuples))
+				mu.Unlock()
+				if err != nil {
+					return err
 				}
 				if resp.ContinuationToken == "" {
 					break
 				}
 				if page >= pages {
-					// The key reads fetch the wanted tuples again, so the
-					// pages read here are not kept.
-					got = nil
+					// The key reads fetch the wanted tuples again.
 					mu.Lock()
-					crowded = append(crowded, wanted[p]...)
+					crowded = append(crowded, p)
 					mu.Unlock()
 					break
 				}
 				req.ContinuationToken = resp.ContinuationToken
 			}
 			mu.Lock()
-			res.Tuples = append(res.Tuples, got...)
-			res.Read += n
+			read += n
 			pairsDone++
 			if progress != nil {
-				progress(matchProgress{Step: "objects", Done: pairsDone, Total: len(pairs), Objects: len(objects)})
+				progress(matchProgress{Step: "objects", Done: pairsDone, Total: len(pairs), Objects: nobjects})
 			}
 			mu.Unlock()
 			return nil
 		})
 	}
 	if err := g.Wait(); err != nil {
-		return storeRead{}, err
+		return 0, 0, err
 	}
 	// A canceled context stops the loop above without any read failing, so
 	// what was read so far is only part of the store.
 	if err := ctx.Err(); err != nil {
-		return storeRead{}, err
+		return 0, 0, err
 	}
 
 	// Started only after the pair phase, so no goroutine of one errgroup
 	// starts work on the same group.
-	keysDone := 0
-	if progress != nil && len(crowded) > 0 {
-		progress(matchProgress{Step: "keys", Total: len(crowded)})
+	keysDone, keysTotal := 0, 0
+	for _, p := range crowded {
+		keysTotal += p.N
+	}
+	if progress != nil && keysTotal > 0 {
+		progress(matchProgress{Step: "keys", Total: keysTotal})
 	}
 	g, gctx = errgroup.WithContext(ctx)
 	g.SetLimit(storeWorkers)
-	for _, t := range crowded {
-		if gctx.Err() != nil {
-			break
-		}
-		g.Go(func() error {
-			resp, err := s.cl.Tuples.Read(gctx, &openfga.ReadRequest{
-				TupleKey: &openfga.ReadRequestTupleKey{User: t.User, Relation: t.Relation, Object: t.Object}, PageSize: readPageSize,
-				Consistency: readConsistency,
-			})
-			if err != nil {
+	var walkErr error
+	for _, p := range crowded {
+		walkErr = want.Keys(gctx, p.Object, p.Relation, func(t language.Tuple) error {
+			if err := gctx.Err(); err != nil {
 				return err
 			}
-			var got []language.Tuple
-			for _, st := range resp.Tuples {
-				if lt := toTuple(st); ids[snapshot.Identity(lt)] {
-					got = append(got, lt)
+			g.Go(func() error {
+				resp, err := s.cl.Tuples.Read(gctx, &openfga.ReadRequest{
+					TupleKey: &openfga.ReadRequestTupleKey{User: t.User, Relation: t.Relation, Object: t.Object}, PageSize: readPageSize,
+					Consistency: readConsistency,
+				})
+				if err != nil {
+					return err
 				}
-			}
-			mu.Lock()
-			res.Tuples = append(res.Tuples, got...)
-			res.Read += len(resp.Tuples)
-			keysDone++
-			if progress != nil {
-				progress(matchProgress{Step: "keys", Done: keysDone, Total: len(crowded)})
-			}
-			mu.Unlock()
+				mu.Lock()
+				defer mu.Unlock()
+				if err := sink(toTuples(resp.Tuples)); err != nil {
+					return err
+				}
+				read += len(resp.Tuples)
+				keysDone++
+				if progress != nil {
+					progress(matchProgress{Step: "keys", Done: keysDone, Total: keysTotal})
+				}
+				return nil
+			})
 			return nil
 		})
+		if walkErr != nil {
+			break
+		}
 	}
 	if err := g.Wait(); err != nil {
-		return storeRead{}, err
+		return 0, 0, err
+	}
+	if walkErr != nil {
+		return 0, 0, walkErr
 	}
 	// A canceled context stops the loop above without any read failing, so
 	// what was read so far is only part of the store.
 	if err := ctx.Err(); err != nil {
-		return storeRead{}, err
+		return 0, 0, err
 	}
-	return res, nil
+	return read, nobjects, nil
+}
+
+func toTuples(ts []openfga.Tuple) []language.Tuple {
+	out := make([]language.Tuple, len(ts))
+	for i, t := range ts {
+		out[i] = toTuple(t)
+	}
+	return out
 }
