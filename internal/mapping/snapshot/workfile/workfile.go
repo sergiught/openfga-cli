@@ -28,6 +28,8 @@ type File struct {
 	db   *sql.DB
 	path string
 	meta Meta
+	// items is the last item number saved for each unit this run touched.
+	items map[string]int
 }
 
 const schema = `
@@ -223,7 +225,7 @@ func Create(path string, m Meta) (*File, error) {
 	if err != nil {
 		return fail(err)
 	}
-	return &File{db: db, path: path, meta: saved}, nil
+	return &File{db: db, path: path, meta: saved, items: map[string]int{}}, nil
 }
 
 // Open opens an existing work file. A missing file reports fs.ErrNotExist.
@@ -252,7 +254,7 @@ func Open(path string) (*File, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("read work file %s: %w", path, err)
 	}
-	return &File{db: db, path: path, meta: m}, nil
+	return &File{db: db, path: path, meta: m, items: map[string]int{}}, nil
 }
 
 // Path returns where the file lives.

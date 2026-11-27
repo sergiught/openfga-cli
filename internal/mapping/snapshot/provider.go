@@ -16,6 +16,13 @@ type Type struct {
 	Windowed    bool     // the read can be limited to entities changed since a time
 }
 
+// Unit is one piece of a snapshot read that is saved and finished on its own,
+// so a resumed run does not read it again.
+type Unit struct {
+	Key   string // "connections", "users", "organizations", "org-connections/<org id>", "org-members/<org id>", "all"
+	Order int    // the organization's index in the list; 0 for the others
+}
+
 // Count is how many events of one type a snapshot produced.
 type Count struct {
 	Type     string
