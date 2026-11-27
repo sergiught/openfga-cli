@@ -722,6 +722,9 @@ The work file holds the events read from Auth0, the tuples read from the store
 and the plan built from them. That is personal data from your provider: user
 ids, emails, organization names. The file is created readable by its owner only
 (`0600`, in a directory made `0700`).
+To remove a kept file, delete it (`rm <path>`, plus any `-wal`, `-shm` or `-journal`
+file beside it); a failed run prints the path, and the default directory is
+under [Where it lives](#where-it-lives).
 
 A run that finishes deletes the file. A run that fails, or that you interrupt,
 keeps it and ends with:
@@ -739,7 +742,8 @@ question: `--keep-state` keeps the file, the others delete it.
 ### Where it lives
 
 By default the file goes under the user cache directory, in
-`ofga/mappings/`: `~/.cache/ofga/mappings/` on Linux and
+`ofga/mappings/`: `~/.cache/ofga/mappings/` on Linux (`$XDG_CACHE_HOME` when it
+is set) and
 `~/Library/Caches/ofga/mappings/` on macOS. The name is the mapping file's
 name, a dash and 12 hex digits, ending in `.db`, for example
 `auth0-1a2b3c4d5e6f.db`. The digits come from the mapping file's absolute path,
