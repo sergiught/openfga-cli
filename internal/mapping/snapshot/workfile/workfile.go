@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/openfga/mapper/language"
 	"modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
 )
@@ -30,6 +31,8 @@ type File struct {
 	meta Meta
 	// items is the last item number saved for each unit this run touched.
 	items map[string]int
+	// desired buffers AddDesired until FlushDesired.
+	desired []language.Tuple
 }
 
 const schema = `

@@ -40,13 +40,81 @@ type Contested struct {
 	Unread bool
 }
 
-// stored is a tuple in the set, the index and type id of the event that last
+// Stored is a tuple in the set, the index and type id of the event that last
 // wrote it, and whether an event of that type removed it.
-type stored struct {
-	tuple  language.Tuple
-	writer int
-	typ    int32
-	marked bool
+type Stored struct {
+	Tuple  language.Tuple
+	Writer int   // index of the event that last wrote it
+	Type   int32 // id of that event's type
+	Marked bool  // an event of that type removed it
+}
+
+// TupleSet holds the tuples a Replay has written and not yet removed, by
+// Identity.
+type TupleSet interface {
+	Get(ctx context.Context, id string) (Stored, bool, error)
+	Put(ctx context.Context, id string, s Stored) error
+	Delete(ctx context.Context, id string) error
+	// Sorted calls fn for each tuple, ordered by shape, user, relation, object.
+	Sorted(ctx context.Context, fn func(Stored) error) error
+}
+
+type mapSet map[string]Stored
+
+// NewMapSet returns a TupleSet held in memory.
+func NewMapSet() TupleSet { return mapSet{} }
+
+func (m mapSet) Get(_ context.Context, id string) (Stored, bool, error) {
+	s, ok := m[id]
+	return s, ok, nil
+}
+
+func (m mapSet) Put(_ context.Context, id string, s Stored) error {
+	m[id] = s
+	return nil
+}
+
+func (m mapSet) Delete(_ context.Context, id string) error {
+	delete(m, id)
+	return nil
+}
+
+func (m mapSet) Sorted(ctx context.Context, fn func(Stored) error) error {
+	type keyed struct {
+		shape string
+		s     Stored
+	}
+	ks := make([]keyed, 0, len(m))
+	for _, s := range m {
+		ks = append(ks, keyed{ShapeKey(s.Tuple), s})
+	}
+	sort.Slice(ks, func(i, j int) bool { return less(ks[i].shape, ks[i].s.Tuple, ks[j].shape, ks[j].s.Tuple) })
+	for _, k := range ks {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := fn(k.s); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ShapeKey is the shape a tuple sorts by first.
+func ShapeKey(t language.Tuple) string { return mapping.ShapeOf(t).String() }
+
+// less orders by shape, then user, relation, object.
+func less(sa string, a language.Tuple, sb string, b language.Tuple) bool {
+	if sa != sb {
+		return sa < sb
+	}
+	if a.User != b.User {
+		return a.User < b.User
+	}
+	if a.Relation != b.Relation {
+		return a.Relation < b.Relation
+	}
+	return a.Object < b.Object
 }
 
 // removal is a Removal with the index and type of the event that asked.
@@ -68,7 +136,7 @@ type removal struct {
 // write-only events.
 type Replay struct {
 	planner *mapping.Planner
-	set     map[string]stored
+	set     TupleSet
 	events  int
 
 	// typeIDs gives each event type a small id, so a tuple stores an int
@@ -92,7 +160,13 @@ type Replay struct {
 
 // NewReplay returns a Replay of events through m against an empty store.
 func NewReplay(m *mapper.Mapping) *Replay {
-	return &Replay{planner: mapping.NewPlanner(m, emptyStore{}), set: map[string]stored{}}
+	return NewReplayWith(m, NewMapSet(), mapping.NewMapState())
+}
+
+// NewReplayWith is NewReplay with the tuples kept in set and the planner's
+// changes in state.
+func NewReplayWith(m *mapper.Mapping, set TupleSet, state mapping.PlanState) *Replay {
+	return &Replay{planner: mapping.NewPlannerWith(m, emptyStore{}, state), set: set}
 }
 
 // Window tells r that events of the windowed types were read by window, so
@@ -129,7 +203,10 @@ func (r *Replay) Add(ctx context.Context, events []map[string]any) error {
 		typ := r.typeID(ep.Type)
 		for _, c := range ep.Changes {
 			k := Identity(c)
-			prev, had := r.set[k]
+			prev, had, err := r.set.Get(ctx, k)
+			if err != nil {
+				return err
+			}
 			if c.Action == language.ActionDelete {
 				// Deletes come before writes within an event, so prev is from
 				// an earlier event. Another event of the writer's type
@@ -139,18 +216,23 @@ func (r *Replay) Add(ctx context.Context, events []map[string]any) error {
 				// stays contested, because the planner no longer sees it and
 				// plans no delete. Listing it costs a line in a report;
 				// dropping it could cost a tuple.
-				if had && prev.typ == typ {
-					prev.marked = true
-					r.set[k] = prev
+				if had && prev.Type == typ {
+					prev.Marked = true
+					err = r.set.Put(ctx, k, prev)
 				} else {
-					delete(r.set, k)
+					err = r.set.Delete(ctx, k)
+				}
+				if err != nil {
+					return err
 				}
 				continue
 			}
 			c.Action = ""
 			// A write by another type clears the mark: the tuple is judged by
 			// the removal rule, which names the type that asked for it to go.
-			r.set[k] = stored{tuple: c, writer: r.events, typ: typ, marked: prev.marked && prev.typ == typ}
+			if err := r.set.Put(ctx, k, Stored{Tuple: c, Writer: r.events, Type: typ, Marked: prev.Marked && prev.Type == typ}); err != nil {
+				return err
+			}
 		}
 		for _, rm := range ep.Removals {
 			r.record(rm, ep)
@@ -207,48 +289,46 @@ func (r *Replay) Events() int { return r.events }
 // Done returns the tuples that should exist and, apart from them, the
 // contested ones: those an event of their writer's type removed, and those an
 // earlier event removes. Each tuple is in one list. Both are sorted by shape,
-// then user, relation, object.
+// then user, relation, object. It is for a Replay on a NewMapSet, which cannot
+// fail.
 func (r *Replay) Done() (desired []language.Tuple, contested []Contested) {
-	desired = make([]language.Tuple, 0, len(r.set))
-	by := map[string]string{}
-	unread := map[string]bool{}
-	var ts []language.Tuple
-	for k, s := range r.set {
-		if s.marked {
-			by[k] = r.types[s.typ]
-		} else if b, ok := r.contestedBy(s); ok {
-			by[k] = b
-		} else if b, ok := r.unreadBy(s); ok {
-			by[k], unread[k] = b, true
-		} else {
-			desired = append(desired, s.tuple)
-			continue
-		}
-		ts = append(ts, s.tuple)
-	}
-	sortTuples(desired)
-	if len(ts) > 0 {
-		sortTuples(ts)
-		contested = make([]Contested, len(ts))
-		for i, t := range ts {
-			k := Identity(t)
-			contested[i] = Contested{Tuple: t, By: by[k], Unread: unread[k]}
-		}
-	}
+	contested, _ = r.DoneEach(context.Background(), func(t language.Tuple) error {
+		desired = append(desired, t)
+		return nil
+	})
 	return desired, contested
+}
+
+// DoneEach gives each desired tuple to desired, in sorted order, and returns
+// the contested ones, sorted.
+func (r *Replay) DoneEach(ctx context.Context, desired func(language.Tuple) error) ([]Contested, error) {
+	var contested []Contested
+	err := r.set.Sorted(ctx, func(s Stored) error {
+		if s.Marked {
+			contested = append(contested, Contested{Tuple: s.Tuple, By: r.types[s.Type]})
+		} else if b, ok := r.contestedBy(s); ok {
+			contested = append(contested, Contested{Tuple: s.Tuple, By: b})
+		} else if b, ok := r.unreadBy(s); ok {
+			contested = append(contested, Contested{Tuple: s.Tuple, By: b, Unread: true})
+		} else {
+			return desired(s.Tuple)
+		}
+		return nil
+	})
+	return contested, err
 }
 
 // contestedBy returns the type of the earliest event before s's writer that
 // asked for s to be gone.
-func (r *Replay) contestedBy(s stored) (string, bool) {
+func (r *Replay) contestedBy(s Stored) (string, bool) {
 	if r.byUser == nil {
 		return "", false
 	}
-	t := s.tuple
+	t := s.Tuple
 	var best *removal
 	scan := func(list []*removal) {
 		for _, x := range list {
-			if x.index >= s.writer || (best != nil && x.index >= best.index) {
+			if x.index >= s.Writer || (best != nil && x.index >= best.index) {
 				return
 			}
 			if x.Removes(t) {
@@ -272,11 +352,11 @@ func (r *Replay) contestedBy(s stored) (string, bool) {
 // unreadBy returns the windowed type whose unread events could have removed s,
 // when the event type that last wrote s was not read by window. A tuple a
 // windowed type wrote is later than every user outside the window.
-func (r *Replay) unreadBy(s stored) (string, bool) {
-	if r.unread == nil || r.windowed[r.types[s.typ]] {
+func (r *Replay) unreadBy(s Stored) (string, bool) {
+	if r.unread == nil || r.windowed[r.types[s.Type]] {
 		return "", false
 	}
-	return r.unread(s.tuple)
+	return r.unread(s.Tuple)
 }
 
 // Identity is what OpenFGA keys a tuple by.
@@ -293,21 +373,9 @@ func sortTuples(ts []language.Tuple) {
 	}
 	ks := make([]keyed, len(ts))
 	for i, t := range ts {
-		ks[i] = keyed{mapping.ShapeOf(t).String(), t}
+		ks[i] = keyed{ShapeKey(t), t}
 	}
-	sort.SliceStable(ks, func(i, j int) bool {
-		a, b := ks[i], ks[j]
-		if a.shape != b.shape {
-			return a.shape < b.shape
-		}
-		if a.t.User != b.t.User {
-			return a.t.User < b.t.User
-		}
-		if a.t.Relation != b.t.Relation {
-			return a.t.Relation < b.t.Relation
-		}
-		return a.t.Object < b.t.Object
-	})
+	sort.SliceStable(ks, func(i, j int) bool { return less(ks[i].shape, ks[i].t, ks[j].shape, ks[j].t) })
 	for i, k := range ks {
 		ts[i] = k.t
 	}
