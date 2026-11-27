@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -29,11 +30,9 @@ func (f *File) Save(u snapshot.Unit, events []map[string]any, finished bool) (er
 
 	item, ok := f.items[u.Key]
 	if !ok {
-		var max sql.NullInt64
-		if err = tx.QueryRow(`SELECT MAX(item) FROM events WHERE unit = ?`, u.Key).Scan(&max); err != nil {
+		if item, err = seedItem(tx, u.Key, len(f.meta.Types)); err != nil {
 			return fmt.Errorf("save unit %s: %w", u.Key, err)
 		}
-		item = int(max.Int64)
 	}
 
 	t := formatTime(now())
@@ -210,4 +209,28 @@ func (f *File) Replay(ctx context.Context, page int, fn func(events []map[string
 		}
 		total += len(batch)
 	}
+}
+
+// seedItem returns the last item number saved for a unit by an earlier run, 0
+// for a unit with no row. It reads the units row by key and then the unit's
+// events by their primary key (rank, ord, unit), never scanning the table.
+func seedItem(tx *sql.Tx, unit string, ranks int) (int, error) {
+	var ord int
+	err := tx.QueryRow(`SELECT ord FROM units WHERE unit = ?`, unit).Scan(&ord)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	last := 0
+	for rank := range ranks {
+		var m sql.NullInt64
+		if err := tx.QueryRow(`SELECT MAX(item) FROM events WHERE rank = ? AND ord = ? AND unit = ?`,
+			rank, ord, unit).Scan(&m); err != nil {
+			return 0, err
+		}
+		last = max(last, int(m.Int64))
+	}
+	return last, nil
 }

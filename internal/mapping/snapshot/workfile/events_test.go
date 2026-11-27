@@ -51,6 +51,12 @@ func replayAll(t *testing.T, f *File, page int) (all []map[string]any, calls []i
 }
 
 func TestReplayOrder(t *testing.T) {
+	for _, page := range []int{100, 1, 2, 3} {
+		t.Run(fmt.Sprint("page", page), func(t *testing.T) { replayOrder(t, page) })
+	}
+}
+
+func replayOrder(t *testing.T, page int) {
 	f, _ := newFile(t)
 	save := func(key string, order int, evs ...map[string]any) {
 		t.Helper()
@@ -61,7 +67,7 @@ func TestReplayOrder(t *testing.T) {
 	save("users", 0, ev(tUser, "u1"), ev(tUser, "u2"))
 	save("connections", 0, ev(tConn, "c1"))
 
-	all, _ := replayAll(t, f, 100)
+	all, _ := replayAll(t, f, page)
 	var got []string
 	for _, e := range all {
 		got = append(got, e["tag"].(string))
@@ -168,4 +174,21 @@ func TestWindow(t *testing.T) {
 	s, e = f.Window()
 	require.True(t, s.Equal(base.Add(1*time.Minute)))
 	require.True(t, e.Equal(base.Add(3*time.Minute)))
+}
+
+func TestResumedUnitContinuesItemsAcrossRanksAndOrder(t *testing.T) {
+	f, path := newFile(t)
+	u := snapshot.Unit{Key: "org-members/o1", Order: 7}
+	require.NoError(t, f.Save(u, []map[string]any{ev(tMember, "m1"), ev(tRole, "r1"), ev(tMember, "m2")}, false))
+	require.NoError(t, f.Close())
+	g, err := Open(path)
+	require.NoError(t, err)
+	defer func() { _ = g.Close() }()
+	require.NoError(t, g.Save(u, []map[string]any{ev(tMember, "m3"), ev(tRole, "r2")}, true))
+	all, _ := replayAll(t, g, 10)
+	var got []string
+	for _, e := range all {
+		got = append(got, e["tag"].(string))
+	}
+	require.Equal(t, "[m1 m2 m3 r1 r2]", fmt.Sprint(got))
 }
