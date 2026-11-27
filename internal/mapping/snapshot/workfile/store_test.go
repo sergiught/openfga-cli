@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -195,4 +196,41 @@ func TestWantedPairsAndKeys(t *testing.T) {
 		return f.AddStore(ctx, []language.Tuple{{User: "user:x", Relation: "member", Object: "organization:big"}})
 	}))
 	require.Equal(t, 2500, n)
+}
+
+// planOf returns the EXPLAIN QUERY PLAN detail lines of a query.
+func planOf(t *testing.T, f *File, q string, args ...any) string {
+	t.Helper()
+	rows, err := f.db.Query("EXPLAIN QUERY PLAN "+q, args...)
+	require.NoError(t, err)
+	defer func() { _ = rows.Close() }()
+	var out string
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		require.NoError(t, rows.Scan(&id, &parent, &unused, &detail))
+		out += detail + "\n"
+	}
+	return out
+}
+
+func TestWantedUsesThePairIndex(t *testing.T) {
+	ctx := context.Background()
+	f, _ := newFile(t)
+	for i := range 6000 {
+		require.NoError(t, f.AddDesired(ctx, language.Tuple{User: fmt.Sprintf("user:u%d", i), Relation: "member", Object: fmt.Sprintf("organization:o%d", i%300)}))
+	}
+	require.NoError(t, f.FlushDesired(ctx))
+	keys := planOf(t, f, `SELECT id, tuple FROM desired WHERE object = ? AND relation = ? AND id > ? ORDER BY id LIMIT ?`, "o", "r", "", 10)
+	t.Log(keys)
+	require.True(t, strings.Contains(keys, "desired_pair") && !strings.Contains(keys, "SCAN"))
+	pairs := planOf(t, f, `SELECT object, relation, COUNT(*) FROM desired GROUP BY 1, 2 ORDER BY 1, 2`)
+	t.Log(pairs)
+	require.True(t, strings.Contains(pairs, "desired_pair") && !strings.Contains(pairs, "TEMP B-TREE"))
+
+	n := 0
+	for i := range 300 {
+		require.NoError(t, f.Wanted().Keys(ctx, fmt.Sprintf("organization:o%d", i), "member", func(language.Tuple) error { n++; return nil }))
+	}
+	require.Equal(t, 6000, n)
 }

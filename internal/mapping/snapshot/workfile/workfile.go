@@ -48,6 +48,7 @@ CREATE TABLE tupleset(id TEXT PRIMARY KEY, shape TEXT, user TEXT, relation TEXT,
 CREATE INDEX tupleset_key ON tupleset(shape, user, relation, object);
 CREATE TABLE desired(id TEXT PRIMARY KEY, shape TEXT, user TEXT, relation TEXT, object TEXT, tuple BLOB) WITHOUT ROWID;
 CREATE INDEX desired_key ON desired(shape, user, relation, object);
+CREATE INDEX desired_pair ON desired(object, relation, id);
 CREATE TABLE store(id TEXT PRIMARY KEY, tuple BLOB) WITHOUT ROWID;
 CREATE TABLE diff(kind INTEGER, shape TEXT, user TEXT, relation TEXT, object TEXT, id TEXT, tuple BLOB, was BLOB, PRIMARY KEY(kind, shape, user, relation, object)) WITHOUT ROWID;
 CREATE TABLE sent(kind INTEGER, id TEXT, key TEXT, PRIMARY KEY(kind, id, key)) WITHOUT ROWID;

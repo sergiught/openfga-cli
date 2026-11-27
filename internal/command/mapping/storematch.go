@@ -84,7 +84,8 @@ func seenWanted(ids map[string]bool, id string) bool {
 // The sink gets every tuple read, wanted or not, in batches, and is never
 // called concurrently. A tuple can reach it twice (a page of the whole store,
 // then the pair read that covers it), so it must accept repeats. read is how
-// many tuples the final strategy read; objects is zero when the whole store
+// many tuples the final strategy read (crowded-pair re-reads included, so it can
+// exceed the rows kept); objects is zero when the whole store
 // was read, otherwise how many distinct objects were read one by one. progress
 // may be nil; it is never called concurrently.
 func (s storeClient) ReadMatchingFrom(ctx context.Context, want snapshot.Wanted, sink func([]language.Tuple) error, progress func(matchProgress)) (read, objects int, err error) {

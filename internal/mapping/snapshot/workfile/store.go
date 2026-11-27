@@ -96,7 +96,8 @@ func (f *File) AddStore(ctx context.Context, ts []language.Tuple) (err error) {
 	return nil
 }
 
-// MarkStoreRead saves when the store was read and how much it held.
+// MarkStoreRead saves when the store was read and how much it held. total
+// counts crowded-pair re-reads, so it can exceed the rows in the store table.
 func (f *File) MarkStoreRead(at time.Time, total, objects int) (err error) {
 	tx, err := f.db.Begin()
 	if err != nil {
