@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/openfga/mapper/language"
 
@@ -214,4 +215,36 @@ func (f *File) SentCount(kind DiffKind) (n int, err error) {
 		return 0, fmt.Errorf("work file %s: count sent: %w", f.path, err)
 	}
 	return n, nil
+}
+
+// ResetSent forgets which rows MarkSent recorded, so Pages offers every row of
+// the diff again. It keeps the counts: Carried adds what was dropped here to
+// what was carried already. A run that reads the store again calls it, since
+// the comparison with that read has already dropped what the store accepted.
+func (f *File) ResetSent() error {
+	for _, kind := range []DiffKind{Missing, Changed, Stale} {
+		n, err := f.SentCount(kind)
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			continue
+		}
+		if err := f.Remember(carriedKey(kind), strconv.Itoa(f.Carried(kind)+n)); err != nil {
+			return fmt.Errorf("work file %s: reset sent: %w", f.path, err)
+		}
+	}
+	if _, err := f.db.Exec(`DELETE FROM sent`); err != nil {
+		return fmt.Errorf("work file %s: reset sent: %w", f.path, err)
+	}
+	return nil
+}
+
+func carriedKey(kind DiffKind) string { return "sent.carried." + strconv.Itoa(int(kind)) }
+
+// Carried is how many rows of one kind earlier runs sent that ResetSent
+// forgot.
+func (f *File) Carried(kind DiffKind) int {
+	n, _ := strconv.Atoi(f.Recall(carriedKey(kind)))
+	return n
 }

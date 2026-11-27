@@ -193,6 +193,9 @@ func (c *Command) drift(cmd *cobra.Command, path, provider, since string, prune,
 				if err := wf.MarkStoreRead(now(), storedTotal, 0); err != nil {
 					return workErr(wf.Path(), err)
 				}
+				if err := wf.Remember(storeBeforeProvider, "1"); err != nil {
+					return workErr(wf.Path(), err)
+				}
 				live.Note(thousands(storedTotal) + " tuples read · " + thousands(kept) + " kept")
 				storeReadAt = now()
 				return nil
@@ -344,7 +347,7 @@ func (c *Command) drift(cmd *cobra.Command, path, provider, since string, prune,
 			verb, kind = "pruned", workfile.Stale
 		}
 		// Changes an earlier run sent are in the totals but not in the pages.
-		skip := run.Earlier[kind]
+		skip := run.Skip[kind]
 		sent, err := sendPages(wf, kind, func(page, _ []language.Tuple, before int) (snapshot.Sent, error) {
 			progress := func(done, _ int) {
 				switch {
@@ -363,7 +366,7 @@ func (c *Command) drift(cmd *cobra.Command, path, provider, since string, prune,
 		res.Sent.Writes += sent.Writes
 		res.Sent.Deletes += sent.Deletes
 		if pruning {
-			res.Pruned = sent.Deletes + skip
+			res.Pruned = sent.Deletes + run.Earlier[workfile.Stale]
 		}
 		if err != nil {
 			live.Note(thousands(sent.Writes+sent.Deletes) + " changes")
@@ -381,7 +384,7 @@ func (c *Command) drift(cmd *cobra.Command, path, provider, since string, prune,
 	// store is left in when a batch fails.
 	replace := func(prior, grand int) error {
 		var lost []language.Tuple
-		skip := 2 * run.Earlier[workfile.Changed]
+		skip := 2 * run.Skip[workfile.Changed]
 		sent, err := sendPages(wf, workfile.Changed, func(page, was []language.Tuple, before int) (snapshot.Sent, error) {
 			s, l, err := snapshot.Replace(ctx, storeClient{cl}, was, page, func(done, _ int) {
 				switch {

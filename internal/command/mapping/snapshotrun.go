@@ -49,7 +49,7 @@ type snapshotRun struct {
 	// store before the provider. Earlier is how many changes of each kind the
 	// earlier runs got into the store.
 	Resumed, StoreSaved bool
-	Earlier             map[workfile.DiffKind]int
+	Earlier, Skip       map[workfile.DiffKind]int
 }
 
 // sent is what the earlier runs wrote and deleted: a missing tuple is one
@@ -153,10 +153,10 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since t
 	}
 	meta := workMeta(opts.command, p.Name(), p.Source(), storeID, opts.sinceText, since, requested, f.Src)
 	var (
-		wf         *workfile.File
-		resumed    bool
-		storeSaved bool
-		earlier    map[workfile.DiffKind]int
+		wf            *workfile.File
+		resumed       bool
+		storeSaved    bool
+		earlier, skip map[workfile.DiffKind]int
 	)
 	if opts.state.resume {
 		if wf, err = openResume(workPath, meta); err != nil {
@@ -167,7 +167,7 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since t
 		// The window the first run started is the one this run reads: --since 24h
 		// does not slide an hour on.
 		since = wf.Meta().Since
-		if earlier, resumed, storeSaved, err = prepareResume(ctx, wf, afterOpen != nil); err != nil {
+		if earlier, skip, resumed, storeSaved, err = prepareResume(ctx, wf, afterOpen != nil); err != nil {
 			return nil, workErr(workPath, err)
 		}
 	} else if wf, err = createWork(cmd, workPath, meta); err != nil {
@@ -270,7 +270,7 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since t
 	desired := counted{wf.Desired(), n}
 	lv.Note(thousands(items) + " items, " + thousands(n) + " tuples from " + thousands(replay.Events()) + " events")
 	return &snapshotRun{File: f, Provider: p, Types: types, Result: res, Desired: desired, Work: wf, Contested: contested, Since: since, Windowed: windowed,
-		Resumed: resumed, StoreSaved: storeSaved, Earlier: earlier}, nil
+		Resumed: resumed, StoreSaved: storeSaved, Earlier: earlier, Skip: skip}, nil
 }
 
 // replayPage is how many saved events the replay reads at a time; saveChunk is

@@ -1,6 +1,7 @@
 package mapping
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"charm.land/log/v2"
+	"github.com/openfga/mapper/language"
 	_ "modernc.org/sqlite"
 
 	"github.com/sergiught/openfga-cli/internal/cli"
@@ -19,6 +21,7 @@ import (
 	"github.com/sergiught/openfga-cli/internal/config"
 	"github.com/sergiught/openfga-cli/internal/configtest"
 	"github.com/sergiught/openfga-cli/internal/mapping/snapshot"
+	"github.com/sergiught/openfga-cli/internal/mapping/snapshot/workfile"
 )
 
 // unitsOf is one unit per user, each with one event of type typ.
@@ -468,5 +471,153 @@ func TestResumeProgressCard(t *testing.T) {
 	}
 	if _, err := os.Stat(state); err == nil {
 		t.Error("the finished run left its file")
+	}
+}
+
+// smallPages makes a page of the diff one row for the test.
+func smallPages(t *testing.T) {
+	t.Helper()
+	old := writePage
+	writePage = 1
+	t.Cleanup(func() { writePage = old })
+}
+
+// writtenAfter is the text of the writes the fake store took after the first n.
+func (fs *fakeStore) writtenAfter(n int) string {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	return strings.Join(fs.writes[n:], "\n")
+}
+
+func TestResumedBackfillSendsASentTupleTheStoreLost(t *testing.T) {
+	configtest.Isolate(t)
+	smallPages(t)
+	fs := newFakeStore(t)
+	state := filepath.Join(t.TempDir(), "w.db")
+	units := memberUnits("u1", "u2")
+	useFakeProvider(t, unitProvider(units, 0, nil))
+
+	// The first page goes through; the second does not.
+	fs.failAt = map[int]bool{2: true}
+	if _, _, err := runBackfill(t, fs.cli(), nil, stateArgs(t, memberSnapshotMapping, state, "--force")...); err == nil || !exists(state) {
+		t.Fatalf("the first run should fail and keep its file: err = %v", err)
+	}
+	firstWrites := fs.writeCount()
+
+	// The store holds nothing: the tuple the first run sent is gone again.
+	fs.mu.Lock()
+	fs.failAt = nil
+	fs.mu.Unlock()
+	c := fs.cli()
+	c.JSON = true
+	stdout, stderr, err := runBackfill(t, c, nil, stateArgs(t, memberSnapshotMapping, state, "--force", "--resume")...)
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	written := fs.writtenAfter(firstWrites)
+	for _, u := range []string{"u1", "u2"} {
+		for _, rel := range []string{"member", "reader"} {
+			if !strings.Contains(written, `"user":"user:`+u+`"`) || !strings.Contains(written, `"relation":"`+rel+`"`) {
+				t.Errorf("%s of %s was not written after the resume:\n%s", rel, u, written)
+			}
+		}
+	}
+	if n := fs.writeCount() - firstWrites; n != 4 {
+		t.Errorf("the resumed run sent %d writes, want 4 (one per missing tuple)", n)
+	}
+	var doc struct {
+		Sent struct{ Writes int } `json:"sent"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatalf("json: %v\n%s", err, stdout)
+	}
+	if doc.Sent.Writes != 5 {
+		t.Errorf("sent.writes = %d, want 5 (one from the first run, four now)", doc.Sent.Writes)
+	}
+}
+
+func TestResumedUsersOnlyDriftSendsASentTupleTheStoreLost(t *testing.T) {
+	configtest.Isolate(t)
+	pinNow(t, 0)
+	smallPages(t)
+	fs := newFakeStore(t)
+	state := filepath.Join(t.TempDir(), "w.db")
+	units := unitsOf("snapshot.user", "u1", "u2")
+	mk := func() fakeProvider {
+		p := unitProvider(units, 0, nil)
+		p.types = windowedTypes()
+		return p
+	}
+	useFakeProvider(t, mk())
+	fs.failAt = map[int]bool{2: true}
+	if _, _, err := runDrift(t, fs.cli(), nil, stateArgs(t, userSnapshotMapping, state, "--since", "2h", "--force")...); err == nil || !exists(state) {
+		t.Fatalf("the first run should fail and keep its file: err = %v", err)
+	}
+	firstWrites := fs.writeCount()
+
+	fs.mu.Lock()
+	fs.failAt = nil
+	fs.mu.Unlock()
+	useFakeProvider(t, mk())
+	c := fs.cli()
+	c.JSON = true
+	stdout, stderr, err := runDrift(t, c, nil, stateArgs(t, userSnapshotMapping, state, "--since", "2h", "--force", "--resume")...)
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	written := fs.writtenAfter(firstWrites)
+	for _, u := range []string{"u1", "u2"} {
+		if !strings.Contains(written, `"user":"user:`+u+`"`) {
+			t.Errorf("user:%s was not written after the resume:\n%s", u, written)
+		}
+	}
+	var doc struct {
+		Sent struct{ Writes int } `json:"sent"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatalf("json: %v\n%s", err, stdout)
+	}
+	if doc.Sent.Writes != 3 {
+		t.Errorf("sent.writes = %d, want 3 (one from the first run, two now)", doc.Sent.Writes)
+	}
+}
+
+func TestPrepareResumeKeepsOnlyAStoreReadTakenBeforeTheProvider(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		flag           bool
+		beforeProvider bool
+		kept           bool
+	}{
+		{"read before the provider", true, true, true},
+		{"read after the provider", false, true, false},
+		{"this run reads after the provider", true, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wf, err := workfile.Create(filepath.Join(t.TempDir(), "w.db"), workfile.Meta{Command: "drift", CreatedAt: now()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = wf.Close() }()
+			ctx := context.Background()
+			if err := wf.AddStore(ctx, []language.Tuple{{User: "user:a", Relation: "member", Object: "organization:o"}}); err != nil {
+				t.Fatal(err)
+			}
+			if err := wf.MarkStoreRead(now(), 1, 0); err != nil {
+				t.Fatal(err)
+			}
+			if tc.flag {
+				if err := wf.Remember(storeBeforeProvider, "1"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, _, _, kept, err := prepareResume(ctx, wf, tc.beforeProvider)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, _, _, ok := wf.StoreRead(); kept != tc.kept || ok != tc.kept {
+				t.Errorf("kept = %v, store read present = %v, want %v", kept, ok, tc.kept)
+			}
+		})
 	}
 }

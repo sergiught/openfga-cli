@@ -169,3 +169,28 @@ func TestPagesPairChangedWithTheirStoredVersion(t *testing.T) {
 		return nil
 	}))
 }
+
+func TestResetSentOffersEveryRowAndCarriesTheCounts(t *testing.T) {
+	ctx := context.Background()
+	f, _ := newFile(t)
+	for i := range 5 {
+		require.NoError(t, f.AddDesired(ctx, language.Tuple{User: fmt.Sprintf("user:u%d", i), Relation: "member", Object: "organization:acme"}))
+	}
+	_, err := f.Compare(ctx, nil, nil)
+	require.NoError(t, err)
+	require.NoError(t, f.Pages(Missing, 2, func(page, _ []language.Tuple) error { return f.MarkSent(Missing, page) }))
+
+	require.NoError(t, f.ResetSent())
+	n, err := f.SentCount(Missing)
+	require.NoError(t, err)
+	require.Equal(t, 0, n)
+	require.Equal(t, 5, f.Carried(Missing))
+	var rows int
+	require.NoError(t, f.Pages(Missing, 10, func(page, _ []language.Tuple) error { rows += len(page); return nil }))
+	require.Equal(t, 5, rows)
+
+	// A second reset adds to what was carried.
+	require.NoError(t, f.Pages(Missing, 10, func(page, _ []language.Tuple) error { return f.MarkSent(Missing, page[:2]) }))
+	require.NoError(t, f.ResetSent())
+	require.Equal(t, 7, f.Carried(Missing))
+}
