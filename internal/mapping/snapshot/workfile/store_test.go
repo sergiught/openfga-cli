@@ -234,3 +234,23 @@ func TestWantedUsesThePairIndex(t *testing.T) {
 	}
 	require.Equal(t, 6000, n)
 }
+
+func TestResetReplayKeepsEventsAndTheStoreRead(t *testing.T) {
+	ctx := context.Background()
+	f, _ := newFile(t)
+	require.NoError(t, f.AddStore(ctx, []language.Tuple{{User: "user:a", Relation: "member", Object: "organization:o"}}))
+	require.NoError(t, f.MarkStoreRead(time.Now(), 1, 1))
+	_, err := f.db.Exec(`INSERT INTO tupleset(id, shape, user, relation, object, tuple, writer, typ, marked) VALUES('x','s','u','r','o',x'00','w','t',0)`)
+	require.NoError(t, err)
+	require.NoError(t, f.ResetReplay(ctx))
+
+	for table, want := range map[string]int{"tupleset": 0, "plan": 0, "desired": 0, "diff": 0, "store": 1} {
+		var n int
+		require.NoError(t, f.db.QueryRow(`SELECT COUNT(*) FROM `+table).Scan(&n))
+		if n != want {
+			t.Errorf("%s has %d rows, want %d", table, n, want)
+		}
+	}
+	_, _, _, ok := f.StoreRead()
+	require.True(t, ok)
+}

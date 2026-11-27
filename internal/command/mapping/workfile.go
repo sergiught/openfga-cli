@@ -1,10 +1,12 @@
 package mapping
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"strings"
 	"time"
@@ -167,4 +169,59 @@ func diffLists(f *workfile.File, c workfile.Counts) snapshot.DiffLists {
 	}
 }
 
-var errResumeLater = errors.New("--resume is not available yet")
+// resumeRefused is how a run that cannot continue from its work file ends: a
+// usage error that says why and what to do instead. The file is left alone.
+func resumeRefused(err error) error {
+	return clierr.WithCode(clierr.CodeUsage, clierr.WithHint("run without --resume to start over", err))
+}
+
+// openResume opens the work file at path for a run described by want, refusing
+// a file that is missing or that another run made.
+func openResume(path string, want workfile.Meta) (*workfile.File, error) {
+	wf, err := workfile.Open(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, resumeRefused(&workfile.RefusalError{Path: path, Reason: "there is no work file"})
+		}
+		return nil, resumeRefused(err)
+	}
+	if err := wf.Check(want, now()); err != nil {
+		_ = wf.Close()
+		var refusal *workfile.RefusalError
+		if errors.As(err, &refusal) {
+			return nil, resumeRefused(err)
+		}
+		return nil, workErr(path, err)
+	}
+	return wf, nil
+}
+
+// prepareResume readies an open work file for the run that continues it: units
+// that never finished are dropped, so the provider reads them again, and
+// everything the replay builds is emptied, so the saved events replay from the
+// start. A store read is kept only when the run reads the store before the
+// provider (beforeProvider) and the earlier run finished that read; any other
+// is emptied, so the store is read again after the provider as in a fresh run.
+// It reports what the earlier runs sent, whether any unit was already read and
+// whether a store read was kept.
+func prepareResume(ctx context.Context, wf *workfile.File, beforeProvider bool) (earlier map[workfile.DiffKind]int, resumed, storeSaved bool, err error) {
+	if err = wf.DropUnfinished(); err != nil {
+		return nil, false, false, err
+	}
+	if started, _ := wf.Window(); !started.IsZero() {
+		resumed = true
+	}
+	if err = wf.ResetReplay(ctx); err != nil {
+		return nil, false, false, err
+	}
+	earlier = map[workfile.DiffKind]int{}
+	for _, kind := range []workfile.DiffKind{workfile.Missing, workfile.Changed, workfile.Stale} {
+		if earlier[kind], err = wf.SentCount(kind); err != nil {
+			return nil, false, false, err
+		}
+	}
+	if _, _, _, ok := wf.StoreRead(); beforeProvider && ok {
+		return earlier, resumed, true, nil
+	}
+	return earlier, resumed, false, wf.ResetStore(ctx)
+}

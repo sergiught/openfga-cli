@@ -186,7 +186,11 @@ func providerRow(label string, r *snapshot.Result, since time.Time) headerRow {
 		}
 		extra = append(extra, line)
 	}
-	return headerRow{label: label, text: strings.Join(parts, joint()), extra: extra}
+	text := strings.Join(parts, joint())
+	if r.Resumed {
+		text += muted(resumedMark)
+	}
+	return headerRow{label: label, text: text, extra: extra}
 }
 
 // writeSection prints a section's title and its tuples grouped by shape. A

@@ -276,7 +276,8 @@ func (c *Command) backfill(cmd *cobra.Command, path, provider, since string, dry
 	})
 	live.Note(thousands(sent.Writes+sent.Deletes) + " changes")
 	live.Suspend("wrote")
-	res.Sent = sentOut{Writes: sent.Writes, Deletes: sent.Deletes}
+	earlier := run.sent()
+	res.Sent = sentOut{Writes: sent.Writes + earlier.Writes, Deletes: sent.Deletes + earlier.Deletes}
 	if err != nil {
 		if eerr := emitBackfill(out, c.cli, res, lists); eerr != nil {
 			return eerr

@@ -97,6 +97,8 @@ type fakeStore struct {
 	maxChanges int
 	// failAt makes only the listed (1-based) /write numbers answer 400.
 	failAt map[int]bool
+	// altStore, when set, is a second store id GET /stores/{id} answers for.
+	altStore string
 	// log, when non-nil, gets "store read" for each /read, in order with
 	// the fake provider's entries.
 	log *[]string
@@ -150,6 +152,8 @@ func newFakeStore(t *testing.T, stored ...map[string]any) *fakeStore {
 				return
 			}
 			_, _ = io.WriteString(w, `{"id":"`+applyStoreID+`","name":"acme"}`)
+		case fs.altStore != "" && r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/stores/"+fs.altStore):
+			_, _ = io.WriteString(w, `{"id":"`+fs.altStore+`","name":"other"}`)
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/read"):
 			if fs.log != nil {
 				*fs.log = append(*fs.log, "store read")

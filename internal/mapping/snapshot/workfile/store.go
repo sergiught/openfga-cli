@@ -61,6 +61,31 @@ func (f *File) ResetStore(ctx context.Context) (err error) {
 	return nil
 }
 
+// ResetReplay empties what a replay builds (the planner's state, the tuple set,
+// the desired tuples and the diff), so a resumed run replays the saved events
+// from the start. The events, the units and the store read stay.
+func (f *File) ResetReplay(ctx context.Context) (err error) {
+	tx, err := f.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("reset replay: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	for _, stmt := range []string{`DELETE FROM plan`, `DELETE FROM tupleset`, `DELETE FROM desired`, `DELETE FROM diff`} {
+		if _, err = tx.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("reset replay: %w", err)
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("reset replay: %w", err)
+	}
+	f.desired = nil
+	return nil
+}
+
 // AddStore saves ts in the store table, in one transaction. A tuple read twice
 // replaces itself.
 func (f *File) AddStore(ctx context.Context, ts []language.Tuple) (err error) {

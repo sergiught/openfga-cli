@@ -90,17 +90,6 @@ func TestKeepStateKeepsIt(t *testing.T) {
 	}
 }
 
-func TestResumeIsNotAvailableYet(t *testing.T) {
-	configtest.Isolate(t)
-	fs := newFakeStore(t)
-	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1")})
-	state := filepath.Join(t.TempDir(), "w.db")
-	_, _, err := runBackfill(t, fs.cli(), nil, stateArgs(t, driftMapping, state, "--resume")...)
-	if err == nil || exists(state) {
-		t.Fatalf("err = %v, file exists = %v", err, exists(state))
-	}
-}
-
 func TestFailureKeepsTheFileAndHints(t *testing.T) {
 	for _, name := range []string{"backfill", "drift"} {
 		t.Run(name+" write failure", func(t *testing.T) {

@@ -44,6 +44,19 @@ type snapshotRun struct {
 	// types read by window, empty without --since.
 	Since    time.Time
 	Windowed []string
+	// Resumed is set when some of the read came from an earlier run. StoreSaved
+	// says the store read of that run was kept, so this run did not read the
+	// store before the provider. Earlier is how many changes of each kind the
+	// earlier runs got into the store.
+	Resumed, StoreSaved bool
+	Earlier             map[workfile.DiffKind]int
+}
+
+// sent is what the earlier runs wrote and deleted: a missing tuple is one
+// write, a changed one a delete and a write, a stale one a delete.
+func (r *snapshotRun) sent() snapshot.Sent {
+	m, c, s := r.Earlier[workfile.Missing], r.Earlier[workfile.Changed], r.Earlier[workfile.Stale]
+	return snapshot.Sent{Writes: m + c, Deletes: c + s}
 }
 
 // runSnapshot loads and compiles the mapping, resolves --provider, rejects
@@ -66,9 +79,6 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since t
 		problemsOut = errw
 	}
 
-	if opts.state.resume {
-		return nil, errResumeLater
-	}
 	if provider == "" {
 		return nil, clierr.WithCode(clierr.CodeUsage, clierr.WithHint(
 			"--provider takes one of: "+strings.Join(providerNames(), ", "),
@@ -141,12 +151,31 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since t
 	if err != nil {
 		return nil, err
 	}
-	wf, err := createWork(cmd, workPath, workMeta(opts.command, p.Name(), p.Source(), storeID, opts.sinceText, since, requested, f.Src))
-	if err != nil {
+	meta := workMeta(opts.command, p.Name(), p.Source(), storeID, opts.sinceText, since, requested, f.Src)
+	var (
+		wf         *workfile.File
+		resumed    bool
+		storeSaved bool
+		earlier    map[workfile.DiffKind]int
+	)
+	if opts.state.resume {
+		if wf, err = openResume(workPath, meta); err != nil {
+			return nil, err
+		}
+		opts.ws.f = wf
+		output.Notef(errw, "resuming from %s", workPath)
+		// The window the first run started is the one this run reads: --since 24h
+		// does not slide an hour on.
+		since = wf.Meta().Since
+		if earlier, resumed, storeSaved, err = prepareResume(ctx, wf, afterOpen != nil); err != nil {
+			return nil, workErr(workPath, err)
+		}
+	} else if wf, err = createWork(cmd, workPath, meta); err != nil {
 		return nil, err
+	} else {
+		opts.ws.f = wf
 	}
-	opts.ws.f = wf
-	if afterOpen != nil {
+	if afterOpen != nil && !storeSaved {
 		if err := afterOpen(wf); err != nil {
 			return nil, err
 		}
@@ -173,6 +202,15 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since t
 	})
 	if err != nil {
 		return nil, err
+	}
+	if resumed {
+		// A copy: the provider's own result is left as it gave it.
+		done := *res
+		done.Resumed = true
+		if started, finished := wf.Window(); !started.IsZero() {
+			done.StartedAt, done.FinishedAt = started, finished
+		}
+		res = &done
 	}
 	items := 0
 	for _, n := range res.Counts {
@@ -231,7 +269,8 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since t
 	// The count is known now, so reports never ask the work file for it.
 	desired := counted{wf.Desired(), n}
 	lv.Note(thousands(items) + " items, " + thousands(n) + " tuples from " + thousands(replay.Events()) + " events")
-	return &snapshotRun{File: f, Provider: p, Types: types, Result: res, Desired: desired, Work: wf, Contested: contested, Since: since, Windowed: windowed}, nil
+	return &snapshotRun{File: f, Provider: p, Types: types, Result: res, Desired: desired, Work: wf, Contested: contested, Since: since, Windowed: windowed,
+		Resumed: resumed, StoreSaved: storeSaved, Earlier: earlier}, nil
 }
 
 // replayPage is how many saved events the replay reads at a time; saveChunk is
@@ -324,6 +363,10 @@ func snapshotLayout(r *snapshot.Result) string {
 	return clockLayout
 }
 
+// resumedMark ends the snapshot time line of a run that continued an earlier
+// one.
+const resumedMark = " (resumed)"
+
 // snapshotHeader prints which provider was read, when, from where, and how
 // many events of each type it produced. A count read by window says since when.
 func snapshotHeader(w io.Writer, label string, r *snapshot.Result, since time.Time) {
@@ -331,6 +374,9 @@ func snapshotHeader(w io.Writer, label string, r *snapshot.Result, since time.Ti
 	waits := ""
 	if r.RateLimited > 0 {
 		waits = "  " + mapping.Plural(r.RateLimited, "rate-limit wait")
+	}
+	if r.Resumed {
+		waits += resumedMark
 	}
 	_, _ = fmt.Fprintf(w, "%s read  %s → %s UTC  %s%s\n", output.SanitizeField(label), start, finish, output.SanitizeField(r.Source), waits)
 	width := 0

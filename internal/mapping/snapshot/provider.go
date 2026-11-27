@@ -57,6 +57,9 @@ type Result struct {
 	Counts                []Count          // one per requested type, in the provider's order
 	RateLimited           int              // responses of this read that were HTTP 429
 	StartedAt, FinishedAt time.Time
+	// Resumed is set by the command when some of what was read came from an
+	// earlier run of the same work file.
+	Resumed bool
 }
 
 // Progress is one report of a read in progress.
