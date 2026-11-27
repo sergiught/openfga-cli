@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/openfga/mapper/language"
-	"github.com/stretchr/testify/require"
 
 	"github.com/sergiught/openfga-cli/internal/mapping/snapshot"
 	"github.com/sergiught/openfga-cli/internal/output"
@@ -46,24 +46,36 @@ func TestStreamJSONMatchesOutputJSON(t *testing.T) {
 				b := backfillResult{snapshotMeta: meta, StoreReadAt: at, Tuples: tuplesOut(ts), Missing: tuplesOut(ts), Changed: tuplesOut(ts[:n/2]),
 					Existing: 4, NotChecked: nc, Sent: sentOut{Writes: 2}}
 				var want, got bytes.Buffer
-				require.NoError(t, output.JSON(&want, b))
+				if err := output.JSON(&want, b); err != nil {
+					t.Fatal(err)
+				}
 				stub := b
 				stub.Tuples, stub.Missing, stub.Changed = nil, nil, nil
-				require.NoError(t, streamJSON(&got, stub, map[string]snapshot.Tuples{
-					"tuples": snapshot.Slice(ts), "missing": snapshot.Slice(ts), "changed": snapshot.Slice(ts[:n/2])}))
-				require.Equal(t, want.String(), got.String())
+				if err := streamJSON(&got, stub, map[string]snapshot.Tuples{
+					"tuples": snapshot.Slice(ts), "missing": snapshot.Slice(ts), "changed": snapshot.Slice(ts[:n/2])}); err != nil {
+					t.Fatal(err)
+				}
+				if want.String() != got.String() {
+					t.Fatalf("streamed:\n%s\nwant:\n%s", got.String(), want.String())
+				}
 
 				d := driftResult{snapshotMeta: meta, StoreReadAt: at, Missing: tuplesOut(ts), Changed: tuplesOut(ts[:n/2]), Stale: tuplesOut(nil),
 					NotChecked: notCheckedOuts(nil), Pruned: 1}
 				want.Reset()
 				got.Reset()
-				require.NoError(t, output.JSON(&want, d))
+				if err := output.JSON(&want, d); err != nil {
+					t.Fatal(err)
+				}
 				stub2 := d
 				stub2.Missing, stub2.Changed, stub2.Stale = nil, nil, nil
 				// A nil list renders like an empty one.
-				require.NoError(t, streamJSON(&got, stub2, map[string]snapshot.Tuples{
-					"missing": snapshot.Slice(ts), "changed": snapshot.Slice(ts[:n/2]), "stale": nil}))
-				require.Equal(t, want.String(), got.String())
+				if err := streamJSON(&got, stub2, map[string]snapshot.Tuples{
+					"missing": snapshot.Slice(ts), "changed": snapshot.Slice(ts[:n/2]), "stale": nil}); err != nil {
+					t.Fatal(err)
+				}
+				if want.String() != got.String() {
+					t.Fatalf("streamed:\n%s\nwant:\n%s", got.String(), want.String())
+				}
 			})
 		}
 	}
@@ -88,9 +100,15 @@ func TestStreamDocIndentsNestedLists(t *testing.T) {
 			Shapes []plainEntry `json:"shapes"`
 		}{[]plainEntry{{"a", tuplesOut(ts)}, {"b", tuplesOut(nil)}}}
 		var want, got bytes.Buffer
-		require.NoError(t, output.JSON(&want, plain))
-		require.NoError(t, streamDoc(&got, doc, map[string]snapshot.Tuples{"a": snapshot.Slice(ts), "b": snapshot.Slice{}}))
-		require.Equal(t, want.String(), got.String())
+		if err := output.JSON(&want, plain); err != nil {
+			t.Fatal(err)
+		}
+		if err := streamDoc(&got, doc, map[string]snapshot.Tuples{"a": snapshot.Slice(ts), "b": snapshot.Slice{}}); err != nil {
+			t.Fatal(err)
+		}
+		if want.String() != got.String() {
+			t.Fatalf("streamed:\n%s\nwant:\n%s", got.String(), want.String())
+		}
 	}
 }
 
@@ -99,19 +117,26 @@ func TestStreamJSONRefusesACollidingSentinel(t *testing.T) {
 	stub := driftResult{snapshotMeta: snapshotMeta{Store: "\x00LIST:missing\x00"}}
 	var got bytes.Buffer
 	err := streamJSON(&got, stub, map[string]snapshot.Tuples{"missing": snapshot.Slice(streamTuples(1)), "changed": nil, "stale": nil})
-	require.Error(t, err)
-	require.Empty(t, got.String())
+	if err == nil {
+		t.Error("a colliding sentinel was accepted")
+	}
+	if got.Len() != 0 {
+		t.Errorf("output = %q, want none", got.String())
+	}
 
 	// A list the document has no field for is an error too.
-	err = streamJSON(&got, driftResult{}, map[string]snapshot.Tuples{"nope": nil})
-	require.Error(t, err)
+	if err = streamJSON(&got, driftResult{}, map[string]snapshot.Tuples{"nope": nil}); err == nil {
+		t.Error("an unknown list was accepted")
+	}
 }
 
 func TestStreamJSONReportsListErrors(t *testing.T) {
 	setCompact(t, false)
 	var got bytes.Buffer
 	err := streamJSON(&got, driftResult{}, map[string]snapshot.Tuples{"missing": failing{}, "changed": nil, "stale": nil})
-	require.ErrorContains(t, err, "boom")
+	if err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Errorf("err = %v, want it to say boom", err)
+	}
 }
 
 type failing struct{}
