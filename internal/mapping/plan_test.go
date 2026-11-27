@@ -402,14 +402,23 @@ func TestRecorderReadsTheLastPlannedState(t *testing.T) {
 		return t
 	}
 	rec := &recorder{
-		store:   &memStore{tuples: []language.Tuple{w("user:x", "team:a")}},
-		cache:   map[language.TupleFilter][]language.Tuple{},
-		planned: map[string]map[string]language.Tuple{},
+		store: &memStore{tuples: []language.Tuple{w("user:x", "team:a")}},
+		cache: map[language.TupleFilter][]language.Tuple{},
+		state: NewMapState(),
 	}
-	rec.plan([]language.Tuple{w("user:u1", "team:a"), w("user:u1", "organization:o")})
-	rec.plan([]language.Tuple{d("user:u1", "team:a")})
-	rec.plan([]language.Tuple{d("user:x", "team:a"), w("user:u1", "team:a")})
-	rec.plan([]language.Tuple{d("user:u1", "team:b"), w("user:u2", "team:b")})
+	plan := func(changes []language.Tuple) {
+		pcs := make([]PlannedChange, len(changes))
+		for i, c := range changes {
+			pcs[i] = PlannedChange{Tuple: c, Event: 1}
+		}
+		if err := rec.state.Plan(context.Background(), pcs); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plan([]language.Tuple{w("user:u1", "team:a"), w("user:u1", "organization:o")})
+	plan([]language.Tuple{d("user:u1", "team:a")})
+	plan([]language.Tuple{d("user:x", "team:a"), w("user:u1", "team:a")})
+	plan([]language.Tuple{d("user:u1", "team:b"), w("user:u2", "team:b")})
 
 	tests := []struct {
 		filter language.TupleFilter
