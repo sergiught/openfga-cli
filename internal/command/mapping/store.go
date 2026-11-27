@@ -25,6 +25,11 @@ type storeClient struct{ cl *openfga.Client }
 // server's default is 50, so asking for the maximum halves the requests.
 const readPageSize = 100
 
+// readConsistency is set on every tuple read rather than left to the client's
+// default: a read served from a cache could miss a tuple, and the plan would
+// then write a duplicate or delete what it should keep.
+const readConsistency = openfga.ConsistencyHigherConsistency
+
 func toTuple(t openfga.Tuple) language.Tuple {
 	lt := language.Tuple{User: t.Key.User, Relation: t.Key.Relation, Object: t.Key.Object}
 	if c := t.Key.Condition; c != nil {
@@ -39,7 +44,7 @@ func (s storeClient) ReadTuples(ctx context.Context, f language.TupleFilter) ([]
 		return nil, fmt.Errorf("tuple filter %s %s %s: %w", f.User, f.Relation, f.Object, err)
 	}
 	var out []language.Tuple
-	for t, err := range s.cl.Tuples.ReadAll(ctx, &openfga.ReadRequest{TupleKey: rf.TupleKey(), PageSize: readPageSize}) {
+	for t, err := range s.cl.Tuples.ReadAll(ctx, &openfga.ReadRequest{TupleKey: rf.TupleKey(), PageSize: readPageSize, Consistency: readConsistency}) {
 		if err != nil {
 			return nil, err
 		}
@@ -58,7 +63,7 @@ func (s storeClient) ReadAll(ctx context.Context) ([]language.Tuple, error) {
 // progress may be nil; it is called after every readPageSize tuples read and
 // once at the end.
 func (s storeClient) ReadKept(ctx context.Context, keep func(language.Tuple) bool, progress func(read, kept int)) (kept []language.Tuple, total int, err error) {
-	for t, err := range s.cl.Tuples.ReadAll(ctx, &openfga.ReadRequest{PageSize: readPageSize}) {
+	for t, err := range s.cl.Tuples.ReadAll(ctx, &openfga.ReadRequest{PageSize: readPageSize, Consistency: readConsistency}) {
 		if err != nil {
 			return nil, 0, err
 		}

@@ -65,7 +65,7 @@ func (s storeClient) ReadMatching(ctx context.Context, want []language.Tuple, pr
 	budget := max(1, (len(pairs)+storeWorkers-1)/storeWorkers)
 
 	var res storeRead
-	req := &openfga.ReadRequest{PageSize: readPageSize}
+	req := &openfga.ReadRequest{PageSize: readPageSize, Consistency: readConsistency}
 	for page := 1; ; page++ {
 		resp, err := s.cl.Tuples.Read(ctx, req)
 		if err != nil {
@@ -111,6 +111,7 @@ func (s storeClient) ReadMatching(ctx context.Context, want []language.Tuple, pr
 			pages := max(1, (len(wanted[p])+storeWorkers-1)/storeWorkers)
 			req := &openfga.ReadRequest{
 				TupleKey: &openfga.ReadRequestTupleKey{Object: p.object, Relation: p.relation}, PageSize: readPageSize,
+				Consistency: readConsistency,
 			}
 			var got []language.Tuple
 			n := 0
@@ -174,6 +175,7 @@ func (s storeClient) ReadMatching(ctx context.Context, want []language.Tuple, pr
 		g.Go(func() error {
 			resp, err := s.cl.Tuples.Read(gctx, &openfga.ReadRequest{
 				TupleKey: &openfga.ReadRequestTupleKey{User: t.User, Relation: t.Relation, Object: t.Object}, PageSize: readPageSize,
+				Consistency: readConsistency,
 			})
 			if err != nil {
 				return err
