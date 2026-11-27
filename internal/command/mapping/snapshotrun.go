@@ -1,6 +1,7 @@
 package mapping
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -167,7 +168,17 @@ func (c *Command) runSnapshot(cmd *cobra.Command, path, provider string, since t
 		// The window the first run started is the one this run reads: --since 24h
 		// does not slide an hour on.
 		since = wf.Meta().Since
-		if earlier, resumed, storeSaved, err = prepareResume(ctx, wf, opts.storeFirst != nil && opts.storeFirst()); err != nil {
+		var writes []string
+		if opts.storeWrites != nil {
+			writes = opts.storeWrites()
+		}
+		if earlier, resumed, storeSaved, err = prepareResume(ctx, wf, opts.storeFirst != nil && opts.storeFirst(), writes); err != nil {
+			var refusal *workfile.RefusalError
+			if errors.As(err, &refusal) {
+				// A refused file is kept as it was, with no hint to resume it.
+				_ = wf.Close()
+				opts.ws.f = nil
+			}
 			return nil, workErr(workPath, err)
 		}
 	} else if wf, err = createWork(cmd, workPath, meta); err != nil {
@@ -291,6 +302,9 @@ type snapshotOpts struct {
 	// store before the provider, which a resume must know to reuse a saved
 	// store read.
 	storeFirst func() bool
+	// storeWrites lists the shapes the mapping writes, as writtenShapes gives
+	// them, for a run that reads the store before the provider.
+	storeWrites func() []string
 }
 
 // windowedRequested returns the requested types the provider can read by

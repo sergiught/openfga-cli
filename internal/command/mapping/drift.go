@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/openfga/mapper/language"
@@ -128,6 +129,7 @@ func (c *Command) drift(cmd *cobra.Command, path, provider, since string, prune,
 		storeNm, storeLbl string
 		storeReadAt       time.Time
 	)
+	var driftDoc *mapping.Document
 	var (
 		storedTotal int
 		// usersOnly is a --since run in which every shape is windowed, so
@@ -143,7 +145,8 @@ func (c *Command) drift(cmd *cobra.Command, path, provider, since string, prune,
 	meter := new(client.Meter)
 	var live *status.Live
 	defer func() { live.Close() }()
-	run, err := c.runSnapshot(cmd, path, provider, sinceTime, snapshotOpts{command: "drift", sinceText: since, state: state, ws: ws, storeFirst: func() bool { return !usersOnly }}, func() *status.Live { return live }, func(f *mapping.File, types []snapshot.Type, windowed []string) (string, error) {
+	run, err := c.runSnapshot(cmd, path, provider, sinceTime, snapshotOpts{command: "drift", sinceText: since, state: state, ws: ws, storeFirst: func() bool { return !usersOnly }, storeWrites: func() []string { return writtenShapes(driftDoc) }}, func() *status.Live { return live }, func(f *mapping.File, types []snapshot.Type, windowed []string) (string, error) {
+		driftDoc = f.Doc
 		var r config.Resolved
 		var err error
 		if cl, r, err = c.cli.ClientWithStore(client.WithMeter(meter)); err != nil {
@@ -191,6 +194,9 @@ func (c *Command) drift(cmd *cobra.Command, path, provider, since string, prune,
 					return err
 				}
 				if err := wf.MarkStoreRead(now(), storedTotal, 0); err != nil {
+					return workErr(wf.Path(), err)
+				}
+				if err := wf.Remember(storeWritesKey, strings.Join(writtenShapes(doc), "\n")); err != nil {
 					return workErr(wf.Path(), err)
 				}
 				if err := wf.Remember(storeBeforeProvider, "1"); err != nil {

@@ -197,7 +197,7 @@ func (f *File) MarkSent(kind DiffKind, page []language.Tuple) (err error) {
 			_ = tx.Rollback()
 		}
 	}()
-	mark, err := tx.Prepare(`INSERT OR IGNORE INTO sent(kind, id, key) VALUES(?, ?, '')`)
+	mark, err := tx.Prepare(`INSERT INTO sent(kind, id, key) VALUES(?, ?, '')`)
 	if err != nil {
 		return fmt.Errorf("work file %s: mark sent: %w", f.path, err)
 	}

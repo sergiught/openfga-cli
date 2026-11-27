@@ -51,7 +51,7 @@ CREATE INDEX desired_key ON desired(shape, user, relation, object);
 CREATE INDEX desired_pair ON desired(object, relation, id);
 CREATE TABLE store(id TEXT PRIMARY KEY, tuple BLOB) WITHOUT ROWID;
 CREATE TABLE diff(kind INTEGER, shape TEXT, user TEXT, relation TEXT, object TEXT, id TEXT, tuple BLOB, was BLOB, PRIMARY KEY(kind, shape, user, relation, object)) WITHOUT ROWID;
-CREATE TABLE sent(kind INTEGER, id TEXT, key TEXT, PRIMARY KEY(kind, id, key)) WITHOUT ROWID;
+CREATE TABLE sent(kind INTEGER, id TEXT, key TEXT);
 `
 
 var sidecars = []string{"-wal", "-shm", "-journal"}
@@ -141,7 +141,7 @@ func checkIsWorkFile(path string) error {
 	case errors.Is(err, sql.ErrNoRows) || strings.Contains(err.Error(), "no such table"):
 		return notWork("no work file metadata")
 	default:
-		return fmt.Errorf("read %s: %w", path, err)
+		return fmt.Errorf("read %s: %w; remove it or choose another path", path, err)
 	}
 }
 

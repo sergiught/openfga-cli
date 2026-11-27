@@ -621,7 +621,7 @@ func TestPrepareResumeKeepsOnlyAStoreReadTakenBeforeTheProvider(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			_, _, kept, err := prepareResume(ctx, wf, tc.beforeProvider)
+			_, _, kept, err := prepareResume(ctx, wf, tc.beforeProvider, nil)
 			var refusal *workfile.RefusalError
 			if got := errors.As(err, &refusal); got != tc.refused {
 				t.Fatalf("refused = %v, want %v (err = %v)", got, tc.refused, err)
@@ -826,14 +826,17 @@ func TestResumedDriftRefusesWhenItNoLongerCanReuseItsStoreRead(t *testing.T) {
 	// The edit makes another shape owned: the store would now be read before
 	// the provider, and could not be paired with the unit already saved.
 	useFakeProvider(t, mk(0))
-	_, _, err := runDrift(t, fs.cli(), nil, stateArgs(t, flipMapping(false), state, "--since", "2h", "--force", "--resume")...)
+	_, stderr, err := runDrift(t, fs.cli(), nil, stateArgs(t, flipMapping(false), state, "--since", "2h", "--force", "--resume")...)
+	if strings.Contains(stderr, "--resume to continue") {
+		t.Errorf("the refusal also says the work file was kept for a resume:\n%s", stderr)
+	}
 	if err == nil || clierr.Code(err) != clierr.CodeUsage {
 		t.Fatalf("code = %d, err = %v; want a usage error", clierr.Code(err), err)
 	}
 	if want := "cannot resume from " + state + ": the earlier run read the store after the provider; this run must read it before"; !strings.Contains(err.Error(), want) {
 		t.Errorf("err = %v, want it to contain %q", err, want)
 	}
-	if hint := clierr.NewEnvelope(err).Error.Hint; !strings.Contains(hint, "run without --resume to start over") {
+	if hint := clierr.NewEnvelope(err).Error.Hint; !strings.Contains(hint, "run without --resume to start over") || strings.Contains(hint, "--resume to continue") {
 		t.Errorf("hint = %q", hint)
 	}
 	if fs.writeCount() != 0 || len(fs.readRequests()) != reads {
@@ -927,5 +930,48 @@ func TestResumedBackfillWritesEachTupleOnceAcrossPages(t *testing.T) {
 	}
 	if len(doc.Missing) != 4 || doc.Sent.Writes != 6 {
 		t.Errorf("missing = %d, sent.writes = %d; want 4 and 6 (two from the first run, four now)", len(doc.Missing), doc.Sent.Writes)
+	}
+}
+
+func TestResumedDriftRefusesAShapeTheSavedStoreReadDidNotCover(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t)
+	state := filepath.Join(t.TempDir(), "w.db")
+	units := memberUnits("u1", "u2")
+	useFakeProvider(t, unitProvider(units, 1, nil))
+	if _, _, err := runDrift(t, fs.cli(), nil, stateArgs(t, driftMapping, state, "--force")...); err == nil || !exists(state) {
+		t.Fatalf("the first run should fail and keep its file: err = %v", err)
+	}
+	reads := len(fs.readRequests())
+	wider := driftMapping + `  - name: extra
+    when: input.type == "snapshot.organization.member"
+    tuples:
+      - user: "user:{{ input.user }}"
+        relation: reader
+        object: "organization:{{ input.org }}"
+`
+	useFakeProvider(t, unitProvider(units, 0, nil))
+	_, stderr, err := runDrift(t, fs.cli(), nil, stateArgs(t, wider, state, "--dry-run", "--resume")...)
+	if err == nil || clierr.Code(err) != clierr.CodeUsage ||
+		!strings.Contains(err.Error(), "the mapping now writes user reader organization that the earlier store read did not cover") {
+		t.Fatalf("code = %d, err = %v\n%s", clierr.Code(err), err, stderr)
+	}
+	if strings.Contains(stderr, "--resume to continue") || !exists(state) || len(fs.readRequests()) != reads {
+		t.Errorf("the refusal kept the wrong state:\n%s", stderr)
+	}
+
+	// A mapping that drops a shape still resumes.
+	narrower := `version: "1"
+rules:
+  - name: organization.member.added
+    when: input.type == "snapshot.organization.member"
+    tuples:
+      - user: "user:{{ input.user }}"
+        relation: member
+        object: "organization:{{ input.org }}"
+`
+	useFakeProvider(t, unitProvider(units, 0, nil))
+	if _, stderr, err := runDrift(t, fs.cli(), nil, stateArgs(t, narrower, state, "--dry-run", "--resume")...); err != nil && clierr.Code(err) == clierr.CodeUsage {
+		t.Fatalf("a narrower mapping was refused: %v\n%s", err, stderr)
 	}
 }

@@ -232,3 +232,17 @@ func TestResetSentOffersEveryRowAndCarriesTheCounts(t *testing.T) {
 	require.NoError(t, f.ResetSent())
 	require.Equal(t, 7, f.Carried(Missing))
 }
+
+func TestSentCountsEverySendOfTheSameIdentity(t *testing.T) {
+	f, _ := newFile(t)
+	x := language.Tuple{User: "user:x", Relation: "member", Object: "organization:acme"}
+	require.NoError(t, f.MarkSent(Missing, []language.Tuple{x}))
+	require.NoError(t, f.MarkSent(Stale, []language.Tuple{x}))
+	require.NoError(t, f.MarkSent(Missing, []language.Tuple{x}))
+	n, err := f.SentCount(Missing)
+	require.NoError(t, err)
+	require.Equal(t, 2, n)
+	require.NoError(t, f.ResetSent())
+	require.Equal(t, 2, f.Carried(Missing))
+	require.Equal(t, 1, f.Carried(Stale))
+}

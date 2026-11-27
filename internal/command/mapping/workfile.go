@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/sergiught/openfga-cli/internal/clierr"
+	"github.com/sergiught/openfga-cli/internal/mapping"
 	"github.com/sergiught/openfga-cli/internal/mapping/snapshot"
 	"github.com/sergiught/openfga-cli/internal/mapping/snapshot/workfile"
 	"github.com/sergiught/openfga-cli/internal/output"
@@ -200,6 +203,42 @@ func openResume(path string, want workfile.Meta) (*workfile.File, error) {
 // before the provider was read (a ReadKept read), not after it.
 const storeBeforeProvider = "store.before-provider"
 
+// storeWritesKey is the work file's note of the shapes its store read covered.
+const storeWritesKey = "store.writes"
+
+// writtenShapes lists the shapes the mapping writes, sorted, or "*" when a rule
+// templates its type or relation and so can write any.
+func writtenShapes(doc *mapping.Document) []string {
+	seen := map[string]bool{}
+	for _, r := range doc.Rules {
+		shapes, unshaped := mapping.RuleShapes(r)
+		if unshaped > 0 {
+			seen["*"] = true
+		}
+		for _, s := range shapes {
+			seen[s.String()] = true
+		}
+	}
+	return slices.Sorted(maps.Keys(seen))
+}
+
+// uncovered reports the first of want that saved does not hold; ok is true when
+// saved covers all of want. A saved "*" covers everything.
+func uncovered(want, saved []string) (first string, ok bool) {
+	if slices.Contains(saved, "*") {
+		return "", true
+	}
+	for _, w := range want {
+		if !slices.Contains(saved, w) {
+			if w == "*" {
+				w = "a templated type or relation"
+			}
+			return w, false
+		}
+	}
+	return "", true
+}
+
 // prepareResume readies an open work file for the run that continues it: units
 // that never finished are dropped, so the provider reads them again, and
 // everything the replay builds is emptied, so the saved events replay from the
@@ -212,7 +251,7 @@ const storeBeforeProvider = "store.before-provider"
 // sent (earlier), whether any unit was already read and whether a store read
 // was kept. The kept store read mirrors what was sent, so the comparison
 // leaves out what the earlier runs already wrote.
-func prepareResume(ctx context.Context, wf *workfile.File, beforeProvider bool) (earlier map[workfile.DiffKind]int, resumed, storeSaved bool, err error) {
+func prepareResume(ctx context.Context, wf *workfile.File, beforeProvider bool, writes []string) (earlier map[workfile.DiffKind]int, resumed, storeSaved bool, err error) {
 	if err = wf.DropUnfinished(); err != nil {
 		return nil, false, false, err
 	}
@@ -224,6 +263,12 @@ func prepareResume(ctx context.Context, wf *workfile.File, beforeProvider bool) 
 	if beforeProvider && resumed && !keep {
 		return nil, false, false, resumeRefused(&workfile.RefusalError{Path: wf.Path(),
 			Reason: "the earlier run read the store after the provider; this run must read it before"})
+	}
+	if keep {
+		if shape, ok := uncovered(writes, strings.Split(wf.Recall(storeWritesKey), "\n")); !ok {
+			return nil, false, false, resumeRefused(&workfile.RefusalError{Path: wf.Path(),
+				Reason: "the mapping now writes " + shape + " that the earlier store read did not cover"})
+		}
 	}
 	if err = wf.ResetReplay(ctx); err != nil {
 		return nil, false, false, err

@@ -284,3 +284,12 @@ func TestCreateReportsAnUnreadableFileAsSuch(t *testing.T) {
 	require.True(t, !strings.Contains(err.Error(), "no work file metadata"))
 	require.Contains(t, err.Error(), path)
 }
+
+func TestCreateRefusalOfAnUnreadableFileKeepsTheRemedy(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "broken.db")
+	junk := append([]byte("SQLite format 3\x00"), bytes.Repeat([]byte{0xff}, 4096)...)
+	require.NoError(t, os.WriteFile(path, junk, 0o600))
+	_, err := Create(path, testMeta())
+	require.Error(t, err)
+	require.True(t, strings.Contains(err.Error(), "remove it or choose another path"))
+}
