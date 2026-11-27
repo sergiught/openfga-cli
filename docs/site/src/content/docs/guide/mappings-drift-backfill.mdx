@@ -306,6 +306,9 @@ A read either returns everything it was asked for or fails. There is no partial
 snapshot, because a tuple missing from the snapshot would look stale and
 `--prune` would delete it.
 
+A failed run keeps its work file, so [`--resume`](#large-tenants-and-resuming)
+need not repeat the reads that finished.
+
 | Cause | Message | Hint | Exit |
 | --- | --- | --- | --- |
 | Credentials rejected (token endpoint or `401`) | `Auth0 rejected the credentials: ...` | `check the client id and secret, and that the application may use the Management API` | `1` |
@@ -654,6 +657,10 @@ changed`.
 Running either command again after any failure is safe: it reads the state
 again and sends only what is still different.
 
+A failed run also keeps its work file; see
+[Large tenants and resuming](#large-tenants-and-resuming) to continue it with
+`--resume`.
+
 ## Questions, `--force` and `--dry-run`
 
 ### `backfill`
@@ -702,6 +709,108 @@ without `--prune` that left stale tuples.
 
 The age in `Snapshot is Ns old` is measured from the start of the Auth0 read:
 seconds under a minute, whole minutes after.
+
+## Large tenants and resuming
+
+Both commands keep what they read and plan in a **work file**, an SQLite
+database on disk, instead of in memory. Memory stays flat however large the
+tenant is, and a run that stops part way can pick up where it left off.
+
+### What the work file holds
+
+The work file holds the events read from Auth0, the tuples read from the store
+and the plan built from them. That is personal data from your provider: user
+ids, emails, organization names. The file is created readable by its owner only
+(`0600`, in a directory made `0700`).
+
+A run that finishes deletes the file. A run that fails, or that you interrupt,
+keeps it and ends with:
+
+```
+work file kept at ~/.cache/ofga/mappings/auth0-1a2b3c4d5e6f.db; run again with --resume to continue
+```
+
+A run that ends normally, even one that declines the write or finds a
+difference (exit `3`), counts as finished. On a terminal it asks
+`Keep the work file at <path> to reuse?` (default no) before it deletes the
+file. `--keep-state`, `--force`, `-o json`, `-o yaml` and `--no-input` skip the
+question: `--keep-state` keeps the file, the others delete it.
+
+### Where it lives
+
+By default the file goes under the user cache directory, in
+`ofga/mappings/`: `~/.cache/ofga/mappings/` on Linux and
+`~/Library/Caches/ofga/mappings/` on macOS. The name is the mapping file's
+name, a dash and 12 hex digits, ending in `.db`, for example
+`auth0-1a2b3c4d5e6f.db`. The digits come from the mapping file's absolute path,
+the store id and the command, so each mapping, store and command pair has its
+own file, and the same run always finds the same one.
+
+`--state FILE` puts the file somewhere else. It is the only way to choose a
+place when the user cache directory cannot be found; without it, the run
+stops with `no place for the work file` and the hint
+`pass --state FILE to choose where the work file goes`.
+
+A new run that finds an unfinished file at its path replaces it and says so:
+`discarding the unfinished run from 2026-11-27 09:30 UTC at <path>`.
+
+### `--resume`
+
+`--resume` continues the run that left the file. The provider's finished
+reads are not repeated: users, organizations and the other pieces that were
+fully read are taken from the file, and only the unfinished ones are read
+again. The run prints `resuming from <path>` first. The snapshot line of the
+report ends with `(resumed)`.
+
+A resumed run reads the same time window as the first one. `--since 24h` does
+not slide forward, and the `--since` text you pass must match the first run's.
+
+What a resumed run does with the store depends on the command:
+
+- `drift` reuses the store read the first run made before it read Auth0, as
+  long as that read was taken before the provider read. It compares against the
+  store as it was then. If the first run never finished that read, or the read
+  came after the provider, `drift` reads the store again.
+- `backfill`, and `drift --since` when it covers only users, read the store
+  again after the provider, as a fresh run does. Tuples an earlier run sent
+  that are missing from the store now are sent again.
+
+The counts of what was sent in the report include what earlier runs sent.
+
+#### When `--resume` refuses
+
+`--resume` refuses a file it cannot trust. The message starts with
+`cannot resume from <path>:` and the hint is
+`run without --resume to start over`. The exit code is `2`. A refused file is
+kept, so you can look at it or run again with `--state` pointing elsewhere.
+These are the reasons:
+
+| Reason | Message after the colon |
+| --- | --- |
+| There is no file | `there is no work file` |
+| It was made by the other command | `it was made for command backfill, not drift` |
+| It was made for another provider | `it was made for provider auth0, not ...` |
+| It was made for another Auth0 tenant | `it was made for tenant example.us.auth0.com, not ...` |
+| It was made for another store | `it was made for store 01H..., not ...` |
+| It was made with another `--since` | `it was made with --since "24h", not ""` |
+| The mapping reads a snapshot type the file does not hold | `it did not read <type>` |
+| The file holds a type the mapping no longer reads | `it read <type>, which this run does not request` |
+| It is older than 24 hours | `it is older than 24 hours` |
+| It has no schema version, or another one | `it has no schema version`, `it has schema version N, not 1` |
+
+You may edit the mapping file between the failed run and the resume, as long as
+the set of snapshot types it reads does not change. The saved events replay
+through the edited mapping.
+
+### Disk cost
+
+The file is as large as the tuples the mapping produces. A run with 100,000
+users in 1,000 organizations of 100 members, using the example mapping in
+`examples/mappings-full/auth0.yaml`, produced about 500,000 tuples and a work
+file of about 1.1 GB, with peak memory near 110 MB. Plan for about 1.1 GB per
+100,000 memberships with that mapping, and more if your mapping produces more
+tuples. Put the file on a disk with room with `--state`, and delete it once you
+no longer need it.
 
 ## Checking only recent changes
 

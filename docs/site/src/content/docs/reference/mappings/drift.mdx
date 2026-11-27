@@ -42,9 +42,12 @@ ofga mappings drift auth0.yaml --provider auth0 --auth0-client-secret-file ./sec
 | `--auth0-tenant` | tenant name for display (default: the first label of the domain) |   |
 | `-n, --dry-run` | show the drift without writing anything | `false` |
 | `-f, --force` | write without asking | `false` |
+| `--keep-state` | keep the work file after the run finishes, without asking | `false` |
 | `--provider` | identity provider to read (auth0) |   |
 | `--prune` | also delete stale tuples the provider no longer backs | `false` |
+| `--resume` | continue from the work file of a run that did not finish | `false` |
 | `--since` | read only what changed since a duration ago (2h) or an RFC 3339 time; users only |   |
+| `--state` | work file that keeps what the run reads and plans (default: a file in the user cache directory named after the mapping and store) |   |
 
 <details>
 <summary>Global flags</summary>
