@@ -46,6 +46,16 @@ rules:
       - user: "user:{{ input.user_id }}"
         relation: assignee
         object: "role:{{ input.role }}"
+  - name: grant-conditional
+    when: input.type == "snapshot.grant"
+    tuples:
+      - user: "user:{{ input.user_id }}"
+        relation: viewer
+        object: "doc:{{ input.role }}"
+        condition: in_office
+        context:
+          role: "{{ input.role }}"
+          level: "gold"
   - name: revoke
     when: input.type == "snapshot.revoke"
     tuple_filters:

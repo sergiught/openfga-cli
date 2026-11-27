@@ -138,8 +138,10 @@ func checkIsWorkFile(path string) error {
 		return nil
 	case isBusy(err):
 		return fmt.Errorf("%s: %w", path, ErrLocked)
-	default:
+	case errors.Is(err, sql.ErrNoRows) || strings.Contains(err.Error(), "no such table"):
 		return notWork("no work file metadata")
+	default:
+		return fmt.Errorf("read %s: %w", path, err)
 	}
 }
 

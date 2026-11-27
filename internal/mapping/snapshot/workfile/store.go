@@ -171,10 +171,14 @@ func (f *File) StoreRead() (at time.Time, total, objects int, ok bool) {
 const differs = `(COALESCE(json_extract(CAST(d.tuple AS TEXT), '$.condition'), '') <> COALESCE(json_extract(CAST(s.tuple AS TEXT), '$.condition'), '')
 OR COALESCE(json_extract(CAST(d.tuple AS TEXT), '$.context'), '') <> COALESCE(json_extract(CAST(s.tuple AS TEXT), '$.context'), ''))`
 
+// notContested keeps a join on store row s clear of the contested ids.
+const notContested = `NOT EXISTS (SELECT 1 FROM temp.contested x WHERE x.id = s.id)`
+
 // Compare fills the diff table from desired against store, as snapshot.Compare
 // does: Missing is a desired tuple the store lacks, Changed one whose condition
 // or context differs, Stale a stored tuple desired lacks whose shape is in
-// owned (none when owned is nil). Contested identities leave the store first.
+// owned (none when owned is nil). Contested identities count as absent
+// from the store; the saved store read itself is not changed.
 // diff is cleared first, so Compare can run again.
 func (f *File) Compare(ctx context.Context, owned []mapping.Shape, contested []snapshot.Contested) (c Counts, err error) {
 	if err = f.FlushDesired(ctx); err != nil {
@@ -193,8 +197,15 @@ func (f *File) Compare(ctx context.Context, owned []mapping.Shape, contested []s
 	if _, err = tx.ExecContext(ctx, `DELETE FROM diff`); err != nil {
 		return c, fmt.Errorf("compare: %w", err)
 	}
+	// The joins below skip these ids, so the saved store read stays as it was.
+	if _, err = tx.ExecContext(ctx, `CREATE TEMP TABLE IF NOT EXISTS contested(id TEXT PRIMARY KEY)`); err != nil {
+		return c, fmt.Errorf("compare: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, `DELETE FROM temp.contested`); err != nil {
+		return c, fmt.Errorf("compare: %w", err)
+	}
 	for _, ct := range contested {
-		if _, err = tx.ExecContext(ctx, `DELETE FROM store WHERE id = ?`, snapshot.Identity(ct.Tuple)); err != nil {
+		if _, err = tx.ExecContext(ctx, `INSERT OR IGNORE INTO temp.contested(id) VALUES(?)`, snapshot.Identity(ct.Tuple)); err != nil {
 			return c, fmt.Errorf("compare: %w", err)
 		}
 	}
@@ -203,7 +214,7 @@ func (f *File) Compare(ctx context.Context, owned []mapping.Shape, contested []s
 	}
 	res, err := tx.ExecContext(ctx, `INSERT INTO diff(kind, shape, user, relation, object, id, tuple, was)
 SELECT ?, d.shape, d.user, d.relation, d.object, d.id, d.tuple, NULL FROM desired d
-WHERE NOT EXISTS (SELECT 1 FROM store s WHERE s.id = d.id)`, int(Missing))
+WHERE NOT EXISTS (SELECT 1 FROM store s WHERE s.id = d.id AND `+notContested+`)`, int(Missing))
 	if err != nil {
 		return c, fmt.Errorf("compare: %w", err)
 	}
@@ -211,7 +222,7 @@ WHERE NOT EXISTS (SELECT 1 FROM store s WHERE s.id = d.id)`, int(Missing))
 	c.Missing = int(n)
 	res, err = tx.ExecContext(ctx, `INSERT INTO diff(kind, shape, user, relation, object, id, tuple, was)
 SELECT ?, d.shape, d.user, d.relation, d.object, d.id, d.tuple, s.tuple FROM desired d JOIN store s ON s.id = d.id
-WHERE `+differs, int(Changed))
+WHERE `+differs+` AND `+notContested, int(Changed))
 	if err != nil {
 		return c, fmt.Errorf("compare: %w", err)
 	}
@@ -242,7 +253,7 @@ func staleRows(ctx context.Context, tx *sql.Tx, owned []mapping.Shape) (int, err
 	total, last := 0, ""
 	for {
 		rows, err := tx.QueryContext(ctx, `SELECT id, tuple FROM store
-WHERE id > ? AND NOT EXISTS (SELECT 1 FROM desired d WHERE d.id = store.id) ORDER BY id LIMIT ?`, last, pageRows)
+WHERE id > ? AND NOT EXISTS (SELECT 1 FROM desired d WHERE d.id = store.id) AND NOT EXISTS (SELECT 1 FROM temp.contested x WHERE x.id = store.id) ORDER BY id LIMIT ?`, last, pageRows)
 		if err != nil {
 			return 0, err
 		}

@@ -585,7 +585,7 @@ func TestBackfillReportsPartialWrite(t *testing.T) {
 	if clierr.Code(err) != clierr.CodeError || !clierr.IsSilent(err) {
 		t.Fatalf("code = %d err = %v", clierr.Code(err), err)
 	}
-	if !strings.Contains(stderr, "sent 0 of 4 writes before the failure; run the command again to send the rest") ||
+	if !strings.Contains(stderr, "sent 0 of 4 writes before the failure; run again with --resume to send the rest") ||
 		!strings.Contains(stderr, "type not found") {
 		t.Errorf("stderr:\n%s", stderr)
 	}

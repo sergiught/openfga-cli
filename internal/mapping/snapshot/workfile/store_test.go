@@ -254,3 +254,22 @@ func TestResetReplayKeepsEventsAndTheStoreRead(t *testing.T) {
 	_, _, _, ok := f.StoreRead()
 	require.True(t, ok)
 }
+
+func TestCompareLeavesTheSavedStoreReadIntactWhenTuplesAreContested(t *testing.T) {
+	ctx := context.Background()
+	f, _ := newFile(t)
+	keep := language.Tuple{User: "user:keep", Relation: "member", Object: "organization:acme"}
+	held := language.Tuple{User: "user:held", Relation: "member", Object: "organization:acme"}
+	require.NoError(t, f.AddStore(ctx, []language.Tuple{keep, held}))
+	owned := []mapping.Shape{mapping.ShapeOf(keep)}
+
+	// While held is contested it is neither stale nor missing.
+	c, err := f.Compare(ctx, owned, []snapshot.Contested{{Tuple: held}})
+	require.NoError(t, err)
+	require.Equal(t, Counts{Stale: 1}, c)
+
+	// A resumed run with a smaller contested set still sees it in the store.
+	c, err = f.Compare(ctx, owned, nil)
+	require.NoError(t, err)
+	require.Equal(t, Counts{Stale: 2}, c)
+}

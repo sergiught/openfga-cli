@@ -632,7 +632,7 @@ store could not be reached, `130` when you interrupted the run, `1` otherwise.
 
 | Message | What the store holds |
 | --- | --- |
-| `sent N of M writes before the failure; run the command again to send the rest` (`backfill`) | N of the missing tuples, in whole requests. |
+| `sent N of M writes before the failure; run again with --resume to send the rest` (`backfill`) | N of the missing tuples, in whole requests. |
 | `sent N of M changes before the failure; run the command again to send the rest` (`drift`) | N writes or deletes of that step, in whole requests. |
 | `sent N of M changes before the failure; run the command again with --prune to send the rest` (`drift --prune`, while deleting) | N deletes of that step, in whole requests. |
 | `could not replace M changed tuples; the stored versions are in place, nothing was replaced` | What it held before, plus any missing tuples written first. |

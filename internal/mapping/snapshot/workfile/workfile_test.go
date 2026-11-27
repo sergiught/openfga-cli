@@ -1,6 +1,7 @@
 package workfile
 
 import (
+	"bytes"
 	"database/sql"
 	"errors"
 	"io/fs"
@@ -271,4 +272,15 @@ func (requireT) NoFileExists(t *testing.T, path string) {
 	if _, err := os.Lstat(path); err == nil {
 		t.Fatalf("%s exists", path)
 	}
+}
+
+func TestCreateReportsAnUnreadableFileAsSuch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "broken.db")
+	// The SQLite header, then bytes no page can be made of.
+	junk := append([]byte("SQLite format 3\x00"), bytes.Repeat([]byte{0xff}, 4096)...)
+	require.NoError(t, os.WriteFile(path, junk, 0o600))
+	_, err := Create(path, testMeta())
+	require.Error(t, err)
+	require.True(t, !strings.Contains(err.Error(), "no work file metadata"))
+	require.Contains(t, err.Error(), path)
 }

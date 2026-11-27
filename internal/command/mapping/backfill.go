@@ -473,7 +473,7 @@ func emitBackfill(w io.Writer, c *cli.CLI, res backfillResult, lists map[string]
 // exit with. Cancellation hands its report to main; any other failure is
 // printed here, once.
 func reportBackfillFailure(ctx context.Context, w io.Writer, machine bool, sent snapshot.Sent, total int, err error) error {
-	text := fmt.Sprintf("sent %d of %s before the failure; run the command again to send the rest", sent.Writes, mapping.Plural(total, "write"))
+	text := fmt.Sprintf("sent %d of %s before the failure; run again with --resume to send the rest", sent.Writes, mapping.Plural(total, "write"))
 	return reportSnapshotFailure(ctx, w, machine, text, sent, backfillHints(err), err)
 }
 
