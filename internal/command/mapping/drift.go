@@ -262,18 +262,25 @@ func (c *Command) drift(cmd *cobra.Command, path, provider, since string, prune,
 		}
 	}
 	// finish prints the machine payload last, so it carries what was sent.
+	emitFailed := false
 	finish := func(err error) error {
-		if eerr := emitDrift(out, c.cli, res, lists); eerr != nil && err == nil {
-			return eerr
+		if eerr := emitDrift(out, c.cli, res, lists); eerr != nil {
+			emitFailed = true
+			if err == nil {
+				return eerr
+			}
 		}
 		return err
 	}
 
 	// done is finish for the ends that are not failures: the work file is then
 	// settled by the keep step instead of kept for a resume.
+	// A failed payload is an output failure: the run is not finished then, so
+	// the file is kept with its hint.
 	done := func(err error) error {
-		ws.finished = true
-		return finish(err)
+		err = finish(err)
+		ws.finished = !emitFailed
+		return err
 	}
 	if counts.Missing+counts.Changed+counts.Stale == 0 {
 		verb := "match"

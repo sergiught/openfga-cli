@@ -281,3 +281,33 @@ func TestCountedLenNeverAsksTheFile(t *testing.T) {
 		t.Errorf("Each err = %v, want one naming %s", err, f.Path())
 	}
 }
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("write failed") }
+
+// A payload that cannot be written is an output failure, not a finished run.
+func TestDriftOutputFailureKeepsTheFileAndHints(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, member("u1"))
+	useFakeProvider(t, fakeProvider{types: fakeTypes(), result: memberResult("u1")})
+	state := filepath.Join(t.TempDir(), "w.db")
+	c := fs.cli()
+	c.JSON = true
+	root := New(c).Command()
+	var errb bytes.Buffer
+	root.SetOut(failingWriter{})
+	root.SetErr(&errb)
+	root.SetArgs(append([]string{"drift"}, stateArgs(t, driftMapping, state, "--force")...))
+	root.SilenceUsage, root.SilenceErrors = true, true
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("want the write error")
+	}
+	if !exists(state) {
+		t.Fatal("the work file was deleted")
+	}
+	if hint := clierr.NewEnvelope(err).Error.Hint; !strings.Contains(hint, keptLine(state)) {
+		t.Errorf("hint = %q", hint)
+	}
+}
