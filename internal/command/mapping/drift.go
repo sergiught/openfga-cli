@@ -214,17 +214,18 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 	label := run.Provider.Label()
 	res := driftResult{
 		snapshotMeta: newSnapshotMeta(storeID, run, dryRun), StoreReadAt: storeReadAt.UTC(),
-		Missing: tuplesOut(diff.Missing), Changed: tuplesOut(diff.Changed), Stale: tuplesOut(diff.Stale),
 		NotChecked: notCheckedOuts(notChecked),
 	}
+	desired, dl := snapshot.Slice(run.Desired), diff.Lists()
+	lists := map[string]snapshot.Tuples{"missing": dl.Missing, "changed": dl.Changed, "stale": dl.Stale}
 	if !machine {
-		if err := renderDrift(out, run, storeLbl, storeReadAt, storedTotal, read.Objects, usersOnly, diff, notChecked); err != nil {
+		if err := renderDrift(out, run, storeLbl, storeReadAt, storedTotal, read.Objects, usersOnly, desired, dl, notChecked); err != nil {
 			return err
 		}
 	}
 	// finish prints the machine payload last, so it carries what was sent.
 	finish := func(err error) error {
-		if eerr := emitDrift(out, c.cli, res); eerr != nil && err == nil {
+		if eerr := emitDrift(out, c.cli, res, lists); eerr != nil && err == nil {
 			return eerr
 		}
 		return err
@@ -406,7 +407,7 @@ func (c *Command) runDrift(cmd *cobra.Command, path, provider, since string, pru
 			if !output.Plain {
 				shapes = renderShapeLines
 			}
-			if err := shapes(errw, diff.Stale); err != nil {
+			if err := shapes(errw, dl.Stale); err != nil {
 				return err
 			}
 			output.Notef(errw, "%s", snapshotAge(run.Result))
@@ -482,18 +483,34 @@ func printLost(w io.Writer, lost []language.Tuple) {
 
 // emitDrift prints the machine payload for -o json/yaml, or key/values in
 // plain mode. Human mode has already printed everything.
-func emitDrift(w io.Writer, c *cli.CLI, res driftResult) error {
+//
+// The result's list fields are left empty: lists holds them by JSON name
+// ("missing", "changed", "stale"). -o json streams them; the other formats
+// read them into the result first.
+func emitDrift(w io.Writer, c *cli.CLI, res driftResult, lists map[string]snapshot.Tuples) error {
 	switch {
+	case streamsJSON(c):
+		return streamJSON(w, res, lists)
 	case c.JSON || c.YAML:
+		var err error
+		if res.Missing, err = materialize(lists["missing"]); err != nil {
+			return err
+		}
+		if res.Changed, err = materialize(lists["changed"]); err != nil {
+			return err
+		}
+		if res.Stale, err = materialize(lists["stale"]); err != nil {
+			return err
+		}
 		return output.Emit(w, c.YAML, res)
 	case output.Plain:
 		return output.KeyValues(w, [][2]string{
 			{"store", res.Store},
 			{"provider", res.Provider},
 			{"dry_run", strconv.FormatBool(res.DryRun)},
-			{"missing", strconv.Itoa(len(res.Missing))},
-			{"changed", strconv.Itoa(len(res.Changed))},
-			{"stale", strconv.Itoa(len(res.Stale))},
+			{"missing", strconv.Itoa(count(lists["missing"]))},
+			{"changed", strconv.Itoa(count(lists["changed"]))},
+			{"stale", strconv.Itoa(count(lists["stale"]))},
 			{"not_checked", strconv.Itoa(len(res.NotChecked))},
 			{"pruned", strconv.Itoa(res.Pruned)},
 			{"writes", strconv.Itoa(res.Sent.Writes)},

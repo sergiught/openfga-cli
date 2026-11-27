@@ -15,9 +15,9 @@ import (
 
 // renderDrift prints the human report: when the store was read, the snapshot
 // header, each kind of drift with its tuples, and what was not checked.
-func renderDrift(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt time.Time, stored, objects int, afterProvider bool, diff snapshot.Diff, notChecked []snapshot.NotChecked) error {
+func renderDrift(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt time.Time, stored, objects int, afterProvider bool, desired snapshot.Tuples, diff snapshot.DiffLists, notChecked []snapshot.NotChecked) error {
 	if !output.Plain {
-		return renderDriftReport(w, run, storeLabel, storeReadAt, stored, objects, afterProvider, diff, notChecked)
+		return renderDriftReport(w, run, storeLabel, storeReadAt, stored, objects, afterProvider, desired, diff, notChecked)
 	}
 	label := output.SanitizeField(run.Provider.Label())
 	// The store line follows the provider header when the store was read after
@@ -31,11 +31,7 @@ func renderDrift(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt t
 	}
 
 	// A stale tuple is shown as the delete it would become.
-	stale := make([]language.Tuple, len(diff.Stale))
-	for i, t := range diff.Stale {
-		t.Action = language.ActionDelete
-		stale[i] = t
-	}
+	stale := deleting{diff.Stale}
 	if err := renderSections(w, []tupleSection{
 		{"missing", "in " + label + ", not in the store", diff.Missing, nil},
 		{"changed", "condition differs", diff.Changed, diff.Was},
@@ -45,6 +41,16 @@ func renderDrift(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt t
 	}
 
 	return renderNotChecked(w, notChecked)
+}
+
+// deleting reads a list of tuples as the deletes they would become.
+type deleting struct{ snapshot.Tuples }
+
+func (d deleting) Each(fn func(language.Tuple) error) error {
+	return d.Tuples.Each(func(t language.Tuple) error {
+		t.Action = language.ActionDelete
+		return fn(t)
+	})
 }
 
 // renderNotChecked prints the plain NOT CHECKED block, nothing when empty.
@@ -83,15 +89,15 @@ func storeReadLine(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt
 // tupleSection is one named list of tuples in a report.
 type tupleSection struct {
 	name, what string
-	tuples     []language.Tuple
+	tuples     snapshot.Tuples
 	// was, when set, is the stored version of each tuple, parallel to tuples.
-	was []language.Tuple
+	was snapshot.Tuples
 }
 
 // renderSections prints each non-empty section after a blank line.
 func renderSections(w io.Writer, sections []tupleSection) error {
 	for _, s := range sections {
-		if len(s.tuples) == 0 {
+		if count(s.tuples) == 0 {
 			continue
 		}
 		if _, err := fmt.Fprintf(w, "\n%-7s  %s\n", s.name, s.what); err != nil {

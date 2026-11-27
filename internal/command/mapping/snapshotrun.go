@@ -12,6 +12,7 @@ import (
 	"github.com/openfga/mapper/language"
 	"github.com/spf13/cobra"
 
+	"github.com/sergiught/openfga-cli/internal/cli"
 	"github.com/sergiught/openfga-cli/internal/clierr"
 	"github.com/sergiught/openfga-cli/internal/command/mapping/status"
 	"github.com/sergiught/openfga-cli/internal/mapping"
@@ -292,6 +293,25 @@ type tupleOut struct {
 	Object    string         `json:"object"`
 	Condition string         `json:"condition,omitempty"`
 	Context   map[string]any `json:"context,omitempty"`
+}
+
+// materialize reads a list into its JSON form, never nil.
+func materialize(ts snapshot.Tuples) ([]tupleOut, error) {
+	out := make([]tupleOut, 0, count(ts))
+	if ts == nil {
+		return out, nil
+	}
+	err := ts.Each(func(t language.Tuple) error {
+		out = append(out, tupleOut{User: t.User, Relation: t.Relation, Object: t.Object, Condition: t.Condition, Context: t.Context})
+		return nil
+	})
+	return out, err
+}
+
+// streamsJSON reports whether the document goes out as -o json, which can
+// stream its lists. YAML, JSONL and --jq build the document in memory.
+func streamsJSON(c *cli.CLI) bool {
+	return c.JSON && !c.YAML && !output.JSONL && output.JQ == ""
 }
 
 func tuplesOut(ts []language.Tuple) []tupleOut {

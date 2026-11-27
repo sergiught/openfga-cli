@@ -36,14 +36,14 @@ type reportSection struct {
 	color  color.Color
 	sign   string
 	noun   string // text after the count, e.g. "in Auth0, not in the store"
-	tuples []language.Tuple
-	was    []language.Tuple
+	tuples snapshot.Tuples
+	was    snapshot.Tuples
 }
 
 // renderDriftReport prints the drift report. The store row comes before the
 // provider rows unless it was read after them, and is left out when the store
 // was not read at all.
-func renderDriftReport(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt time.Time, stored, objects int, afterProvider bool, diff snapshot.Diff, notChecked []snapshot.NotChecked) error {
+func renderDriftReport(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt time.Time, stored, objects int, afterProvider bool, desired snapshot.Tuples, diff snapshot.DiffLists, notChecked []snapshot.NotChecked) error {
 	label := output.SanitizeField(run.Provider.Label())
 	var rows []headerRow
 	if !afterProvider {
@@ -54,12 +54,12 @@ func renderDriftReport(w io.Writer, run *snapshotRun, storeLabel string, storeRe
 		rows = append(rows, storeRow(run, storeLabel, storeReadAt, stored, objects))
 	}
 
-	missing, changed := len(diff.Missing), len(diff.Changed)
-	sync := len(run.Desired) - missing - changed
+	missing, changed := count(diff.Missing), count(diff.Changed)
+	sync := count(desired) - missing - changed
 	summary := strings.Join([]string{
 		countPart("+", missing, "missing", style.Green),
 		countPart("~", changed, "changed", style.Amber),
-		countPart("-", len(diff.Stale), "stale", style.Red),
+		countPart("-", count(diff.Stale), "stale", style.Red),
 		muted(thousands(sync) + " in sync"),
 	}, joint())
 	rows = append(rows, headerRow{label: "Drift", text: summary})
@@ -73,21 +73,21 @@ func renderDriftReport(w io.Writer, run *snapshotRun, storeLabel string, storeRe
 
 // renderBackfillReport prints the backfill report. With nothing desired it is
 // the provider row and a line saying so; the store was not read.
-func renderBackfillReport(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt time.Time, stored, objects int, diff snapshot.Diff, existing int, notChecked []snapshot.NotChecked) error {
+func renderBackfillReport(w io.Writer, run *snapshotRun, storeLabel string, storeReadAt time.Time, stored, objects int, desired snapshot.Tuples, diff snapshot.DiffLists, existing int, notChecked []snapshot.NotChecked) error {
 	label := output.SanitizeField(run.Provider.Label())
 	rows := []headerRow{providerRow(label, run.Result, run.Since)}
-	if len(run.Desired) == 0 {
+	if count(desired) == 0 {
 		rows = append(rows, headerRow{label: "Backfill", text: style.Bold.Render(countNoun(0, "tuple")) + muted(" from "+label)})
 		return writeReport(w, rows, nil, notChecked)
 	}
 	rows = append(rows, storeRow(run, storeLabel, storeReadAt, stored, objects))
-	parts := []string{countPart("+", len(diff.Missing), "missing", style.Green)}
-	if n := len(diff.Changed); n > 0 {
+	parts := []string{countPart("+", count(diff.Missing), "missing", style.Green)}
+	if n := count(diff.Changed); n > 0 {
 		parts = append(parts, countPart("~", n, "with a different condition", style.Amber))
 	}
 	parts = append(parts,
 		muted(thousands(existing)+" already there"),
-		muted(thousands(len(run.Desired))+" from "+label))
+		muted(thousands(count(desired))+" from "+label))
 	rows = append(rows, headerRow{label: "Backfill", text: strings.Join(parts, joint())})
 
 	return writeReport(w, rows, []reportSection{
@@ -121,9 +121,11 @@ func writeReport(w io.Writer, rows []headerRow, sections []reportSection, notChe
 	}
 
 	for _, s := range sections {
-		if len(s.tuples) > 0 {
+		if count(s.tuples) > 0 {
 			b.WriteString("\n")
-			writeSection(&b, s)
+			if err := writeSection(&b, s); err != nil {
+				return err
+			}
 		}
 	}
 	if len(notChecked) > 0 {
@@ -189,32 +191,90 @@ func providerRow(label string, r *snapshot.Result, since time.Time) headerRow {
 
 // writeSection prints a section's title and its tuples grouped by shape. A
 // long section shows an even share of its tuples for each shape.
-func writeSection(b *strings.Builder, s reportSection) {
-	n := len(s.tuples)
+func writeSection(b *strings.Builder, s reportSection) error {
+	counts, err := snapshot.CountShapes(s.tuples)
+	if err != nil {
+		return err
+	}
+	n := 0
+	for _, c := range counts {
+		n += c.N
+	}
 	b.WriteString(" " + style.Chip(s.chip, style.OnAccent, s.color) + " " + fg(countNoun(n, "tuple")) + muted(" "+s.noun) + "\n")
 
-	groups := groupByShape(s.tuples)
 	limit := n
 	if n > maxPlanLines {
-		limit = max(1, maxPlanLines/len(groups))
+		limit = max(1, maxPlanLines/len(counts))
+	}
+	shown, was, err := sampleByShape(s.tuples, s.was, counts, limit)
+	if err != nil {
+		return err
 	}
 	sign := lipgloss.NewStyle().Bold(true).Foreground(s.color).Render(s.sign)
-	for _, g := range groups {
-		b.WriteString("  " + shapeHeading(g.shape, len(g.idx)) + "\n")
-		for _, i := range g.idx[:min(len(g.idx), limit)] {
-			line := "    " + sign + " " + tupleBody(s.tuples[i])
-			if s.was != nil {
-				line += "  " + faint("was "+wasText(s.was[i]))
+	for g, c := range counts {
+		b.WriteString("  " + shapeHeading(output.SanitizeField(c.Shape.String()), c.N) + "\n")
+		for k, t := range shown[g] {
+			line := "    " + sign + " " + tupleBody(t)
+			if was != nil {
+				line += "  " + faint("was "+wasText(was[g][k]))
 			}
 			b.WriteString(line + "\n")
 		}
-		if hidden := len(g.idx) - limit; hidden > 0 {
+		if hidden := c.N - limit; hidden > 0 {
 			b.WriteString("    " + faint(fmt.Sprintf("… %s more", thousands(hidden))) + "\n")
 		}
 	}
 	if n > maxPlanLines {
 		b.WriteString("  " + faint("-o json lists all "+thousands(n)) + "\n")
 	}
+	return nil
+}
+
+// sampleByShape keeps the first limit tuples of each shape, grouped like
+// counts, and the stored version of each when was holds one. Only those
+// tuples are held in memory, however long the list is.
+func sampleByShape(ts, was snapshot.Tuples, counts []snapshot.ShapeCount, limit int) (shown, shownWas [][]language.Tuple, err error) {
+	pos := make(map[mapping.Shape]int, len(counts))
+	for i, c := range counts {
+		pos[c.Shape] = i
+	}
+	type slot struct{ group, k int }
+	shown = make([][]language.Tuple, len(counts))
+	picked := map[int]slot{}
+	i := 0
+	err = ts.Each(func(t language.Tuple) error {
+		g := pos[mapping.ShapeOf(t)]
+		if len(shown[g]) < limit {
+			picked[i] = slot{g, len(shown[g])}
+			shown[g] = append(shown[g], t)
+		}
+		i++
+		return nil
+	})
+	if err != nil || was == nil || was.Len() == 0 {
+		return shown, nil, err
+	}
+	shownWas = make([][]language.Tuple, len(counts))
+	for g := range shown {
+		shownWas[g] = make([]language.Tuple, len(shown[g]))
+	}
+	i = 0
+	err = was.Each(func(t language.Tuple) error {
+		if sl, ok := picked[i]; ok {
+			shownWas[sl.group][sl.k] = t
+		}
+		i++
+		return nil
+	})
+	return shown, shownWas, err
+}
+
+// count is how many tuples a list holds; a missing list holds none.
+func count(ts snapshot.Tuples) int {
+	if ts == nil {
+		return 0
+	}
+	return ts.Len()
 }
 
 // writeNotChecked prints the rules whose changes the snapshot cannot see.
@@ -230,37 +290,23 @@ func writeNotChecked(b *strings.Builder, notChecked []snapshot.NotChecked) {
 	}
 }
 
-// shapeGroup is the tuples of one shape, by index, in first-seen order.
-type shapeGroup struct {
-	shape string
-	idx   []int
-}
-
-func groupByShape(ts []language.Tuple) []shapeGroup {
-	var groups []shapeGroup
-	at := map[mapping.Shape]int{}
-	for i, t := range ts {
-		s := mapping.ShapeOf(t)
-		g, ok := at[s]
-		if !ok {
-			g = len(groups)
-			at[s] = g
-			groups = append(groups, shapeGroup{shape: output.SanitizeField(s.String())})
-		}
-		groups[g].idx = append(groups[g].idx, i)
-	}
-	return groups
-}
-
 // renderShapeLines prints what the prune question is about: how many stale
 // tuples there are, and how many of each shape.
-func renderShapeLines(w io.Writer, ts []language.Tuple) error {
-	var b strings.Builder
-	b.WriteString(" " + style.Chip("STALE", style.OnAccent, style.Red) + " " + fg(countNoun(len(ts), "tuple")) + muted(" to delete") + "\n")
-	for _, g := range groupByShape(ts) {
-		b.WriteString("  " + shapeHeading(g.shape, len(g.idx)) + "\n")
+func renderShapeLines(w io.Writer, ts snapshot.Tuples) error {
+	counts, err := snapshot.CountShapes(ts)
+	if err != nil {
+		return err
 	}
-	_, err := io.WriteString(w, b.String())
+	n := 0
+	for _, c := range counts {
+		n += c.N
+	}
+	var b strings.Builder
+	b.WriteString(" " + style.Chip("STALE", style.OnAccent, style.Red) + " " + fg(countNoun(n, "tuple")) + muted(" to delete") + "\n")
+	for _, c := range counts {
+		b.WriteString("  " + shapeHeading(output.SanitizeField(c.Shape.String()), c.N) + "\n")
+	}
+	_, err = io.WriteString(w, b.String())
 	return err
 }
 

@@ -160,15 +160,17 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, 
 	label := run.Provider.Label()
 	res := backfillResult{
 		snapshotMeta: newSnapshotMeta(storeID, run, dryRun), StoreReadAt: storeReadAt.UTC(),
-		Tuples: tuplesOut(run.Desired), Missing: tuplesOut(diff.Missing), Changed: tuplesOut(diff.Changed), Existing: existing,
+		Existing:   existing,
 		NotChecked: notCheckedOuts(notChecked),
 	}
+	desired, dl := snapshot.Slice(run.Desired), diff.Lists()
+	lists := map[string]snapshot.Tuples{"tuples": desired, "missing": dl.Missing, "changed": dl.Changed}
 	if !machine {
 		report := func() error {
 			if output.Plain {
-				return renderBackfillPlain(out, run, label, storeLbl, storeReadAt, read, diff, existing, notChecked)
+				return renderBackfillPlain(out, run, label, storeLbl, storeReadAt, read, desired, dl, existing, notChecked)
 			}
-			return renderBackfillReport(out, run, storeLbl, storeReadAt, read.Read, read.Objects, diff, existing, notChecked)
+			return renderBackfillReport(out, run, storeLbl, storeReadAt, read.Read, read.Objects, desired, dl, existing, notChecked)
 		}
 		if err := report(); err != nil {
 			return err
@@ -183,14 +185,14 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, 
 		}
 	}
 	if len(run.Desired) == 0 {
-		if err := emitBackfill(out, c.cli, res); err != nil {
+		if err := emitBackfill(out, c.cli, res, lists); err != nil {
 			return err
 		}
 		output.Successf(errw, "nothing to write")
 		return nil
 	}
 	if dryRun {
-		if err := emitBackfill(out, c.cli, res); err != nil {
+		if err := emitBackfill(out, c.cli, res, lists); err != nil {
 			return err
 		}
 		if !machine {
@@ -199,7 +201,7 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, 
 		return nil
 	}
 	if len(diff.Missing) == 0 {
-		if err := emitBackfill(out, c.cli, res); err != nil {
+		if err := emitBackfill(out, c.cli, res, lists); err != nil {
 			return err
 		}
 		_, finish := snapshotTimes(run.Result)
@@ -214,7 +216,7 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, 
 	if machine && !force {
 		// Machine output covers -o json/yaml/jsonl and agent mode, which has no -o.
 		// It never prompts, so the result is printed and the write is declined.
-		if err := emitBackfill(out, c.cli, res); err != nil {
+		if err := emitBackfill(out, c.cli, res, lists); err != nil {
 			return err
 		}
 		return clierr.WithCode(clierr.CodeUsage, clierr.WithHint("pass --dry-run to preview or --force to write",
@@ -241,12 +243,12 @@ func (c *Command) runBackfill(cmd *cobra.Command, path, provider, since string, 
 	live.Suspend("wrote")
 	res.Sent = sentOut{Writes: sent.Writes, Deletes: sent.Deletes}
 	if err != nil {
-		if eerr := emitBackfill(out, c.cli, res); eerr != nil {
+		if eerr := emitBackfill(out, c.cli, res, lists); eerr != nil {
 			return eerr
 		}
 		return reportBackfillFailure(ctx, errw, machine, sent, len(diff.Missing), err)
 	}
-	if err := emitBackfill(out, c.cli, res); err != nil {
+	if err := emitBackfill(out, c.cli, res, lists); err != nil {
 		return err
 	}
 	_, finish := snapshotTimes(run.Result)
@@ -273,20 +275,20 @@ func storeTarget(name, id string) string {
 }
 
 // renderBackfillPlain prints the backfill report for --plain.
-func renderBackfillPlain(out io.Writer, run *snapshotRun, label, storeLbl string, storeReadAt time.Time, read storeRead, diff snapshot.Diff, existing int, notChecked []snapshot.NotChecked) error {
+func renderBackfillPlain(out io.Writer, run *snapshotRun, label, storeLbl string, storeReadAt time.Time, read storeRead, desired snapshot.Tuples, diff snapshot.DiffLists, existing int, notChecked []snapshot.NotChecked) error {
 	snapshotHeader(out, label, run.Result, run.Since)
-	if len(run.Desired) > 0 {
+	if count(desired) > 0 {
 		storeReadLine(out, run, storeLbl, storeReadAt, read.Read, read.Objects)
 	}
-	if len(run.Desired) == 0 {
-		if err := renderTuples(out, run.Desired, nil); err != nil {
+	if count(desired) == 0 {
+		if err := renderTuples(out, desired, nil); err != nil {
 			return err
 		}
 	} else {
 		summary := fmt.Sprintf("%s from %s: %d missing from the store, %d already there",
-			mapping.Plural(len(run.Desired), "tuple"), output.SanitizeField(label), len(diff.Missing), existing)
-		if len(diff.Changed) > 0 {
-			summary += fmt.Sprintf(", %d there with a different condition", len(diff.Changed))
+			mapping.Plural(count(desired), "tuple"), output.SanitizeField(label), count(diff.Missing), existing)
+		if n := count(diff.Changed); n > 0 {
+			summary += fmt.Sprintf(", %d there with a different condition", n)
 		}
 		if _, err := fmt.Fprintln(out, summary); err != nil {
 			return err
@@ -302,12 +304,20 @@ func renderBackfillPlain(out io.Writer, run *snapshotRun, label, storeLbl string
 }
 
 // renderShapes prints how many tuples there are and how many of each shape.
-func renderShapes(w io.Writer, ts []language.Tuple) error {
-	if _, err := fmt.Fprintln(w, mapping.Plural(len(ts), "tuple")); err != nil || len(ts) == 0 {
+func renderShapes(w io.Writer, ts snapshot.Tuples) error {
+	counts, err := snapshot.CountShapes(ts)
+	if err != nil {
+		return err
+	}
+	n := 0
+	for _, sc := range counts {
+		n += sc.N
+	}
+	if _, err := fmt.Fprintln(w, mapping.Plural(n, "tuple")); err != nil || n == 0 {
 		return err
 	}
 	var rows [][]string
-	for _, sc := range snapshot.ByShape(ts) {
+	for _, sc := range counts {
 		rows = append(rows, []string{output.SanitizeField(sc.Shape.String()), strconv.Itoa(sc.N)})
 	}
 	return output.Table(w, []string{"SHAPE", "TUPLES"}, rows)
@@ -316,28 +326,64 @@ func renderShapes(w io.Writer, ts []language.Tuple) error {
 // renderTuples prints the shape counts and the tuples themselves, at most
 // maxPlanLines of them. When was is set, each line ends with the stored
 // version's condition.
-func renderTuples(w io.Writer, ts, was []language.Tuple) error {
-	if err := renderShapes(w, ts); err != nil || len(ts) == 0 {
+func renderTuples(w io.Writer, ts, was snapshot.Tuples) error {
+	if err := renderShapes(w, ts); err != nil {
 		return err
+	}
+	n := count(ts)
+	if n == 0 {
+		return nil
+	}
+	shown, err := firstN(ts, maxPlanLines)
+	if err != nil {
+		return err
+	}
+	var shownWas []language.Tuple
+	if was != nil && was.Len() > 0 {
+		if shownWas, err = firstN(was, maxPlanLines); err != nil {
+			return err
+		}
 	}
 	field := output.SanitizeField
 	if output.Plain {
 		field = output.PlainField
 	}
-	for i, t := range ts[:min(len(ts), maxPlanLines)] {
+	for i, t := range shown {
 		line := mapping.ChangeLine(t, field)
-		if was != nil {
-			line += " was " + storedCondition(was[i], field)
+		if shownWas != nil {
+			line += " was " + storedCondition(shownWas[i], field)
 		}
 		if _, err := fmt.Fprintln(w, line); err != nil {
 			return err
 		}
 	}
-	if more := len(ts) - maxPlanLines; more > 0 {
+	if more := n - maxPlanLines; more > 0 {
 		_, err := fmt.Fprintf(w, "… %d more; -o json lists them all\n", more)
 		return err
 	}
 	return nil
+}
+
+// errEnough stops a list read once firstN has what it wants.
+var errEnough = errors.New("enough")
+
+// firstN returns the first n tuples of a list, reading no further.
+func firstN(ts snapshot.Tuples, n int) ([]language.Tuple, error) {
+	var out []language.Tuple
+	if n <= 0 {
+		return out, nil
+	}
+	err := ts.Each(func(t language.Tuple) error {
+		out = append(out, t)
+		if len(out) >= n {
+			return errEnough
+		}
+		return nil
+	})
+	if errors.Is(err, errEnough) {
+		err = nil
+	}
+	return out, err
 }
 
 // storedCondition is the condition of a stored tuple, or "no condition".
@@ -350,18 +396,34 @@ func storedCondition(t language.Tuple, field func(string) string) string {
 
 // emitBackfill prints the machine payload for -o json/yaml, or key/values in
 // plain mode. Human mode has already printed everything.
-func emitBackfill(w io.Writer, c *cli.CLI, res backfillResult) error {
+//
+// The result's list fields are left empty: lists holds them by JSON name
+// ("tuples", "missing", "changed"). -o json streams them; the other formats
+// read them into the result first.
+func emitBackfill(w io.Writer, c *cli.CLI, res backfillResult, lists map[string]snapshot.Tuples) error {
 	switch {
+	case streamsJSON(c):
+		return streamJSON(w, res, lists)
 	case c.JSON || c.YAML:
+		var err error
+		if res.Tuples, err = materialize(lists["tuples"]); err != nil {
+			return err
+		}
+		if res.Missing, err = materialize(lists["missing"]); err != nil {
+			return err
+		}
+		if res.Changed, err = materialize(lists["changed"]); err != nil {
+			return err
+		}
 		return output.Emit(w, c.YAML, res)
 	case output.Plain:
 		return output.KeyValues(w, [][2]string{
 			{"store", res.Store},
 			{"provider", res.Provider},
 			{"dry_run", strconv.FormatBool(res.DryRun)},
-			{"tuples", strconv.Itoa(len(res.Tuples))},
-			{"missing", strconv.Itoa(len(res.Missing))},
-			{"changed", strconv.Itoa(len(res.Changed))},
+			{"tuples", strconv.Itoa(count(lists["tuples"]))},
+			{"missing", strconv.Itoa(count(lists["missing"]))},
+			{"changed", strconv.Itoa(count(lists["changed"]))},
 			{"existing", strconv.Itoa(res.Existing)},
 			{"writes", strconv.Itoa(res.Sent.Writes)},
 			{"not_checked", strconv.Itoa(len(res.NotChecked))},

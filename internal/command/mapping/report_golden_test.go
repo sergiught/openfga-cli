@@ -9,6 +9,7 @@ import (
 	"github.com/openfga/mapper/language"
 
 	"github.com/sergiught/openfga-cli/internal/configtest"
+	"github.com/sergiught/openfga-cli/internal/mapping/snapshot"
 	"github.com/sergiught/openfga-cli/internal/output"
 )
 
@@ -82,7 +83,7 @@ func TestRenderTuplesShowsTheStoredCondition(t *testing.T) {
 		tuple("user:cy", "", nil),
 	}
 	var b bytes.Buffer
-	if err := renderTuples(&b, desired, was); err != nil {
+	if err := renderTuples(&b, snapshot.Slice(desired), snapshot.Slice(was)); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
