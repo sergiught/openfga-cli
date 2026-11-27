@@ -204,32 +204,42 @@ const storeBeforeProvider = "store.before-provider"
 // that never finished are dropped, so the provider reads them again, and
 // everything the replay builds is emptied, so the saved events replay from the
 // start. A store read is kept only when the run reads the store before the
-// provider (beforeProvider) and the earlier run read it that way too; any other
-// is emptied, along with what was sent against it, so the store is read again
-// after the provider as in a fresh run. It reports what the earlier runs sent
-// (earlier) and how much of that the pages still skip (skip), whether any unit
-// was already read and whether a store read was kept.
-func prepareResume(ctx context.Context, wf *workfile.File, beforeProvider bool) (earlier, skip map[workfile.DiffKind]int, resumed, storeSaved bool, err error) {
+// provider (beforeProvider) and the earlier run read it that way too. A run
+// that reads the store before the provider cannot continue provider data saved
+// next to a store read taken after it, so it is refused; with no unit saved
+// yet, or for a run that reads the store after the provider, the store read is
+// emptied and read again as in a fresh run. It reports what the earlier runs
+// sent (earlier), whether any unit was already read and whether a store read
+// was kept. The kept store read mirrors what was sent, so the comparison
+// leaves out what the earlier runs already wrote.
+func prepareResume(ctx context.Context, wf *workfile.File, beforeProvider bool) (earlier map[workfile.DiffKind]int, resumed, storeSaved bool, err error) {
 	if err = wf.DropUnfinished(); err != nil {
-		return nil, nil, false, false, err
+		return nil, false, false, err
 	}
 	if started, _ := wf.Window(); !started.IsZero() {
 		resumed = true
 	}
-	if err = wf.ResetReplay(ctx); err != nil {
-		return nil, nil, false, false, err
+	_, _, _, readSaved := wf.StoreRead()
+	keep := beforeProvider && readSaved && wf.Recall(storeBeforeProvider) == "1"
+	if beforeProvider && resumed && !keep {
+		return nil, false, false, resumeRefused(&workfile.RefusalError{Path: wf.Path(),
+			Reason: "the earlier run read the store after the provider; this run must read it before"})
 	}
-	if _, _, _, ok := wf.StoreRead(); beforeProvider && ok && wf.Recall(storeBeforeProvider) == "1" {
+	if err = wf.ResetReplay(ctx); err != nil {
+		return nil, false, false, err
+	}
+	if keep {
 		storeSaved = true
 	} else if err = errors.Join(wf.ResetStore(ctx), wf.ResetSent(), wf.Remember(storeBeforeProvider, "")); err != nil {
-		return nil, nil, false, false, err
+		return nil, false, false, err
 	}
-	earlier, skip = map[workfile.DiffKind]int{}, map[workfile.DiffKind]int{}
+	earlier = map[workfile.DiffKind]int{}
 	for _, kind := range []workfile.DiffKind{workfile.Missing, workfile.Changed, workfile.Stale} {
-		if skip[kind], err = wf.SentCount(kind); err != nil {
-			return nil, nil, false, false, err
+		n, err := wf.SentCount(kind)
+		if err != nil {
+			return nil, false, false, err
 		}
-		earlier[kind] = skip[kind] + wf.Carried(kind)
+		earlier[kind] = n + wf.Carried(kind)
 	}
-	return earlier, skip, resumed, storeSaved, nil
+	return earlier, resumed, storeSaved, nil
 }

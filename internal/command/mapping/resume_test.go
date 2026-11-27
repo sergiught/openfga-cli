@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -587,19 +588,28 @@ func TestPrepareResumeKeepsOnlyAStoreReadTakenBeforeTheProvider(t *testing.T) {
 		name           string
 		flag           bool
 		beforeProvider bool
-		kept           bool
+		units          bool
+		kept, refused  bool
 	}{
-		{"read before the provider", true, true, true},
-		{"read after the provider", false, true, false},
-		{"this run reads after the provider", true, false, false},
+		{"read before the provider", true, true, true, true, false},
+		{"read after the provider", false, true, true, false, true},
+		{"read after the provider, nothing read yet", false, true, false, false, false},
+		{"this run reads after the provider", true, false, true, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			wf, err := workfile.Create(filepath.Join(t.TempDir(), "w.db"), workfile.Meta{Command: "drift", CreatedAt: now()})
+			wf, err := workfile.Create(filepath.Join(t.TempDir(), "w.db"), workfile.Meta{
+				Command: "drift", CreatedAt: now(), Types: []string{"snapshot.organization.member"}})
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer func() { _ = wf.Close() }()
 			ctx := context.Background()
+			if tc.units {
+				ev := []map[string]any{{"type": "snapshot.organization.member", "user": "a", "org": "o"}}
+				if err := wf.Save(snapshot.Unit{Key: "org/a"}, ev, true); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if err := wf.AddStore(ctx, []language.Tuple{{User: "user:a", Relation: "member", Object: "organization:o"}}); err != nil {
 				t.Fatal(err)
 			}
@@ -611,7 +621,17 @@ func TestPrepareResumeKeepsOnlyAStoreReadTakenBeforeTheProvider(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			_, _, _, kept, err := prepareResume(ctx, wf, tc.beforeProvider)
+			_, _, kept, err := prepareResume(ctx, wf, tc.beforeProvider)
+			var refusal *workfile.RefusalError
+			if got := errors.As(err, &refusal); got != tc.refused {
+				t.Fatalf("refused = %v, want %v (err = %v)", got, tc.refused, err)
+			}
+			if tc.refused {
+				if refusal.Reason != "the earlier run read the store after the provider; this run must read it before" {
+					t.Errorf("reason = %q", refusal.Reason)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -619,5 +639,293 @@ func TestPrepareResumeKeepsOnlyAStoreReadTakenBeforeTheProvider(t *testing.T) {
 				t.Errorf("kept = %v, store read present = %v, want %v", kept, ok, tc.kept)
 			}
 		})
+	}
+}
+
+// writtenKeys is the tuples a /write body writes.
+func writtenKeys(body string) []map[string]any {
+	var w struct {
+		Writes struct {
+			TupleKeys []map[string]any `json:"tuple_keys"`
+		} `json:"writes"`
+	}
+	_ = json.Unmarshal([]byte(body), &w)
+	return w.Writes.TupleKeys
+}
+
+func (fs *fakeStore) bodiesAfter(n int) []string {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	return append([]string(nil), fs.writes[n:]...)
+}
+
+const conditionedMemberMapping = `version: "1"
+rules:
+  - name: organization.member.added
+    when: input.type == "snapshot.organization.member"
+    tuples:
+      - user: "user:{{ input.user }}"
+        relation: member
+        object: "organization:{{ input.org }}"
+        condition: %s
+`
+
+func TestResumedDriftWritesTheEditedConditionOfATupleItAlreadySent(t *testing.T) {
+	configtest.Isolate(t)
+	smallPages(t)
+	fs := newFakeStore(t)
+	state := filepath.Join(t.TempDir(), "w.db")
+	units := memberUnits("u1", "u2")
+	useFakeProvider(t, unitProvider(units, 0, nil))
+	mapA := strings.Replace(conditionedMemberMapping, "%s", "cond_a", 1)
+	mapB := strings.Replace(conditionedMemberMapping, "%s", "cond_b", 1)
+
+	// The first page goes through with condition A; the second does not.
+	fs.failAt = map[int]bool{2: true}
+	if _, _, err := runDrift(t, fs.cli(), nil, stateArgs(t, mapA, state, "--force")...); err == nil || !exists(state) {
+		t.Fatalf("the first run should fail and keep its file: err = %v", err)
+	}
+	firstWrites := fs.writeCount()
+	fs.mu.Lock()
+	fs.failAt = nil
+	fs.mu.Unlock()
+
+	if _, stderr, err := runDrift(t, fs.cli(), nil, stateArgs(t, mapB, state, "--force", "--resume")...); err != nil {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	written := strings.Join(fs.bodiesAfter(firstWrites), "\n")
+	for _, u := range []string{"u1", "u2"} {
+		if !strings.Contains(written, `"user":"user:`+u+`"`) {
+			t.Errorf("user:%s not written after the resume:\n%s", u, written)
+		}
+	}
+	if strings.Contains(written, "cond_a") || !strings.Contains(written, `"name":"cond_b"`) {
+		t.Errorf("the resume must write condition B only:\n%s", written)
+	}
+}
+
+func TestResumedDriftWritesATupleItDeletedAsStale(t *testing.T) {
+	configtest.Isolate(t)
+	smallPages(t)
+	fs := newFakeStore(t, member("u1"), member("gone1"), member("gone2"))
+	state := filepath.Join(t.TempDir(), "w.db")
+	units := memberUnits("u1", "gone1", "gone2")
+	useFakeProvider(t, unitProvider(units, 0, nil))
+	only := func(cond string) string {
+		return `version: "1"
+rules:
+  - name: organization.member.added
+    when: input.type == "snapshot.organization.member"` + cond + `
+    tuples:
+      - user: "user:{{ input.user }}"
+        relation: member
+        object: "organization:{{ input.org }}"
+`
+	}
+	mapA := only(` && input.user == "u1"`)
+	mapB := only("")
+
+	// The first stale page is deleted; the second fails.
+	fs.failAt = map[int]bool{2: true}
+	if _, _, err := runDrift(t, fs.cli(), nil, stateArgs(t, mapA, state, "--prune", "--force")...); err == nil || !exists(state) {
+		t.Fatalf("the first run should fail and keep its file: err = %v", err)
+	}
+	firstWrites := fs.writeCount()
+	fs.mu.Lock()
+	fs.failAt = nil
+	fs.mu.Unlock()
+
+	if _, stderr, err := runDrift(t, fs.cli(), nil, stateArgs(t, mapB, state, "--prune", "--force", "--resume")...); err != nil {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	var wrote []string
+	for _, b := range fs.bodiesAfter(firstWrites) {
+		for _, k := range writtenKeys(b) {
+			wrote = append(wrote, k["user"].(string))
+		}
+	}
+	if !slices.Equal(wrote, []string{"user:gone1"}) {
+		t.Errorf("written after the resume = %v, want only user:gone1", wrote)
+	}
+}
+
+func TestResumedDriftDoesNotCountWhatItAlreadySentAsMissing(t *testing.T) {
+	configtest.Isolate(t)
+	smallPages(t)
+	fs := newFakeStore(t)
+	state := filepath.Join(t.TempDir(), "w.db")
+	units := memberUnits("u1", "u2")
+	useFakeProvider(t, unitProvider(units, 0, nil))
+	fs.failAt = map[int]bool{2: true}
+	if _, _, err := runDrift(t, fs.cli(), nil, stateArgs(t, driftConditionMapping, state, "--force")...); err == nil {
+		t.Fatal("the first run should fail")
+	}
+	c := fs.cli()
+	c.JSON = true
+	stdout, _, err := runDrift(t, c, nil, stateArgs(t, driftConditionMapping, state, "--dry-run", "--resume")...)
+	if err == nil || !strings.Contains(clierr.NewEnvelope(err).Error.Message, "drift remains: 1 missing, 0 changed, 0 stale") {
+		t.Fatalf("err = %v (%s), want only the tuple the first run did not send", err, clierr.NewEnvelope(err).Error.Message)
+	}
+	var doc struct {
+		Missing []tupleOut `json:"missing"`
+		Sent    struct{ Writes int }
+	}
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatalf("json: %v\n%s", err, stdout)
+	}
+	if len(doc.Missing) != 1 || doc.Sent.Writes != 1 {
+		t.Errorf("missing = %d, sent.writes = %d; want 1 and 1", len(doc.Missing), doc.Sent.Writes)
+	}
+}
+
+// flipMapping is a --since mapping whose rule on a windowed type either
+// templates its relation (nothing is owned, so the store is read after the
+// provider) or does not (the other rule's shape is owned, so it is read first).
+func flipMapping(templated bool) string {
+	rel := "member"
+	if templated {
+		rel = `"{{ input.rel }}"`
+	}
+	return `version: "1"
+rules:
+  - name: user.created
+    when: input.type == "snapshot.user"
+    tuples:
+      - user: "user:{{ input.user }}"
+        relation: ` + rel + `
+        object: "organization:o1"
+  - name: organization.member.added
+    when: input.type == "snapshot.organization.member"
+    tuples:
+      - user: "user:{{ input.user }}"
+        relation: reader
+        object: "organization:{{ input.org }}"
+`
+}
+
+func TestResumedDriftRefusesWhenItNoLongerCanReuseItsStoreRead(t *testing.T) {
+	configtest.Isolate(t)
+	pinNow(t, 0)
+	fs := newFakeStore(t)
+	state := filepath.Join(t.TempDir(), "w.db")
+	units := unitsOf("snapshot.user", "u1", "u2")
+	mk := func(failAfter int) fakeProvider {
+		p := unitProvider(units, failAfter, nil)
+		p.types = windowedTypes()
+		return p
+	}
+
+	// Users only: the store is read after the provider, so a failed provider
+	// read leaves a finished unit and no store read.
+	useFakeProvider(t, mk(1))
+	if stdout1, stderr1, err := runDrift(t, fs.cli(), nil, stateArgs(t, flipMapping(true), state, "--since", "2h", "--force")...); err == nil || !exists(state) {
+		t.Fatalf("first run: err = %v (%s), exists = %v\n%s%s", err, clierr.NewEnvelope(err).Error.Message, exists(state), stdout1, stderr1)
+	}
+	reads := len(fs.readRequests())
+
+	// The edit makes another shape owned: the store would now be read before
+	// the provider, and could not be paired with the unit already saved.
+	useFakeProvider(t, mk(0))
+	_, _, err := runDrift(t, fs.cli(), nil, stateArgs(t, flipMapping(false), state, "--since", "2h", "--force", "--resume")...)
+	if err == nil || clierr.Code(err) != clierr.CodeUsage {
+		t.Fatalf("code = %d, err = %v; want a usage error", clierr.Code(err), err)
+	}
+	if want := "cannot resume from " + state + ": the earlier run read the store after the provider; this run must read it before"; !strings.Contains(err.Error(), want) {
+		t.Errorf("err = %v, want it to contain %q", err, want)
+	}
+	if hint := clierr.NewEnvelope(err).Error.Hint; !strings.Contains(hint, "run without --resume to start over") {
+		t.Errorf("hint = %q", hint)
+	}
+	if fs.writeCount() != 0 || len(fs.readRequests()) != reads {
+		t.Errorf("the refusal touched the store: %d writes, %d more reads", fs.writeCount(), len(fs.readRequests())-reads)
+	}
+	if !exists(state) {
+		t.Error("the refusal deleted the work file")
+	}
+}
+
+func TestDriftNotesThatItReadTheStoreBeforeTheProvider(t *testing.T) {
+	configtest.Isolate(t)
+	fs := newFakeStore(t, member("u1"))
+	state := filepath.Join(t.TempDir(), "w.db")
+	useFakeProvider(t, unitProvider(memberUnits("u1", "u2"), 1, nil))
+	if _, _, err := runDrift(t, fs.cli(), nil, stateArgs(t, driftMapping, state, "--force")...); err == nil || !exists(state) {
+		t.Fatalf("the run should fail and keep its file: err = %v", err)
+	}
+	wf, err := workfile.Open(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = wf.Close() }()
+	if got := wf.Recall(storeBeforeProvider); got != "1" {
+		t.Errorf("%s = %q, want 1", storeBeforeProvider, got)
+	}
+}
+
+func TestResumedBackfillWritesEachTupleOnceAcrossPages(t *testing.T) {
+	configtest.Isolate(t)
+	old := writePage
+	writePage = 2
+	t.Cleanup(func() { writePage = old })
+	fs := newFakeStore(t)
+	state := filepath.Join(t.TempDir(), "w.db")
+	useFakeProvider(t, unitProvider(memberUnits("u1", "u2", "u3"), 0, nil))
+
+	// Six tuples in three pages: the first goes through, the second does not.
+	fs.failAt = map[int]bool{2: true}
+	if _, _, err := runBackfill(t, fs.cli(), nil, stateArgs(t, memberSnapshotMapping, state, "--force")...); err == nil || !exists(state) {
+		t.Fatalf("the first run should fail and keep its file: err = %v", err)
+	}
+	firstWrites := fs.writeCount()
+	if firstWrites != 2 {
+		t.Fatalf("first run sent %d requests, want 2", firstWrites)
+	}
+	// The store now holds what the accepted request carried.
+	fs.mu.Lock()
+	fs.tuples = append(fs.tuples, writtenKeys(fs.writes[0])...)
+	stored := len(fs.tuples)
+	fs.failAt = nil
+	fs.mu.Unlock()
+	if stored != 2 {
+		t.Fatalf("the first accepted request carried %d tuples, want 2", stored)
+	}
+
+	c := fs.cli()
+	c.JSON = true
+	stdout, stderr, err := runBackfill(t, c, nil, stateArgs(t, memberSnapshotMapping, state, "--force", "--resume")...)
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, stderr)
+	}
+	// Every tuple went through exactly once: the accepted request of the first
+	// run, then the resumed run's requests (the rejected one is not counted).
+	seen := map[string]int{}
+	fs.mu.Lock()
+	accepted := append([]string{fs.writes[0]}, fs.writes[2:]...)
+	fs.mu.Unlock()
+	for _, b := range accepted {
+		for _, k := range writtenKeys(b) {
+			seen[k["user"].(string)+" "+k["relation"].(string)]++
+		}
+	}
+	if len(seen) != 6 {
+		t.Errorf("%d distinct tuples written, want 6: %v", len(seen), seen)
+	}
+	for k, n := range seen {
+		if n != 1 {
+			t.Errorf("%s written %d times", k, n)
+		}
+	}
+	if n := fs.writeCount() - firstWrites; n != 2 {
+		t.Errorf("the resumed run sent %d requests, want 2", n)
+	}
+	var doc struct {
+		Missing []tupleOut `json:"missing"`
+		Sent    struct{ Writes int }
+	}
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatalf("json: %v\n%s", err, stdout)
+	}
+	if len(doc.Missing) != 4 || doc.Sent.Writes != 6 {
+		t.Errorf("missing = %d, sent.writes = %d; want 4 and 6 (two from the first run, four now)", len(doc.Missing), doc.Sent.Writes)
 	}
 }

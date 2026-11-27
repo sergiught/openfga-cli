@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -117,7 +118,7 @@ func TestListEachNamesTheFileInDatabaseErrorsOnly(t *testing.T) {
 	require.True(t, f.Named(stop) == stop)
 }
 
-func TestPagesSkipTheSentRows(t *testing.T) {
+func TestMarkSentKeepsTheSavedStoreReadInStep(t *testing.T) {
 	ctx := context.Background()
 	f, _ := newFile(t)
 	var want []language.Tuple
@@ -146,12 +147,49 @@ func TestPagesSkipTheSentRows(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 10, n)
 
+	// The saved read now holds what landed, so the next comparison leaves it out.
+	c, err := f.Compare(ctx, nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, 15, c.Missing)
 	got = nil
 	require.NoError(t, f.Pages(Missing, 10, func(page, _ []language.Tuple) error {
 		got = append(got, page...)
 		return nil
 	}))
 	require.Equal(t, norm(want[10:]), norm(got))
+}
+
+func TestMarkSentStoresTheTupleItWroteAndRemovesWhatItDeleted(t *testing.T) {
+	ctx := context.Background()
+	f, _ := newFile(t)
+	cond := language.Tuple{User: "user:u1", Relation: "member", Object: "organization:acme", Condition: "in_office",
+		Context: map[string]any{"level": "3"}}
+	gone := language.Tuple{User: "user:gone", Relation: "member", Object: "organization:acme"}
+	old := cond
+	old.Condition, old.Context = "old", nil
+	require.NoError(t, f.AddStore(ctx, []language.Tuple{old, gone}))
+	require.NoError(t, f.AddDesired(ctx, cond))
+	_, err := f.Compare(ctx, []mapping.Shape{mapping.ShapeOf(gone)}, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, f.Pages(Changed, 10, func(page, _ []language.Tuple) error { return f.MarkSent(Changed, page) }))
+	require.NoError(t, f.Pages(Stale, 10, func(page, _ []language.Tuple) error { return f.MarkSent(Stale, page) }))
+
+	c, err := f.Compare(ctx, []mapping.Shape{mapping.ShapeOf(gone)}, nil)
+	require.NoError(t, err)
+	require.Equal(t, Counts{Desired: 1}, c)
+	rows, err := f.db.Query(`SELECT tuple FROM store`)
+	require.NoError(t, err)
+	var stored []language.Tuple
+	for rows.Next() {
+		var blob []byte
+		var tup language.Tuple
+		require.NoError(t, rows.Scan(&blob))
+		require.NoError(t, json.Unmarshal(blob, &tup))
+		stored = append(stored, tup)
+	}
+	require.NoError(t, errors.Join(rows.Err(), rows.Close()))
+	require.Equal(t, []language.Tuple{cond}, stored)
 }
 
 func TestPagesPairChangedWithTheirStoredVersion(t *testing.T) {

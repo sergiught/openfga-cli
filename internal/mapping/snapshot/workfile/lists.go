@@ -118,10 +118,11 @@ func (f *File) eachDesired(fn func(language.Tuple) error) error {
 	}
 }
 
-// Pages calls fn with up to size rows of one kind at a time, in diff key order,
-// skipping the rows MarkSent recorded. was is the stored version of each row of
-// a Changed page and nil otherwise. fn may call MarkSent; an error from fn stops
-// the walk and is returned as it is.
+// Pages calls fn with up to size rows of one kind at a time, in diff key order.
+// was is the stored version of each row of a Changed page and nil otherwise. fn
+// may call MarkSent; an error from fn stops the walk and is returned as it is.
+// It does not skip what MarkSent recorded: that is already out of the diff of
+// the next Compare, because MarkSent updates the saved store read.
 func (f *File) Pages(kind DiffKind, size int, fn func(page, was []language.Tuple) error) error {
 	if size < 1 {
 		size = 1
@@ -129,8 +130,7 @@ func (f *File) Pages(kind DiffKind, size int, fn func(page, was []language.Tuple
 	var last [4]string
 	first := true
 	for {
-		q := `SELECT shape, user, relation, object, tuple, was FROM diff WHERE kind = ?
-AND NOT EXISTS (SELECT 1 FROM sent WHERE sent.kind = diff.kind AND sent.id = diff.id AND sent.key = '') `
+		q := `SELECT shape, user, relation, object, tuple, was FROM diff WHERE kind = ? `
 		args := []any{int(kind)}
 		if !first {
 			q += `AND (shape, user, relation, object) > (?, ?, ?, ?) `
@@ -181,8 +181,12 @@ func (f *File) readPage(q string, args []any) (page, was []language.Tuple, last 
 	return page, was, last, errors.Join(rows.Err(), rows.Close())
 }
 
-// MarkSent records that the store accepted the changes of page, so Pages skips
-// them. page holds the desired tuples, as Pages gave them.
+// MarkSent records that the store accepted the changes of page, and applies
+// them to the saved store read in the same transaction, so that read goes on
+// mirroring the store and a later Compare, with whatever mapping, leaves them
+// out. page holds the tuples as Pages gave them: a Missing or Changed row is
+// stored with the tuple it wrote, condition and context included, and a Stale
+// row is removed.
 func (f *File) MarkSent(kind DiffKind, page []language.Tuple) (err error) {
 	tx, err := f.db.Begin()
 	if err != nil {
@@ -193,13 +197,34 @@ func (f *File) MarkSent(kind DiffKind, page []language.Tuple) (err error) {
 			_ = tx.Rollback()
 		}
 	}()
-	stmt, err := tx.Prepare(`INSERT OR IGNORE INTO sent(kind, id, key) VALUES(?, ?, '')`)
+	mark, err := tx.Prepare(`INSERT OR IGNORE INTO sent(kind, id, key) VALUES(?, ?, '')`)
 	if err != nil {
 		return fmt.Errorf("work file %s: mark sent: %w", f.path, err)
 	}
-	defer func() { _ = stmt.Close() }()
+	defer func() { _ = mark.Close() }()
+	apply := `INSERT OR REPLACE INTO store(id, tuple) VALUES(?, ?)`
+	if kind == Stale {
+		apply = `DELETE FROM store WHERE id = ?`
+	}
+	mirror, err := tx.Prepare(apply)
+	if err != nil {
+		return fmt.Errorf("work file %s: mark sent: %w", f.path, err)
+	}
+	defer func() { _ = mirror.Close() }()
 	for _, t := range page {
-		if _, err = stmt.Exec(int(kind), snapshot.Identity(t)); err != nil {
+		id := snapshot.Identity(t)
+		if _, err = mark.Exec(int(kind), id); err != nil {
+			return fmt.Errorf("work file %s: mark sent: %w", f.path, err)
+		}
+		if kind == Stale {
+			_, err = mirror.Exec(id)
+		} else {
+			var blob []byte
+			if blob, err = json.Marshal(t); err == nil {
+				_, err = mirror.Exec(id, blob)
+			}
+		}
+		if err != nil {
 			return fmt.Errorf("work file %s: mark sent: %w", f.path, err)
 		}
 	}
@@ -217,24 +242,43 @@ func (f *File) SentCount(kind DiffKind) (n int, err error) {
 	return n, nil
 }
 
-// ResetSent forgets which rows MarkSent recorded, so Pages offers every row of
-// the diff again. It keeps the counts: Carried adds what was dropped here to
-// what was carried already. A run that reads the store again calls it, since
-// the comparison with that read has already dropped what the store accepted.
-func (f *File) ResetSent() error {
-	for _, kind := range []DiffKind{Missing, Changed, Stale} {
-		n, err := f.SentCount(kind)
+// ResetSent forgets which rows MarkSent recorded. It keeps the counts: Carried
+// adds what was dropped here to what was carried already. A run that reads the
+// store again calls it, since that read already holds what the store accepted.
+// The counts and the deletion are one transaction.
+func (f *File) ResetSent() (err error) {
+	tx, err := f.db.Begin()
+	if err != nil {
+		return fmt.Errorf("work file %s: reset sent: %w", f.path, err)
+	}
+	defer func() {
 		if err != nil {
-			return err
+			_ = tx.Rollback()
+		}
+	}()
+	for _, kind := range []DiffKind{Missing, Changed, Stale} {
+		var n int
+		if err = tx.QueryRow(`SELECT COUNT(*) FROM sent WHERE kind = ?`, int(kind)).Scan(&n); err != nil {
+			return fmt.Errorf("work file %s: reset sent: %w", f.path, err)
 		}
 		if n == 0 {
 			continue
 		}
-		if err := f.Remember(carriedKey(kind), strconv.Itoa(f.Carried(kind)+n)); err != nil {
+		// Read through tx: the file has one connection, and tx holds it.
+		var carried string
+		if err = tx.QueryRow(`SELECT COALESCE((SELECT value FROM kv WHERE key = ?), '')`, carriedKey(kind)).Scan(&carried); err != nil {
+			return fmt.Errorf("work file %s: reset sent: %w", f.path, err)
+		}
+		before, _ := strconv.Atoi(carried)
+		if _, err = tx.Exec(`INSERT INTO kv(key, value) VALUES(?, ?)
+			ON CONFLICT(key) DO UPDATE SET value = excluded.value`, carriedKey(kind), strconv.Itoa(before+n)); err != nil {
 			return fmt.Errorf("work file %s: reset sent: %w", f.path, err)
 		}
 	}
-	if _, err := f.db.Exec(`DELETE FROM sent`); err != nil {
+	if _, err = tx.Exec(`DELETE FROM sent`); err != nil {
+		return fmt.Errorf("work file %s: reset sent: %w", f.path, err)
+	}
+	if err = tx.Commit(); err != nil {
 		return fmt.Errorf("work file %s: reset sent: %w", f.path, err)
 	}
 	return nil

@@ -143,7 +143,7 @@ func (c *Command) drift(cmd *cobra.Command, path, provider, since string, prune,
 	meter := new(client.Meter)
 	var live *status.Live
 	defer func() { live.Close() }()
-	run, err := c.runSnapshot(cmd, path, provider, sinceTime, snapshotOpts{command: "drift", sinceText: since, state: state, ws: ws}, func() *status.Live { return live }, func(f *mapping.File, types []snapshot.Type, windowed []string) (string, error) {
+	run, err := c.runSnapshot(cmd, path, provider, sinceTime, snapshotOpts{command: "drift", sinceText: since, state: state, ws: ws, storeFirst: func() bool { return !usersOnly }}, func() *status.Live { return live }, func(f *mapping.File, types []snapshot.Type, windowed []string) (string, error) {
 		var r config.Resolved
 		var err error
 		if cl, r, err = c.cli.ClientWithStore(client.WithMeter(meter)); err != nil {
@@ -346,15 +346,13 @@ func (c *Command) drift(cmd *cobra.Command, path, provider, since string, prune,
 		if pruning {
 			verb, kind = "pruned", workfile.Stale
 		}
-		// Changes an earlier run sent are in the totals but not in the pages.
-		skip := run.Skip[kind]
 		sent, err := sendPages(wf, kind, func(page, _ []language.Tuple, before int) (snapshot.Sent, error) {
 			progress := func(done, _ int) {
 				switch {
 				case live != nil:
-					live.Set("changes", prior+skip+before+done, grand)
+					live.Set("changes", prior+before+done, grand)
 				case grand > backfillRequestSize: // more than one request
-					output.Progressf(errw, "sent %d/%d changes", prior+skip+before+done, grand)
+					output.Progressf(errw, "sent %d/%d changes", prior+before+done, grand)
 				}
 			}
 			if pruning {
@@ -375,7 +373,7 @@ func (c *Command) drift(cmd *cobra.Command, path, provider, since string, prune,
 			if pruning {
 				again += " with --prune"
 			}
-			text := fmt.Sprintf("sent %d of %s before the failure; %s to send the rest", sent.Writes+sent.Deletes+skip, mapping.Plural(total, "change"), again)
+			text := fmt.Sprintf("sent %d of %s before the failure; %s to send the rest", sent.Writes+sent.Deletes, mapping.Plural(total, "change"), again)
 			return sent, finish(reportSnapshotFailure(ctx, errw, machine, text, snapshot.Sent(res.Sent), applyHints(err), err))
 		}
 		return sent, nil
@@ -384,14 +382,13 @@ func (c *Command) drift(cmd *cobra.Command, path, provider, since string, prune,
 	// store is left in when a batch fails.
 	replace := func(prior, grand int) error {
 		var lost []language.Tuple
-		skip := 2 * run.Skip[workfile.Changed]
 		sent, err := sendPages(wf, workfile.Changed, func(page, was []language.Tuple, before int) (snapshot.Sent, error) {
 			s, l, err := snapshot.Replace(ctx, storeClient{cl}, was, page, func(done, _ int) {
 				switch {
 				case live != nil:
-					live.Set("changes", prior+skip+2*before+done, grand)
+					live.Set("changes", prior+2*before+done, grand)
 				case grand > backfillRequestSize:
-					output.Progressf(errw, "sent %d/%d changes", prior+skip+2*before+done, grand)
+					output.Progressf(errw, "sent %d/%d changes", prior+2*before+done, grand)
 				}
 			})
 			lost = l
