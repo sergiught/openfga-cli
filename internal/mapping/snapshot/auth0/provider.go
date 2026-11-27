@@ -829,6 +829,7 @@ func (r *read) exportUsers(atLeast int) error {
 // restart is true when the job cannot be used any more (it is gone, failed, or
 // its location expired) and a new one should be created.
 func (r *read) awaitExport(id string, atLeast int, resumed bool) (restart bool, err error) {
+	// For a resumed job the 30 minutes start again here.
 	created, lastPercent := r.limits.now(), -1
 
 	for {
@@ -856,8 +857,18 @@ func (r *read) awaitExport(id string, atLeast int, resumed bool) (restart bool, 
 
 			// drift --prune deletes what was not read, so a short file must not pass.
 			if n < atLeast {
-				return false, fmt.Errorf("Auth0's user export has %d users where the list reported %d or more; "+
+				short := fmt.Errorf("Auth0's user export has %d users where the list reported %d or more; "+
 					"users may have been deleted meanwhile, run the command again", n, atLeast)
+
+				// Forget the job so the next run creates a new one instead of
+				// failing on this file again.
+				if r.remember != nil {
+					if err := r.remember(exportJobKey, ""); err != nil {
+						return false, errors.Join(short, fmt.Errorf("forgetting the export job in the work file: %w", err))
+					}
+				}
+
+				return false, short
 			}
 
 			return false, nil
@@ -878,6 +889,7 @@ func (r *read) awaitExport(id string, atLeast int, resumed bool) (restart bool, 
 				r.report(snapshot.Progress{Message: fmt.Sprintf("exporting users: %d%%", pct), Step: exportJobStep, Done: pct, Total: 100})
 			}
 		default:
+			// An unknown status restarts on resume.
 			if resumed {
 				return true, nil
 			}

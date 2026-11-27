@@ -1137,3 +1137,19 @@ func TestExportLocationIsNeverSaved(t *testing.T) {
 	notContains(t, err.Error(), "export.gz")
 	notContains(t, err.Error(), "127.0.0.1")
 }
+
+func TestExportShortResumedFileForgetsTheJob(t *testing.T) {
+	t.Parallel()
+
+	f := &exportFake{file: gzipLines(exportUserLine(1), exportUserLine(2))}
+	p, _ := newExportProvider(t, 1500, f)
+	s := &exportSaves{recalled: map[string]string{"auth0-users-export-job": "job_1"}}
+
+	_, err := p.Snapshot(context.Background(), s.request(), nil)
+	isErr(t, err)
+	contains(t, err.Error(), "run the command again")
+	equal(t, 0, len(f.createdBy))
+	v, ok := s.kv["auth0-users-export-job"]
+	equal(t, true, ok)
+	equal(t, "", v)
+}
