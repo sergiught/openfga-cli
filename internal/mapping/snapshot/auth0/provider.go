@@ -96,6 +96,9 @@ func (p *Provider) Name() string { return "auth0" }
 // Label is the display name.
 func (p *Provider) Label() string { return "Auth0" }
 
+// Source is the tenant domain, the same value as Result.Source.
+func (p *Provider) Source() string { return p.source }
+
 // Types lists the snapshot event types this provider produces.
 func (p *Provider) Types() []snapshot.Type { return Types() }
 
@@ -164,8 +167,9 @@ type read struct {
 	progress func(snapshot.Progress)
 	sayMu    *sync.Mutex // progress is called from several goroutines, one at a time
 	events   map[string][]event
-	tally    *tally // shared by every sub-read
-	out      *sink  // where events go instead of events, nil when Result.Events is wanted
+	tally    *tally                // shared by every sub-read
+	out      *sink                 // where events go instead of events, nil when Result.Events is wanted
+	done     func(key string) bool // units an earlier run finished; only read with out.save
 }
 
 // flushEvery is how many events one Emit call is given at most.
@@ -176,13 +180,20 @@ const flushEvery = 1000
 // calls it, so Emit is never called twice at once.
 type sink struct {
 	emit  func(events []map[string]any) error
-	seq   int            // events given so far, the last one's number
-	count map[string]int // events given so far, per type
+	save  func(u snapshot.Unit, events []map[string]any, finished bool) error // instead of emit
+	seq   int                                                                 // events given so far, the last one's number
+	count map[string]int                                                      // events given so far, per type
 }
 
 // flush gives the events held for typ to Emit, in order, and forgets them.
 // With no Emit it keeps them for Result.Events.
 func (r *read) flush(typ string) error {
+	return r.flushUnit(typ, true)
+}
+
+// flushUnit is flush; with finished false a unit that goes to Save is not
+// closed, because more of its events are still to come.
+func (r *read) flushUnit(typ string, finished bool) error {
 	if r.out == nil {
 		return nil
 	}
@@ -190,7 +201,56 @@ func (r *read) flush(typ string) error {
 	events := r.events[typ]
 	delete(r.events, typ)
 
+	if r.out.save != nil {
+		// Only these types are units of their own; the others go with their organization.
+		switch typ {
+		case typeConnection, typeUser, typeOrganization:
+			if !r.want[typ] {
+				return nil
+			}
+
+			return r.saveUnit(snapshot.Unit{Key: unitKeys[typ]}, map[string][]event{typ: events}, finished)
+		}
+
+		return nil
+	}
+
 	return r.give(typ, events)
+}
+
+// unitKeys are the keys of the units that are one type each.
+var unitKeys = map[string]string{typeConnection: "connections", typeUser: "users", typeOrganization: "organizations"}
+
+// saveUnit hands the events of one unit to Save, flushEvery at a time, then
+// says the unit is complete when finished. Types go in Types() order, each type's events in
+// the order they arrived.
+func (r *read) saveUnit(u snapshot.Unit, byType map[string][]event, finished bool) error {
+	for _, t := range Types() {
+		events := byType[t.Name]
+
+		for len(events) > 0 {
+			n := min(len(events), flushEvery)
+			batch := make([]map[string]any, n)
+
+			for i, e := range events[:n] {
+				r.out.seq++
+				batch[i] = r.envelope(e, r.out.seq)
+			}
+
+			r.out.count[t.Name] += n
+			events = events[n:]
+
+			if err := r.out.save(u, batch, false); err != nil {
+				return err
+			}
+		}
+	}
+
+	if !finished {
+		return nil
+	}
+
+	return r.out.save(u, nil, true)
 }
 
 // give wraps events of typ and hands them to Emit, flushEvery at a time.
@@ -213,6 +273,12 @@ func (r *read) give(typ string, events []event) error {
 	}
 
 	return nil
+}
+
+// isDone says whether an earlier run finished the unit. Only a read that saves
+// by unit asks.
+func (r *read) isDone(key string) bool {
+	return r.out != nil && r.out.save != nil && r.done != nil && r.done(key)
 }
 
 func (r *read) say(msg string) {
@@ -272,7 +338,10 @@ func parallel(ctx context.Context, n int, task func(ctx context.Context, i int) 
 // the result is the same as reading one organization after the other.
 // With Emit, the events of the types in stream go to Emit instead, as soon as
 // every organization before theirs has finished, and are not kept.
-func (r *read) each(orgs []map[string]any, step, progress string, stream []string, task func(sub *read, org map[string]any) error) error {
+// With Save, each organization's events of every type go to Save as its task
+// finishes, as the unit kind/<id>, and are not kept; a unit Done reports true
+// is not read, and never saved again.
+func (r *read) each(orgs []map[string]any, kind, step, progress string, stream []string, task func(sub *read, org map[string]any) error) error {
 	subs := make([]*read, len(orgs))
 	finished := make([]bool, len(orgs))
 
@@ -287,6 +356,13 @@ func (r *read) each(orgs []map[string]any, step, progress string, stream []strin
 		sub.ctx, sub.events = ctx, map[string][]event{}
 		subs[i] = &sub
 
+		id, _ := orgs[i]["id"].(string)
+		unit := snapshot.Unit{Key: kind + "/" + id, Order: i}
+
+		if r.isDone(unit.Key) {
+			return nil
+		}
+
 		if err := task(&sub, orgs[i]); err != nil {
 			return err
 		}
@@ -297,6 +373,20 @@ func (r *read) each(orgs []map[string]any, step, progress string, stream []strin
 
 		mu.Lock()
 		defer mu.Unlock()
+
+		if r.out.save != nil {
+			if failed != nil {
+				return failed
+			}
+
+			if failed = r.saveUnit(unit, sub.events, true); failed != nil {
+				return failed
+			}
+
+			sub.events = nil
+
+			return nil
+		}
 
 		if failed != nil {
 			return failed
@@ -342,6 +432,11 @@ func (p *Provider) Snapshot(ctx context.Context, req snapshot.Request, progress 
 	if req.Emit != nil {
 		r.out = &sink{emit: req.Emit, count: map[string]int{}}
 	}
+
+	if req.Save != nil {
+		r.out = &sink{save: req.Save, count: map[string]int{}}
+		r.done = req.Done
+	}
 	r.tally = &tally{n: map[string]int{}, want: r.want, since: req.Since}
 
 	known := map[string]bool{}
@@ -375,7 +470,7 @@ func (p *Provider) Snapshot(ctx context.Context, req snapshot.Request, progress 
 	}
 
 	for _, s := range steps {
-		if r.want[s.typ] {
+		if r.want[s.typ] && !r.isDone(unitKeys[s.typ]) {
 			if err := s.read(); err != nil {
 				return nil, err
 			}
@@ -895,7 +990,7 @@ func (r *read) downloadUsers(location string, at time.Time) (int, error) {
 		// Nothing after this point restarts the download: a failure from here on
 		// fails the whole read, which discards what Emit was given.
 		if len(r.events[typeUser]) >= flushEvery {
-			if err := r.flush(typeUser); err != nil {
+			if err := r.flushUnit(typeUser, false); err != nil {
 				return 0, err
 			}
 		}
@@ -938,12 +1033,14 @@ func (r *read) organizations() error {
 		delete(r.events, typeOrganization)
 	}
 
-	if err := r.flush(typeOrganization); err != nil {
+	if r.isDone("organizations") {
+		delete(r.events, typeOrganization)
+	} else if err := r.flush(typeOrganization); err != nil {
 		return err
 	}
 
 	if r.want[typeOrgConnection] {
-		err := r.each(orgs, "connections of organizations", "reading connections of %d/%d organizations", []string{typeOrgConnection}, func(sub *read, org map[string]any) error {
+		err := r.each(orgs, "org-connections", "connections of organizations", "reading connections of %d/%d organizations", []string{typeOrgConnection}, func(sub *read, org map[string]any) error {
 			return sub.orgConnections(org)
 		})
 		if err != nil {
@@ -952,7 +1049,7 @@ func (r *read) organizations() error {
 	}
 
 	if r.want[typeOrgMember] || r.want[typeOrgMemberRole] {
-		err := r.each(orgs, "members of organizations", "reading members of %d/%d organizations", []string{typeOrgMember}, func(sub *read, org map[string]any) error {
+		err := r.each(orgs, "org-members", "members of organizations", "reading members of %d/%d organizations", []string{typeOrgMember}, func(sub *read, org map[string]any) error {
 			return sub.orgMembers(org)
 		})
 		if err != nil {

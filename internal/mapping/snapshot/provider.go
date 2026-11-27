@@ -39,6 +39,15 @@ type Request struct {
 	// as that order allows. An error from Emit ends the read and is returned
 	// as it is. A provider may ignore Emit and fill Result.Events.
 	Emit func(events []map[string]any) error
+	// Save, when set, is used instead of Emit and Result.Events. Events come
+	// with their unit, each unit's in order, never from two goroutines at once;
+	// Save(u, nil, true) says u is complete. Units may interleave.
+	Save func(u Unit, events []map[string]any, finished bool) error
+	// Done says whether a unit completed in an earlier run; it is not read again.
+	Done func(key string) bool
+	// Remember and Recall keep a small value across runs.
+	Remember func(key, value string) error
+	Recall   func(key string) string
 }
 
 // Result is a completed snapshot read.
@@ -67,8 +76,9 @@ type Stats struct {
 
 // Provider reads one identity provider's current state.
 type Provider interface {
-	Name() string  // "auth0", the --provider value
-	Label() string // "Auth0", for display
+	Name() string   // "auth0", the --provider value
+	Label() string  // "Auth0", for display
+	Source() string // what is read, for display and for checking a resumed run: the Auth0 domain
 	Types() []Type
 	// Snapshot reads the requested types completely or returns an error.
 	// Events are ordered parents before children; the core replays them as given.

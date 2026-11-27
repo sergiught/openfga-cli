@@ -30,6 +30,7 @@ type fakeProvider struct {
 
 func (fakeProvider) Name() string             { return "fake" }
 func (fakeProvider) Label() string            { return "Fake" }
+func (fakeProvider) Source() string           { return "fake.example" }
 func (p fakeProvider) Types() []snapshot.Type { return p.types }
 
 func (fakeProvider) Stats() snapshot.Stats { return snapshot.Stats{} }
