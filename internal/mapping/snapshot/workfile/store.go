@@ -74,7 +74,7 @@ func (f *File) ResetReplay(ctx context.Context) (err error) {
 			_ = tx.Rollback()
 		}
 	}()
-	for _, stmt := range []string{`DELETE FROM plan`, `DELETE FROM tupleset`, `DELETE FROM desired`, `DELETE FROM diff`} {
+	for _, stmt := range []string{`DELETE FROM scratch.plan`, `DELETE FROM scratch.tupleset`, `DELETE FROM desired`, `DELETE FROM diff`} {
 		if _, err = tx.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("reset replay: %w", err)
 		}
@@ -174,6 +174,14 @@ OR COALESCE(json_extract(CAST(d.tuple AS TEXT), '$.context'), '') <> COALESCE(js
 // notContested keeps a join on store row s clear of the contested ids.
 const notContested = `NOT EXISTS (SELECT 1 FROM temp.contested x WHERE x.id = s.id)`
 
+// diffSelect reads diff rows with their tuple. A Missing or Changed row keeps
+// no copy of the tuple: it is the desired row with the same id, which nothing
+// changes between Compare and the next ResetReplay. A Stale row keeps its
+// tuple, and a Changed row its stored version (was), because MarkSent updates
+// the store table as the changes are sent and a later read of the diff must
+// still show what the store held when Compare ran.
+const diffSelect = `SELECT x.shape, x.user, x.relation, x.object, COALESCE(x.tuple, d.tuple), x.was FROM diff x LEFT JOIN desired d ON d.id = x.id `
+
 // Compare fills the diff table from desired against store, as snapshot.Compare
 // does: Missing is a desired tuple the store lacks, Changed one whose condition
 // or context differs, Stale a stored tuple desired lacks whose shape is in
@@ -213,7 +221,7 @@ func (f *File) Compare(ctx context.Context, owned []mapping.Shape, contested []s
 		return c, fmt.Errorf("compare: %w", err)
 	}
 	res, err := tx.ExecContext(ctx, `INSERT INTO diff(kind, shape, user, relation, object, id, tuple, was)
-SELECT ?, d.shape, d.user, d.relation, d.object, d.id, d.tuple, NULL FROM desired d
+SELECT ?, d.shape, d.user, d.relation, d.object, d.id, NULL, NULL FROM desired d
 WHERE NOT EXISTS (SELECT 1 FROM store s WHERE s.id = d.id AND `+notContested+`)`, int(Missing))
 	if err != nil {
 		return c, fmt.Errorf("compare: %w", err)
@@ -221,7 +229,7 @@ WHERE NOT EXISTS (SELECT 1 FROM store s WHERE s.id = d.id AND `+notContested+`)`
 	n, _ := res.RowsAffected()
 	c.Missing = int(n)
 	res, err = tx.ExecContext(ctx, `INSERT INTO diff(kind, shape, user, relation, object, id, tuple, was)
-SELECT ?, d.shape, d.user, d.relation, d.object, d.id, d.tuple, s.tuple FROM desired d JOIN store s ON s.id = d.id
+SELECT ?, d.shape, d.user, d.relation, d.object, d.id, NULL, s.tuple FROM desired d JOIN store s ON s.id = d.id
 WHERE `+differs+` AND `+notContested, int(Changed))
 	if err != nil {
 		return c, fmt.Errorf("compare: %w", err)
@@ -301,13 +309,13 @@ func (f *File) DiffRows(ctx context.Context, kind DiffKind, fn func(t, was langu
 	var last [4]string
 	first := true
 	for {
-		q := `SELECT shape, user, relation, object, tuple, was FROM diff WHERE kind = ? `
+		q := diffSelect + `WHERE x.kind = ? `
 		args := []any{int(kind)}
 		if !first {
-			q += `AND (shape, user, relation, object) > (?, ?, ?, ?) `
+			q += `AND (x.shape, x.user, x.relation, x.object) > (?, ?, ?, ?) `
 			args = append(args, last[0], last[1], last[2], last[3])
 		}
-		q += `ORDER BY shape, user, relation, object LIMIT ?`
+		q += `ORDER BY x.shape, x.user, x.relation, x.object LIMIT ?`
 		args = append(args, pageRows)
 		rows, err := f.db.QueryContext(ctx, q, args...)
 		if err != nil {

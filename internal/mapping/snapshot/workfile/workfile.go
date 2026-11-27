@@ -4,6 +4,7 @@ package workfile
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -33,6 +34,43 @@ type File struct {
 	items map[string]int
 	// desired buffers AddDesired until FlushDesired.
 	desired []language.Tuple
+	// tx is the transaction a Replay page runs in; the replay's tuple set and
+	// planner state go through it. nil outside a page.
+	tx *sql.Tx
+}
+
+// dbtx is what *sql.DB and *sql.Tx share. The file has one connection, so a
+// read made while a transaction is open must go through that transaction.
+type dbtx interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	PrepareContext(ctx context.Context, query string) (*sql.Stmt, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// q is the open Replay page's transaction, or the database outside one.
+func (f *File) q() dbtx {
+	if f.tx != nil {
+		return f.tx
+	}
+	return f.db
+}
+
+// inTx runs fn in a transaction. Inside a Replay page it joins the page's
+// transaction, which commits at the page's end.
+func (f *File) inTx(ctx context.Context, fn func(q dbtx) error) error {
+	if f.tx != nil {
+		return fn(f.tx)
+	}
+	tx, err := f.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if err := fn(tx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
 }
 
 const schema = `
@@ -40,18 +78,24 @@ CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE units(unit TEXT PRIMARY KEY, ord INTEGER, started_at TEXT, finished_at TEXT);
 CREATE TABLE events(unit TEXT, rank INTEGER, ord INTEGER, item INTEGER, payload BLOB, PRIMARY KEY(rank, ord, unit, item)) WITHOUT ROWID;
 CREATE TABLE kv(key TEXT PRIMARY KEY, value TEXT);
-CREATE TABLE plan(uro TEXT PRIMARY KEY, otype TEXT, user TEXT, relation TEXT, object TEXT, tuple BLOB, event INTEGER, del INTEGER) WITHOUT ROWID;
-CREATE INDEX plan_otype ON plan(otype);
-CREATE INDEX plan_user ON plan(user);
-CREATE INDEX plan_object ON plan(object);
-CREATE TABLE tupleset(id TEXT PRIMARY KEY, shape TEXT, user TEXT, relation TEXT, object TEXT, tuple BLOB, writer INTEGER, typ INTEGER, marked INTEGER) WITHOUT ROWID;
-CREATE INDEX tupleset_key ON tupleset(shape, user, relation, object);
 CREATE TABLE desired(id TEXT PRIMARY KEY, shape TEXT, user TEXT, relation TEXT, object TEXT, tuple BLOB) WITHOUT ROWID;
 CREATE INDEX desired_key ON desired(shape, user, relation, object);
 CREATE INDEX desired_pair ON desired(object, relation, id);
 CREATE TABLE store(id TEXT PRIMARY KEY, tuple BLOB) WITHOUT ROWID;
 CREATE TABLE diff(kind INTEGER, shape TEXT, user TEXT, relation TEXT, object TEXT, id TEXT, tuple BLOB, was BLOB, PRIMARY KEY(kind, shape, user, relation, object)) WITHOUT ROWID;
 CREATE TABLE sent(kind INTEGER, id TEXT, key TEXT);
+`
+
+// scratchSchema is the replay's working state. It lives in a private temporary
+// database (ATTACH ”), which SQLite deletes when the connection closes, so a
+// kept work file holds none of it: a resume rebuilds it anyway (ResetReplay).
+const scratchSchema = `
+CREATE TABLE scratch.plan(uro TEXT PRIMARY KEY, otype TEXT, user TEXT, relation TEXT, object TEXT, tuple BLOB, event INTEGER, del INTEGER) WITHOUT ROWID;
+CREATE INDEX scratch.plan_otype ON plan(otype);
+CREATE INDEX scratch.plan_user ON plan(user);
+CREATE INDEX scratch.plan_object ON plan(object);
+CREATE TABLE scratch.tupleset(id TEXT PRIMARY KEY, shape TEXT, user TEXT, relation TEXT, object TEXT, tuple BLOB, writer INTEGER, typ INTEGER, marked INTEGER) WITHOUT ROWID;
+CREATE INDEX scratch.tupleset_key ON tupleset(shape, user, relation, object);
 `
 
 var sidecars = []string{"-wal", "-shm", "-journal"}
@@ -157,17 +201,30 @@ func removeFiles(path string) error {
 func openDB(path string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", dsn(path, "",
 		"journal_mode(WAL)", "synchronous(NORMAL)", "locking_mode(EXCLUSIVE)",
-		"busy_timeout(0)", "foreign_keys(ON)"))
+		"busy_timeout(0)", "foreign_keys(ON)", "cache_size(-65536)"))
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
+	// One connection, kept for the life of the file: the scratch database
+	// attached below belongs to it and would be lost with it.
 	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(0)
+	db.SetConnMaxIdleTime(0)
 	// Take the exclusive lock now rather than on first use.
 	if _, err := db.Exec(`BEGIN IMMEDIATE`); err == nil {
 		_, err = db.Exec(`COMMIT`)
 		if err != nil {
 			_ = db.Close()
 			return nil, fmt.Errorf("lock %s: %w", path, err)
+		}
+		// temp_store stays at its default (a file): MEMORY would keep the
+		// scratch database in RAM.
+		for _, stmt := range []string{`ATTACH DATABASE '' AS scratch`, `PRAGMA scratch.cache_size=-65536`, scratchSchema} {
+			if _, err := db.Exec(stmt); err != nil {
+				_ = db.Close()
+				return nil, fmt.Errorf("prepare %s: %w", path, err)
+			}
 		}
 		return db, nil
 	} else {

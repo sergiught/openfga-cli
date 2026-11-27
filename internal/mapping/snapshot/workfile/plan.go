@@ -21,7 +21,7 @@ func (f *File) PlanState() mapping.PlanState { return planState{f} }
 func (s planState) Last(ctx context.Context, uro string) (mapping.PlannedChange, bool, error) {
 	var blob []byte
 	var event int
-	err := s.f.db.QueryRowContext(ctx, `SELECT tuple, event FROM plan WHERE uro = ?`, uro).Scan(&blob, &event)
+	err := s.f.q().QueryRowContext(ctx, `SELECT tuple, event FROM scratch.plan WHERE uro = ?`, uro).Scan(&blob, &event)
 	if errors.Is(err, sql.ErrNoRows) {
 		return mapping.PlannedChange{}, false, nil
 	}
@@ -32,40 +32,33 @@ func (s planState) Last(ctx context.Context, uro string) (mapping.PlannedChange,
 	return pc, err == nil, err
 }
 
-func (s planState) Plan(ctx context.Context, changes []mapping.PlannedChange) (err error) {
+func (s planState) Plan(ctx context.Context, changes []mapping.PlannedChange) error {
 	if len(changes) == 0 {
 		return nil
 	}
-	tx, err := s.f.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
-	stmt, err := tx.PrepareContext(ctx, `INSERT OR REPLACE INTO plan(uro, otype, user, relation, object, tuple, event, del) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = stmt.Close() }()
-	for _, c := range changes {
-		t := c.Tuple
-		blob, err := json.Marshal(t)
+	return s.f.inTx(ctx, func(q dbtx) error {
+		stmt, err := q.PrepareContext(ctx, `INSERT OR REPLACE INTO scratch.plan(uro, otype, user, relation, object, tuple, event, del) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`)
 		if err != nil {
 			return err
 		}
-		typ, _, _ := strings.Cut(t.Object, ":")
-		del := 0
-		if t.Action == language.ActionDelete {
-			del = 1
+		defer func() { _ = stmt.Close() }()
+		for _, c := range changes {
+			t := c.Tuple
+			blob, err := json.Marshal(t)
+			if err != nil {
+				return err
+			}
+			typ, _, _ := strings.Cut(t.Object, ":")
+			del := 0
+			if t.Action == language.ActionDelete {
+				del = 1
+			}
+			if _, err = stmt.ExecContext(ctx, mapping.URO(t), typ, t.User, t.Relation, t.Object, blob, c.Event, del); err != nil {
+				return err
+			}
 		}
-		if _, err = stmt.ExecContext(ctx, mapping.URO(t), typ, t.User, t.Relation, t.Object, blob, c.Event, del); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
+		return nil
+	})
 }
 
 // Matching mirrors the planner's matchesFilter: user and relation match
@@ -94,11 +87,11 @@ func (s planState) Matching(ctx context.Context, f language.TupleFilter) ([]mapp
 			args = append(args, f.Object)
 		}
 	}
-	q := `SELECT tuple, event FROM plan`
+	q := `SELECT tuple, event FROM scratch.plan`
 	if len(conds) > 0 {
 		q += ` WHERE ` + strings.Join(conds, " AND ") //nolint:gosec // conds are the fixed fragments above; values are bound parameters
 	}
-	rows, err := s.f.db.QueryContext(ctx, q, args...)
+	rows, err := s.f.q().QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}

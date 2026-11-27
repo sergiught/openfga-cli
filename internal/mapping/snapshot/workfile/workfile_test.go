@@ -2,8 +2,10 @@ package workfile
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -12,6 +14,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/openfga/mapper/language"
+
+	"github.com/sergiught/openfga-cli/internal/mapping/snapshot"
 )
 
 func testMeta() Meta {
@@ -292,4 +298,58 @@ func TestCreateRefusalOfAnUnreadableFileKeepsTheRemedy(t *testing.T) {
 	_, err := Create(path, testMeta())
 	require.Error(t, err)
 	require.True(t, strings.Contains(err.Error(), "remove it or choose another path"))
+}
+
+// The replay's scratch tables live in a temporary database: a kept file holds
+// neither, and they keep working on the one connection after it has been used
+// for plenty of other work.
+func TestReplayScratchStaysOutOfTheFile(t *testing.T) {
+	ctx := context.Background()
+	f, path := newFile(t)
+	s := f.TupleSet()
+	for i := range 3 * desiredBatch {
+		tp := language.Tuple{User: "user:u", Relation: "r", Object: fmt.Sprintf("o:%05d", i)}
+		require.NoError(t, s.Put(ctx, snapshot.Identity(tp), snapshot.Stored{Tuple: tp}))
+		require.NoError(t, f.AddDesired(ctx, tp))
+	}
+	require.NoError(t, f.FlushDesired(ctx))
+	_, err := f.Compare(ctx, nil, nil)
+	require.NoError(t, err)
+	_, ok, err := s.Get(ctx, snapshot.Identity(language.Tuple{User: "user:u", Relation: "r", Object: "o:00000"}))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NoError(t, f.Close())
+
+	db, err := sql.Open("sqlite", dsn(path, "ro"))
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	var n int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name IN ('plan', 'tupleset') OR name LIKE 'plan_%' OR name LIKE 'tupleset_%'`).Scan(&n))
+	require.Equal(t, 0, n)
+}
+
+// A Replay page is one transaction: an error from the page rolls its writes
+// back, and a success commits them.
+func TestReplayPageIsOneTransaction(t *testing.T) {
+	ctx := context.Background()
+	f, _ := newFile(t)
+	require.NoError(t, f.Save(snapshot.Unit{Key: "u"}, []map[string]any{ev(tUser, "1"), ev(tUser, "2")}, true))
+	s := f.TupleSet()
+	tp := language.Tuple{User: "user:u", Relation: "r", Object: "o:1"}
+	boom := errors.New("boom")
+	_, err := f.Replay(ctx, 10, func([]map[string]any) error {
+		require.NoError(t, s.Put(ctx, "id", snapshot.Stored{Tuple: tp}))
+		return boom
+	})
+	require.ErrorIs(t, err, boom)
+	_, ok, err := s.Get(ctx, "id")
+	require.NoError(t, err)
+	require.True(t, !ok)
+	_, err = f.Replay(ctx, 10, func([]map[string]any) error {
+		return s.Put(ctx, "id", snapshot.Stored{Tuple: tp})
+	})
+	require.NoError(t, err)
+	_, ok, err = s.Get(ctx, "id")
+	require.NoError(t, err)
+	require.True(t, ok)
 }

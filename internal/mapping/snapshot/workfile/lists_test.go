@@ -246,3 +246,39 @@ func TestSentCountsEverySendOfTheSameIdentity(t *testing.T) {
 	require.Equal(t, 2, f.Carried(Missing))
 	require.Equal(t, 1, f.Carried(Stale))
 }
+
+// The diff keeps no copy of a Missing or Changed tuple, so it must read the
+// desired row; and a Changed row's stored version and a Stale row must still
+// read as Compare saw them after MarkSent updated the store table.
+func TestDiffReadsStayTheSameAfterMarkSent(t *testing.T) {
+	ctx := context.Background()
+	f, _ := newFile(t)
+	miss := language.Tuple{User: "user:a", Relation: "member", Object: "organization:acme"}
+	newer := language.Tuple{User: "user:b", Relation: "member", Object: "organization:acme", Condition: "new"}
+	older := language.Tuple{User: "user:b", Relation: "member", Object: "organization:acme", Condition: "old"}
+	stale := language.Tuple{User: "user:c", Relation: "member", Object: "organization:acme"}
+	require.NoError(t, f.AddDesired(ctx, miss))
+	require.NoError(t, f.AddDesired(ctx, newer))
+	require.NoError(t, f.AddStore(ctx, []language.Tuple{older, stale}))
+	_, err := f.Compare(ctx, []mapping.Shape{mapping.ShapeOf(stale)}, nil)
+	require.NoError(t, err)
+
+	read := func() (m, c, w, s []language.Tuple) {
+		d := f.Diff()
+		return collect(t, d.Missing), collect(t, d.Changed), collect(t, d.Was), collect(t, d.Stale)
+	}
+	m0, c0, w0, s0 := read()
+	require.Equal(t, norm([]language.Tuple{miss}), norm(m0))
+	require.Equal(t, norm([]language.Tuple{newer}), norm(c0))
+	require.Equal(t, norm([]language.Tuple{older}), norm(w0))
+	require.Equal(t, norm([]language.Tuple{stale}), norm(s0))
+
+	require.NoError(t, f.MarkSent(Missing, m0))
+	require.NoError(t, f.MarkSent(Changed, c0))
+	require.NoError(t, f.MarkSent(Stale, s0))
+	m1, c1, w1, s1 := read()
+	require.Equal(t, norm(m0), norm(m1))
+	require.Equal(t, norm(c0), norm(c1))
+	require.Equal(t, norm(w0), norm(w1))
+	require.Equal(t, norm(s0), norm(s1))
+}

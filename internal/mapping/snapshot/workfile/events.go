@@ -204,11 +204,31 @@ func (f *File) Replay(ctx context.Context, page int, fn func(events []map[string
 			return total, nil
 		}
 		first = false
-		if err := fn(batch); err != nil {
+		if err := f.inPage(ctx, func() error { return fn(batch) }); err != nil {
 			return total, err
 		}
 		total += len(batch)
 	}
+}
+
+// inPage runs fn with the file's transaction open, so the replay's tuple set
+// and planner state writes of one page commit together. An error from fn rolls
+// the page back and comes back as it is.
+func (f *File) inPage(ctx context.Context, fn func() error) error {
+	tx, err := f.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("replay page: %w", err)
+	}
+	f.tx = tx
+	defer func() { f.tx = nil }()
+	if err := fn(); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("replay page: %w", err)
+	}
+	return nil
 }
 
 // seedItem returns the last item number saved for a unit by an earlier run, 0

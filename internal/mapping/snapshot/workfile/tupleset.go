@@ -28,7 +28,7 @@ func (s tupleSet) Get(ctx context.Context, id string) (snapshot.Stored, bool, er
 	var blob []byte
 	var st snapshot.Stored
 	var marked int
-	err := s.f.db.QueryRowContext(ctx, `SELECT tuple, writer, typ, marked FROM tupleset WHERE id = ?`, id).
+	err := s.f.q().QueryRowContext(ctx, `SELECT tuple, writer, typ, marked FROM scratch.tupleset WHERE id = ?`, id).
 		Scan(&blob, &st.Writer, &st.Type, &marked)
 	if errors.Is(err, sql.ErrNoRows) {
 		return snapshot.Stored{}, false, nil
@@ -53,14 +53,14 @@ func (s tupleSet) Put(ctx context.Context, id string, st snapshot.Stored) error 
 		marked = 1
 	}
 	t := st.Tuple
-	_, err = s.f.db.ExecContext(ctx,
-		`INSERT OR REPLACE INTO tupleset(id, shape, user, relation, object, tuple, writer, typ, marked) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err = s.f.q().ExecContext(ctx,
+		`INSERT OR REPLACE INTO scratch.tupleset(id, shape, user, relation, object, tuple, writer, typ, marked) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, snapshot.ShapeKey(t), t.User, t.Relation, t.Object, blob, st.Writer, st.Type, marked)
 	return err
 }
 
 func (s tupleSet) Delete(ctx context.Context, id string) error {
-	_, err := s.f.db.ExecContext(ctx, `DELETE FROM tupleset WHERE id = ?`, id)
+	_, err := s.f.q().ExecContext(ctx, `DELETE FROM scratch.tupleset WHERE id = ?`, id)
 	return err
 }
 
@@ -73,7 +73,7 @@ func (s tupleSet) Sorted(ctx context.Context, fn func(snapshot.Stored) error) er
 	for {
 		var page []snapshot.Stored
 		var keys [][4]string
-		q := `SELECT shape, user, relation, object, tuple, writer, typ, marked FROM tupleset `
+		q := `SELECT shape, user, relation, object, tuple, writer, typ, marked FROM scratch.tupleset `
 		args := []any{}
 		if !first {
 			q += `WHERE (shape, user, relation, object) > (?, ?, ?, ?) `
@@ -81,7 +81,7 @@ func (s tupleSet) Sorted(ctx context.Context, fn func(snapshot.Stored) error) er
 		}
 		q += `ORDER BY shape, user, relation, object LIMIT ?`
 		args = append(args, sortedPage)
-		rows, err := s.f.db.QueryContext(ctx, q, args...)
+		rows, err := s.f.q().QueryContext(ctx, q, args...)
 		if err != nil {
 			return err
 		}

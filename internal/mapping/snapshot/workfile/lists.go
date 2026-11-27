@@ -130,13 +130,13 @@ func (f *File) Pages(kind DiffKind, size int, fn func(page, was []language.Tuple
 	var last [4]string
 	first := true
 	for {
-		q := `SELECT shape, user, relation, object, tuple, was FROM diff WHERE kind = ? `
+		q := diffSelect + `WHERE x.kind = ? `
 		args := []any{int(kind)}
 		if !first {
-			q += `AND (shape, user, relation, object) > (?, ?, ?, ?) `
+			q += `AND (x.shape, x.user, x.relation, x.object) > (?, ?, ?, ?) `
 			args = append(args, last[0], last[1], last[2], last[3])
 		}
-		q += `ORDER BY shape, user, relation, object LIMIT ?`
+		q += `ORDER BY x.shape, x.user, x.relation, x.object LIMIT ?`
 		args = append(args, size)
 		page, was, key, err := f.readPage(q, args)
 		if err != nil {
