@@ -970,3 +970,170 @@ func TestExportHTMLBodyFailsAsNotJSON(t *testing.T) {
 	notContains(t, err.Error(), "secret123")
 	notContains(t, err.Error(), "Access Denied")
 }
+
+// exportSaves collects what a read saves and remembers.
+type exportSaves struct {
+	mu          sync.Mutex
+	events      []map[string]any
+	finished    bool
+	kv          map[string]string
+	recalled    map[string]string
+	rememberErr error
+}
+
+func (s *exportSaves) request() snapshot.Request {
+	s.kv = map[string]string{}
+
+	return snapshot.Request{
+		Types: []string{"snapshot.user"},
+		Save: func(_ snapshot.Unit, events []map[string]any, finished bool) error {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+
+			s.events = append(s.events, events...)
+			s.finished = s.finished || finished
+
+			return nil
+		},
+		Remember: func(k, v string) error {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+
+			if s.rememberErr != nil {
+				return s.rememberErr
+			}
+
+			s.kv[k] = v
+
+			return nil
+		},
+		Recall: func(k string) string { return s.recalled[k] },
+	}
+}
+
+func TestExportJobIdIsRemembered(t *testing.T) {
+	t.Parallel()
+
+	f := &exportFake{file: gzipLines(filled(1500)...)}
+	p, _ := newExportProvider(t, 1500, f)
+	s := &exportSaves{}
+
+	_, err := p.Snapshot(context.Background(), s.request(), nil)
+	noErr(t, err)
+	equal(t, map[string]string{"auth0-users-export-job": "job_1"}, s.kv)
+}
+
+func TestExportRememberFailureIsReturned(t *testing.T) {
+	t.Parallel()
+
+	f := &exportFake{file: gzipLines(filled(1500)...)}
+	p, _ := newExportProvider(t, 1500, f)
+	s := &exportSaves{rememberErr: errors.New("disk full")}
+
+	_, err := p.Snapshot(context.Background(), s.request(), nil)
+	isErr(t, err)
+	contains(t, err.Error(), "disk full")
+	equal(t, int64(0), f.downloads.Load())
+}
+
+func TestExportResumesARememberedJob(t *testing.T) {
+	t.Parallel()
+
+	f := &exportFake{file: gzipLines(filled(1500)...)}
+	p, _ := newExportProvider(t, 1500, f)
+	s := &exportSaves{recalled: map[string]string{"auth0-users-export-job": "job_1"}}
+
+	_, err := p.Snapshot(context.Background(), s.request(), nil)
+	noErr(t, err)
+	equal(t, 0, len(f.createdBy))
+	equal(t, 1500, len(s.events))
+	equal(t, true, s.finished)
+}
+
+func TestExportStartsAgainWhenTheJobIsGone(t *testing.T) {
+	t.Parallel()
+
+	f := &exportFake{file: gzipLines(filled(1500)...)}
+	p, _ := newExportProvider(t, 1500, f)
+	s := &exportSaves{recalled: map[string]string{"auth0-users-export-job": "job_gone"}}
+
+	_, err := p.Snapshot(context.Background(), s.request(), nil)
+	noErr(t, err)
+	equal(t, 1, len(f.createdBy))
+	equal(t, map[string]string{"auth0-users-export-job": "job_1"}, s.kv)
+	equal(t, 1500, len(s.events))
+}
+
+func TestExportStartsAgainWhenTheRememberedJobFailed(t *testing.T) {
+	t.Parallel()
+
+	f := &exportFake{
+		statuses: []string{
+			`{"status":"failed","type":"users_export","id":"job_1"}`,
+			`{"status":"completed","type":"users_export","id":"job_1","location":"LOCATION"}`,
+		},
+		file: gzipLines(filled(1500)...),
+	}
+	p, _ := newExportProvider(t, 1500, f)
+	s := &exportSaves{recalled: map[string]string{"auth0-users-export-job": "job_1"}}
+
+	_, err := p.Snapshot(context.Background(), s.request(), nil)
+	noErr(t, err)
+	equal(t, 1, len(f.createdBy))
+	equal(t, 1500, len(s.events))
+}
+
+func TestExportStartsAgainWhenTheLocationExpired(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int64
+
+	f := &exportFake{file: func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			w.WriteHeader(http.StatusForbidden)
+
+			return
+		}
+
+		gzipLines(filled(1500)...)(w, r)
+	}}
+	p, _ := newExportProvider(t, 1500, f)
+	s := &exportSaves{recalled: map[string]string{"auth0-users-export-job": "job_1"}}
+
+	_, err := p.Snapshot(context.Background(), s.request(), nil)
+	noErr(t, err)
+	equal(t, 1, len(f.createdBy))
+	equal(t, int64(2), f.downloads.Load())
+	equal(t, 1500, len(s.events))
+}
+
+func TestExportLocationIsNeverSaved(t *testing.T) {
+	t.Parallel()
+
+	f := &exportFake{file: gzipLines(filled(1500)...)}
+	p, _ := newExportProvider(t, 1500, f)
+	s := &exportSaves{}
+
+	_, err := p.Snapshot(context.Background(), s.request(), nil)
+	noErr(t, err)
+
+	all, _ := json.Marshal(s.events)
+	notContains(t, string(all), "secret123")
+	notContains(t, string(all), "export.gz")
+
+	for _, v := range s.kv {
+		notContains(t, v, "secret123")
+		notContains(t, v, "export.gz")
+	}
+
+	// A refused download, with a remembered job, still hides the location.
+	g := &exportFake{file: func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusGone) }}
+	q, _ := newExportProvider(t, 1500, g)
+	s2 := &exportSaves{recalled: map[string]string{"auth0-users-export-job": "job_1"}}
+
+	_, err = q.Snapshot(context.Background(), s2.request(), nil)
+	isErr(t, err)
+	notContains(t, err.Error(), "secret123")
+	notContains(t, err.Error(), "export.gz")
+	notContains(t, err.Error(), "127.0.0.1")
+}

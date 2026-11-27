@@ -170,7 +170,19 @@ type read struct {
 	tally    *tally                // shared by every sub-read
 	out      *sink                 // where events go instead of events, nil when Result.Events is wanted
 	done     func(key string) bool // units an earlier run finished; only read with out.save
+	remember func(key, value string) error
+	recall   func(key string) string
 }
+
+// exportJobKey is the work file value that holds the id of the users export job.
+// Only the id is kept: the job's download location is a signed URL.
+const exportJobKey = "auth0-users-export-job"
+
+// errLocationGone marks a download the host refused as an expired location.
+// Its text is the HTTP status only, never the URL.
+type errLocationGone struct{ status int }
+
+func (e errLocationGone) Error() string { return fmt.Sprintf("HTTP %d", e.status) }
 
 // flushEvery is how many events one Emit call is given at most.
 const flushEvery = 1000
@@ -436,6 +448,7 @@ func (p *Provider) Snapshot(ctx context.Context, req snapshot.Request, progress 
 	if req.Save != nil {
 		r.out = &sink{save: req.Save, count: map[string]int{}}
 		r.done = req.Done
+		r.remember, r.recall = req.Remember, req.Recall
 	}
 	r.tally = &tally{n: map[string]int{}, want: r.want, since: req.Since}
 
@@ -785,36 +798,72 @@ func (r *read) exportUsers(atLeast int) error {
 		fields[i] = &management.CreateExportUsersFields{Name: name}
 	}
 
+	// A job an earlier run started is read again, unless it is gone, failed,
+	// or its download location expired.
+	if r.recall != nil {
+		if id := r.recall(exportJobKey); id != "" {
+			restart, err := r.awaitExport(id, atLeast, true)
+			if !restart {
+				return err
+			}
+		}
+	}
+
 	job, err := r.m.Jobs.UsersExports.Create(r.ctx, &management.CreateExportUsersRequestContent{Format: &format, Fields: fields})
 	if err != nil {
 		return readError(r.ctx, err, "users export", r.scopes(typeUser))
 	}
 
+	if r.remember != nil {
+		if err := r.remember(exportJobKey, job.GetID()); err != nil {
+			return fmt.Errorf("saving the export job to the work file: %w", err)
+		}
+	}
+
+	_, err = r.awaitExport(job.GetID(), atLeast, false)
+
+	return err
+}
+
+// awaitExport waits for the export job id and reads its file. With resumed set,
+// restart is true when the job cannot be used any more (it is gone, failed, or
+// its location expired) and a new one should be created.
+func (r *read) awaitExport(id string, atLeast int, resumed bool) (restart bool, err error) {
 	created, lastPercent := r.limits.now(), -1
 
 	for {
-		got, err := r.m.Jobs.Get(r.ctx, job.GetID())
+		got, err := r.m.Jobs.Get(r.ctx, id)
 		if err != nil {
-			return readError(r.ctx, err, "users export", r.scopes(typeUser))
+			var notFound *management.NotFoundError
+			if resumed && errors.As(err, &notFound) {
+				return true, nil
+			}
+
+			return false, readError(r.ctx, err, "users export", r.scopes(typeUser))
 		}
 
 		switch got.GetStatus() {
 		case "completed":
 			n, err := r.downloadUsers(got.GetLocation(), now())
 			if err != nil {
-				return err
+				var gone errLocationGone
+				if resumed && errors.As(err, &gone) {
+					return true, nil
+				}
+
+				return false, err
 			}
 
 			// drift --prune deletes what was not read, so a short file must not pass.
 			if n < atLeast {
-				return fmt.Errorf("Auth0's user export has %d users where the list reported %d or more; "+
+				return false, fmt.Errorf("Auth0's user export has %d users where the list reported %d or more; "+
 					"users may have been deleted meanwhile, run the command again", n, atLeast)
 			}
 
-			return nil
+			return false, nil
 		case "pending", "processing":
 			if r.limits.now().Sub(created) >= exportJobTimeout {
-				return fmt.Errorf("Auth0's user export job was still %s after %s; run the command again", got.GetStatus(), exportJobTimeout)
+				return false, fmt.Errorf("Auth0's user export job was still %s after %s; run the command again", got.GetStatus(), exportJobTimeout)
 			}
 
 			switch pct := got.GetPercentageDone(); {
@@ -829,11 +878,15 @@ func (r *read) exportUsers(atLeast int) error {
 				r.report(snapshot.Progress{Message: fmt.Sprintf("exporting users: %d%%", pct), Step: exportJobStep, Done: pct, Total: 100})
 			}
 		default:
-			return fmt.Errorf("Auth0's user export job ended as %q", got.GetStatus())
+			if resumed {
+				return true, nil
+			}
+
+			return false, fmt.Errorf("Auth0's user export job ended as %q", got.GetStatus())
 		}
 
 		if err := r.wait(r.ctx, exportPollEvery); err != nil {
-			return err
+			return false, err
 		}
 	}
 }
@@ -922,6 +975,11 @@ func (r *read) downloadUsers(location string, at time.Time) (int, error) {
 	timer.Reset(r.stall)
 
 	if resp.StatusCode != http.StatusOK {
+		switch resp.StatusCode {
+		case http.StatusForbidden, http.StatusNotFound, http.StatusGone:
+			return fail(errLocationGone{resp.StatusCode})
+		}
+
 		return fail(fmt.Errorf("HTTP %d", resp.StatusCode))
 	}
 
